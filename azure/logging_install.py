@@ -417,7 +417,7 @@ def validate_az_cli_extensions():
 
 
 def validate_required_resource_providers(sub_ids: set[str]):
-    """Ensure required Azure resource providers are registered across all subscriptions."""
+    """Ensure the required Azure resource providers are registered across all subscriptions."""
     required_providers = [
         "Microsoft.Web",  # Function Apps
         "Microsoft.App",  # Container Apps
@@ -430,9 +430,7 @@ def validate_required_resource_providers(sub_ids: set[str]):
         f"Checking required resource providers across {len(sub_ids)} subscription(s)..."
     )
 
-    # Track overall status across all subscriptions
-    total_unregistered = []
-    subs_provider_status = {}
+    sub_to_unregistered_provider_list = {}
 
     for sub_id in sub_ids:
         try:
@@ -464,8 +462,7 @@ def validate_required_resource_providers(sub_ids: set[str]):
                         f"Subscription {sub_id}: Resource provider {provider} is {state}"
                     )
 
-            subs_provider_status[sub_id] = unregistered_providers
-            total_unregistered.extend(unregistered_providers)
+            sub_to_unregistered_provider_list[sub_id] = unregistered_providers
 
             if unregistered_providers:
                 log.info(
@@ -484,7 +481,7 @@ def validate_required_resource_providers(sub_ids: set[str]):
             ) from e
 
     success = True
-    for sub_id, unregistered_providers in subs_provider_status.items():
+    for sub_id, unregistered_providers in sub_to_unregistered_provider_list.items():
         if unregistered_providers:
             success = False
             log.error(
