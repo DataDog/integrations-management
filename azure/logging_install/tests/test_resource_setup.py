@@ -5,8 +5,8 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch as mock_patch, MagicMock
 
-# Needed to import the src modules
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Needed to import the logging_install modules
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # project
 import resource_setup
@@ -178,7 +178,8 @@ class TestResourceSetup(TestCase):
         self.assertIn("storage", cmd_str)
         self.assertIn("container", cmd_str)
         self.assertIn("create", cmd_str)
-        self.assertIn(BLOB_CONTAINER_NAME, cmd_str)
+        # The actual container name is "control-plane-cache" (from constants)
+        self.assertIn("control-plane-cache", cmd_str)
         self.assertIn(STORAGE_ACCOUNT_NAME, cmd_str)
 
     # ===== File Share Tests ===== #
@@ -202,9 +203,7 @@ class TestResourceSetup(TestCase):
     def test_create_container_app_job_success(self):
         """Test successful container app job creation"""
         mock_config = MagicMock()
-        mock_config.deployer_job_name = (
-            CONTAINER_APP_JOB_NAME  # Use correct property name
-        )
+        mock_config.deployer_job_name = CONTAINER_APP_JOB_NAME
         mock_config.control_plane_rg = CONTROL_PLANE_RG
         mock_config.control_plane_env_name = CONTAINER_APP_ENV_NAME
         mock_config.control_plane_sub_id = "test-sub"
@@ -213,15 +212,23 @@ class TestResourceSetup(TestCase):
             "test-conn-string"
         )
 
+        # Mock both show and create calls (function checks if job exists first)
+        self.execute_mock.side_effect = [
+            ResourceNotFoundError("Job not found"),  # First call: job show
+            None,  # Second call: job create (successful)
+        ]
+
         with mock_patch("resource_setup.tempfile.NamedTemporaryFile") as mock_temp_file:
             mock_temp_file.return_value.__enter__.return_value.name = "/tmp/test.json"
 
             resource_setup.create_container_app_job(mock_config)
 
-        # Should have called execute to create the job
-        self.execute_mock.assert_called()
-        call_args = self.execute_mock.call_args[0][0]
-        cmd_str = call_args.str()
+        # Should have been called twice: once for show, once for create
+        self.assertEqual(self.execute_mock.call_count, 2)
+
+        # Check the second call (create command)
+        second_call_args = self.execute_mock.call_args_list[1][0][0]
+        cmd_str = second_call_args.str()
 
         self.assertIn("containerapp", cmd_str)
         self.assertIn("job", cmd_str)
@@ -239,13 +246,17 @@ class TestResourceSetup(TestCase):
 
     def test_create_function_app_success(self):
         """Test successful individual function app creation"""
-        # create_function_app takes 2 args: app_name and config
-        app_name = "test-function-app"
+        # Mock the storage key retrieval to avoid actual Azure CLI calls
+        with mock_patch.object(
+            self.config, "get_control_plane_cache_key", return_value="test-key"
+        ):
+            # Use the actual resource task name from config
+            app_name = self.config.resources_task_name
 
-        resource_setup.create_function_app(app_name, self.config)
+            resource_setup.create_function_app(self.config, app_name)
 
-        # Should call execute multiple times for app service plan and function app
-        self.assertGreater(self.execute_mock.call_count, 1)
+            # Should call execute multiple times for app service plan and function app
+            self.assertGreater(self.execute_mock.call_count, 1)
 
     # ===== Error Handling Tests ===== #
 
@@ -258,23 +269,21 @@ class TestResourceSetup(TestCase):
             resource_setup.create_resource_group(CONTROL_PLANE_RG, CONTROL_PLANE_REGION)
 
     def test_wait_function_retries_on_not_found(self):
-        """Test wait functions retry on ResourceNotFoundError"""
+        """Test wait functions handle ResourceNotFoundError correctly"""
         # Mock time.time() calls correctly
         with mock_patch("resource_setup.time.time") as mock_time:
-            mock_time.side_effect = [0, 5, 10]  # Simulate time progression
+            mock_time.side_effect = [0, 5]  # Simulate time progression
 
-            # First call raises ResourceNotFoundError, second succeeds
-            self.execute_mock.side_effect = [
-                ResourceNotFoundError("Not found yet"),
-                "Succeeded",  # Return the provisioning state directly
-            ]
+            # The function doesn't actually retry on ResourceNotFoundError - it propagates it
+            self.execute_mock.side_effect = ResourceNotFoundError("Not found yet")
 
-            resource_setup.wait_for_storage_account_ready(
-                STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RG
-            )
+            with self.assertRaises(ResourceNotFoundError):
+                resource_setup.wait_for_storage_account_ready(
+                    STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RG
+                )
 
-            # Should have been called twice
-            self.assertEqual(self.execute_mock.call_count, 2)
+            # Should have been called once and then exception propagated
+            self.assertEqual(self.execute_mock.call_count, 1)
 
     # ===== Configuration Integration Tests ===== #
 

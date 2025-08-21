@@ -6,12 +6,14 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch as mock_patch, MagicMock
 
+# Needed to import the logging_install modules
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # project
-from logging_install import validation
-from logging_install.configuration import Configuration
-from logging_install.constants import REQUIRED_RESOURCE_PROVIDERS
-from logging_install.errors import (
+import validation
+from configuration import Configuration
+from constants import REQUIRED_RESOURCE_PROVIDERS
+from errors import (
     AccessError,
     DatadogAccessValidationError,
     ExistenceCheckError,
@@ -177,22 +179,16 @@ class TestValidation(TestCase):
 
     def test_validate_control_plane_sub_access_success(self):
         """Test successful control plane subscription access validation"""
-        # Mock the AzCmd execution properly
-        with mock_patch("validation.AzCmd") as mock_az_cmd:
-            mock_cmd_instance = MagicMock()
-            mock_az_cmd.return_value = mock_cmd_instance
-            self.execute_mock.return_value = '{"name": "Test Subscription"}'
+        validation.validate_control_plane_sub_access(CONTROL_PLANE_SUBSCRIPTION)
 
-            validation.validate_control_plane_sub_access(CONTROL_PLANE_SUBSCRIPTION)
-
-            self.execute_mock.assert_called_once()
+        self.set_subscription_mock.assert_called_once_with(CONTROL_PLANE_SUBSCRIPTION)
 
     def test_validate_control_plane_sub_access_no_access(self):
         """Test control plane subscription access validation failure"""
-        # Mock AccessError being raised by execute
+        # Mock AccessError being raised by set_subscription
         from errors import AccessError
 
-        self.execute_mock.side_effect = AccessError("No access")
+        self.set_subscription_mock.side_effect = AccessError("No access")
 
         try:
             validation.validate_control_plane_sub_access(CONTROL_PLANE_SUBSCRIPTION)
@@ -202,32 +198,27 @@ class TestValidation(TestCase):
 
     def test_validate_monitored_subs_access_success(self):
         """Test successful monitored subscriptions access validation"""
-        # Mock the function to actually call execute for each subscription
-        with mock_patch(
-            "validation.validate_control_plane_sub_access"
-        ) as mock_validate:
-            validation.validate_monitored_subs_access(["sub-1", "sub-2"])
+        validation.validate_monitored_subs_access(["sub-1", "sub-2"])
 
-            # Should call validate_control_plane_sub_access for each subscription
-            self.assertEqual(mock_validate.call_count, 2)
+        # Should call set_subscription for each subscription
+        self.assertEqual(self.set_subscription_mock.call_count, 2)
+        self.set_subscription_mock.assert_any_call("sub-1")
+        self.set_subscription_mock.assert_any_call("sub-2")
 
     def test_validate_monitored_subs_access_partial_failure(self):
         """Test monitored subscriptions access validation with partial failure"""
         # Mock one success, one failure
-        with mock_patch(
-            "validation.validate_control_plane_sub_access"
-        ) as mock_validate:
-            from errors import AccessError
+        from errors import AccessError
 
-            mock_validate.side_effect = [
-                None,
-                AccessError("No access"),
-            ]  # First succeeds, second fails
+        self.set_subscription_mock.side_effect = [
+            None,
+            AccessError("No access"),
+        ]  # First succeeds, second fails
 
-            try:
-                validation.validate_monitored_subs_access(["sub-1", "sub-2"])
-            except AccessError:
-                pass  # Expected behavior
+        try:
+            validation.validate_monitored_subs_access(["sub-1", "sub-2"])
+        except AccessError:
+            pass  # Expected behavior
 
     # ===== Resource Provider Registration Tests ===== #
 
@@ -239,9 +230,9 @@ class TestValidation(TestCase):
         ]
         self.execute_mock.return_value = json.dumps(mock_providers)
 
-        validation.validate_resource_provider_registrations({"sub-1"})
+        validation.validate_resource_provider_registrations({"sub-1", "sub-2"})
 
-        self.execute_mock.assert_called_once()
+        self.assertEqual(self.execute_mock.call_count, 2)
 
     def test_validate_resource_provider_registrations_not_registered(self):
         """Test resource provider registration validation failure"""
@@ -262,7 +253,7 @@ class TestValidation(TestCase):
         ]
         self.execute_mock.return_value = json.dumps(mock_providers)
 
-        validation.validate_resource_provider_registrations(["sub-1", "sub-2"])
+        validation.validate_resource_provider_registrations({"sub-1", "sub-2"})
 
         self.assertEqual(self.execute_mock.call_count, 2)
 
@@ -287,7 +278,7 @@ class TestValidation(TestCase):
         # Mock the execute calls for resource group check and storage name check
         self.execute_mock.side_effect = [
             "true",  # resource group exists (returned as string)
-            # Second call won't happen due to early return
+            json.dumps({"nameAvailable": True}),  # storage account check still happens
         ]
 
         try:

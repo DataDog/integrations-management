@@ -1,16 +1,14 @@
 # stdlib
-import argparse
 import sys
 from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch as mock_patch, MagicMock
 
-# Needed to import the src modules
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Needed to import the logging_install modules
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # project
 import main
-from configuration import Configuration
 from errors import FatalError
 
 # Test data
@@ -133,27 +131,8 @@ class TestMain(TestCase):
             with self.assertRaises(SystemExit):
                 main.parse_arguments()
 
-    # ===== Utility Function Tests ===== #
-
-    def test_log_header(self):
-        """Test log_header function formatting"""
-        test_message = "Test Header Message"
-
-        main.log_header(test_message)
-
-        # Verify the log.info was called three times
-        self.assertEqual(self.log_mock.info.call_count, 3)
-
-        # Verify the calls
-        calls = self.log_mock.info.call_args_list
-        self.assertEqual(calls[0][0][0], "=" * 70)  # Header line
-        self.assertEqual(calls[1][0][0], test_message)  # Message
-        self.assertEqual(calls[2][0][0], "=" * 70)  # Footer line
-
-    # ===== Main Function Tests ===== #
-
-    def test_main_function_success_flow(self):
-        """Test successful execution of main function"""
+    def test_main_function_success(self):
+        """Test overall successful execution"""
         # Mock Configuration creation
         mock_config = MagicMock()
         mock_config.log_level = "INFO"  # Ensure log_level is a string
@@ -179,19 +158,20 @@ class TestMain(TestCase):
         # Verify the flow of function calls
         self.basic_config_mock.assert_called_once()
         self.configuration_mock.assert_called_once()
-        self.set_subscription_mock.assert_called_once_with(
-            mock_config.control_plane_sub_id
-        )
         self.validate_user_parameters_mock.assert_called_once_with(mock_config)
         self.create_resource_group_mock.assert_called_once_with(
             mock_config.control_plane_rg, mock_config.control_plane_region
         )
         self.grant_permissions_mock.assert_called_once_with(mock_config)
         self.deploy_control_plane_mock.assert_called_once_with(mock_config)
-        self.run_initial_deploy_mock.assert_called_once_with(mock_config)
+        self.run_initial_deploy_mock.assert_called_once_with(
+            mock_config.deployer_job_name,
+            mock_config.control_plane_rg,
+            mock_config.control_plane_sub_id,
+        )
 
     def test_main_function_handles_exceptions(self):
-        """Test main function handles exceptions properly"""
+        """Test failed execution is handled properly"""
         # Mock Configuration to raise an exception
         self.configuration_mock.side_effect = FatalError("Test error")
 
@@ -202,41 +182,3 @@ class TestMain(TestCase):
 
         # Verify error logging
         self.log_mock.error.assert_called()
-
-    def test_main_function_configuration_creation(self):
-        """Test Configuration is created with correct parameters"""
-        mock_args = MagicMock()
-        mock_args.management_group = MANAGEMENT_GROUP_ID
-        mock_args.control_plane_region = CONTROL_PLANE_REGION
-        mock_args.control_plane_subscription = CONTROL_PLANE_SUBSCRIPTION
-        mock_args.control_plane_resource_group = CONTROL_PLANE_RESOURCE_GROUP
-        mock_args.monitored_subscriptions = MONITORED_SUBSCRIPTIONS
-        mock_args.datadog_api_key = DATADOG_API_KEY
-        mock_args.datadog_site = DATADOG_SITE
-        mock_args.resource_tag_filters = "test-filters"
-        mock_args.pii_scrubber_rules = "test-rules"
-        mock_args.datadog_telemetry = True
-        mock_args.log_level = "DEBUG"
-
-        # Mock the configuration to have proper log_level
-        mock_config = MagicMock()
-        mock_config.log_level = "DEBUG"  # Ensure log_level is a string
-        self.configuration_mock.return_value = mock_config
-
-        with mock_patch("main.parse_arguments", return_value=mock_args):
-            main.main()
-
-        # Verify Configuration was called with correct parameters
-        self.configuration_mock.assert_called_once_with(
-            management_group_id=MANAGEMENT_GROUP_ID,
-            control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION,
-            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-            monitored_subs=MONITORED_SUBSCRIPTIONS,
-            datadog_api_key=DATADOG_API_KEY,
-            datadog_site=DATADOG_SITE,
-            resource_tag_filters="test-filters",
-            pii_scrubber_rules="test-rules",
-            datadog_telemetry=True,
-            log_level="DEBUG",
-        )

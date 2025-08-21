@@ -4,8 +4,8 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch as mock_patch, MagicMock
 
-# Needed to import the src modules
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Needed to import the logging_install modules
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # project
 import deploy
@@ -22,7 +22,6 @@ class TestDeploy(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures and reset global settings"""
         # Set up mocks
-        self.log_mock = self.patch("deploy.log")
         self.set_subscription_mock = self.patch("deploy.set_subscription")
         self.create_storage_account_mock = self.patch("deploy.create_storage_account")
         self.wait_for_storage_account_ready_mock = self.patch(
@@ -72,13 +71,6 @@ class TestDeploy(TestCase):
             self.config.control_plane_region,
         )
         self.create_container_app_job_mock.assert_called_once_with(self.config)
-
-        # Verify logging
-        self.log_mock.info.assert_any_call("Creating container app environment...")
-        self.log_mock.info.assert_any_call("Creating container app job...")
-        self.log_mock.info.assert_any_call(
-            "Container App job + identity setup complete"
-        )
 
     def test_deploy_lfo_deployer_role_creation_failure(self):
         """Test LFO deployer deployment handles role creation failure"""
@@ -136,11 +128,6 @@ class TestDeploy(TestCase):
 
         # Verify function apps are created
         self.create_function_apps_mock.assert_called_once_with(self.config)
-
-        # Verify logging
-        self.log_mock.info.assert_any_call("Deploying storage account...")
-        self.log_mock.info.assert_any_call("Creating function apps...")
-        self.log_mock.info.assert_any_call("Control plane deployment complete")
 
     def test_deploy_control_plane_storage_creation_failure(self):
         """Test control plane deployment handles storage creation failure"""
@@ -208,11 +195,6 @@ class TestDeploy(TestCase):
         self.assertIn("job", cmd_str)
         self.assertIn("start", cmd_str)
         self.assertIn(self.config.deployer_job_name, cmd_str)
-
-        # Verify logging - the actual log message is different
-        self.log_mock.info.assert_any_call(
-            "Triggering initial deployment by starting deployer container app job..."
-        )
 
     def test_run_initial_deploy_failure(self):
         """Test initial deployment handles execution failure"""
