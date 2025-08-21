@@ -15,7 +15,7 @@ from errors import (
 log = getLogger("installer")
 
 
-AUTHORIZATION_ERROR = "AuthorizationFailed"
+AUTH_FAILED_ERROR = "AuthorizationFailed"
 AZURE_THROTTLING_ERROR = "TooManyRequests"
 REFRESH_TOKEN_EXPIRED_ERROR = "AADSTS700082"
 RESOURCE_COLLECTION_THROTTLING_ERROR = "ResourceCollectionRequestsThrottled"
@@ -117,7 +117,7 @@ def execute(az_cmd: AzCmd) -> str:
                 raise RefreshTokenError(
                     f"Auth token is expired. Refresh token before running '{az_cmd}'"
                 ) from e
-            if AUTHORIZATION_ERROR in stderr:
+            if AUTH_FAILED_ERROR in stderr:
                 error_message = f"Insufficient permissions to access resource when executing '{az_cmd}'"
                 error_details = check_access_error(stderr)
                 if error_details:

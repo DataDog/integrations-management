@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
-from logging import basicConfig, getLogger
+import logging
 
 from az_cmd import set_subscription
 from configuration import Configuration
@@ -11,7 +11,7 @@ from role_setup import grant_permissions
 from validation import validate_user_parameters
 
 
-log = getLogger("installer")
+log = logging.getLogger("installer")
 
 
 def parse_arguments():
@@ -58,7 +58,9 @@ def parse_arguments():
         help="Comma-separated list of subscription IDs to monitor for log forwarding (required)",
     )
 
-    parser.add_argument("--datadog-api-key", type=str, required=True, help="Datadog API key (required)")
+    parser.add_argument(
+        "--datadog-api-key", type=str, required=True, help="Datadog API key (required)"
+    )
 
     parser.add_argument(
         "--datadog-site",
@@ -91,7 +93,9 @@ def parse_arguments():
         help="YAML formatted list of PII Scrubber Rules",
     )
 
-    parser.add_argument("--datadog-telemetry", action="store_true", help="Enable Datadog telemetry")
+    parser.add_argument(
+        "--datadog-telemetry", action="store_true", help="Enable Datadog telemetry"
+    )
 
     parser.add_argument(
         "--log-level",
@@ -105,9 +109,7 @@ def parse_arguments():
 
 
 def log_header(message: str):
-    log.info("=" * 70)
-    log.info(message)
-    log.info("=" * 70)
+    log.info("=" * 70 + f"\n{message}\n" + "=" * 70)
 
 
 def main():
@@ -129,8 +131,7 @@ def main():
             log_level=args.log_level,
         )
 
-        # Set up logging based on config
-        basicConfig(level=getattr(__import__("logging"), config.log_level))
+        logging.basicConfig(level=getattr(logging, config.log_level))
 
         log.info("Starting setup for Azure Automated Log Forwarding...")
 

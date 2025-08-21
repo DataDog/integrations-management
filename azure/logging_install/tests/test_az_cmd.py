@@ -18,17 +18,16 @@ from errors import (
 )
 
 # Test data
-SUB_ID = "test-sub-id"
-FUNCTION_APP_SERVICE = "functionapp"
-CREATE_ACTION = "create"
-RESOURCE_GROUP = "test-rg"
-REGION = "eastus"
+TEST_SUBSCRIPTION_ID = "test-sub-id"
+TEST_SERVICE = "functionapp"
+TEST_ACTION = "create"
+TEST_RESOURCE_GROUP = "test-rg"
+TEST_LOCATION = "eastus"
 
 
 class TestAzCmd(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures and reset global settings"""
-        self.log_mock = self.patch("az_cmd.log")
         self.subprocess_mock = self.patch("az_cmd.subprocess.run")
         self.sleep_mock = self.patch("az_cmd.sleep")
 
@@ -40,9 +39,9 @@ class TestAzCmd(TestCase):
 
     def test_az_cmd_initialization(self):
         """Test AzCmd builder initialization"""
-        cmd = az_cmd.AzCmd(FUNCTION_APP_SERVICE, CREATE_ACTION)
+        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
 
-        self.assertEqual(cmd.cmd, [FUNCTION_APP_SERVICE, "create"])
+        self.assertEqual(cmd.cmd, [TEST_SERVICE, "create"])
 
     def test_az_cmd_initialization_with_multi_word_action(self):
         """Test AzCmd builder with multi-word action"""
@@ -52,26 +51,24 @@ class TestAzCmd(TestCase):
 
     def test_az_cmd_param(self):
         """Test adding key-value parameters"""
-        cmd = az_cmd.AzCmd(FUNCTION_APP_SERVICE, CREATE_ACTION)
-        result = cmd.param("--resource-group", RESOURCE_GROUP)
+        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
+        result = cmd.param("--resource-group", TEST_RESOURCE_GROUP)
 
-        # Should return self for chaining
         self.assertIs(result, cmd)
         self.assertEqual(
             cmd.cmd,
-            [FUNCTION_APP_SERVICE, "create", "--resource-group", RESOURCE_GROUP],
+            [TEST_SERVICE, "create", "--resource-group", TEST_RESOURCE_GROUP],
         )
 
     def test_az_cmd_param_list(self):
         """Test adding list parameters"""
-        cmd = az_cmd.AzCmd(FUNCTION_APP_SERVICE, CREATE_ACTION)
+        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
         values = ["value1", "value2", "value3"]
         result = cmd.param_list("--tags", values)
 
-        # Should return self for chaining
         self.assertIs(result, cmd)
         expected = [
-            FUNCTION_APP_SERVICE,
+            TEST_SERVICE,
             "create",
             "--tags",
             "value1",
@@ -82,29 +79,28 @@ class TestAzCmd(TestCase):
 
     def test_az_cmd_flag(self):
         """Test adding flags"""
-        cmd = az_cmd.AzCmd(FUNCTION_APP_SERVICE, CREATE_ACTION)
+        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
         result = cmd.flag("--yes")
 
-        # Should return self for chaining
         self.assertIs(result, cmd)
-        self.assertEqual(cmd.cmd, [FUNCTION_APP_SERVICE, "create", "--yes"])
+        self.assertEqual(cmd.cmd, [TEST_SERVICE, "create", "--yes"])
 
     def test_az_cmd_chaining(self):
         """Test method chaining"""
         cmd = (
-            az_cmd.AzCmd(FUNCTION_APP_SERVICE, CREATE_ACTION)
-            .param("--resource-group", RESOURCE_GROUP)
-            .param("--location", REGION)
+            az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
+            .param("--resource-group", TEST_RESOURCE_GROUP)
+            .param("--location", TEST_LOCATION)
             .flag("--yes")
         )
 
         expected = [
-            FUNCTION_APP_SERVICE,
+            TEST_SERVICE,
             "create",
             "--resource-group",
-            RESOURCE_GROUP,
+            TEST_RESOURCE_GROUP,
             "--location",
-            REGION,
+            TEST_LOCATION,
             "--yes",
         ]
         self.assertEqual(cmd.cmd, expected)
@@ -112,13 +108,13 @@ class TestAzCmd(TestCase):
     def test_az_cmd_str(self):
         """Test string representation of command"""
         cmd = (
-            az_cmd.AzCmd(FUNCTION_APP_SERVICE, CREATE_ACTION)
-            .param("--resource-group", RESOURCE_GROUP)
+            az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
+            .param("--resource-group", TEST_RESOURCE_GROUP)
             .flag("--yes")
         )
 
         expected = (
-            f"az {FUNCTION_APP_SERVICE} create --resource-group {RESOURCE_GROUP} --yes"
+            f"az {TEST_SERVICE} create --resource-group {TEST_RESOURCE_GROUP} --yes"
         )
         self.assertEqual(cmd.str(), expected)
 
@@ -126,7 +122,7 @@ class TestAzCmd(TestCase):
 
     def test_execute_success(self):
         """Test successful command execution"""
-        cmd = az_cmd.AzCmd(FUNCTION_APP_SERVICE, CREATE_ACTION).param("--name", "test")
+        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION).param("--name", "test")
         mock_result = MagicMock()
         mock_result.stdout = "success output"
         mock_result.returncode = 0
@@ -139,11 +135,10 @@ class TestAzCmd(TestCase):
 
     def test_execute_authorization_error(self):
         """Test execute handles authorization errors"""
-        cmd = az_cmd.AzCmd(FUNCTION_APP_SERVICE, CREATE_ACTION)
+        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
 
-        # Mock CalledProcessError with stderr containing the authorization error
         error = subprocess.CalledProcessError(1, "az")
-        error.stderr = "AuthorizationFailed: Access denied"
+        error.stderr = f"{az_cmd.AUTH_FAILED_ERROR}: Access denied"
         self.subprocess_mock.side_effect = error
 
         with self.assertRaises(AccessError):
@@ -151,11 +146,10 @@ class TestAzCmd(TestCase):
 
     def test_execute_refresh_token_error(self):
         """Test execute handles refresh token errors"""
-        cmd = az_cmd.AzCmd(FUNCTION_APP_SERVICE, CREATE_ACTION)
+        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
 
-        # Mock CalledProcessError with stderr containing the refresh token error
         error = subprocess.CalledProcessError(1, "az")
-        error.stderr = "AADSTS700082: Token expired"
+        error.stderr = f"{az_cmd.REFRESH_TOKEN_EXPIRED_ERROR}: Token expired"
         self.subprocess_mock.side_effect = error
 
         with self.assertRaises(RefreshTokenError):
@@ -163,11 +157,10 @@ class TestAzCmd(TestCase):
 
     def test_execute_resource_not_found_error(self):
         """Test execute handles resource not found errors"""
-        cmd = az_cmd.AzCmd(FUNCTION_APP_SERVICE, CREATE_ACTION)
+        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
 
-        # Mock CalledProcessError with stderr containing the resource not found error
         error = subprocess.CalledProcessError(1, "az")
-        error.stderr = "ResourceNotFound: The resource was not found"
+        error.stderr = f"{az_cmd.RESOURCE_NOT_FOUND_ERROR}: The resource was not found"
         self.subprocess_mock.side_effect = error
 
         with self.assertRaises(ResourceNotFoundError):
@@ -175,11 +168,11 @@ class TestAzCmd(TestCase):
 
     def test_execute_rate_limit_error_with_retry(self):
         """Test execute retries on rate limit errors"""
-        cmd = az_cmd.AzCmd(FUNCTION_APP_SERVICE, CREATE_ACTION)
+        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
 
         # First call fails with rate limit, second succeeds
         error = subprocess.CalledProcessError(1, "az")
-        error.stderr = "TooManyRequests: Rate limit exceeded"
+        error.stderr = f"{az_cmd.AZURE_THROTTLING_ERROR}: Rate limit exceeded"
 
         mock_result_success = MagicMock()
         mock_result_success.stdout = "success after retry"
@@ -195,11 +188,10 @@ class TestAzCmd(TestCase):
 
     def test_execute_rate_limit_max_retries(self):
         """Test execute raises exception after max retries"""
-        cmd = az_cmd.AzCmd(FUNCTION_APP_SERVICE, CREATE_ACTION)
+        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
 
-        # Always fail with rate limit error
         error = subprocess.CalledProcessError(1, "az")
-        error.stderr = "TooManyRequests: Rate limit exceeded"
+        error.stderr = f"{az_cmd.AZURE_THROTTLING_ERROR}: Rate limit exceeded"
         self.subprocess_mock.side_effect = error
 
         with self.assertRaises(RateLimitExceededError):
@@ -210,11 +202,13 @@ class TestAzCmd(TestCase):
 
     def test_execute_resource_collection_throttling(self):
         """Test execute handles resource collection throttling"""
-        cmd = az_cmd.AzCmd(FUNCTION_APP_SERVICE, CREATE_ACTION)
+        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
 
         # First call fails with throttling, second succeeds
         error = subprocess.CalledProcessError(1, "az")
-        error.stderr = "ResourceCollectionRequestsThrottled: Too many requests"
+        error.stderr = (
+            f"{az_cmd.RESOURCE_COLLECTION_THROTTLING_ERROR}: Too many requests"
+        )
 
         mock_result_success = MagicMock()
         mock_result_success.stdout = "success after throttling"
@@ -230,7 +224,7 @@ class TestAzCmd(TestCase):
 
     def test_execute_subprocess_exception(self):
         """Test execute handles subprocess exceptions"""
-        cmd = az_cmd.AzCmd(FUNCTION_APP_SERVICE, CREATE_ACTION)
+        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
 
         # Mock CalledProcessError
         error = subprocess.CalledProcessError(1, "az")
@@ -249,7 +243,7 @@ class TestAzCmd(TestCase):
         mock_result.returncode = 0
         self.subprocess_mock.return_value = mock_result
 
-        az_cmd.set_subscription(SUB_ID)
+        az_cmd.set_subscription(TEST_SUBSCRIPTION_ID)
 
         # Verify the correct command was called
         call_args = self.subprocess_mock.call_args
@@ -257,7 +251,7 @@ class TestAzCmd(TestCase):
         self.assertIn("account", cmd_list)
         self.assertIn("set", cmd_list)
         self.assertIn("--subscription", cmd_list)
-        self.assertIn(SUB_ID, cmd_list)
+        self.assertIn(TEST_SUBSCRIPTION_ID, cmd_list)
 
     def test_set_subscription_with_error(self):
         """Test set_subscription handles errors"""
@@ -268,13 +262,13 @@ class TestAzCmd(TestCase):
         self.subprocess_mock.return_value = mock_result
 
         with self.assertRaises(Exception):
-            az_cmd.set_subscription(SUB_ID)
+            az_cmd.set_subscription(TEST_SUBSCRIPTION_ID)
 
     # ===== Error Pattern Recognition Tests ===== #
 
     def test_error_pattern_constants(self):
         """Test error pattern constants are correctly defined"""
-        self.assertEqual(az_cmd.AUTHORIZATION_ERROR, "AuthorizationFailed")
+        self.assertEqual(az_cmd.AUTH_FAILED_ERROR, "AuthorizationFailed")
         self.assertEqual(az_cmd.AZURE_THROTTLING_ERROR, "TooManyRequests")
         self.assertEqual(az_cmd.REFRESH_TOKEN_EXPIRED_ERROR, "AADSTS700082")
         self.assertEqual(

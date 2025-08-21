@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # project
 import resource_setup
 from configuration import Configuration
-from errors import ExistenceCheckError, FatalError, ResourceNotFoundError
+from errors import FatalError, ResourceNotFoundError
 
 # Test data
 CONTROL_PLANE_RG = "test-control-plane-rg"

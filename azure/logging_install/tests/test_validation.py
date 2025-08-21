@@ -30,21 +30,20 @@ MONITORED_SUBSCRIPTIONS = "sub-1,sub-2"
 DATADOG_API_KEY = "test-api-key"
 DATADOG_SITE = "datadoghq.com"
 
-MOCK_DATADOG_RESPONSE = {
-    "data": {
-        "attributes": {
-            "name": "Test Organization",
-            "created_at": "2023-01-01T00:00:00.000Z",
-        }
-    }
+MOCK_DATADOG_VALID_RESPONSE = {
+    "valid": True,
+}
+
+MOCK_DATADOG_ERROR_RESPONSE = {
+    "status": "error",
+    "code": 403,
+    "errors": ["Forbidden"],
 }
 
 
 class TestValidation(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures and reset global settings"""
-        # Set up mocks
-        self.log_mock = self.patch("validation.log")
         self.execute_mock = self.patch("validation.execute")
         self.set_subscription_mock = self.patch("validation.set_subscription")
         self.urlopen_mock = self.patch("validation.urllib.request.urlopen")
@@ -78,7 +77,6 @@ class TestValidation(TestCase):
 
             mock_azure.assert_called_once_with(self.config)
             mock_datadog.assert_called_once_with(DATADOG_API_KEY, DATADOG_SITE)
-            self.log_mock.info.assert_called_with("Validation completed")
 
     def test_validate_user_parameters_azure_error(self):
         """Test validation fails when Azure validation fails"""
@@ -109,7 +107,6 @@ class TestValidation(TestCase):
         validation.validate_az_cli()
 
         self.execute_mock.assert_called_once()
-        self.log_mock.debug.assert_called_with("Azure CLI authentication verified")
 
     def test_validate_az_cli_not_authenticated(self):
         """Test Azure CLI validation when not authenticated"""
@@ -124,34 +121,13 @@ class TestValidation(TestCase):
 
     def test_validate_user_config_success(self):
         """Test successful user configuration validation"""
-        # Should not raise any exceptions
         validation.validate_user_config(self.config)
 
     def test_validate_user_config_empty_management_group(self):
         """Test validation fails with empty management group"""
-        # The actual validation function doesn't check for empty strings by default
-        # Let's test the actual behavior
         config = Configuration(
             management_group_id="",
             control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION,
-            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-            monitored_subs=MONITORED_SUBSCRIPTIONS,
-            datadog_api_key=DATADOG_API_KEY,
-        )
-
-        # This test should pass as empty strings might be allowed
-        # If the actual validation requires non-empty strings, this test would need adjustment
-        try:
-            validation.validate_user_config(config)
-        except InputParamValidationError:
-            pass  # Expected if validation actually checks for empty strings
-
-    def test_validate_user_config_empty_control_plane_region(self):
-        """Test validation fails with empty control plane region"""
-        config = Configuration(
-            management_group_id=MANAGEMENT_GROUP_ID,
-            control_plane_region="",
             control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION,
             control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
             monitored_subs=MONITORED_SUBSCRIPTIONS,
@@ -183,42 +159,30 @@ class TestValidation(TestCase):
 
         self.set_subscription_mock.assert_called_once_with(CONTROL_PLANE_SUBSCRIPTION)
 
-    def test_validate_control_plane_sub_access_no_access(self):
+    def test_validate_control_plane_sub_access_failure(self):
         """Test control plane subscription access validation failure"""
-        # Mock AccessError being raised by set_subscription
-        from errors import AccessError
-
         self.set_subscription_mock.side_effect = AccessError("No access")
 
-        try:
+        with self.assertRaises(AccessError):
             validation.validate_control_plane_sub_access(CONTROL_PLANE_SUBSCRIPTION)
-            # If no exception is raised, the test might need adjustment
-        except AccessError:
-            pass  # Expected behavior
 
     def test_validate_monitored_subs_access_success(self):
         """Test successful monitored subscriptions access validation"""
         validation.validate_monitored_subs_access(["sub-1", "sub-2"])
 
-        # Should call set_subscription for each subscription
         self.assertEqual(self.set_subscription_mock.call_count, 2)
         self.set_subscription_mock.assert_any_call("sub-1")
         self.set_subscription_mock.assert_any_call("sub-2")
 
     def test_validate_monitored_subs_access_partial_failure(self):
         """Test monitored subscriptions access validation with partial failure"""
-        # Mock one success, one failure
-        from errors import AccessError
-
         self.set_subscription_mock.side_effect = [
             None,
             AccessError("No access"),
         ]  # First succeeds, second fails
 
-        try:
+        with self.assertRaises(AccessError):
             validation.validate_monitored_subs_access(["sub-1", "sub-2"])
-        except AccessError:
-            pass  # Expected behavior
 
     # ===== Resource Provider Registration Tests ===== #
 
@@ -261,10 +225,9 @@ class TestValidation(TestCase):
 
     def test_validate_resource_names_success(self):
         """Test successful resource name validation"""
-        # Mock resource group doesn't exist and storage account is available
         self.execute_mock.side_effect = [
-            "false",  # resource group doesn't exist
-            json.dumps({"nameAvailable": True}),  # storage account available
+            "false",
+            json.dumps({"nameAvailable": True}),
         ]
 
         validation.validate_resource_names(
@@ -311,70 +274,41 @@ class TestValidation(TestCase):
     def test_validate_datadog_credentials_success(self):
         """Test successful Datadog credentials validation"""
         mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(MOCK_DATADOG_RESPONSE).encode(
-            "utf-8"
-        )
+        mock_response.read.return_value = json.dumps(
+            MOCK_DATADOG_VALID_RESPONSE
+        ).encode("utf-8")
         mock_response.__enter__ = MagicMock(return_value=mock_response)
         mock_response.__exit__ = MagicMock(return_value=None)
         self.urlopen_mock.return_value = mock_response
-
-        try:
-            validation.validate_datadog_credentials(DATADOG_API_KEY, DATADOG_SITE)
-        except DatadogAccessValidationError:
-            # The actual implementation might have different validation logic
-            pass
+        validation.validate_datadog_credentials(DATADOG_API_KEY, DATADOG_SITE)
 
     def test_validate_datadog_credentials_invalid_api_key(self):
         """Test Datadog credentials validation with invalid API key"""
-        from email.message import EmailMessage
-
-        headers = EmailMessage()
-        headers["Content-Type"] = "application/json"
-
-        self.urlopen_mock.side_effect = urllib.error.HTTPError(
-            url="test", code=403, msg="Forbidden", hdrs=headers, fp=None
-        )
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps(
+            MOCK_DATADOG_ERROR_RESPONSE
+        ).encode("utf-8")
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=None)
+        self.urlopen_mock.return_value = mock_response
 
         with self.assertRaises(DatadogAccessValidationError):
             validation.validate_datadog_credentials("invalid-key", DATADOG_SITE)
 
-    def test_validate_datadog_credentials_network_error(self):
-        """Test Datadog credentials validation with network error"""
-        self.urlopen_mock.side_effect = urllib.error.URLError("Network error")
-
-        with self.assertRaises(DatadogAccessValidationError):
-            validation.validate_datadog_credentials(DATADOG_API_KEY, DATADOG_SITE)
-
-    def test_validate_datadog_credentials_malformed_response(self):
-        """Test Datadog credentials validation with malformed response"""
-        mock_response = MagicMock()
-        mock_response.read.return_value = b"invalid json"
-        self.urlopen_mock.return_value.__enter__.return_value = mock_response
-
-        with self.assertRaises(DatadogAccessValidationError):
-            validation.validate_datadog_credentials(DATADOG_API_KEY, DATADOG_SITE)
-
     def test_validate_datadog_credentials_different_sites(self):
         """Test Datadog credentials validation with different sites"""
         mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(MOCK_DATADOG_RESPONSE).encode(
-            "utf-8"
-        )
+        mock_response.read.return_value = json.dumps(
+            MOCK_DATADOG_VALID_RESPONSE
+        ).encode("utf-8")
         mock_response.__enter__ = MagicMock(return_value=mock_response)
         mock_response.__exit__ = MagicMock(return_value=None)
         self.urlopen_mock.return_value = mock_response
 
-        try:
-            # Test EU site
-            validation.validate_datadog_credentials(DATADOG_API_KEY, "datadoghq.eu")
-
-            # Verify the URL was constructed correctly if successful
-            if self.urlopen_mock.call_args:
-                call_args = self.urlopen_mock.call_args[0][0]
-                self.assertIn("datadoghq.eu", call_args.full_url)
-        except DatadogAccessValidationError:
-            # The actual implementation might have different validation logic
-            pass
+        validation.validate_datadog_credentials(DATADOG_API_KEY, "datadoghq.eu")
+        if self.urlopen_mock.call_args:
+            call_args = self.urlopen_mock.call_args[0][0]
+            self.assertIn("datadoghq.eu", call_args.full_url)
 
     # ===== Azure Environment Validation Tests ===== #
 

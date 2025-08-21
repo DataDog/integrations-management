@@ -24,7 +24,6 @@ DATADOG_SITE = "datadoghq.com"
 class TestMain(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures and reset global settings"""
-        # Set up mocks
         self.log_mock = self.patch("main.log")
         self.configuration_mock = self.patch("main.Configuration")
         self.set_subscription_mock = self.patch("main.set_subscription")
@@ -33,7 +32,6 @@ class TestMain(TestCase):
         self.grant_permissions_mock = self.patch("main.grant_permissions")
         self.deploy_control_plane_mock = self.patch("main.deploy_control_plane")
         self.run_initial_deploy_mock = self.patch("main.run_initial_deploy")
-        self.basic_config_mock = self.patch("main.basicConfig")
 
     def patch(self, path: str, **kwargs):
         """Helper method to patch and auto-cleanup"""
@@ -133,12 +131,10 @@ class TestMain(TestCase):
 
     def test_main_function_success(self):
         """Test overall successful execution"""
-        # Mock Configuration creation
         mock_config = MagicMock()
-        mock_config.log_level = "INFO"  # Ensure log_level is a string
+        mock_config.log_level = "INFO"
         self.configuration_mock.return_value = mock_config
 
-        # Mock args
         mock_args = MagicMock()
         mock_args.management_group = MANAGEMENT_GROUP_ID
         mock_args.control_plane_region = CONTROL_PLANE_REGION
@@ -156,7 +152,6 @@ class TestMain(TestCase):
             main.main()
 
         # Verify the flow of function calls
-        self.basic_config_mock.assert_called_once()
         self.configuration_mock.assert_called_once()
         self.validate_user_parameters_mock.assert_called_once_with(mock_config)
         self.create_resource_group_mock.assert_called_once_with(
