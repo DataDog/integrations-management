@@ -1,11 +1,6 @@
 # stdlib
-import sys
-from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch as mock_patch, MagicMock
-
-# Needed to import the logging_install modules
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # project
 import deploy
