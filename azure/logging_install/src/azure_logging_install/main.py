@@ -2,16 +2,17 @@
 
 import argparse
 import logging
+from logging import basicConfig, getLogger
 
-from az_cmd import set_subscription
-from configuration import Configuration
-from deploy import deploy_control_plane, run_initial_deploy
-from resource_setup import create_resource_group
-from role_setup import grant_permissions
-from validation import validate_user_parameters
+from .az_cmd import set_subscription
+from .configuration import Configuration
+from .deploy import deploy_control_plane, run_initial_deploy
+from .resource_setup import create_resource_group
+from .role_setup import grant_permissions
+from .validation import validate_user_parameters
 
 
-log = logging.getLogger("installer")
+log = getLogger("installer")
 
 
 def parse_arguments():
@@ -131,7 +132,7 @@ def main():
             log_level=args.log_level,
         )
 
-        logging.basicConfig(level=getattr(logging, config.log_level))
+        basicConfig(level=getattr(logging, config.log_level))
 
         log.info("Starting setup for Azure Automated Log Forwarding...")
 

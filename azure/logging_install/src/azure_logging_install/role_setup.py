@@ -4,9 +4,9 @@ import json
 import time
 from logging import getLogger
 
-from az_cmd import AzCmd, execute, set_subscription
-from configuration import Configuration
-from constants import (
+from .az_cmd import AzCmd, execute, set_subscription
+from .configuration import Configuration
+from .constants import (
     INITIAL_DEPLOY_IDENTITY_NAME,
     MONITORING_CONTRIBUTOR_ID,
     MONITORING_READER_ID,
@@ -14,7 +14,7 @@ from constants import (
     STORAGE_READER_AND_DATA_ACCESS_ID,
     WEBSITE_CONTRIBUTOR_ID,
 )
-from errors import ExistenceCheckError, ResourceNotFoundError, TimeoutError
+from .errors import ExistenceCheckError, ResourceNotFoundError, TimeoutError
 
 log = getLogger("installer")
 

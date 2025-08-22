@@ -1,13 +1,14 @@
 # stdlib
+# stdlib
 import json
 from unittest import TestCase
 from unittest.mock import patch as mock_patch, MagicMock
 
 # project
-import validation
-from configuration import Configuration
-from constants import REQUIRED_RESOURCE_PROVIDERS
-from errors import (
+from azure_logging_install import validation
+from azure_logging_install.configuration import Configuration
+from azure_logging_install.constants import REQUIRED_RESOURCE_PROVIDERS
+from azure_logging_install.errors import (
     AccessError,
     DatadogAccessValidationError,
     ExistenceCheckError,
@@ -38,9 +39,13 @@ MOCK_DATADOG_ERROR_RESPONSE = {
 class TestValidation(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures and reset global settings"""
-        self.execute_mock = self.patch("validation.execute")
-        self.set_subscription_mock = self.patch("validation.set_subscription")
-        self.urlopen_mock = self.patch("validation.urllib.request.urlopen")
+        self.execute_mock = self.patch("azure_logging_install.validation.execute")
+        self.set_subscription_mock = self.patch(
+            "azure_logging_install.validation.set_subscription"
+        )
+        self.urlopen_mock = self.patch(
+            "azure_logging_install.validation.urllib.request.urlopen"
+        )
 
         # Create test configuration
         self.config = Configuration(
@@ -64,8 +69,12 @@ class TestValidation(TestCase):
     def test_validate_user_parameters_success(self):
         """Test successful validation of user parameters"""
         with (
-            mock_patch("validation.validate_azure_env") as mock_azure,
-            mock_patch("validation.validate_datadog_credentials") as mock_datadog,
+            mock_patch(
+                "azure_logging_install.validation.validate_azure_env"
+            ) as mock_azure,
+            mock_patch(
+                "azure_logging_install.validation.validate_datadog_credentials"
+            ) as mock_datadog,
         ):
             validation.validate_user_parameters(self.config)
 
@@ -75,7 +84,8 @@ class TestValidation(TestCase):
     def test_validate_user_parameters_azure_error(self):
         """Test validation fails when Azure validation fails"""
         with mock_patch(
-            "validation.validate_azure_env", side_effect=AccessError("Azure error")
+            "azure_logging_install.validation.validate_azure_env",
+            side_effect=AccessError("Azure error"),
         ):
             with self.assertRaises(AccessError):
                 validation.validate_user_parameters(self.config)
@@ -83,9 +93,9 @@ class TestValidation(TestCase):
     def test_validate_user_parameters_datadog_error(self):
         """Test validation fails when Datadog validation fails"""
         with (
-            mock_patch("validation.validate_azure_env"),
+            mock_patch("azure_logging_install.validation.validate_azure_env"),
             mock_patch(
-                "validation.validate_datadog_credentials",
+                "azure_logging_install.validation.validate_datadog_credentials",
                 side_effect=DatadogAccessValidationError("Datadog error"),
             ),
         ):
@@ -309,28 +319,42 @@ class TestValidation(TestCase):
     def test_validate_azure_env_success(self):
         """Test successful Azure environment validation"""
         with (
-            mock_patch("validation.validate_user_config"),
-            mock_patch("validation.validate_az_cli"),
-            mock_patch("validation.validate_control_plane_sub_access"),
-            mock_patch("validation.validate_monitored_subs_access"),
-            mock_patch("validation.validate_resource_provider_registrations"),
-            mock_patch("validation.validate_resource_names"),
+            mock_patch("azure_logging_install.validation.validate_user_config"),
+            mock_patch("azure_logging_install.validation.validate_az_cli"),
+            mock_patch(
+                "azure_logging_install.validation.validate_control_plane_sub_access"
+            ),
+            mock_patch(
+                "azure_logging_install.validation.validate_monitored_subs_access"
+            ),
+            mock_patch(
+                "azure_logging_install.validation.validate_resource_provider_registrations"
+            ),
+            mock_patch("azure_logging_install.validation.validate_resource_names"),
         ):
             validation.validate_azure_env(self.config)
 
     def test_validate_azure_env_calls_all_validations(self):
         """Test Azure environment validation calls all required validations"""
         with (
-            mock_patch("validation.validate_user_config") as mock_user_config,
-            mock_patch("validation.validate_az_cli") as mock_az_cli,
             mock_patch(
-                "validation.validate_control_plane_sub_access"
+                "azure_logging_install.validation.validate_user_config"
+            ) as mock_user_config,
+            mock_patch(
+                "azure_logging_install.validation.validate_az_cli"
+            ) as mock_az_cli,
+            mock_patch(
+                "azure_logging_install.validation.validate_control_plane_sub_access"
             ) as mock_cp_access,
-            mock_patch("validation.validate_monitored_subs_access") as mock_mon_access,
             mock_patch(
-                "validation.validate_resource_provider_registrations"
+                "azure_logging_install.validation.validate_monitored_subs_access"
+            ) as mock_mon_access,
+            mock_patch(
+                "azure_logging_install.validation.validate_resource_provider_registrations"
             ) as mock_rp_reg,
-            mock_patch("validation.validate_resource_names") as mock_res_names,
+            mock_patch(
+                "azure_logging_install.validation.validate_resource_names"
+            ) as mock_res_names,
         ):
             validation.validate_azure_env(self.config)
 

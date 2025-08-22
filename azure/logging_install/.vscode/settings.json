@@ -1,0 +1,9 @@
+{
+    "python.pythonPath": "/Users/altan.gulen/.pyenv/versions/azlogginginstall/bin/python",
+    "python.defaultInterpreterPath": "/Users/altan.gulen/.pyenv/versions/azlogginginstall/bin/python",
+    "python.analysis.extraPaths": [
+        "./src"
+    ],
+    "python.analysis.autoSearchPaths": true,
+    "python.terminal.activateEnvironment": true
+}

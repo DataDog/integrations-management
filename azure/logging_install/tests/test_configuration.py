@@ -1,10 +1,10 @@
 # stdlib
 import json
 from unittest import TestCase
-from unittest.mock import patch as mock_patch
+from unittest.mock import patch as mock_patch, MagicMock
 
 # project
-from configuration import Configuration
+from azure_logging_install.configuration import Configuration
 
 # Test data
 CONTROL_PLANE_ID_LENGTH = 12
@@ -28,7 +28,9 @@ class TestConfiguration(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures and reset global settings"""
         # Set up mocks
-        self.az_cmd_execute_mock = self.patch("configuration.execute")
+        self.az_cmd_execute_mock = self.patch(
+            "azure_logging_install.configuration.execute"
+        )
 
     def patch(self, path: str, **kwargs):
         """Helper method to patch and auto-cleanup"""

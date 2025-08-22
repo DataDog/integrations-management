@@ -1,15 +1,16 @@
 # stdlib
 import subprocess
 from unittest import TestCase
-from unittest.mock import patch as mock_patch, MagicMock
+from unittest.mock import Mock, patch as mock_patch
 
 # project
-import az_cmd
-from errors import (
+from azure_logging_install import az_cmd
+from azure_logging_install.errors import (
     AccessError,
     RateLimitExceededError,
     RefreshTokenError,
     ResourceNotFoundError,
+    TimeoutError,
 )
 
 # Test data
@@ -23,8 +24,8 @@ TEST_LOCATION = "eastus"
 class TestAzCmd(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures and reset global settings"""
-        self.subprocess_mock = self.patch("az_cmd.subprocess.run")
-        self.sleep_mock = self.patch("az_cmd.sleep")
+        self.subprocess_mock = self.patch("azure_logging_install.az_cmd.subprocess.run")
+        self.sleep_mock = self.patch("azure_logging_install.az_cmd.sleep")
 
     def patch(self, path: str, **kwargs):
         """Helper method to patch and auto-cleanup"""
@@ -118,7 +119,7 @@ class TestAzCmd(TestCase):
     def test_execute_success(self):
         """Test successful command execution"""
         cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION).param("--name", "test")
-        mock_result = MagicMock()
+        mock_result = Mock()
         mock_result.stdout = "success output"
         mock_result.returncode = 0
         self.subprocess_mock.return_value = mock_result
@@ -169,7 +170,7 @@ class TestAzCmd(TestCase):
         error = subprocess.CalledProcessError(1, "az")
         error.stderr = f"{az_cmd.AZURE_THROTTLING_ERROR}: Rate limit exceeded"
 
-        mock_result_success = MagicMock()
+        mock_result_success = Mock()
         mock_result_success.stdout = "success after retry"
         mock_result_success.returncode = 0
 
@@ -205,7 +206,7 @@ class TestAzCmd(TestCase):
             f"{az_cmd.RESOURCE_COLLECTION_THROTTLING_ERROR}: Too many requests"
         )
 
-        mock_result_success = MagicMock()
+        mock_result_success = Mock()
         mock_result_success.stdout = "success after throttling"
         mock_result_success.returncode = 0
 
@@ -233,7 +234,7 @@ class TestAzCmd(TestCase):
 
     def test_set_subscription_success(self):
         """Test successful subscription setting"""
-        mock_result = MagicMock()
+        mock_result = Mock()
         mock_result.stdout = "Subscription set"
         mock_result.returncode = 0
         self.subprocess_mock.return_value = mock_result
@@ -250,7 +251,7 @@ class TestAzCmd(TestCase):
 
     def test_set_subscription_with_error(self):
         """Test set_subscription handles errors"""
-        mock_result = MagicMock()
+        mock_result = Mock()
         mock_result.stdout = ""
         mock_result.stderr = "Subscription not found"
         mock_result.returncode = 1

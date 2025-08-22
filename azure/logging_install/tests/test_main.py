@@ -3,8 +3,8 @@ from unittest import TestCase
 from unittest.mock import patch as mock_patch, MagicMock
 
 # project
-import main
-from errors import FatalError
+from azure_logging_install import main
+from azure_logging_install.errors import FatalError
 
 # Test data
 MANAGEMENT_GROUP_ID = "test-mg"
@@ -19,14 +19,26 @@ DATADOG_SITE = "datadoghq.com"
 class TestMain(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures and reset global settings"""
-        self.log_mock = self.patch("main.log")
-        self.configuration_mock = self.patch("main.Configuration")
-        self.set_subscription_mock = self.patch("main.set_subscription")
-        self.validate_user_parameters_mock = self.patch("main.validate_user_parameters")
-        self.create_resource_group_mock = self.patch("main.create_resource_group")
-        self.grant_permissions_mock = self.patch("main.grant_permissions")
-        self.deploy_control_plane_mock = self.patch("main.deploy_control_plane")
-        self.run_initial_deploy_mock = self.patch("main.run_initial_deploy")
+        self.log_mock = self.patch("azure_logging_install.main.log")
+        self.configuration_mock = self.patch("azure_logging_install.main.Configuration")
+        self.set_subscription_mock = self.patch(
+            "azure_logging_install.main.set_subscription"
+        )
+        self.validate_user_parameters_mock = self.patch(
+            "azure_logging_install.main.validate_user_parameters"
+        )
+        self.create_resource_group_mock = self.patch(
+            "azure_logging_install.main.create_resource_group"
+        )
+        self.grant_permissions_mock = self.patch(
+            "azure_logging_install.main.grant_permissions"
+        )
+        self.deploy_control_plane_mock = self.patch(
+            "azure_logging_install.main.deploy_control_plane"
+        )
+        self.run_initial_deploy_mock = self.patch(
+            "azure_logging_install.main.run_initial_deploy"
+        )
 
     def patch(self, path: str, **kwargs):
         """Helper method to patch and auto-cleanup"""
@@ -143,7 +155,9 @@ class TestMain(TestCase):
         mock_args.datadog_telemetry = False
         mock_args.log_level = "INFO"
 
-        with mock_patch("main.parse_arguments", return_value=mock_args):
+        with mock_patch(
+            "azure_logging_install.main.parse_arguments", return_value=mock_args
+        ):
             main.main()
 
         # Verify the flow of function calls
@@ -166,7 +180,9 @@ class TestMain(TestCase):
         self.configuration_mock.side_effect = FatalError("Test error")
 
         mock_args = MagicMock()
-        with mock_patch("main.parse_arguments", return_value=mock_args):
+        with mock_patch(
+            "azure_logging_install.main.parse_arguments", return_value=mock_args
+        ):
             with self.assertRaises(FatalError):
                 main.main()
 

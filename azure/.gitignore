@@ -1,5 +1,27 @@
-# Byte-compiled / optimized / DLL files
+# VSCode Settings
+!.vscode
+.vscode/launch.json
+
+# Python virtual env
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.python-version
+
+# Python test cache
+.pytest_cache
+
+# Python byte-compiled files
 __pycache__/
 *.py[cod]
 *$py.class
 *.pyz
+*.egg-info/
+
+# Build artifacts
+dist/
+build/

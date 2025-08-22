@@ -5,7 +5,7 @@ from logging import getLogger
 from re import search
 from time import sleep
 
-from errors import (
+from .errors import (
     AccessError,
     RateLimitExceededError,
     RefreshTokenError,

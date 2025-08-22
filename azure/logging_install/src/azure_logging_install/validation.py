@@ -5,10 +5,10 @@ import urllib.error
 import urllib.request
 from logging import getLogger
 
-from az_cmd import AzCmd, execute, set_subscription
-from configuration import Configuration
-from constants import REQUIRED_RESOURCE_PROVIDERS
-from errors import (
+from .az_cmd import AzCmd, execute, set_subscription
+from .configuration import Configuration
+from .constants import REQUIRED_RESOURCE_PROVIDERS
+from .errors import (
     AccessError,
     DatadogAccessValidationError,
     ExistenceCheckError,

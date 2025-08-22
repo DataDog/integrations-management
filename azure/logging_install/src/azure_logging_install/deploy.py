@@ -2,9 +2,9 @@
 
 from logging import getLogger
 
-from az_cmd import AzCmd, execute, set_subscription
-from configuration import Configuration
-from resource_setup import (
+from .az_cmd import AzCmd, execute, set_subscription
+from .configuration import Configuration
+from .resource_setup import (
     create_blob_container,
     create_container_app_environment,
     create_container_app_job,
@@ -13,7 +13,7 @@ from resource_setup import (
     create_storage_account,
     wait_for_storage_account_ready,
 )
-from role_setup import (
+from .role_setup import (
     create_initial_deploy_role,
 )
 

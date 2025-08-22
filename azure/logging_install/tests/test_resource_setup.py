@@ -3,9 +3,9 @@ from unittest import TestCase
 from unittest.mock import patch as mock_patch, MagicMock
 
 # project
-import resource_setup
-from configuration import Configuration
-from errors import FatalError, ResourceNotFoundError
+from azure_logging_install import resource_setup
+from azure_logging_install.configuration import Configuration
+from azure_logging_install.errors import FatalError, ResourceNotFoundError
 
 # Test data
 CONTROL_PLANE_RG = "test-control-plane-rg"
@@ -21,9 +21,9 @@ class TestResourceSetup(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures and reset global settings"""
         # Set up mocks
-        self.log_mock = self.patch("resource_setup.log")
-        self.execute_mock = self.patch("resource_setup.execute")
-        self.time_mock = self.patch("resource_setup.time")
+        self.log_mock = self.patch("azure_logging_install.resource_setup.log")
+        self.execute_mock = self.patch("azure_logging_install.resource_setup.execute")
+        self.time_mock = self.patch("azure_logging_install.resource_setup.time")
 
         # Create test configuration
         self.config = Configuration(
@@ -94,7 +94,7 @@ class TestResourceSetup(TestCase):
 
     def test_wait_for_storage_account_ready_success(self):
         """Test waiting for storage account to be ready - success"""
-        with mock_patch("resource_setup.time.time") as mock_time:
+        with mock_patch("azure_logging_install.resource_setup.time.time") as mock_time:
             mock_time.side_effect = [0, 5]  # Simulate time progression
             self.execute_mock.return_value = "Succeeded"  # Return state directly
 
@@ -109,7 +109,7 @@ class TestResourceSetup(TestCase):
 
     def test_wait_for_storage_account_ready_timeout(self):
         """Test waiting for storage account times out"""
-        with mock_patch("resource_setup.time.time") as mock_time:
+        with mock_patch("azure_logging_install.resource_setup.time.time") as mock_time:
             mock_time.side_effect = [0, 30, 65]  # Simulate timeout
             self.execute_mock.return_value = "Creating"  # Always in Creating state
 
@@ -120,7 +120,7 @@ class TestResourceSetup(TestCase):
 
     def test_wait_for_storage_account_ready_failed_state(self):
         """Test waiting for storage account with failed state"""
-        with mock_patch("resource_setup.time.time") as mock_time:
+        with mock_patch("azure_logging_install.resource_setup.time.time") as mock_time:
             mock_time.side_effect = [0, 5]
             self.execute_mock.return_value = "Failed"  # Failed state
 
@@ -212,7 +212,9 @@ class TestResourceSetup(TestCase):
             None,  # Second call: job create (successful)
         ]
 
-        with mock_patch("resource_setup.tempfile.NamedTemporaryFile") as mock_temp_file:
+        with mock_patch(
+            "azure_logging_install.resource_setup.tempfile.NamedTemporaryFile"
+        ) as mock_temp_file:
             mock_temp_file.return_value.__enter__.return_value.name = "/tmp/test.json"
 
             resource_setup.create_container_app_job(mock_config)
@@ -232,7 +234,9 @@ class TestResourceSetup(TestCase):
 
     def test_create_function_apps_success(self):
         """Test successful function app creation"""
-        with mock_patch("resource_setup.create_function_app") as mock_create_func:
+        with mock_patch(
+            "azure_logging_install.resource_setup.create_function_app"
+        ) as mock_create_func:
             resource_setup.create_function_apps(self.config)
 
             # Should create multiple function apps
@@ -265,7 +269,7 @@ class TestResourceSetup(TestCase):
     def test_wait_function_retries_on_not_found(self):
         """Test wait functions handle ResourceNotFoundError correctly"""
         # Mock time.time() calls correctly
-        with mock_patch("resource_setup.time.time") as mock_time:
+        with mock_patch("azure_logging_install.resource_setup.time.time") as mock_time:
             mock_time.side_effect = [0, 5]  # Simulate time progression
 
             # The function doesn't actually retry on ResourceNotFoundError - it propagates it

@@ -3,9 +3,9 @@ from unittest import TestCase
 from unittest.mock import patch as mock_patch, MagicMock
 
 # project
-import deploy
-from configuration import Configuration
-from errors import FatalError
+from azure_logging_install import deploy
+from azure_logging_install.configuration import Configuration
+from azure_logging_install.errors import FatalError
 
 # Test data
 CONTROL_PLANE_RG = "test-control-plane-rg"
@@ -17,24 +17,34 @@ class TestDeploy(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures and reset global settings"""
         # Set up mocks
-        self.set_subscription_mock = self.patch("deploy.set_subscription")
-        self.create_storage_account_mock = self.patch("deploy.create_storage_account")
-        self.wait_for_storage_account_ready_mock = self.patch(
-            "deploy.wait_for_storage_account_ready"
+        self.set_subscription_mock = self.patch(
+            "azure_logging_install.deploy.set_subscription"
         )
-        self.create_blob_container_mock = self.patch("deploy.create_blob_container")
-        self.create_file_share_mock = self.patch("deploy.create_file_share")
-        self.create_function_apps_mock = self.patch("deploy.create_function_apps")
+        self.create_storage_account_mock = self.patch(
+            "azure_logging_install.deploy.create_storage_account"
+        )
+        self.wait_for_storage_account_ready_mock = self.patch(
+            "azure_logging_install.deploy.wait_for_storage_account_ready"
+        )
+        self.create_blob_container_mock = self.patch(
+            "azure_logging_install.deploy.create_blob_container"
+        )
+        self.create_file_share_mock = self.patch(
+            "azure_logging_install.deploy.create_file_share"
+        )
+        self.create_function_apps_mock = self.patch(
+            "azure_logging_install.deploy.create_function_apps"
+        )
         self.create_initial_deploy_role_mock = self.patch(
-            "deploy.create_initial_deploy_role"
+            "azure_logging_install.deploy.create_initial_deploy_role"
         )
         self.create_container_app_environment_mock = self.patch(
-            "deploy.create_container_app_environment"
+            "azure_logging_install.deploy.create_container_app_environment"
         )
         self.create_container_app_job_mock = self.patch(
-            "deploy.create_container_app_job"
+            "azure_logging_install.deploy.create_container_app_job"
         )
-        self.execute_mock = self.patch("deploy.execute")
+        self.execute_mock = self.patch("azure_logging_install.deploy.execute")
 
         # Create test configuration
         self.config = Configuration(
@@ -239,9 +249,13 @@ class TestDeploy(TestCase):
         """Test complete deployment flow simulation"""
         # This would simulate a full deployment
         with (
-            mock_patch("deploy.deploy_lfo_deployer") as mock_lfo,
-            mock_patch("deploy.deploy_control_plane") as mock_control,
-            mock_patch("deploy.run_initial_deploy") as mock_initial,
+            mock_patch("azure_logging_install.deploy.deploy_lfo_deployer") as mock_lfo,
+            mock_patch(
+                "azure_logging_install.deploy.deploy_control_plane"
+            ) as mock_control,
+            mock_patch(
+                "azure_logging_install.deploy.run_initial_deploy"
+            ) as mock_initial,
         ):
             # Simulate main deployment flow
             mock_control(self.config)

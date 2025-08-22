@@ -6,14 +6,14 @@ import tempfile
 from logging import getLogger
 from time import time
 
-from az_cmd import AzCmd, execute
-from configuration import Configuration
-from constants import (
+from .az_cmd import AzCmd, execute
+from .configuration import Configuration
+from .constants import (
     CONTROL_PLANE_CACHE,
     IMAGE_REGISTRY_URL,
     LFO_PUBLIC_STORAGE_ACCOUNT_URL,
 )
-from errors import (
+from .errors import (
     ExistenceCheckError,
     FatalError,
     ResourceNotFoundError,

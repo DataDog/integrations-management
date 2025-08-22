@@ -5,9 +5,13 @@ import uuid
 from dataclasses import dataclass
 from logging import getLogger
 
-from az_cmd import AzCmd, execute
-from constants import IMAGE_REGISTRY_URL, NIL_UUID, STORAGE_ACCOUNT_KEY_FULL_PERMISSIONS
-from errors import FatalError
+from .az_cmd import AzCmd, execute
+from .constants import (
+    IMAGE_REGISTRY_URL,
+    NIL_UUID,
+    STORAGE_ACCOUNT_KEY_FULL_PERMISSIONS,
+)
+from .errors import FatalError
 
 log = getLogger("installer")
 
