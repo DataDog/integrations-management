@@ -10,7 +10,6 @@ from azure_logging_install.errors import (
     RateLimitExceededError,
     RefreshTokenError,
     ResourceNotFoundError,
-    TimeoutError,
 )
 
 # Test data

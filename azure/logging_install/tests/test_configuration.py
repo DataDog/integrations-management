@@ -1,7 +1,7 @@
 # stdlib
 import json
 from unittest import TestCase
-from unittest.mock import patch as mock_patch, MagicMock
+from unittest.mock import patch as mock_patch
 
 # project
 from azure_logging_install.configuration import Configuration
