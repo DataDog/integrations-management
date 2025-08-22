@@ -110,7 +110,10 @@ def parse_arguments():
 
 
 def log_header(message: str):
-    log.info("=" * 70 + f"\n{message}\n" + "=" * 70)
+    """Log a formatted header message."""
+    separator = "=" * 70
+    header = "\n".join(["", separator, message, separator, ""])
+    log.info(header)
 
 
 def main():

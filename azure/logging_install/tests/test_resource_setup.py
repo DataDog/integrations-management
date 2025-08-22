@@ -94,7 +94,7 @@ class TestResourceSetup(TestCase):
 
     def test_wait_for_storage_account_ready_success(self):
         """Test waiting for storage account to be ready - success"""
-        with mock_patch("azure_logging_install.resource_setup.time.time") as mock_time:
+        with mock_patch("azure_logging_install.resource_setup.time") as mock_time:
             mock_time.side_effect = [0, 5]  # Simulate time progression
             self.execute_mock.return_value = "Succeeded"  # Return state directly
 
@@ -109,7 +109,7 @@ class TestResourceSetup(TestCase):
 
     def test_wait_for_storage_account_ready_timeout(self):
         """Test waiting for storage account times out"""
-        with mock_patch("azure_logging_install.resource_setup.time.time") as mock_time:
+        with mock_patch("azure_logging_install.resource_setup.time") as mock_time:
             mock_time.side_effect = [0, 30, 65]  # Simulate timeout
             self.execute_mock.return_value = "Creating"  # Always in Creating state
 
@@ -120,7 +120,7 @@ class TestResourceSetup(TestCase):
 
     def test_wait_for_storage_account_ready_failed_state(self):
         """Test waiting for storage account with failed state"""
-        with mock_patch("azure_logging_install.resource_setup.time.time") as mock_time:
+        with mock_patch("azure_logging_install.resource_setup.time") as mock_time:
             mock_time.side_effect = [0, 5]
             self.execute_mock.return_value = "Failed"  # Failed state
 
@@ -269,7 +269,7 @@ class TestResourceSetup(TestCase):
     def test_wait_function_retries_on_not_found(self):
         """Test wait functions handle ResourceNotFoundError correctly"""
         # Mock time.time() calls correctly
-        with mock_patch("azure_logging_install.resource_setup.time.time") as mock_time:
+        with mock_patch("azure_logging_install.resource_setup.time") as mock_time:
             mock_time.side_effect = [0, 5]  # Simulate time progression
 
             # The function doesn't actually retry on ResourceNotFoundError - it propagates it

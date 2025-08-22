@@ -4,7 +4,7 @@ import json
 import shlex
 import tempfile
 from logging import getLogger
-from time import time
+from time import time, sleep
 
 from .az_cmd import AzCmd, execute
 from .configuration import Configuration
@@ -84,9 +84,9 @@ def wait_for_storage_account_ready(
     """
     log.info(f"Waiting for storage account {storage_account_name} to be ready...")
 
-    start_time = time.time()
+    start_time = time()
     max_wait_seconds = 60
-    while time.time() - start_time < max_wait_seconds:
+    while time() - start_time < max_wait_seconds:
         output = execute(
             AzCmd("storage", "account show")
             .param("--name", storage_account_name)
@@ -107,7 +107,7 @@ def wait_for_storage_account_ready(
             )
 
         # Still provisioning, wait and check again
-        time.sleep(5)
+        sleep(5)
 
     raise TimeoutError(
         f"Timeout waiting for storage account {storage_account_name} to be ready after {max_wait_seconds} seconds"
