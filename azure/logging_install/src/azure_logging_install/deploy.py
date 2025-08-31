@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 from logging import getLogger
 
 from .az_cmd import AzCmd, execute, set_subscription

@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 # Errors that prevent script from completing successfully
 class FatalError(Exception):
     """An error that prevents the installation from completing successfully."""

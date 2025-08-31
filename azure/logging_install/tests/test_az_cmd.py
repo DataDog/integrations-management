@@ -256,7 +256,7 @@ class TestAzCmd(TestCase):
         mock_result.returncode = 1
         self.subprocess_mock.return_value = mock_result
 
-        with self.assertRaises(Exception):
+        with self.assertRaises(RuntimeError):
             az_cmd.set_subscription(TEST_SUBSCRIPTION_ID)
 
     # ===== Error Pattern Recognition Tests ===== #

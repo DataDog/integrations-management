@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 IMAGE_REGISTRY_URL = "datadoghq.azurecr.io"
 LFO_PUBLIC_STORAGE_ACCOUNT_URL = "https://ddazurelfo.blob.core.windows.net"
 

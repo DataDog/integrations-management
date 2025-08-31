@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import subprocess
 from logging import getLogger
 from re import search
@@ -20,6 +18,9 @@ AZURE_THROTTLING_ERROR = "TooManyRequests"
 REFRESH_TOKEN_EXPIRED_ERROR = "AADSTS700082"
 RESOURCE_COLLECTION_THROTTLING_ERROR = "ResourceCollectionRequestsThrottled"
 RESOURCE_NOT_FOUND_ERROR = "ResourceNotFound"
+
+INITIAL_RETRY_DELAY = 2  # seconds
+RETRY_DELAY_MULTIPLIER = 2
 MAX_RETRIES = 7
 
 
@@ -81,7 +82,7 @@ def execute(az_cmd: AzCmd) -> str:
 
     full_command = az_cmd.str()
     log.debug(f"Running: {full_command}")
-    delay = 2  # seconds
+    delay = INITIAL_RETRY_DELAY
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -108,7 +109,7 @@ def execute(az_cmd: AzCmd) -> str:
                         f"Azure throttling ongoing. Retrying in {delay} seconds..."
                     )
                     sleep(delay)
-                    delay *= 2
+                    delay *= RETRY_DELAY_MULTIPLIER
                     continue
                 raise RateLimitExceededError(
                     "Rate limit exceeded. Please wait a few minutes and try again."

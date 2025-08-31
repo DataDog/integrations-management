@@ -1,6 +1,5 @@
-#!/usr/bin/env python3
-
 import json
+import os
 import shlex
 import tempfile
 from logging import getLogger
@@ -244,14 +243,18 @@ def create_function_app(config: Configuration, name: str):
     with tempfile.NamedTemporaryFile("w+", delete=False, suffix=".json") as tmpfile:
         json.dump(all_settings, tmpfile)
         tmpfile.flush()
+        tmpfile_path = tmpfile.name
 
+    try:
         log.debug(f"Configuring app settings for Function App {name}")
         execute(
             AzCmd("functionapp", "config appsettings set")
             .param("--name", name)
             .param("--resource-group", config.control_plane_rg)
-            .param("--settings", f"@{tmpfile.name}")
+            .param("--settings", f"@{tmpfile_path}")
         )
+    finally:
+        os.unlink(tmpfile_path)
 
     log.debug(f"Configuring Linux runtime for Function App {name}")
     execute(

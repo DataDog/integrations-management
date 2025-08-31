@@ -31,6 +31,7 @@ python -m pytest tests/ -v
 ```
 
 ### Build/Ship
+Run from the `logging_install` folder:
 Zip app into a single executable file `dist/azure_logging_install.pyz`
 
 ```bash
