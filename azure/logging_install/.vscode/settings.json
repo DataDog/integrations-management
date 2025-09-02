@@ -1,0 +1,8 @@
+{
+    "python.pythonPath": "~/.pyenv/versions/3.11.8/azlogginginstall/bin/python",
+    "python.analysis.extraPaths": [
+        "./src"
+    ],
+    "python.analysis.autoSearchPaths": true,
+    "python.terminal.activateEnvironment": true
+}
