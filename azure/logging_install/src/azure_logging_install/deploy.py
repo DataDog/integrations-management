@@ -80,7 +80,7 @@ def run_initial_deploy(
             .param("--subscription", control_plane_sub_id)
             .flag("--no-wait")
         )
-        log.info(f"Successfully started deployer job: {deployer_job_name}")
+        log.info("Successfully started deployer job: {}".format(deployer_job_name))
     except Exception as e:
-        log.error(f"Failed to start deployer container app job: {e}")
-        raise RuntimeError(f"Could not trigger initial deployment: {e}") from e
+        log.error("Failed to start deployer container app job: {}".format(e))
+        raise RuntimeError("Could not trigger initial deployment: {}".format(e)) from e

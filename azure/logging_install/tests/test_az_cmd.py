@@ -109,7 +109,7 @@ class TestAzCmd(TestCase):
         )
 
         expected = (
-            f"az {TEST_SERVICE} create --resource-group {TEST_RESOURCE_GROUP} --yes"
+            "az {} create --resource-group {} --yes".format(TEST_SERVICE, TEST_RESOURCE_GROUP)
         )
         self.assertEqual(cmd.str(), expected)
 
@@ -133,7 +133,7 @@ class TestAzCmd(TestCase):
         cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
 
         error = subprocess.CalledProcessError(1, "az")
-        error.stderr = f"{az_cmd.AUTH_FAILED_ERROR}: Access denied"
+        error.stderr = "{}: Access denied".format(az_cmd.AUTH_FAILED_ERROR)
         self.subprocess_mock.side_effect = error
 
         with self.assertRaises(AccessError):
@@ -144,7 +144,7 @@ class TestAzCmd(TestCase):
         cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
 
         error = subprocess.CalledProcessError(1, "az")
-        error.stderr = f"{az_cmd.REFRESH_TOKEN_EXPIRED_ERROR}: Token expired"
+        error.stderr = "{}: Token expired".format(az_cmd.REFRESH_TOKEN_EXPIRED_ERROR)
         self.subprocess_mock.side_effect = error
 
         with self.assertRaises(RefreshTokenError):
@@ -155,7 +155,7 @@ class TestAzCmd(TestCase):
         cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
 
         error = subprocess.CalledProcessError(1, "az")
-        error.stderr = f"{az_cmd.RESOURCE_NOT_FOUND_ERROR}: The resource was not found"
+        error.stderr = "{}: The resource was not found".format(az_cmd.RESOURCE_NOT_FOUND_ERROR)
         self.subprocess_mock.side_effect = error
 
         with self.assertRaises(ResourceNotFoundError):
@@ -167,7 +167,7 @@ class TestAzCmd(TestCase):
 
         # First call fails with rate limit, second succeeds
         error = subprocess.CalledProcessError(1, "az")
-        error.stderr = f"{az_cmd.AZURE_THROTTLING_ERROR}: Rate limit exceeded"
+        error.stderr = "{}: Rate limit exceeded".format(az_cmd.AZURE_THROTTLING_ERROR)
 
         mock_result_success = Mock()
         mock_result_success.stdout = "success after retry"
@@ -186,7 +186,7 @@ class TestAzCmd(TestCase):
         cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
 
         error = subprocess.CalledProcessError(1, "az")
-        error.stderr = f"{az_cmd.AZURE_THROTTLING_ERROR}: Rate limit exceeded"
+        error.stderr = "{}: Rate limit exceeded".format(az_cmd.AZURE_THROTTLING_ERROR)
         self.subprocess_mock.side_effect = error
 
         with self.assertRaises(RateLimitExceededError):
@@ -202,7 +202,7 @@ class TestAzCmd(TestCase):
         # First call fails with throttling, second succeeds
         error = subprocess.CalledProcessError(1, "az")
         error.stderr = (
-            f"{az_cmd.RESOURCE_COLLECTION_THROTTLING_ERROR}: Too many requests"
+            "{}: Too many requests".format(az_cmd.RESOURCE_COLLECTION_THROTTLING_ERROR)
         )
 
         mock_result_success = Mock()

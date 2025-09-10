@@ -68,12 +68,12 @@ def check_access_error(stderr: str) -> str | None:
     client = client_match.group(1)
     action = action_match.group(1)
     scope = scope_match.group(1)
-    return f"Insufficient permissions for {client} to perform {action} on {scope}"
+    return "Insufficient permissions for {} to perform {} on {}".format(client, action, scope)
 
 
 def set_subscription(sub_id: str):
     """Set the active Azure subscription."""
-    log.debug(f"Setting active subscription to {sub_id}")
+    log.debug("Setting active subscription to {}".format(sub_id))
     execute(AzCmd("account", "set").param("--subscription", sub_id))
 
 
@@ -81,7 +81,7 @@ def execute(az_cmd: AzCmd) -> str:
     """Run an Azure CLI command and return output or raise error."""
 
     full_command = az_cmd.str()
-    log.debug(f"Running: {full_command}")
+    log.debug("Running: {}".format(full_command))
     delay = INITIAL_RETRY_DELAY
 
     for attempt in range(MAX_RETRIES):
@@ -90,15 +90,15 @@ def execute(az_cmd: AzCmd) -> str:
                 full_command, shell=True, check=True, capture_output=True, text=True
             )
             if result.returncode != 0:
-                log.error(f"Command failed: {full_command}")
+                log.error("Command failed: {}".format(full_command))
                 log.error(result.stderr)
-                raise RuntimeError(f"Command failed: {full_command}")
+                raise RuntimeError("Command failed: {}".format(full_command))
             return result.stdout
         except subprocess.CalledProcessError as e:
             stderr = str(e.stderr)
             if RESOURCE_NOT_FOUND_ERROR in stderr:
                 raise ResourceNotFoundError(
-                    f"Resource not found when executing '{az_cmd}'"
+                    "Resource not found when executing '{}'".format(az_cmd)
                 ) from e
             if (
                 AZURE_THROTTLING_ERROR in stderr
@@ -106,7 +106,7 @@ def execute(az_cmd: AzCmd) -> str:
             ):
                 if attempt < MAX_RETRIES - 1:
                     log.warning(
-                        f"Azure throttling ongoing. Retrying in {delay} seconds..."
+                        "Azure throttling ongoing. Retrying in {} seconds...".format(delay)
                     )
                     sleep(delay)
                     delay *= RETRY_DELAY_MULTIPLIER
@@ -116,16 +116,16 @@ def execute(az_cmd: AzCmd) -> str:
                 ) from e
             if REFRESH_TOKEN_EXPIRED_ERROR in stderr:
                 raise RefreshTokenError(
-                    f"Auth token is expired. Refresh token before running '{az_cmd}'"
+                    "Auth token is expired. Refresh token before running '{}'".format(az_cmd)
                 ) from e
             if AUTH_FAILED_ERROR in stderr:
-                error_message = f"Insufficient permissions to access resource when executing '{az_cmd}'"
+                error_message = "Insufficient permissions to access resource when executing '{}'".format(az_cmd)
                 error_details = check_access_error(stderr)
                 if error_details:
-                    raise AccessError(f"{error_message}: {error_details}") from e
+                    raise AccessError("{}: {}".format(error_message, error_details)) from e
                 raise AccessError(error_message) from e
-            log.error(f"Command failed: {full_command}")
+            log.error("Command failed: {}".format(full_command))
             log.error(e.stderr)
-            raise RuntimeError(f"Command failed: {full_command}") from e
+            raise RuntimeError("Command failed: {}".format(full_command)) from e
 
     raise SystemExit(1)  # unreachable

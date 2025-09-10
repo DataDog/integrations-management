@@ -38,7 +38,7 @@ class Configuration:
         This ID is suffixed on Azure resources we create to identify their relationship to the control plane.
         """
 
-        combined = f"{self.management_group_id}{self.control_plane_sub_id}{self.control_plane_rg}{self.control_plane_region}"
+        combined = "{}{}{}{}".format(self.management_group_id, self.control_plane_sub_id, self.control_plane_rg, self.control_plane_region)
 
         namespace = uuid.UUID(NIL_UUID)
         guid = str(uuid.uuid5(namespace, combined)).lower()
@@ -51,7 +51,7 @@ class Configuration:
             return self.control_plane_cache_storage_key
 
         log.debug(
-            f"Retrieving storage account key for {self.control_plane_cache_storage_name}"
+            "Retrieving storage account key for {}".format(self.control_plane_cache_storage_name)
         )
 
         try:
@@ -64,7 +64,7 @@ class Configuration:
 
             if not isinstance(keys_json, list) or len(keys_json) == 0:
                 raise FatalError(
-                    f"Failed to retrieve storage account keys for {self.control_plane_cache_storage_name}"
+                    "Failed to retrieve storage account keys for {}".format(self.control_plane_cache_storage_name)
                 )
 
             for key_entry in keys_json:
@@ -75,21 +75,21 @@ class Configuration:
                     break
             else:
                 raise FatalError(
-                    f"No storage account keys with full read/write permissions found for {self.control_plane_cache_storage_name}"
+                    "No storage account keys with full read/write permissions found for {}".format(self.control_plane_cache_storage_name)
                 )
         except json.JSONDecodeError as e:
             raise FatalError(
-                f"Failed to parse storage account keys for {self.control_plane_cache_storage_name}: {e}"
+                "Failed to parse storage account keys for {}: {}".format(self.control_plane_cache_storage_name, e)
             ) from e
         except KeyError as e:
             raise FatalError(
-                f"Failed to retrieve storage account keys for {self.control_plane_cache_storage_name}: {e}"
+                "Failed to retrieve storage account keys for {}: {}".format(self.control_plane_cache_storage_name, e)
             ) from e
 
         return self.control_plane_cache_storage_key
 
     def get_control_plane_cache_conn_string(self) -> str:
-        return f"DefaultEndpointsProtocol=https;AccountName={self.control_plane_cache_storage_name};EndpointSuffix=core.windows.net;AccountKey={self.get_control_plane_cache_key()}"
+        return "DefaultEndpointsProtocol=https;AccountName={};EndpointSuffix=core.windows.net;AccountKey={}".format(self.control_plane_cache_storage_name, self.get_control_plane_cache_key())
 
     def __post_init__(self):
         """Calculates derived values from user-specified params."""
@@ -104,33 +104,33 @@ class Configuration:
 
         # Control plane
         self.control_plane_id = self.generate_control_plane_id()
-        log.info(f"Generated control plane ID: {self.control_plane_id}")
-        self.control_plane_cache_storage_name = f"lfostorage{self.control_plane_id}"
+        log.info("Generated control plane ID: {}".format(self.control_plane_id))
+        self.control_plane_cache_storage_name = "lfostorage{}".format(self.control_plane_id)
         self.control_plane_cache_storage_url = (
-            f"https://{self.control_plane_cache_storage_name}.blob.core.windows.net"
+            "https://{}.blob.core.windows.net".format(self.control_plane_cache_storage_name)
         )
         self.control_plane_cache_storage_key = None  # lazy-loaded
-        self.control_plane_sub_scope = f"/subscriptions/{self.control_plane_sub_id}"
+        self.control_plane_sub_scope = "/subscriptions/{}".format(self.control_plane_sub_id)
         self.control_plane_rg_scope = (
-            f"{self.control_plane_sub_scope}/resourceGroups/{self.control_plane_rg}"
+            "{}/resourceGroups/{}".format(self.control_plane_sub_scope, self.control_plane_rg)
         )
         self.control_plane_env_name = (
-            f"dd-log-forwarder-env-{self.control_plane_id}-{self.control_plane_region}"
+            "dd-log-forwarder-env-{}-{}".format(self.control_plane_id, self.control_plane_region)
         )
 
         # Deployer
-        self.deployer_job_name = f"deployer-task-{self.control_plane_id}"
-        self.deployer_image_url = f"{IMAGE_REGISTRY_URL}/deployer:latest"
+        self.deployer_job_name = "deployer-task-{}".format(self.control_plane_id)
+        self.deployer_image_url = "{}/deployer:latest".format(IMAGE_REGISTRY_URL)
         self.container_app_start_role_name = (
-            f"ContainerAppStartRole{self.control_plane_id}"
+            "ContainerAppStartRole{}".format(self.control_plane_id)
         )
 
         # Function apps (control plane tasks)
-        self.app_service_plan_name = f"control-plane-asp-{self.control_plane_id}"
-        self.resources_task_name = f"resources-task-{self.control_plane_id}"
-        self.scaling_task_name = f"scaling-task-{self.control_plane_id}"
+        self.app_service_plan_name = "control-plane-asp-{}".format(self.control_plane_id)
+        self.resources_task_name = "resources-task-{}".format(self.control_plane_id)
+        self.scaling_task_name = "scaling-task-{}".format(self.control_plane_id)
         self.diagnostic_settings_task_name = (
-            f"diagnostic-settings-task-{self.control_plane_id}"
+            "diagnostic-settings-task-{}".format(self.control_plane_id)
         )
         self.control_plane_function_app_names = [
             self.resources_task_name,

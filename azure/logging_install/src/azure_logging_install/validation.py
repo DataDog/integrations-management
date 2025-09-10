@@ -55,7 +55,7 @@ def check_providers_per_subscription(sub_ids: set[str]) -> dict[str, list[str]]:
 
     for sub_id in sub_ids:
         try:
-            log.debug(f"Checking resource providers in subscription: {sub_id}")
+            log.debug("Checking resource providers in subscription: {}".format(sub_id))
 
             # Get all resource providers and their registration state
             output = execute(
@@ -80,16 +80,16 @@ def check_providers_per_subscription(sub_ids: set[str]) -> dict[str, list[str]]:
                 if state != "Registered":
                     unregistered_providers.append(provider)
                     log.debug(
-                        f"Subscription {sub_id}: Resource provider {provider} is {state}"
+                        "Subscription {}: Resource provider {} is {}".format(sub_id, provider, state)
                     )
 
             sub_to_unregistered_provider_list[sub_id] = unregistered_providers
         except Exception as e:
             log.error(
-                f"Failed to validate resource providers in subscription {sub_id}: {e}"
+                "Failed to validate resource providers in subscription {}: {}".format(sub_id, e)
             )
             raise ResourceProviderRegistrationValidationError(
-                f"Resource provider validation failed for subscription {sub_id}: {e}"
+                "Resource provider validation failed for subscription {}: {}".format(sub_id, e)
             ) from e
 
     return sub_to_unregistered_provider_list
@@ -99,7 +99,7 @@ def validate_resource_provider_registrations(sub_ids: set[str]):
     """Ensure the required Azure resource providers are registered across all subscriptions."""
 
     log.info(
-        f"Checking required resource providers across {len(sub_ids)} subscription(s)..."
+        "Checking required resource providers across {} subscription(s)...".format(len(sub_ids))
     )
     sub_to_unregistered_provider_list = check_providers_per_subscription(sub_ids)
 
@@ -108,17 +108,17 @@ def validate_resource_provider_registrations(sub_ids: set[str]):
         if unregistered_providers:
             success = False
             log.error(
-                f"Subscription {sub_id}: Detected unregistered resource providers: {', '.join(unregistered_providers)}"
+                "Subscription {}: Detected unregistered resource providers: {}".format(sub_id, ', '.join(unregistered_providers))
             )
             log.error(
                 "Please run the following commands to register the missing resource providers:"
             )
-            log.error(f"az account set --subscription {sub_id}")
+            log.error("az account set --subscription {}".format(sub_id))
             for provider in unregistered_providers:
-                log.error(f"az provider register --namespace {provider}")
+                log.error("az provider register --namespace {}".format(provider))
         else:
             log.debug(
-                f"Subscription {sub_id}: All required resource providers are registered"
+                "Subscription {}: All required resource providers are registered".format(sub_id)
             )
 
     if not success:
@@ -133,10 +133,10 @@ def validate_control_plane_sub_access(control_plane_sub_id: str):
     """Verify access to the control plane subscription."""
     try:
         set_subscription(control_plane_sub_id)
-        log.debug(f"Control plane subscription access verified: {control_plane_sub_id}")
+        log.debug("Control plane subscription access verified: {}".format(control_plane_sub_id))
     except Exception as e:
         raise AccessError(
-            f"Cannot access control plane subscription {control_plane_sub_id}: {e}"
+            "Cannot access control plane subscription {}: {}".format(control_plane_sub_id, e)
         ) from e
 
 
@@ -157,13 +157,13 @@ def validate_resource_names(
         )
         if output.strip().lower() == "true":
             log.warning(
-                f"Resource group {control_plane_rg} already exists - will use existing"
+                "Resource group {} already exists - will use existing".format(control_plane_rg)
             )
         else:
-            log.debug(f"Resource group name available: {control_plane_rg}")
+            log.debug("Resource group name available: {}".format(control_plane_rg))
     except Exception as e:
         raise ExistenceCheckError(
-            f"Cannot check resource group availability: {e}"
+            "Cannot check resource group availability: {}".format(e)
         ) from e
 
     # Check storage account name availability
@@ -176,9 +176,9 @@ def validate_resource_names(
         result = json.loads(result_json)
         if not result.get("nameAvailable", False):
             log.info(
-                f"Storage account name '{control_plane_cache_storage_name}' exists - will use existing"
+                "Storage account name '{}' exists - will use existing".format(control_plane_cache_storage_name)
             )
-        log.debug(f"Storage account name available: {control_plane_cache_storage_name}")
+        log.debug("Storage account name available: {}".format(control_plane_cache_storage_name))
     except json.JSONDecodeError as e:
         raise ExistenceCheckError(
             "Failed to parse storage account name availability check"
@@ -193,28 +193,28 @@ def validate_datadog_credentials(datadog_api_key: str, datadog_site: str):
         raise InputParamValidationError("Datadog API key not configured")
 
     try:
-        url = f"https://api.{datadog_site}/api/v1/validate"
+        url = "https://api.{}/api/v1/validate".format(datadog_site)
         headers = {"Accept": "application/json", "DD-API-KEY": datadog_api_key}
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req) as response:
             response_json = json.loads(response.read())
             if not response_json.get("valid", False):
                 raise DatadogAccessValidationError(
-                    f"Datadog API Key validation with {datadog_site} failed"
+                    "Datadog API Key validation with {} failed".format(datadog_site)
                 )
 
         log.debug("Datadog API credentials validated")
     except urllib.error.HTTPError as e:
         raise DatadogAccessValidationError(
-            f"Failed to validate Datadog credentials: HTTP {e.code} {e.reason}"
+            "Failed to validate Datadog credentials: HTTP {} {}".format(e.code, e.reason)
         ) from e
     except urllib.error.URLError as e:
         raise DatadogAccessValidationError(
-            f"Failed to validate Datadog credentials: {e.reason}"
+            "Failed to validate Datadog credentials: {}".format(e.reason)
         ) from e
     except json.JSONDecodeError as e:
         raise DatadogAccessValidationError(
-            f"Failed to parse Datadog validation response: {e}"
+            "Failed to parse Datadog validation response: {}".format(e)
         ) from e
 
 
@@ -241,7 +241,7 @@ def validate_user_config(config: Configuration):
 
     if config.log_level not in {"DEBUG", "INFO", "WARNING", "ERROR"}:
         raise InputParamValidationError(
-            f"Invalid log level: {config.log_level}. Must be one of: DEBUG, INFO, WARNING, ERROR"
+            "Invalid log level: {}. Must be one of: DEBUG, INFO, WARNING, ERROR".format(config.log_level)
         )
 
     log.debug("Configuration validation completed")
@@ -254,8 +254,8 @@ def validate_monitored_subs_access(monitored_subs: list[str]):
     for sub_id in monitored_subs:
         try:
             set_subscription(sub_id)
-            log.debug(f"Monitored subscription access verified: {sub_id}")
+            log.debug("Monitored subscription access verified: {}".format(sub_id))
         except Exception as e:
             raise AccessError(
-                f"Cannot access monitored subscription {sub_id}: {e}"
+                "Cannot access monitored subscription {}: {}".format(sub_id, e)
             ) from e

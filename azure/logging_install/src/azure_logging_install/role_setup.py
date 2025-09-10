@@ -27,7 +27,7 @@ def create_initial_deploy_identity(control_plane_rg: str, control_plane_region: 
             .param("--resource-group", control_plane_rg)
         )
         log.info(
-            f"User-assigned managed identity '{INITIAL_DEPLOY_IDENTITY_NAME}' already exists - reusing existing identity"
+            "User-assigned managed identity '{}' already exists - reusing existing identity".format(INITIAL_DEPLOY_IDENTITY_NAME)
         )
         return
     except ResourceNotFoundError:
@@ -45,7 +45,7 @@ def create_custom_container_app_start_role(role_name: str, role_scope: str):
     """Create a custom role for starting container app jobs if it does not exist"""
 
     try:
-        log.info(f"Checking if custom role definition '{role_name}' already exists...")
+        log.info("Checking if custom role definition '{}' already exists...".format(role_name))
         output = execute(
             AzCmd("role", "definition list")
             .param("--name", role_name)
@@ -54,18 +54,18 @@ def create_custom_container_app_start_role(role_name: str, role_scope: str):
         )
         if output.strip():
             log.info(
-                f"Custom role definition '{role_name}' already exists - reusing existing role"
+                "Custom role definition '{}' already exists - reusing existing role".format(role_name)
             )
             return
 
         # `az role definition list` returns empty string if the role definition doesn't exist
-        log.info(f"Custom role definition '{role_name}' not found - creating new role")
+        log.info("Custom role definition '{}' not found - creating new role".format(role_name))
     except Exception as e:
         raise ExistenceCheckError(
-            f"Failed to check if custom role definition '{role_name}' exists: {e}"
+            "Failed to check if custom role definition '{}' exists: {}".format(role_name, e)
         ) from e
 
-    log.info(f"Creating custom role definition {role_name}")
+    log.info("Creating custom role definition {}".format(role_name))
 
     role_definition = {
         "Name": role_name,
@@ -87,7 +87,7 @@ def create_custom_container_app_start_role(role_name: str, role_scope: str):
         )
     except Exception as e:
         raise RuntimeError(
-            f"Failed to create custom role definition '{role_name}': {e}"
+            "Failed to create custom role definition '{}': {}".format(role_name, e)
         ) from e
 
 
@@ -106,7 +106,7 @@ def role_exists(role_id: str, scope: str, principal_id: str) -> bool:
 
         return int(output.strip()) > 0
     except (RuntimeError, ValueError) as e:
-        log.error(f"Failed to check if role assignment exists: {e}")
+        log.error("Failed to check if role assignment exists: {}".format(e))
         return False
 
 
@@ -127,11 +127,11 @@ def assign_custom_role_to_identity(
     ).strip()
 
     log.debug(
-        f"Checking if custom role assignment already exists for role {role_name} to identity {identity_id}"
+        "Checking if custom role assignment already exists for role {} to identity {}".format(role_name, identity_id)
     )
     if role_exists(role_id, control_plane_rg_scope, identity_id):
         log.info(
-            f"Custom role assignment already exists for role {role_name} to managed identity - skipping"
+            "Custom role assignment already exists for role {} to managed identity - skipping".format(role_name)
         )
         return
     log.debug("Custom role assignment not found - creating new assignment")
@@ -150,7 +150,7 @@ def wait_for_role_definition_ready(role_name: str, role_scope: str) -> str:
     Role definitions are created asynchronously, so we need to wait for them to be available.
     Returns the role ID when the role definition is ready.
     """
-    log.info(f"Waiting for role definition {role_name} to be ready...")
+    log.info("Waiting for role definition {} to be ready...".format(role_name))
 
     start_time = time.time()
     max_wait_seconds = 120
@@ -166,22 +166,22 @@ def wait_for_role_definition_ready(role_name: str, role_scope: str) -> str:
             ).strip()
 
             if role_id:
-                log.info(f"Role definition {role_name} is ready")
-                log.debug(f"ID: {role_id}")
+                log.info("Role definition {} is ready".format(role_name))
+                log.debug("ID: {}".format(role_id))
                 return role_id
 
         except RuntimeError as e:
             raise ExistenceCheckError(
-                f"Failure to check if role definition {role_name} is ready: {e}"
+                "Failure to check if role definition {} is ready: {}".format(role_name, e)
             ) from e
 
         log.info(
-            f"Role definition {role_name} not yet available, will check again in {poll_interval} seconds"
+            "Role definition {} not yet available, will check again in {} seconds".format(role_name, poll_interval)
         )
         time.sleep(poll_interval)
 
     raise TimeoutError(
-        f"Timeout waiting for role definition {role_name} to be ready after {max_wait_seconds} seconds"
+        "Timeout waiting for role definition {} to be ready after {} seconds".format(role_name, max_wait_seconds)
     )
 
 
@@ -212,7 +212,7 @@ def get_function_app_principal_id(
     control_plane_resource_group: str, function_app_name: str
 ) -> str:
     """Get the principal ID of a Function App's managed identity."""
-    log.debug(f"Getting principal ID for Function App {function_app_name}")
+    log.debug("Getting principal ID for Function App {}".format(function_app_name))
     output = execute(
         AzCmd("functionapp", "identity show")
         .param("--name", function_app_name)
@@ -227,7 +227,7 @@ def get_container_app_job_principal_id(
     control_plane_resource_group: str, job_name: str
 ) -> str:
     """Get the principal ID of a Container App Job's managed identity."""
-    log.debug(f"Getting principal ID for Container App Job {job_name}")
+    log.debug("Getting principal ID for Container App Job {}".format(job_name))
     output = execute(
         AzCmd("containerapp", "job show")
         .param("--name", job_name)
@@ -242,24 +242,24 @@ def assign_role(scope: str, principal_id: str, role_id: str, control_plane_id: s
     """Assign a role to a principal at a given scope."""
 
     log.debug(
-        f"Checking if role assignment already exists for role {role_id} to principal {principal_id} at scope {scope}"
+        "Checking if role assignment already exists for role {} to principal {} at scope {}".format(role_id, principal_id, scope)
     )
 
     if role_exists(role_id, scope, principal_id):
         log.debug(
-            f"Role assignment already exists for role {role_id} to principal {principal_id} at scope {scope} - skipping"
+            "Role assignment already exists for role {} to principal {} at scope {} - skipping".format(role_id, principal_id, scope)
         )
         return
     log.debug("Role assignment not found - creating new assignment")
 
-    log.debug(f"Assigning role {role_id} to principal {principal_id} at scope {scope}")
+    log.debug("Assigning role {} to principal {} at scope {}".format(role_id, principal_id, scope))
     execute(
         AzCmd("role", "assignment create")
         .param("--assignee-object-id", principal_id)
         .param("--assignee-principal-type", "ServicePrincipal")
         .param("--role", role_id)
         .param("--scope", scope)
-        .param("--description", f"ddlfo{control_plane_id}")
+        .param("--description", "ddlfo{}".format(control_plane_id))
     )
 
 
@@ -289,7 +289,7 @@ def grant_permissions(config: Configuration):
     )
 
     for sub_id in config.monitored_subscriptions:
-        log.info(f"Create resource group in subscription: {sub_id}")
+        log.info("Create resource group in subscription: {}".format(sub_id))
         set_subscription(sub_id)
         execute(
             AzCmd("group", "create")
@@ -297,12 +297,12 @@ def grant_permissions(config: Configuration):
             .param("--location", config.control_plane_region)
         )
 
-        subscription_scope = f"/subscriptions/{sub_id}"
+        subscription_scope = "/subscriptions/{}".format(sub_id)
         resource_group_scope = (
-            f"{subscription_scope}/resourceGroups/{config.control_plane_rg}"
+            "{}/resourceGroups/{}".format(subscription_scope, config.control_plane_rg)
         )
 
-        log.info(f"Assigning permissions in subscription: {sub_id}")
+        log.info("Assigning permissions in subscription: {}".format(sub_id))
         assign_role(
             subscription_scope,
             resource_principal_id,

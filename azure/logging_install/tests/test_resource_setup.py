@@ -57,7 +57,7 @@ class TestResourceSetup(TestCase):
         self.assertIn(CONTROL_PLANE_REGION, cmd_str)
 
         self.log_mock.info.assert_called_with(
-            f"Creating resource group {CONTROL_PLANE_RG} in {CONTROL_PLANE_REGION}"
+            "Creating resource group {} in {}".format(CONTROL_PLANE_RG, CONTROL_PLANE_REGION)
         )
 
     def test_create_resource_group_failure(self):
@@ -89,7 +89,7 @@ class TestResourceSetup(TestCase):
         self.assertIn("StorageV2", cmd_str)
 
         self.log_mock.info.assert_called_with(
-            f"Creating storage account {STORAGE_ACCOUNT_NAME}"
+            "Creating storage account {}".format(STORAGE_ACCOUNT_NAME)
         )
 
     def test_wait_for_storage_account_ready_success(self):
@@ -104,7 +104,7 @@ class TestResourceSetup(TestCase):
 
             self.execute_mock.assert_called_once()
             self.log_mock.info.assert_called_with(
-                f"Storage account {STORAGE_ACCOUNT_NAME} is ready"
+                "Storage account {} is ready".format(STORAGE_ACCOUNT_NAME)
             )
 
     def test_wait_for_storage_account_ready_timeout(self):

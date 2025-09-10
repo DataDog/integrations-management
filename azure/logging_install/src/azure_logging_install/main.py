@@ -167,7 +167,7 @@ def main():
         log_header("Success! Azure Automated Log Forwarding installation completed!")
 
     except Exception as e:
-        log.error(f"Failed with error: {e}")
+        log.error("Failed with error: {}".format(e))
         log.error("Check the Azure CLI output for more details")
         raise
 
