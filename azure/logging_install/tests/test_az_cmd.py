@@ -126,7 +126,7 @@ class TestAzCmd(TestCase):
         result = az_cmd.execute(cmd)
 
         self.assertEqual(result, "success output")
-        self.subprocess_mock.assert_called_once()
+        self.assertEqual(self.subprocess_mock.call_count, 1)
 
     def test_execute_authorization_error(self):
         """Test execute handles authorization errors"""
@@ -179,7 +179,7 @@ class TestAzCmd(TestCase):
 
         self.assertEqual(result, "success after retry")
         self.assertEqual(self.subprocess_mock.call_count, 2)
-        self.sleep_mock.assert_called_once()
+        self.assertEqual(self.sleep_mock.call_count, 1)
 
     def test_execute_rate_limit_max_retries(self):
         """Test execute raises exception after max retries"""
@@ -215,7 +215,7 @@ class TestAzCmd(TestCase):
 
         self.assertEqual(result, "success after throttling")
         self.assertEqual(self.subprocess_mock.call_count, 2)
-        self.sleep_mock.assert_called_once()
+        self.assertEqual(self.sleep_mock.call_count, 1)
 
     def test_execute_subprocess_exception(self):
         """Test execute handles subprocess exceptions"""

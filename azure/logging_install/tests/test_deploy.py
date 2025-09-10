@@ -100,7 +100,7 @@ class TestDeploy(TestCase):
             deploy.deploy_lfo_deployer(self.config)
 
         # Should have tried to create role first
-        self.create_initial_deploy_role_mock.assert_called_once()
+        self.assertEqual(self.create_initial_deploy_role_mock.call_count, 1)
         # Should not proceed to create job
         self.create_container_app_job_mock.assert_not_called()
 
@@ -128,8 +128,8 @@ class TestDeploy(TestCase):
         self.wait_for_storage_account_ready_mock.assert_called_once_with(
             self.config.control_plane_cache_storage_name, self.config.control_plane_rg
         )
-        self.create_blob_container_mock.assert_called_once()
-        self.create_file_share_mock.assert_called_once()
+        self.assertEqual(self.create_blob_container_mock.call_count, 1)
+        self.assertEqual(self.create_file_share_mock.call_count, 1)
 
         # Verify function apps are created
         self.create_function_apps_mock.assert_called_once_with(self.config)
@@ -144,7 +144,7 @@ class TestDeploy(TestCase):
             deploy.deploy_control_plane(self.config)
 
         # Should set subscription first
-        self.set_subscription_mock.assert_called_once()
+        self.assertEqual(self.set_subscription_mock.call_count, 1)
         # Should not proceed to other steps
         self.wait_for_storage_account_ready_mock.assert_not_called()
         self.create_function_apps_mock.assert_not_called()
@@ -159,7 +159,7 @@ class TestDeploy(TestCase):
             deploy.deploy_control_plane(self.config)
 
         # Should have tried to create storage
-        self.create_storage_account_mock.assert_called_once()
+        self.assertEqual(self.create_storage_account_mock.call_count, 1)
         # Should not proceed to other steps
         self.create_function_apps_mock.assert_not_called()
 
@@ -177,8 +177,8 @@ class TestDeploy(TestCase):
                 deploy.deploy_control_plane(self.config)
 
         # Should have completed storage setup
-        self.create_storage_account_mock.assert_called_once()
-        self.wait_for_storage_account_ready_mock.assert_called_once()
+        self.assertEqual(self.create_storage_account_mock.call_count, 1)
+        self.assertEqual(self.wait_for_storage_account_ready_mock.call_count, 1)
 
     # ===== Initial Deployment Tests ===== #
 
@@ -192,7 +192,7 @@ class TestDeploy(TestCase):
         )
 
         # Verify job execution command is called
-        self.execute_mock.assert_called_once()
+        self.assertEqual(self.execute_mock.call_count, 1)
         call_args = self.execute_mock.call_args[0][0]
         cmd_str = call_args.str()
 
@@ -248,15 +248,9 @@ class TestDeploy(TestCase):
     def test_complete_deployment_flow(self):
         """Test complete deployment flow simulation"""
         # This would simulate a full deployment
-        with (
-            mock_patch("azure_logging_install.deploy.deploy_lfo_deployer") as mock_lfo,
-            mock_patch(
-                "azure_logging_install.deploy.deploy_control_plane"
-            ) as mock_control,
-            mock_patch(
-                "azure_logging_install.deploy.run_initial_deploy"
-            ) as mock_initial,
-        ):
+        with mock_patch("azure_logging_install.deploy.deploy_lfo_deployer") as mock_lfo, \
+             mock_patch("azure_logging_install.deploy.deploy_control_plane") as mock_control, \
+             mock_patch("azure_logging_install.deploy.run_initial_deploy") as mock_initial:
             # Simulate main deployment flow
             mock_control(self.config)
             mock_lfo(self.config)

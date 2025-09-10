@@ -161,7 +161,7 @@ class TestMain(TestCase):
             main.main()
 
         # Verify the flow of function calls
-        self.configuration_mock.assert_called_once()
+        self.assertEqual(self.configuration_mock.call_count, 1)
         self.validate_user_parameters_mock.assert_called_once_with(mock_config)
         self.create_resource_group_mock.assert_called_once_with(
             mock_config.control_plane_rg, mock_config.control_plane_region
@@ -187,4 +187,4 @@ class TestMain(TestCase):
                 main.main()
 
         # Verify error logging
-        self.log_mock.error.assert_called()
+        self.assertGreater(self.log_mock.error.call_count, 0)

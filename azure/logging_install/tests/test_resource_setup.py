@@ -47,7 +47,7 @@ class TestResourceSetup(TestCase):
         """Test successful resource group creation"""
         resource_setup.create_resource_group(CONTROL_PLANE_RG, CONTROL_PLANE_REGION)
 
-        self.execute_mock.assert_called_once()
+        self.assertEqual(self.execute_mock.call_count, 1)
         call_args = self.execute_mock.call_args[0][0]
         cmd_str = call_args.str()
 
@@ -75,7 +75,7 @@ class TestResourceSetup(TestCase):
             STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RG, CONTROL_PLANE_REGION
         )
 
-        self.execute_mock.assert_called_once()
+        self.assertEqual(self.execute_mock.call_count, 1)
         call_args = self.execute_mock.call_args[0][0]
         cmd_str = call_args.str()
 
@@ -102,7 +102,7 @@ class TestResourceSetup(TestCase):
                 STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RG
             )
 
-            self.execute_mock.assert_called_once()
+            self.assertEqual(self.execute_mock.call_count, 1)
             self.log_mock.info.assert_called_with(
                 "Storage account {} is ready".format(STORAGE_ACCOUNT_NAME)
             )
@@ -165,7 +165,7 @@ class TestResourceSetup(TestCase):
         # create_blob_container takes 2 args: storage_account_name, account_key
         resource_setup.create_blob_container(STORAGE_ACCOUNT_NAME, "test-key")
 
-        self.execute_mock.assert_called_once()
+        self.assertEqual(self.execute_mock.call_count, 1)
         call_args = self.execute_mock.call_args[0][0]
         cmd_str = call_args.str()
 
@@ -183,7 +183,7 @@ class TestResourceSetup(TestCase):
         # create_file_share takes 2 args: storage_account_name, control_plane_rg
         resource_setup.create_file_share(STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RG)
 
-        self.execute_mock.assert_called_once()
+        self.assertEqual(self.execute_mock.call_count, 1)
         call_args = self.execute_mock.call_args[0][0]
         cmd_str = call_args.str()
 

@@ -190,7 +190,7 @@ class TestConfiguration(TestCase):
 
         self.assertEqual(result, TEST_STORAGE_KEY)
         self.assertEqual(config.control_plane_cache_storage_key, TEST_STORAGE_KEY)
-        self.az_cmd_execute_mock.assert_called_once()
+        self.assertEqual(self.az_cmd_execute_mock.call_count, 1)
 
     # ===== Derived Property Tests ===== #
 

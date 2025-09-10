@@ -198,7 +198,7 @@ def validate_datadog_credentials(datadog_api_key: str, datadog_site: str):
         headers = {"Accept": "application/json", "DD-API-KEY": datadog_api_key}
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req) as response:
-            response_json = json.loads(response.read())
+            response_json = json.loads(response.read().decode('utf-8'))
             if not response_json.get("valid", False):
                 raise DatadogAccessValidationError(
                     "Datadog API Key validation with {} failed".format(datadog_site)
