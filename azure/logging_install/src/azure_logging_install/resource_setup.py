@@ -216,27 +216,26 @@ def create_function_app(config: Configuration, name: str):
     }
 
     # Task-specific settings
-    match name:
-        case config.resources_task_name:
-            specific_settings = {
-                "MONITORED_SUBSCRIPTIONS": ",".join(config.monitored_subscriptions),
-                "RESOURCE_TAG_FILTERS": config.resource_tag_filters,
-            }
-        case config.diagnostic_settings_task_name:
-            specific_settings = {
-                "RESOURCE_GROUP": config.control_plane_rg,
-            }
-        case config.scaling_task_name:
-            specific_settings = {
-                "RESOURCE_GROUP": config.control_plane_rg,
-                "FORWARDER_IMAGE": "{}/forwarder:latest".format(IMAGE_REGISTRY_URL),
-                "CONTROL_PLANE_REGION": config.control_plane_region,
-                "PII_SCRUBBER_RULES": config.pii_scrubber_rules,
-            }
-        case _:
-            raise FatalError(
-                "Unknown function app task when configuring app settings: {}".format(name)
-            )
+    if name == config.resources_task_name:
+        specific_settings = {
+            "MONITORED_SUBSCRIPTIONS": ",".join(config.monitored_subscriptions),
+            "RESOURCE_TAG_FILTERS": config.resource_tag_filters,
+        }
+    elif name == config.diagnostic_settings_task_name:
+        specific_settings = {
+            "RESOURCE_GROUP": config.control_plane_rg,
+        }
+    elif name == config.scaling_task_name:
+        specific_settings = {
+            "RESOURCE_GROUP": config.control_plane_rg,
+            "FORWARDER_IMAGE": "{}/forwarder:latest".format(IMAGE_REGISTRY_URL),
+            "CONTROL_PLANE_REGION": config.control_plane_region,
+            "PII_SCRUBBER_RULES": config.pii_scrubber_rules,
+        }
+    else:
+        raise FatalError(
+            "Unknown function app task when configuring app settings: {}".format(name)
+        )
 
     all_settings = {**common_settings, **specific_settings}
 
