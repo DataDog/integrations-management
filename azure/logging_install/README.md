@@ -21,7 +21,8 @@ pyenv install 3.5.10
 brew install pyenv-virtualenv
 pyenv virtualenv 3.5.10 azlogginginstall
 pyenv local azlogginginstall; pyenv shell azlogginginstall
-pip install -e ‘.[dev]’
+pip install --upgrade pip==20.3.4
+pip install -e '.[dev]'
 ```
 
 ### Testing
