@@ -2,6 +2,7 @@ import json
 import urllib.error
 import urllib.request
 from logging import getLogger
+from typing import Dict, List, Set
 
 from .az_cmd import AzCmd, execute, set_subscription
 from .configuration import Configuration
@@ -48,7 +49,7 @@ def validate_az_cli():
         raise AccessError("Azure CLI not authenticated. Run 'az login' first.") from e
 
 
-def check_providers_per_subscription(sub_ids: set[str]) -> dict[str, list[str]]:
+def check_providers_per_subscription(sub_ids: Set[str]) -> Dict[str, List[str]]:
     """Check resource providers per subscription and return a dict of subscription IDs to unregistered providers."""
 
     sub_to_unregistered_provider_list = {}
@@ -95,7 +96,7 @@ def check_providers_per_subscription(sub_ids: set[str]) -> dict[str, list[str]]:
     return sub_to_unregistered_provider_list
 
 
-def validate_resource_provider_registrations(sub_ids: set[str]):
+def validate_resource_provider_registrations(sub_ids: Set[str]):
     """Ensure the required Azure resource providers are registered across all subscriptions."""
 
     log.info(
@@ -247,7 +248,7 @@ def validate_user_config(config: Configuration):
     log.debug("Configuration validation completed")
 
 
-def validate_monitored_subs_access(monitored_subs: list[str]):
+def validate_monitored_subs_access(monitored_subs: List[str]):
     """Verify access to all monitored subscriptions."""
     log.info("Validating access to monitored subscriptions...")
 

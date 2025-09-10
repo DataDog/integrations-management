@@ -2,6 +2,7 @@ import subprocess
 from logging import getLogger
 from re import search
 from time import sleep
+from typing import List
 
 from .errors import (
     AccessError,
@@ -36,7 +37,7 @@ class AzCmd:
         self.cmd.extend([key, value])
         return self
 
-    def param_list(self, key: str, values: list[str]) -> "AzCmd":
+    def param_list(self, key: str, values: List[str]) -> "AzCmd":
         """Adds a list of parameters with the same key"""
         self.cmd.append(key)
         self.cmd.extend(values)
