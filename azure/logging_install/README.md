@@ -17,9 +17,9 @@ az login
 ### Dev Env Setup 
 Run from the `logging_install` folder:
 ```bash
-pyenv install 3.11.8
+pyenv install 3.5.10
 brew install pyenv-virtualenv
-pyenv virtualenv 3.11.8 azlogginginstall
+pyenv virtualenv 3.5.10 azlogginginstall
 pyenv local azlogginginstall; pyenv shell azlogginginstall
 pip install -e ‘.[dev]’
 ```

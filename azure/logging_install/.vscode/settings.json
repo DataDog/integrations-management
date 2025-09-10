@@ -1,5 +1,5 @@
 {
-    "python.pythonPath": "~/.pyenv/versions/3.11.8/azlogginginstall/bin/python",
+    "python.pythonPath": "~/.pyenv/versions/3.5.10/azlogginginstall/bin/python",
     "python.analysis.extraPaths": [
         "./src"
     ],
