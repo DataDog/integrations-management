@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """
-Setup.py for Python 3.5 compatibility.
-
-Reads configuration from pyproject.toml and sets up project accordingly
+Reads configuration from pyproject.toml and sets up project accordingly. setup.py is needed for Python 3.5 compatibility.
 """
 
 from setuptools import setup, find_packages

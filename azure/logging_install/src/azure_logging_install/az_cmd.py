@@ -88,7 +88,7 @@ def execute(az_cmd: AzCmd) -> str:
     for attempt in range(MAX_RETRIES):
         try:
             result = subprocess.run(
-                full_command, shell=True, check=True, capture_output=True, text=True
+                full_command, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True
             )
             if result.returncode != 0:
                 log.error("Command failed: {}".format(full_command))

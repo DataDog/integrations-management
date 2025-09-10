@@ -40,6 +40,7 @@ python -m zipapp src \
   -o dist/azure_logging_install.pyz \
   -p "/usr/bin/env python3" \
   -m "azure_logging_install.main:main"
+chmod +x dist/azure_logging_install.pyz
 ```
 
 ### Execution
