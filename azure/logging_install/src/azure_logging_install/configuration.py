@@ -1,6 +1,5 @@
 import json
 import uuid
-from dataclasses import dataclass
 from logging import getLogger
 
 from .az_cmd import AzCmd, execute
@@ -14,24 +13,48 @@ from .errors import FatalError
 log = getLogger("installer")
 
 
-@dataclass
 class Configuration:
     """User-specified configuration parameters and derivations necessary for deployment"""
 
-    # Required user-specified params
-    management_group_id: str
-    control_plane_region: str
-    control_plane_sub_id: str
-    control_plane_rg: str
-    monitored_subs: str
-    datadog_api_key: str
+    def __init__(self, 
+                 management_group_id: str,
+                 control_plane_region: str,
+                 control_plane_sub_id: str,
+                 control_plane_rg: str,
+                 monitored_subs: str,
+                 datadog_api_key: str,
+                 datadog_site: str = "datadoghq.com",
+                 resource_tag_filters: str = "",
+                 pii_scrubber_rules: str = "",
+                 datadog_telemetry: bool = False,
+                 log_level: str = "INFO") -> None:
+        # Required user-specified params
+        self.management_group_id = management_group_id
+        self.control_plane_region = control_plane_region
+        self.control_plane_sub_id = control_plane_sub_id
+        self.control_plane_rg = control_plane_rg
+        self.monitored_subs = monitored_subs
+        self.datadog_api_key = datadog_api_key
 
-    # Optional user-specified params with defaults
-    datadog_site: str = "datadoghq.com"
-    resource_tag_filters: str = ""
-    pii_scrubber_rules: str = ""
-    datadog_telemetry: bool = False
-    log_level: str = "INFO"
+        # Optional user-specified params with defaults
+        self.datadog_site = datadog_site
+        self.resource_tag_filters = resource_tag_filters
+        self.pii_scrubber_rules = pii_scrubber_rules
+        self.datadog_telemetry = datadog_telemetry
+        self.log_level = log_level
+
+        self._calculate_derived_values()
+
+    def __repr__(self):
+        """String representation of Configuration object"""
+        return ("Configuration(management_group_id={!r}, control_plane_region={!r}, "
+                "control_plane_sub_id={!r}, control_plane_rg={!r}, monitored_subs={!r}, "
+                "datadog_api_key={!r}, datadog_site={!r}, resource_tag_filters={!r}, "
+                "pii_scrubber_rules={!r}, datadog_telemetry={!r}, log_level={!r})").format(
+                    self.management_group_id, self.control_plane_region,
+                    self.control_plane_sub_id, self.control_plane_rg, self.monitored_subs,
+                    self.datadog_api_key, self.datadog_site, self.resource_tag_filters,
+                    self.pii_scrubber_rules, self.datadog_telemetry, self.log_level)
 
     def generate_control_plane_id(self) -> str:
         """Returns a 12-character unique ID based on user input parameters.
@@ -91,7 +114,7 @@ class Configuration:
     def get_control_plane_cache_conn_string(self) -> str:
         return "DefaultEndpointsProtocol=https;AccountName={};EndpointSuffix=core.windows.net;AccountKey={}".format(self.control_plane_cache_storage_name, self.get_control_plane_cache_key())
 
-    def __post_init__(self):
+    def _calculate_derived_values(self):
         """Calculates derived values from user-specified params."""
 
         self.monitored_subscriptions = [
