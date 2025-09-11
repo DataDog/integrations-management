@@ -27,7 +27,7 @@ pip install -e '.[dev]'
 ### Testing
 Run all tests
 ```bash
-python -m pytest tests/ -v
+python -m pytest tests/ --tb=short
 ```
 
 ### Build/Ship
@@ -39,6 +39,7 @@ python -m zipapp src \
   -o dist/azure_logging_install.pyz \
   -p "/usr/bin/env python3" \
   -m "azure_logging_install.main:main"
+chmod +x dist/azure_logging_install.pyz
 ```
 
 ### Execution
