@@ -338,12 +338,6 @@ class TestValidation(TestCase):
         """Test Azure environment validation calls all required validations"""
         with (
             mock_patch(
-                "azure_logging_install.validation.validate_user_config"
-            ) as mock_user_config,
-            mock_patch(
-                "azure_logging_install.validation.validate_az_cli"
-            ) as mock_az_cli,
-            mock_patch(
                 "azure_logging_install.validation.validate_control_plane_sub_access"
             ) as mock_cp_access,
             mock_patch(
@@ -358,8 +352,6 @@ class TestValidation(TestCase):
         ):
             validation.validate_azure_env(self.config)
 
-            mock_user_config.assert_called_once_with(self.config)
-            mock_az_cli.assert_called_once()
             mock_cp_access.assert_called_once_with(self.config.control_plane_sub_id)
             mock_mon_access.assert_called_once_with(self.config.monitored_subscriptions)
             mock_rp_reg.assert_called_once_with(self.config.all_subscriptions)

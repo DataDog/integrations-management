@@ -9,7 +9,7 @@ from .configuration import Configuration
 from .deploy import deploy_control_plane, run_initial_deploy
 from .resource_setup import create_resource_group
 from .role_setup import grant_permissions
-from .validation import validate_user_parameters
+from .validation import check_fresh_install, validate_user_parameters
 
 
 log = getLogger("installer")
@@ -141,8 +141,16 @@ def main():
 
         log_header("STEP 1: Validating user configuration...")
         validate_user_parameters(config)
+        existing_lfos = check_fresh_install(config)
 
-        set_subscription(config.control_plane_sub_id)
+        if existing_lfos:
+            # TODO AZINTS-3894: Report state of azure env to front end
+            log.info("Continue? (y/n)")
+            if input() != "y":
+                log.info("Exiting...")
+                exit(0)
+
+        log.info("Validation completed")
 
         log_header("STEP 2: Creating control plane resource group...")
         set_subscription(config.control_plane_sub_id)
