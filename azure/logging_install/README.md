@@ -17,11 +17,11 @@ az login
 ### Dev Env Setup 
 Run from the `logging_install` folder:
 ```bash
-pyenv install 3.11.8
+pyenv install 3.9.22
 brew install pyenv-virtualenv
-pyenv virtualenv 3.11.8 azlogginginstall
+pyenv virtualenv 3.9.22 azlogginginstall
 pyenv local azlogginginstall; pyenv shell azlogginginstall
-pip install -e ‘.[dev]’
+pip install -e '.[dev]'
 ```
 
 ### Testing
@@ -44,7 +44,8 @@ python -m zipapp src \
 ### Execution
 Usage
 ```bash
-usage: azure_logging_install.pyz [-h]
+usage: 
+./azure_logging_install.pyz [-h]
   --management-group MANAGEMENT_GROUP \
   --control-plane-region CONTROL_PLANE_REGION \
   --control-plane-subscription CONTROL_PLANE_SUBSCRIPTION \
