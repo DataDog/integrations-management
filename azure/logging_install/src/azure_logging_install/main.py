@@ -9,7 +9,7 @@ from .configuration import Configuration
 from .deploy import deploy_control_plane, run_initial_deploy
 from .resource_setup import create_resource_group
 from .role_setup import grant_permissions
-from .validation import check_fresh_install, validate_user_parameters
+from .validation import check_fresh_install, validate_user_parameters, validate_az_cli
 
 
 log = getLogger("installer")
@@ -140,6 +140,7 @@ def main():
         log.info("Starting setup for Azure Automated Log Forwarding...")
 
         log_header("STEP 1: Validating user configuration...")
+        validate_az_cli()
         validate_user_parameters(config)
         existing_lfos = check_fresh_install(config)
 

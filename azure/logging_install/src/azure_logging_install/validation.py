@@ -3,7 +3,6 @@ import urllib.error
 import urllib.request
 from logging import getLogger
 
-
 from .az_cmd import AzCmd, execute, set_subscription
 from .configuration import Configuration
 from .constants import REQUIRED_RESOURCE_PROVIDERS
@@ -15,26 +14,15 @@ from .errors import (
     ResourceProviderRegistrationValidationError,
 )
 from dataclasses import asdict
-from .existing_lfo import check_existing_lfo
+from .existing_lfo import check_existing_lfo, LfoMetadata
 
 log = getLogger("installer")
 
 
 def validate_user_parameters(config: Configuration):
     validate_user_config(config)
-    validate_az_cli()
     validate_azure_env(config)
     validate_datadog_credentials(config.datadog_api_key, config.datadog_site)
-
-
-def check_fresh_install(config: Configuration):
-    """Validate whether we are doing a fresh log forwarding install."""
-    existing_lfos = check_existing_lfo(config)
-    if existing_lfos:
-        log.info("Found existing log forwarding installations")
-        serializable_lfos = {k: asdict(v) for k, v in existing_lfos.items()}
-        log.info(json.dumps(serializable_lfos, indent=2))
-    return existing_lfos
 
 
 def validate_azure_env(config: Configuration):
@@ -57,6 +45,16 @@ def validate_az_cli():
         log.debug("Azure CLI authentication verified")
     except Exception as e:
         raise AccessError("Azure CLI not authenticated. Run 'az login' first.") from e
+
+
+def check_fresh_install(config: Configuration) -> dict[str, LfoMetadata]:
+    """Validate whether we are doing a fresh log forwarding install."""
+    existing_lfos = check_existing_lfo(config)
+    if existing_lfos:
+        log.info("Found existing log forwarding installations")
+        serializable_lfos = {k: asdict(v) for k, v in existing_lfos.items()}
+        log.info(json.dumps(serializable_lfos, indent=2))
+    return existing_lfos
 
 
 def check_providers_per_subscription(sub_ids: set[str]) -> dict[str, list[str]]:
