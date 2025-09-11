@@ -2,6 +2,7 @@ import subprocess
 from logging import getLogger
 from re import search
 from time import sleep
+from typing import Union
 
 from .errors import (
     AccessError,
@@ -51,7 +52,7 @@ class AzCmd:
         return "az " + " ".join(self.cmd)
 
 
-def check_access_error(stderr: str) -> str | None:
+def check_access_error(stderr: str) -> Union[str, None]:
     # Sample:
     # (AuthorizationFailed) The client 'user@example.com' with object id '00000000-0000-0000-0000-000000000000'
     # does not have authorization to perform action 'Microsoft.Storage/storageAccounts/read'
