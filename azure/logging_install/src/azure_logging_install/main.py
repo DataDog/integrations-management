@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import sys
 from logging import basicConfig, getLogger
 
 from .az_cmd import set_subscription
@@ -149,7 +150,7 @@ def main():
             log.info("Continue? (y/n)")
             if input() != "y":
                 log.info("Exiting...")
-                exit(0)
+                sys.exit(0)
 
         log.info("Validation completed")
 
