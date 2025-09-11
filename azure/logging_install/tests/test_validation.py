@@ -356,3 +356,41 @@ class TestValidation(TestCase):
             mock_mon_access.assert_called_once_with(self.config.monitored_subscriptions)
             mock_rp_reg.assert_called_once_with(self.config.all_subscriptions)
             mock_res_names.assert_called_once()
+
+    def test_check_fresh_install_no_existing_lfos(self):
+        """Test no existing LFO installations found"""
+        with mock_patch(
+            "azure_logging_install.validation.check_existing_lfo", return_value={}
+        ) as mock_check_existing:
+            result = validation.check_fresh_install(self.config)
+
+            self.assertEqual(result, {})
+            mock_check_existing.assert_called_once_with(self.config)
+
+    def test_check_fresh_install_with_existing_lfos(self):
+        """Test existing LFO installations are found"""
+        from azure_logging_install.existing_lfo import LfoMetadata
+
+        mock_existing_lfos = {
+            "abc123": LfoMetadata(
+                monitored_subs=["sub-1", "sub-2"],
+                control_plane_sub_id="existing-sub",
+                control_plane_rg="existing-rg",
+            ),
+            "def456": LfoMetadata(
+                monitored_subs=["sub-3"],
+                control_plane_sub_id="another-sub",
+                control_plane_rg="another-rg",
+            ),
+        }
+
+        with (
+            mock_patch(
+                "azure_logging_install.validation.check_existing_lfo",
+                return_value=mock_existing_lfos,
+            ) as mock_check_existing,
+        ):
+            result = validation.check_fresh_install(self.config)
+
+            self.assertEqual(result, mock_existing_lfos)
+            mock_check_existing.assert_called_once_with(self.config)
