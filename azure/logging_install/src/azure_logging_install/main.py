@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import sys
 from logging import basicConfig, getLogger
 
 from .az_cmd import set_subscription
@@ -9,7 +10,7 @@ from .configuration import Configuration
 from .deploy import deploy_control_plane, run_initial_deploy
 from .resource_setup import create_resource_group
 from .role_setup import grant_permissions
-from .validation import validate_user_parameters
+from .validation import check_fresh_install, validate_user_parameters, validate_az_cli
 
 
 log = getLogger("installer")
@@ -140,9 +141,18 @@ def main():
         log.info("Starting setup for Azure Automated Log Forwarding...")
 
         log_header("STEP 1: Validating user configuration...")
+        validate_az_cli()
         validate_user_parameters(config)
+        existing_lfos = check_fresh_install(config)
 
-        set_subscription(config.control_plane_sub_id)
+        if existing_lfos:
+            # TODO AZINTS-3894: Report state of azure env to front end
+            log.info("Continue? (y/n)")
+            if input() != "y":
+                log.info("Exiting...")
+                sys.exit(0)
+
+        log.info("Validation completed")
 
         log_header("STEP 2: Creating control plane resource group...")
         set_subscription(config.control_plane_sub_id)

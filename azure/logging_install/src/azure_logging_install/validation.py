@@ -13,22 +13,21 @@ from .errors import (
     InputParamValidationError,
     ResourceProviderRegistrationValidationError,
 )
+from dataclasses import asdict
+from .existing_lfo import check_existing_lfo, LfoMetadata
 
 log = getLogger("installer")
 
 
 def validate_user_parameters(config: Configuration):
+    validate_user_config(config)
     validate_azure_env(config)
     validate_datadog_credentials(config.datadog_api_key, config.datadog_site)
-
-    log.info("Validation completed")
 
 
 def validate_azure_env(config: Configuration):
     """Validate Azure parameters and environment before creating any resources."""
 
-    validate_user_config(config)
-    validate_az_cli()
     validate_control_plane_sub_access(config.control_plane_sub_id)
     validate_monitored_subs_access(config.monitored_subscriptions)
     validate_resource_provider_registrations(config.all_subscriptions)
@@ -46,6 +45,16 @@ def validate_az_cli():
         log.debug("Azure CLI authentication verified")
     except Exception as e:
         raise AccessError("Azure CLI not authenticated. Run 'az login' first.") from e
+
+
+def check_fresh_install(config: Configuration) -> dict[str, LfoMetadata]:
+    """Validate whether we are doing a fresh log forwarding install."""
+    existing_lfos = check_existing_lfo(config)
+    if existing_lfos:
+        log.info("Found existing log forwarding installations")
+        serializable_lfos = {k: asdict(v) for k, v in existing_lfos.items()}
+        log.info(json.dumps(serializable_lfos, indent=2))
+    return existing_lfos
 
 
 def check_providers_per_subscription(sub_ids: set[str]) -> dict[str, list[str]]:
