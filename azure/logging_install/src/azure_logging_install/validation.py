@@ -47,9 +47,11 @@ def validate_az_cli():
         raise AccessError("Azure CLI not authenticated. Run 'az login' first.") from e
 
 
-def check_fresh_install(config: Configuration) -> dict[str, LfoMetadata]:
+def check_fresh_install(
+    config: Configuration, sub_id_to_name: dict[str, str]
+) -> dict[str, LfoMetadata]:
     """Validate whether we are doing a fresh log forwarding install."""
-    existing_lfos = check_existing_lfo(config)
+    existing_lfos = check_existing_lfo(config, sub_id_to_name)
     if existing_lfos:
         log.info("Found existing log forwarding installations")
         serializable_lfos = {k: asdict(v) for k, v in existing_lfos.items()}

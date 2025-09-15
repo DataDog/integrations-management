@@ -1,3 +1,4 @@
+import json
 import subprocess
 from logging import getLogger
 from re import search
@@ -76,6 +77,12 @@ def set_subscription(sub_id: str):
     """Set the active Azure subscription."""
     log.debug(f"Setting active subscription to {sub_id}")
     execute(AzCmd("account", "set").param("--subscription", sub_id))
+
+
+def list_users_subscriptions() -> dict[str, str]:
+    user_subs = execute(AzCmd("account", "list").param("--output", "json"))
+    subs_json = json.loads(user_subs)
+    return {sub["id"]: sub["name"] for sub in subs_json}
 
 
 def execute(az_cmd: AzCmd) -> str:

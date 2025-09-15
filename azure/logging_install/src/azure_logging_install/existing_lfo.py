@@ -13,12 +13,14 @@ CONTROL_PLANE_RESOURCES_TASK_PREFIX: Final = "resources-task"
 
 @dataclass(frozen=True)
 class LfoMetadata:
-    monitored_subs: list[str]
+    monitored_subs: dict[str, str]
     control_plane_sub_id: str
     control_plane_rg: str
 
 
-def check_existing_lfo(config: Configuration) -> dict[str, LfoMetadata]:
+def check_existing_lfo(
+    config: Configuration, sub_id_to_name: dict[str, str]
+) -> dict[str, LfoMetadata]:
     """Check if LFO is already installed"""
     log.info(
         "Checking if log forwarding is already installed in this Azure environment..."
@@ -52,7 +54,7 @@ def check_existing_lfo(config: Configuration) -> dict[str, LfoMetadata]:
             rg = resources_task["resourceGroup"]
             control_plane_id = name.split("-")[-1]
 
-            monitored_subs = execute(
+            resource_task_monitored_sub_ids = execute(
                 AzCmd("functionapp", "config appsettings list")
                 .param("--subscription", sub_id)
                 .param("--name", name)
@@ -61,16 +63,22 @@ def check_existing_lfo(config: Configuration) -> dict[str, LfoMetadata]:
                 .param("--output", "tsv")
             )
 
-            if not monitored_subs:
+            if not resource_task_monitored_sub_ids:
                 continue
 
             try:
-                monitored_subs = loads(monitored_subs)
+                monitored_sub_ids = loads(resource_task_monitored_sub_ids)
             except JSONDecodeError as e:
-                log.error(f"Invalid JSON: {monitored_subs}")
+                log.error(f"Invalid JSON: {resource_task_monitored_sub_ids}")
                 log.error(f"Error: {e}")
                 raise
 
-            existing_lfos[control_plane_id] = LfoMetadata(monitored_subs, sub_id, rg)
+            existing_lfos[control_plane_id] = LfoMetadata(
+                monitored_subs={
+                    sub_id: sub_id_to_name[sub_id] for sub_id in monitored_sub_ids
+                },
+                control_plane_sub_id=sub_id,
+                control_plane_rg=rg,
+            )
 
     return existing_lfos
