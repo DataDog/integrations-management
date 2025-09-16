@@ -82,7 +82,7 @@ class TestExistingLfo(TestCase):
             "sub-3": SUB_ID_TO_NAME["sub-3"],
         }
         self.assertEqual(lfo_metadata.monitored_subs, expected_monitored_subs)
-        self.assertIn(lfo_metadata.control_plane_sub_id, self.config.all_subscriptions)
+        self.assertIn(CONTROL_PLANE_SUBSCRIPTION, self.config.all_subscriptions)
         self.assertEqual(lfo_metadata.control_plane_rg, "lfo-rg")
 
     def test_check_existing_lfo_multiple_installations(self):

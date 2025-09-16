@@ -384,12 +384,12 @@ class TestValidation(TestCase):
                     "sub-1": SUB_ID_TO_NAME["sub-1"],
                     "sub-2": SUB_ID_TO_NAME["sub-2"],
                 },
-                control_plane_sub_id="existing-sub",
+                control_plane_sub="existing-sub",
                 control_plane_rg="existing-rg",
             ),
             "def456": LfoMetadata(
                 monitored_subs={"sub-3": SUB_ID_TO_NAME["sub-3"]},
-                control_plane_sub_id="another-sub",
+                control_plane_sub="another-sub",
                 control_plane_rg="another-rg",
             ),
         }
