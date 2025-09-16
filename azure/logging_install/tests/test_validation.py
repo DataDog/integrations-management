@@ -29,7 +29,10 @@ SUB_ID_TO_NAME = {
     "sub-2": "Test Subscription 2",
     "sub-3": "Test Subscription 3",
     "sub-4": "Test Subscription 4",
-    "test-sub-1": "Test Control Plane Subscription",
+    CONTROL_PLANE_SUBSCRIPTION: "Test Control Plane Subscription",
+}
+CONTROL_PLANE_SUB_ID_TO_NAME = {
+    CONTROL_PLANE_SUBSCRIPTION: "Test Control Plane Subscription",
 }
 
 MOCK_DATADOG_VALID_RESPONSE = {
@@ -384,12 +387,14 @@ class TestValidation(TestCase):
                     "sub-1": SUB_ID_TO_NAME["sub-1"],
                     "sub-2": SUB_ID_TO_NAME["sub-2"],
                 },
-                control_plane_sub="existing-sub",
+                control_plane_sub=CONTROL_PLANE_SUB_ID_TO_NAME,
                 control_plane_rg="existing-rg",
             ),
             "def456": LfoMetadata(
-                monitored_subs={"sub-3": SUB_ID_TO_NAME["sub-3"]},
-                control_plane_sub="another-sub",
+                monitored_subs={
+                    "sub-3": SUB_ID_TO_NAME["sub-3"],
+                },
+                control_plane_sub=CONTROL_PLANE_SUB_ID_TO_NAME,
                 control_plane_rg="another-rg",
             ),
         }
