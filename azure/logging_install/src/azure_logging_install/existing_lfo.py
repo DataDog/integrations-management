@@ -14,7 +14,7 @@ CONTROL_PLANE_RESOURCES_TASK_PREFIX: Final = "resources-task"
 @dataclass(frozen=True)
 class LfoMetadata:
     monitored_subs: dict[str, str]
-    control_plane_sub_id: str
+    control_plane_sub: dict[str, str]
     control_plane_rg: str
 
 
@@ -77,7 +77,7 @@ def check_existing_lfo(
                 monitored_subs={
                     sub_id: sub_id_to_name[sub_id] for sub_id in monitored_sub_ids
                 },
-                control_plane_sub_id=sub_id,
+                control_plane_sub={sub_id: sub_id_to_name[sub_id]},
                 control_plane_rg=rg,
             )
 
