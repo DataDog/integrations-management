@@ -1,0 +1,53 @@
+{
+    "folders": [
+        {
+            "name": "Azure Logging Install",
+            "path": "./azure/logging_install"
+        }
+    ],
+    "settings": {
+        "python.analysis.extraPaths": [
+            "./azure/logging_install/src"
+        ],
+        "python.analysis.autoSearchPaths": true,
+        "python.analysis.autoImportCompletions": true,
+        "python.analysis.indexing": true,
+        "python.analysis.typeCheckingMode": "basic",
+        "python.terminal.activateEnvironment": true,
+        "python.languageServer": "Pylance",
+        "python.terminal.activateEnvInCurrentTerminal": true,
+        "python.defaultInterpreterPath": "~/.pyenv/versions/azlogginginstall/bin/python"
+    },
+    "launch": {
+        "version": "0.2.0",
+        "configurations": [
+            {
+                "name": "Azure Logging Install: Current File",
+                "type": "debugpy",
+                "request": "launch",
+                "program": "${file}",
+                "console": "integratedTerminal",
+                "python": "${command:python.interpreterPath}",
+                "cwd": "${workspaceFolder}/azure/logging_install"
+            },
+            {
+                "name": "Azure Logging Install: Main Module",
+                "type": "debugpy",
+                "request": "launch",
+                "module": "azure_logging_install.main",
+                "console": "integratedTerminal",
+                "python": "${command:python.interpreterPath}",
+                "cwd": "${workspaceFolder}/azure/logging_install",
+                "args": [
+                    "--help"
+                ]
+            }
+        ]
+    },
+    "extensions": {
+        "recommendations": [
+            "ms-python.python",
+            "ms-python.vscode-pylance"
+        ]
+    }
+}

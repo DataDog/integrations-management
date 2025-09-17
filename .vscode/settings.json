@@ -1,7 +1,12 @@
 {
-    "python.testing.pytestArgs": [
-        "azure"
+    "python.analysis.extraPaths": [
+        "./azure/logging_install/src"
     ],
-    "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true
+    "python.analysis.autoSearchPaths": true,
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.indexing": true,
+    "python.analysis.typeCheckingMode": "basic",
+    "python.terminal.activateEnvironment": true,
+    "python.languageServer": "Pylance",
+    "python.terminal.activateEnvInCurrentTerminal": true
 }

@@ -1,8 +1,27 @@
-# VSCode Settings
-!.vscode
-.vscode/launch.json
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+*.pyz
 
-# Python virtual env
+# Virtual environments
 .env
 .venv
 env/
@@ -10,18 +29,22 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-.python-version
 
-# Python test cache
-.pytest_cache
+# IDE
+.idea/
+.cursor/
 
-# Python byte-compiled files
-__pycache__/
-*.py[cod]
-*$py.class
-*.pyz
-*.egg-info/
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Azure
+.azure/
 
 # Build artifacts
-dist/
-build/
+logging_install/dist/

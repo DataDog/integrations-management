@@ -1,8 +1,12 @@
 {
-    "python.interpreter.path": "~/.pyenv/versions/3.9.22/azlogginginstall/bin/python",
     "python.analysis.extraPaths": [
         "./src"
     ],
     "python.analysis.autoSearchPaths": true,
-    "python.terminal.activateEnvironment": true
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.indexing": true,
+    "python.analysis.typeCheckingMode": "basic",
+    "python.terminal.activateEnvironment": true,
+    "python.languageServer": "Pylance",
+    "python.terminal.activateEnvInCurrentTerminal": true
 }

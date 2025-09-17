@@ -1,0 +1,26 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Azure Logging Install: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "python": "${command:python.interpreterPath}",
+            "cwd": "${workspaceFolder}/azure/logging_install"
+        },
+        {
+            "name": "Azure Logging Install: Main Module",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "azure_logging_install.main",
+            "console": "integratedTerminal",
+            "python": "${command:python.interpreterPath}",
+            "cwd": "${workspaceFolder}/azure/logging_install",
+            "args": [
+                "--help"
+            ]
+        }
+    ]
+}
