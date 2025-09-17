@@ -16,7 +16,7 @@ az login
 ```
 
 ### Dev Env Setup 
-Run from the `logging_install` folder:
+Run from the `integration_quickstart` folder:
 ```bash
 pyenv install 3.9.22
 brew install pyenv-virtualenv

@@ -20,6 +20,7 @@ from operator import add
 import os
 import re
 import subprocess
+import sys
 import threading
 import time
 import traceback
@@ -341,7 +342,6 @@ class StatusReporter:
 def ensure_login() -> None:
     """Ensure that the user is logged into the Azure CLI. If not, raise an exception."""
     if not az("account show"):
-        # TODO: do we need to raise? Won't `az acount show` raise an error if not installed?
         raise RuntimeError("Not logged in to Azure CLI")
 
 
@@ -529,7 +529,7 @@ def time_out(datadog_connection: HTTPSConnection, status: StatusReporter):
 def main():
     if missing_environment_vars := REQUIRED_ENVIRONMENT_VARS - os.environ.keys():
         print(f"Missing required environment variables: {', '.join(missing_environment_vars)}")
-        exit(1)
+        sys.exit(1)
 
     datadog_site = os.environ["DD_SITE"]
     workflow_id = os.environ["WORKFLOW_ID"]
@@ -550,7 +550,7 @@ def main():
             print("You must install and log in to Azure CLI to run this script.")
         else:
             print("You must be logged in to Azure CLI to run this script. Run `az login` and try again.")
-        exit(1)
+        sys.exit(1)
     else:
         print("Connected! Leave this window open and go back to the Datadog UI to continue.")
 
