@@ -24,6 +24,16 @@ CONTROL_PLANE_RESOURCE_GROUP = "test-rg"
 MONITORED_SUBSCRIPTIONS = "sub-1,sub-2"
 DATADOG_API_KEY = "test-api-key"
 DATADOG_SITE = "datadoghq.com"
+SUB_ID_TO_NAME = {
+    "sub-1": "Test Subscription 1",
+    "sub-2": "Test Subscription 2",
+    "sub-3": "Test Subscription 3",
+    "sub-4": "Test Subscription 4",
+    CONTROL_PLANE_SUBSCRIPTION: "Test Control Plane Subscription",
+}
+CONTROL_PLANE_SUB_ID_TO_NAME = {
+    CONTROL_PLANE_SUBSCRIPTION: "Test Control Plane Subscription",
+}
 
 MOCK_DATADOG_VALID_RESPONSE = {
     "valid": True,
@@ -362,10 +372,10 @@ class TestValidation(TestCase):
         with mock_patch(
             "azure_logging_install.validation.check_existing_lfo", return_value={}
         ) as mock_check_existing:
-            result = validation.check_fresh_install(self.config)
+            result = validation.check_fresh_install(self.config, SUB_ID_TO_NAME)
 
             self.assertEqual(result, {})
-            mock_check_existing.assert_called_once_with(self.config)
+            mock_check_existing.assert_called_once_with(self.config, SUB_ID_TO_NAME)
 
     def test_check_fresh_install_with_existing_lfos(self):
         """Test existing LFO installations are found"""
@@ -373,13 +383,18 @@ class TestValidation(TestCase):
 
         mock_existing_lfos = {
             "abc123": LfoMetadata(
-                monitored_subs=["sub-1", "sub-2"],
-                control_plane_sub_id="existing-sub",
+                monitored_subs={
+                    "sub-1": SUB_ID_TO_NAME["sub-1"],
+                    "sub-2": SUB_ID_TO_NAME["sub-2"],
+                },
+                control_plane_sub=CONTROL_PLANE_SUB_ID_TO_NAME,
                 control_plane_rg="existing-rg",
             ),
             "def456": LfoMetadata(
-                monitored_subs=["sub-3"],
-                control_plane_sub_id="another-sub",
+                monitored_subs={
+                    "sub-3": SUB_ID_TO_NAME["sub-3"],
+                },
+                control_plane_sub=CONTROL_PLANE_SUB_ID_TO_NAME,
                 control_plane_rg="another-rg",
             ),
         }
@@ -390,7 +405,7 @@ class TestValidation(TestCase):
                 return_value=mock_existing_lfos,
             ) as mock_check_existing,
         ):
-            result = validation.check_fresh_install(self.config)
+            result = validation.check_fresh_install(self.config, SUB_ID_TO_NAME)
 
             self.assertEqual(result, mock_existing_lfos)
-            mock_check_existing.assert_called_once_with(self.config)
+            mock_check_existing.assert_called_once_with(self.config, SUB_ID_TO_NAME)
