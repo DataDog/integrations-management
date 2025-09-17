@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Azure Logging Install: Current File",
+            "name": "Az Logging Install: Current File",
             "type": "debugpy",
             "request": "launch",
             "program": "${file}",
@@ -11,7 +11,36 @@
             "cwd": "${workspaceFolder}/azure/logging_install"
         },
         {
-            "name": "Azure Logging Install: Main Module",
+            "name": "Az Logging Install: Run Main Module",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "azure_logging_install.main",
+            "console": "integratedTerminal",
+            "python": "${command:python.interpreterPath}",
+            "cwd": "${workspaceFolder}/azure/logging_install",
+            "args": [
+                "-mg",
+                "/providers/Microsoft.Management/managementGroups/Azure-Integrations-Mg",
+                "--control-plane-region",
+                "eastus",
+                "--control-plane-subscription",
+                "<subscription_id1>",
+                "--control-plane-resource-group",
+                "<resource_group_name1>",
+                "--monitored-subscriptions",
+                "<subscription_id1>,<subscription_id2>",
+                "--datadog-api-key",
+                "<datadog_api_key>",
+                "--datadog-site",
+                "datadoghq.com",
+                "--resource-tag-filters",
+                "datadog:true",
+                "--log-level",
+                "DEBUG"
+            ]
+        },
+        {
+            "name": "Az Logging Install: Main Module Help",
             "type": "debugpy",
             "request": "launch",
             "module": "azure_logging_install.main",
