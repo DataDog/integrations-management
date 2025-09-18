@@ -7,25 +7,12 @@ For development, you can run the script locally (assuming you have Azure CLI set
 
 During final testing, you should upload the executable into Azure Cloud Shell and run it there. 
 
-# Dev Setup
-### Azure CLI setup
-```bash
-brew install azure-cli
-az login
-```
-
-### Dev Env Setup 
-Run from the `logging_install` folder:
-```bash
-pyenv install 3.9.22
-brew install pyenv-virtualenv
-pyenv virtualenv 3.9.22 azintegrationmanagement
-pyenv local azintegrationmanagement; pyenv shell azintegrationmanagement
-pip install -e '.[dev]'
-```
+# Development
+### Dev Setup
+See instructions in main `azure` folder
 
 ### Testing
-Run all tests
+Run all tests from the `logging_install` folder:
 ```bash
 python -m pytest tests/ --tb=short
 ```

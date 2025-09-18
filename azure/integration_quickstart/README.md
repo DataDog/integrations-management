@@ -6,24 +6,11 @@ For end users, the produced executable will run in an [Azure Cloud Shell](https:
 
 For development, you can run the script locally (assuming you have Azure CLI setup). 
 
-During final testing, you should upload the executable into Azure Cloud Shell and run it there. 
+During final testing, you should upload the executable into Azure Cloud Shell and run it there.
 
-# Dev Setup
-### Azure CLI setup
-```bash
-brew install azure-cli
-az login
-```
-
-### Dev Env Setup 
-Run from the `integration_quickstart` folder:
-```bash
-pyenv install 3.9.22
-brew install pyenv-virtualenv
-pyenv virtualenv 3.9.22 azintegrationmanagement
-pyenv local azintegrationmanagement; pyenv shell azintegrationmanagement
-pip install -e '.[dev]'
-```
+# Development
+### Dev Setup
+See instructions in main `azure` folder
 
 ### Build/Ship
 Run from the `integration_quickstart` folder:
@@ -37,7 +24,7 @@ python -m zipapp src \
 chmod +x dist/azure_integration_quickstart.pyz
 ```
 
-### Execution
+# Execution
 To run integration quickstart, you must first open the Quickstart onboarding UI, which can be found [here](https://app.datadoghq.com/integrations/azure/add?config_azure-new-onboarding=true) under "Quickstart".
 
 At the top of this page, you will see a "setup script" snippet. Copy that snippet into Azure Cloud Shell in bash mode. It should look something like this:
