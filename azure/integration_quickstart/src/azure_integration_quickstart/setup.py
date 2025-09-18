@@ -342,6 +342,17 @@ class StatusReporter:
                 print("\r", end="")
             self.report(step_id, Status.OK, f"{step_id}: {Status.OK}", step_metadata or None)
 
+
+@contextmanager
+def open_datadog_connection():
+    datadog_site = os.environ["DD_SITE"]
+    datadog_connection = HTTPSConnection(f"api.{datadog_site}")
+    try:
+        yield datadog_connection
+    finally:
+        datadog_connection.close()
+
+
 # Main
 
 
@@ -542,43 +553,40 @@ def main():
         print(f"Missing required environment variables: {', '.join(missing_environment_vars)}")
         sys.exit(1)
 
-    datadog_site = os.environ["DD_SITE"]
     workflow_id = os.environ["WORKFLOW_ID"]
 
-    datadog_connection = HTTPSConnection(f"api.{datadog_site}")
-    status = StatusReporter(datadog_connection, workflow_id)
+    with open_datadog_connection() as datadog_connection:
+        status = StatusReporter(datadog_connection, workflow_id)
 
-    # give up after 30 minutes
-    timer = threading.Timer(30 * 60, time_out, [datadog_connection, status])
-    timer.daemon = True
-    timer.start()
+        # give up after 30 minutes
+        timer = threading.Timer(30 * 60, time_out, [datadog_connection, status])
+        timer.daemon = True
+        timer.start()
 
-    try:
-        with status.report_step("login"):
-            ensure_login()
-    except Exception as e:
-        if "az: command not found" in str(e):
-            print("You must install and log in to Azure CLI to run this script.")
+        try:
+            with status.report_step("login"):
+                ensure_login()
+        except Exception as e:
+            if "az: command not found" in str(e):
+                print("You must install and log in to Azure CLI to run this script.")
+            else:
+                print("You must be logged in to Azure CLI to run this script. Run `az login` and try again.")
+            sys.exit(1)
         else:
-            print("You must be logged in to Azure CLI to run this script. Run `az login` and try again.")
-        sys.exit(1)
-    else:
-        print("Connected! Leave this window open and go back to the Datadog UI to continue.")
+            print("Connected! Leave this window open and go back to the Datadog UI to continue.")
 
-    with status.report_step("scopes", "Collecting scopes"):
-        subscriptions, _ = collect_available_scopes(datadog_connection, workflow_id)
-    with status.report_step("log_forwarders", "Collecting existing Log Forwarders") as step_metadata:
-        collect_log_forwarders(subscriptions, step_metadata)
-    with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
-        scopes, config = receive_user_selections(datadog_connection, workflow_id)
-    with status.report_step("app_registration", "Creating app registration in Azure"):
-        app_registration = create_app_registration_with_permissions(scopes)
-    with status.report_step("integration_config", "Submitting new configuration to Datadog"):
-        submit_integration_config(datadog_connection, app_registration, config)
-    with status.report_step("config_identifier", "Submitting new configuration identifier to Datadog"):
-        submit_config_identifier(datadog_connection, workflow_id, app_registration)
-
-    datadog_connection.close()
+        with status.report_step("scopes", "Collecting scopes"):
+            subscriptions, _ = collect_available_scopes(datadog_connection, workflow_id)
+        with status.report_step("log_forwarders", "Collecting existing Log Forwarders") as step_metadata:
+            collect_log_forwarders(subscriptions, step_metadata)
+        with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
+            scopes, config = receive_user_selections(datadog_connection, workflow_id)
+        with status.report_step("app_registration", "Creating app registration in Azure"):
+            app_registration = create_app_registration_with_permissions(scopes)
+        with status.report_step("integration_config", "Submitting new configuration to Datadog"):
+            submit_integration_config(datadog_connection, app_registration, config)
+        with status.report_step("config_identifier", "Submitting new configuration identifier to Datadog"):
+            submit_config_identifier(datadog_connection, workflow_id, app_registration)
 
     print("Script succeeded. You may close this window.")
 
