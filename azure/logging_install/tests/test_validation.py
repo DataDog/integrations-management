@@ -31,9 +31,9 @@ SUB_ID_TO_NAME = {
     "sub-4": "Test Subscription 4",
     CONTROL_PLANE_SUBSCRIPTION: "Test Control Plane Subscription",
 }
-CONTROL_PLANE_SUB_ID_TO_NAME = {
-    CONTROL_PLANE_SUBSCRIPTION: "Test Control Plane Subscription",
-}
+CONTROL_PLANE_SUB_ID_TO_NAME = (
+    CONTROL_PLANE_SUBSCRIPTION, "Test Control Plane Subscription",
+)
 
 MOCK_DATADOG_VALID_RESPONSE = {
     "valid": True,
@@ -375,7 +375,7 @@ class TestValidation(TestCase):
             result = validation.check_fresh_install(self.config, SUB_ID_TO_NAME)
 
             self.assertEqual(result, {})
-            mock_check_existing.assert_called_once_with(self.config, SUB_ID_TO_NAME)
+            mock_check_existing.assert_called_once_with(self.config.all_subscriptions, SUB_ID_TO_NAME)
 
     def test_check_fresh_install_with_existing_lfos(self):
         """Test existing LFO installations are found"""
@@ -408,4 +408,4 @@ class TestValidation(TestCase):
             result = validation.check_fresh_install(self.config, SUB_ID_TO_NAME)
 
             self.assertEqual(result, mock_existing_lfos)
-            mock_check_existing.assert_called_once_with(self.config, SUB_ID_TO_NAME)
+            mock_check_existing.assert_called_once_with(self.config.all_subscriptions, SUB_ID_TO_NAME)
