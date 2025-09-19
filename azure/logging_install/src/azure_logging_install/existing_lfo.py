@@ -23,12 +23,17 @@ class LfoMetadata:
 def find_existing_lfo_control_planes(
     sub_id_to_name: dict[str, str], subscriptions: Optional[set[str]] = None
 ) -> dict[str, LfoControlPlane]:
-    subscriptions_clause = " and subscriptionId in ("+", ".join(["'" + subscription_id + "'" for subscription_id in subscriptions])+")" if subscriptions else ""
+    """Find existing lfo control planes in the tenant. If `subscriptions` is specified, search is limited to these subscriptions."""
+    if subscriptions is not None:
+        if len(subscriptions) == 0:
+            return {} # searching empty set of subscriptions
+        subscriptions_clause = " and subscriptionId in ("+", ".join(["'" + subscription_id + "'" for subscription_id in subscriptions])+")"
+    else:
+        subscriptions_clause = ""
     func_apps_json = execute(AzCmd("graph", "query").param(
         "-q",
-        f"Resources | where type == 'microsoft.web/sites' and kind contains 'functionapp' and name startswith '{CONTROL_PLANE_RESOURCES_TASK_PREFIX}'{subscriptions_clause} | project name, resourceGroup, subscriptionId, location, properties.state",
+        f"\"Resources | where type == 'microsoft.web/sites' and kind contains 'functionapp' and name startswith '{CONTROL_PLANE_RESOURCES_TASK_PREFIX}'{subscriptions_clause} | project name, resourceGroup, subscriptionId, location, properties.state\"",
     ))
-    print(func_apps_json)
     try:
         func_apps_response = loads(func_apps_json)
     except JSONDecodeError as e:
@@ -50,7 +55,7 @@ def find_existing_lfo_control_planes(
 def check_existing_lfo(
     subscriptions: set[str], sub_id_to_name: dict[str, str]
 ) -> dict[str, LfoMetadata]:
-    """Check if LFO is already installed"""
+    """Check if LFO is already installed on any of the given subscriptions"""
     log.info(
         "Checking if log forwarding is already installed in this Azure environment..."
     )
