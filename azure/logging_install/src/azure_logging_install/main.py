@@ -23,15 +23,7 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    # Required parameters
-    parser.add_argument(
-        "-mg",
-        "--management-group",
-        type=str,
-        required=True,
-        help="Management group ID to deploy under (required)",
-    )
-
+    # Required params
     parser.add_argument(
         "--control-plane-region",
         type=str,
@@ -123,7 +115,6 @@ def main():
     try:
         args = parse_arguments()
         config = Configuration(
-            management_group_id=args.management_group,
             control_plane_region=args.control_plane_region,
             control_plane_sub_id=args.control_plane_subscription,
             control_plane_rg=args.control_plane_resource_group,

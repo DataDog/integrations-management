@@ -17,7 +17,6 @@ from azure_logging_install.errors import (
 )
 
 # Test data
-MANAGEMENT_GROUP_ID = "test-mg"
 CONTROL_PLANE_REGION = "eastus"
 CONTROL_PLANE_SUBSCRIPTION = "test-sub-1"
 CONTROL_PLANE_RESOURCE_GROUP = "test-rg"
@@ -59,7 +58,6 @@ class TestValidation(TestCase):
 
         # Create test configuration
         self.config = Configuration(
-            management_group_id=MANAGEMENT_GROUP_ID,
             control_plane_region=CONTROL_PLANE_REGION,
             control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION,
             control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
@@ -137,24 +135,9 @@ class TestValidation(TestCase):
         """Test successful user configuration validation"""
         validation.validate_user_config(self.config)
 
-    def test_validate_user_config_empty_management_group(self):
-        """Test validation fails with empty management group"""
-        config = Configuration(
-            management_group_id="",
-            control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION,
-            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-            monitored_subs=MONITORED_SUBSCRIPTIONS,
-            datadog_api_key=DATADOG_API_KEY,
-        )
-
-        with self.assertRaises(InputParamValidationError):
-            validation.validate_user_config(config)
-
     def test_validate_user_config_empty_monitored_subs(self):
         """Test validation fails with empty monitored subscriptions"""
         config = Configuration(
-            management_group_id=MANAGEMENT_GROUP_ID,
             control_plane_region=CONTROL_PLANE_REGION,
             control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION,
             control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,

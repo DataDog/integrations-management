@@ -233,9 +233,6 @@ def validate_user_config(config: Configuration):
     """Validate user-specified configuration parameters."""
     log.info("Validating configuration parameters...")
 
-    if not config.management_group_id:
-        raise InputParamValidationError("Management group ID not configured")
-
     if not config.control_plane_sub_id:
         raise InputParamValidationError("Control plane subscription not configured")
 

@@ -8,7 +8,6 @@ from azure_logging_install.existing_lfo import check_existing_lfo, LfoMetadata
 from azure_logging_install.configuration import Configuration
 
 # Test data
-MANAGEMENT_GROUP_ID = "test-mg"
 CONTROL_PLANE_REGION = "eastus"
 CONTROL_PLANE_SUBSCRIPTION = "test-sub-1"
 CONTROL_PLANE_RESOURCE_GROUP = "test-rg"
@@ -31,7 +30,6 @@ class TestExistingLfo(TestCase):
 
         # Create test configuration
         self.config = Configuration(
-            management_group_id=MANAGEMENT_GROUP_ID,
             control_plane_region=CONTROL_PLANE_REGION,
             control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION,
             control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,

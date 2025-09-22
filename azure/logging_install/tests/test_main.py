@@ -7,7 +7,6 @@ from azure_logging_install import main
 from azure_logging_install.errors import FatalError
 
 # Test data
-MANAGEMENT_GROUP_ID = "test-mg"
 CONTROL_PLANE_REGION = "eastus"
 CONTROL_PLANE_SUBSCRIPTION = "test-sub-1"
 CONTROL_PLANE_RESOURCE_GROUP = "test-rg"
@@ -52,8 +51,6 @@ class TestMain(TestCase):
         """Test parsing arguments with all required parameters"""
         test_args = [
             "script.py",
-            "--management-group",
-            MANAGEMENT_GROUP_ID,
             "--control-plane-region",
             CONTROL_PLANE_REGION,
             "--control-plane-subscription",
@@ -69,7 +66,6 @@ class TestMain(TestCase):
         with mock_patch("sys.argv", test_args):
             args = main.parse_arguments()
 
-        self.assertEqual(args.management_group, MANAGEMENT_GROUP_ID)
         self.assertEqual(args.control_plane_region, CONTROL_PLANE_REGION)
         self.assertEqual(args.control_plane_subscription, CONTROL_PLANE_SUBSCRIPTION)
         self.assertEqual(
@@ -83,8 +79,6 @@ class TestMain(TestCase):
         """Test parsing arguments with optional parameters"""
         test_args = [
             "script.py",
-            "--management-group",
-            MANAGEMENT_GROUP_ID,
             "--control-plane-region",
             CONTROL_PLANE_REGION,
             "--control-plane-subscription",
@@ -119,8 +113,6 @@ class TestMain(TestCase):
         """Test argument parsing fails when required parameter is missing"""
         test_args = [
             "script.py",
-            "--management-group",
-            MANAGEMENT_GROUP_ID,
             # Missing --control-plane-region
             "--control-plane-subscription",
             CONTROL_PLANE_SUBSCRIPTION,
@@ -143,7 +135,6 @@ class TestMain(TestCase):
         self.configuration_mock.return_value = mock_config
 
         mock_args = MagicMock()
-        mock_args.management_group = MANAGEMENT_GROUP_ID
         mock_args.control_plane_region = CONTROL_PLANE_REGION
         mock_args.control_plane_subscription = CONTROL_PLANE_SUBSCRIPTION
         mock_args.control_plane_resource_group = CONTROL_PLANE_RESOURCE_GROUP
