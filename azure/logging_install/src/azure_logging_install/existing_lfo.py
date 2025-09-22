@@ -30,6 +30,11 @@ def find_existing_lfo_control_planes(
         subscriptions_clause = " and subscriptionId in ("+", ".join(["'" + subscription_id + "'" for subscription_id in subscriptions])+")"
     else:
         subscriptions_clause = ""
+
+    # make sure azure resource graph extension is installed
+    if not execute(AzCmd("extension", "show").param("--name", "resource-graph"), can_fail=True):
+        execute(AzCmd("extension", "add").param("--name", "resource-graph"))
+
     func_apps_json = execute(AzCmd("graph", "query").param(
         "-q",
         f"\"Resources | where type == 'microsoft.web/sites' and kind contains 'functionapp' and name startswith '{CONTROL_PLANE_RESOURCES_TASK_PREFIX}'{subscriptions_clause} | project name, resourceGroup, subscriptionId, location, properties.state\"",
