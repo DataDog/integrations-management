@@ -51,7 +51,7 @@ def check_fresh_install(
     config: Configuration, sub_id_to_name: dict[str, str]
 ) -> dict[str, LfoMetadata]:
     """Validate whether we are doing a fresh log forwarding install."""
-    existing_lfos = check_existing_lfo(config, sub_id_to_name)
+    existing_lfos = check_existing_lfo(config.all_subscriptions, sub_id_to_name)
     if existing_lfos:
         log.info("Found existing log forwarding installations")
         serializable_lfos = {k: asdict(v) for k, v in existing_lfos.items()}

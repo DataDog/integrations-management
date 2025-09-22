@@ -14,12 +14,12 @@ CONTROL_PLANE_RESOURCES_TASK_PREFIX: Final = "resources-task"
 @dataclass(frozen=True)
 class LfoMetadata:
     monitored_subs: dict[str, str]
-    control_plane_sub: dict[str, str]
+    control_plane_sub: tuple[str, str]
     control_plane_rg: str
 
 
 def check_existing_lfo(
-    config: Configuration, sub_id_to_name: dict[str, str]
+    subscriptions: set[str], sub_id_to_name: dict[str, str]
 ) -> dict[str, LfoMetadata]:
     """Check if LFO is already installed"""
     log.info(
@@ -28,7 +28,7 @@ def check_existing_lfo(
 
     existing_lfos: dict[str, LfoMetadata] = {}  # map control plane ID to metadata
 
-    for sub_id in config.all_subscriptions:
+    for sub_id in subscriptions:
         func_apps_json = execute(
             AzCmd("functionapp", "list")
             .param("--subscription", sub_id)
@@ -77,7 +77,7 @@ def check_existing_lfo(
                 monitored_subs={
                     sub_id: sub_id_to_name[sub_id] for sub_id in monitored_sub_ids
                 },
-                control_plane_sub={sub_id: sub_id_to_name[sub_id]},
+                control_plane_sub=(sub_id, sub_id_to_name[sub_id]),
                 control_plane_rg=rg,
             )
 

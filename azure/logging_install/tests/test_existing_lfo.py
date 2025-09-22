@@ -50,7 +50,7 @@ class TestExistingLfo(TestCase):
         """Test when no LFO installations exist"""
         self.execute_mock.return_value = "[]"
 
-        result = check_existing_lfo(self.config, SUB_ID_TO_NAME)
+        result = check_existing_lfo(self.config.all_subscriptions, SUB_ID_TO_NAME)
 
         self.assertEqual(result, {})
         self.assertEqual(
@@ -75,7 +75,7 @@ class TestExistingLfo(TestCase):
             "[]",  # functionapp list for third subscription (empty)
         ]
 
-        result = check_existing_lfo(self.config, SUB_ID_TO_NAME)
+        result = check_existing_lfo(self.config.all_subscriptions, SUB_ID_TO_NAME)
 
         self.assertEqual(len(result), 1)
         self.assertIn("abc123", result)
@@ -122,7 +122,7 @@ class TestExistingLfo(TestCase):
             "[]",  # functionapp list for third subscription (empty)
         ]
 
-        result = check_existing_lfo(self.config, SUB_ID_TO_NAME)
+        result = check_existing_lfo(self.config.all_subscriptions, SUB_ID_TO_NAME)
 
         self.assertEqual(len(result), 2)
         self.assertIn("def456", result)
