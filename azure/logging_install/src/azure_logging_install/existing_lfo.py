@@ -33,7 +33,7 @@ def find_existing_lfo_control_planes(
 
     # make sure azure resource graph extension is installed
     if not execute(AzCmd("extension", "show").param("--name", "resource-graph"), can_fail=True):
-        execute(AzCmd("extension", "add").param("--name", "resource-graph"))
+        execute(AzCmd("extension", "add").param("--name", "resource-graph").param("--yes", ""))
 
     func_apps_json = execute(AzCmd("graph", "query").param(
         "-q",
@@ -68,13 +68,13 @@ def check_existing_lfo(
     control_planes = find_existing_lfo_control_planes(sub_id_to_name, subscriptions)
     existing_lfos: dict[str, LfoMetadata] = {}  # map control plane ID to metadata
 
-    for resource_name, control_plane in control_planes.items():
-        control_plane_id = resource_name.split("-")[-1]
+    for resource_task_name, control_plane in control_planes.items():
+        control_plane_id = resource_task_name.split("-")[-1]
 
         resource_task_monitored_sub_ids = execute(
             AzCmd("functionapp", "config appsettings list")
             .param("--subscription", control_plane.subscription[0])
-            .param("--name", resource_name)
+            .param("--name", resource_task_name)
             .param("--resource-group", control_plane.resource_group)
             .param("--query", "\"[?name=='MONITORED_SUBSCRIPTIONS'].value\"")
             .param("--output", "tsv")

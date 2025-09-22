@@ -135,7 +135,6 @@ class TestExistingLfo(TestCase):
         ]
 
         result = check_existing_lfo(self.config.all_subscriptions, SUB_ID_TO_NAME)
-        print(result)
 
         self.assertEqual(len(result), 2)
         self.assertIn("def456", result)
