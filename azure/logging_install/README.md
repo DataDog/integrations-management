@@ -34,7 +34,6 @@ Usage
 ```bash
 usage: 
 ./azure_logging_install.pyz [-h]
-  --management-group MANAGEMENT_GROUP \
   --control-plane-region CONTROL_PLANE_REGION \
   --control-plane-subscription CONTROL_PLANE_SUBSCRIPTION \
   --control-plane-resource-group CONTROL_PLANE_RESOURCE_GROUP \
@@ -50,8 +49,6 @@ Azure Log Forwarding Orchestration Installation Script
 
 options:
   -h, --help            show this help message and exit
-  -mg MANAGEMENT_GROUP, --management-group MANAGEMENT_GROUP
-                        Management group ID to deploy under (required)
   --control-plane-region CONTROL_PLANE_REGION
                         Azure region for the control plane (e.g., eastus, westus2) (required)
   --control-plane-subscription CONTROL_PLANE_SUBSCRIPTION
