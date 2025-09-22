@@ -27,7 +27,7 @@ def find_existing_lfo_control_planes(
     if subscriptions is not None:
         if len(subscriptions) == 0:
             return {} # searching empty set of subscriptions
-        subscriptions_clause = " and subscriptionId in ("+", ".join(["'" + subscription_id + "'" for subscription_id in subscriptions])+")"
+        subscriptions_clause = " and subscriptionId in ({})".format(", ".join(["'{}'".format(subscription_id) for subscription_id in subscriptions]))
     else:
         subscriptions_clause = ""
 
