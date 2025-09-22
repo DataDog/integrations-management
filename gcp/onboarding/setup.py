@@ -19,7 +19,7 @@ from typing import Any, Generator, Tuple, Union
 
 ROLE_TO_REQUIRED_API: dict[str, str] = {
     "roles/cloudasset.viewer": "cloudasset.googleapis.com",
-    "roles/compute.viewer": "compute.googleapis.com",
+    "roles/compute.viewer": "compute.googleapis.com",sdf
     "roles/monitoring.viewer": "monitoring.googleapis.com",
     "roles/browser": "cloudresourcemanager.googleapis.com",
 }
