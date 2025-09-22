@@ -290,9 +290,9 @@ class StatusReporter:
     connection: HTTPSConnection
     workflow_id: str
 
-    def report(self, step_id: str, status: Status, message: str, metadata: Optional[dict] = None) -> None:
+    def report(self, step_id: str, status: Status, message: str, metadata: Optional[Json] = None) -> None:
         """Report the status of a step in a workflow to Datadog."""
-        attributes = {"message": message, "status": status.value, "step_id": step_id}
+        attributes: dict[str, Json] = {"message": message, "status": status.value, "step_id": step_id}
         if metadata:
             attributes["metadata"] = metadata
         dd_post(
