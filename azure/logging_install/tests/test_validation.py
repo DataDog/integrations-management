@@ -6,6 +6,7 @@ from unittest.mock import patch as mock_patch, MagicMock
 
 # project
 from azure_logging_install import validation
+from azure_logging_install.existing_lfo import LfoControlPlane
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.constants import REQUIRED_RESOURCE_PROVIDERS
 from azure_logging_install.errors import (
@@ -387,15 +388,13 @@ class TestValidation(TestCase):
                     "sub-1": SUB_ID_TO_NAME["sub-1"],
                     "sub-2": SUB_ID_TO_NAME["sub-2"],
                 },
-                control_plane_sub=CONTROL_PLANE_SUB_ID_TO_NAME,
-                control_plane_rg="existing-rg",
+                control_plane=LfoControlPlane(CONTROL_PLANE_SUB_ID_TO_NAME, "existing-rg", "eastus")
             ),
             "def456": LfoMetadata(
                 monitored_subs={
                     "sub-3": SUB_ID_TO_NAME["sub-3"],
                 },
-                control_plane_sub=CONTROL_PLANE_SUB_ID_TO_NAME,
-                control_plane_rg="another-rg",
+                control_plane=LfoControlPlane(CONTROL_PLANE_SUB_ID_TO_NAME, "another-rg", "westus")
             ),
         }
 

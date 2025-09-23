@@ -26,7 +26,7 @@ import time
 import traceback
 from typing import Any, Generator, Literal, Optional, TypeVar, TypedDict, Union
 
-from azure_logging_install.existing_lfo import check_existing_lfo
+from azure_logging_install.existing_lfo import find_existing_lfo_control_planes
 
 # General util
 
@@ -439,7 +439,7 @@ def collect_available_scopes(connection: HTTPSConnection, workflow_id: str) -> t
     
 def collect_log_forwarders(subscriptions: list[Scope], step_metadata: dict) -> None:
     scope_id_to_name = { s.id:s.name for s in subscriptions }
-    forwarders = check_existing_lfo(set(scope_id_to_name), scope_id_to_name)
+    forwarders = find_existing_lfo_control_planes(scope_id_to_name)
     step_metadata["log_forwarders"] = [asdict(forwarder) for forwarder in forwarders.values()]
 
 def receive_user_selections(connection: HTTPSConnection, workflow_id: str) -> tuple[Sequence[Scope], dict]:
