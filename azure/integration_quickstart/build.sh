@@ -1,5 +1,5 @@
 rm -rf integration_quickstart/dist/tmp
-mkdir integration_quickstart/dist/tmp
+mkdir -p integration_quickstart/dist/tmp
 cp -r integration_quickstart/src/. integration_quickstart/dist/tmp
 cp -r logging_install/src/. integration_quickstart/dist/tmp
 python -m zipapp integration_quickstart/dist/tmp \

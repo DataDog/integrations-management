@@ -44,26 +44,46 @@ class TestExistingLfo(TestCase):
         self.addCleanup(patcher.stop)
         return patcher.start()
 
+    def make_execute_router(
+        self,
+        func_apps_json: str,
+        func_apps_settings_json: dict[str, str] = {},
+    ):
+        def _router(az_cmd, can_fail=False):
+            cmd = az_cmd.str()
+            if "extension show" in cmd:
+                return "installed"
+            if "graph query" in cmd:
+                return func_apps_json
+            if "config appsettings list" in cmd:
+                resource_task_name = cmd.split("--name")[1].split()[0]
+                return func_apps_settings_json[resource_task_name]
+            raise AssertionError(f"Unexpected az cmd: {cmd}")
+
+        return _router
+
     def test_check_existing_lfo_no_installations(self):
         """Test when no LFO installations exist"""
-        self.execute_mock.return_value = json.dumps({'data':[]})
+        self.execute_mock.side_effect = self.make_execute_router(
+            json.dumps({"data": []}),  # graph query returns empty data
+        )
 
         result = check_existing_lfo(self.config.all_subscriptions, SUB_ID_TO_NAME)
 
         self.assertEqual(result, {})
-        self.assertEqual(
-            self.execute_mock.call_count, 1
-        )
+        self.assertEqual(self.execute_mock.call_count, 2)
 
     def test_check_existing_lfo_single_installation(self):
         """Test with a single existing LFO installation"""
         mock_func_apps = {
-            "data": [{
-                "resourceGroup": "lfo-rg",
-                "name": "resources-task-abc123",
-                "location": "eastus",
-                "subscriptionId": "sub-1"
-            }]
+            "data": [
+                {
+                    "resourceGroup": "lfo-rg",
+                    "name": "resources-task-abc123",
+                    "location": "eastus",
+                    "subscriptionId": "sub-1",
+                }
+            ]
         }
         mock_monitored_subs_json = json.dumps(
             {
@@ -73,10 +93,10 @@ class TestExistingLfo(TestCase):
             }
         )
 
-        self.execute_mock.side_effect = [
-            json.dumps(mock_func_apps),  # functionapp json for first subscription
-            mock_monitored_subs_json,  # appsettings for resources-task-abc123 (TSV returns raw JSON string)
-        ]
+        self.execute_mock.side_effect = self.make_execute_router(
+            json.dumps(mock_func_apps),  # graph query for function apps
+            {"resources-task-abc123": mock_monitored_subs_json},
+        )
 
         result = check_existing_lfo(self.config.all_subscriptions, SUB_ID_TO_NAME)
 
@@ -102,13 +122,13 @@ class TestExistingLfo(TestCase):
                     "resourceGroup": "lfo-rg-1",
                     "name": "resources-task-def456",
                     "location": "eastus",
-                    "subscriptionId": "sub-1"
+                    "subscriptionId": "sub-1",
                 },
                 {
                     "resourceGroup": "lfo-rg-2",
                     "name": "resources-task-ghi789",
                     "location": "eastus",
-                    "subscriptionId": "sub-2"
+                    "subscriptionId": "sub-2",
                 },
             ],
         }
@@ -125,12 +145,13 @@ class TestExistingLfo(TestCase):
             }
         )
 
-        self.execute_mock.side_effect = [
-            json.dumps(mock_func_apps),  # functionapp list for first subscription
-            mock_monitored_subs_1_json,  # appsettings for resources-task-def456 (TSV returns raw JSON string)
-            mock_monitored_subs_2_json,  # appsettings for resources-task-ghi789 (TSV returns raw JSON string)
-            "[]",  # functionapp list for third subscription (empty)
-        ]
+        self.execute_mock.side_effect = self.make_execute_router(
+            json.dumps(mock_func_apps),  # graph query for function apps
+            {
+                "resources-task-def456": mock_monitored_subs_1_json,
+                "resources-task-ghi789": mock_monitored_subs_2_json,
+            },
+        )
 
         result = check_existing_lfo(self.config.all_subscriptions, SUB_ID_TO_NAME)
 

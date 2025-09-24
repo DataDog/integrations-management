@@ -14,5 +14,5 @@ pyenv install 3.9.22
 brew install pyenv-virtualenv
 pyenv virtualenv 3.9.22 azintegrationmanagement
 pyenv local azintegrationmanagement; pyenv shell azintegrationmanagement
-pip install -r dev_requirements.txt'
+pip install -r 'dev_requirements.txt'
 ```
