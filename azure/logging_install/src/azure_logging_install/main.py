@@ -117,25 +117,8 @@ def log_header(message: str):
     log.info(header)
 
 
-def main():
-    """Main installation flow that orchestrates all steps."""
-
+def install_log_forwarder(config: Configuration):
     try:
-        args = parse_arguments()
-        config = Configuration(
-            management_group_id=args.management_group,
-            control_plane_region=args.control_plane_region,
-            control_plane_sub_id=args.control_plane_subscription,
-            control_plane_rg=args.control_plane_resource_group,
-            monitored_subs=args.monitored_subscriptions,
-            datadog_api_key=args.datadog_api_key,
-            datadog_site=args.datadog_site,
-            resource_tag_filters=args.resource_tag_filters,
-            pii_scrubber_rules=args.pii_scrubber_rules,
-            datadog_telemetry=args.datadog_telemetry,
-            log_level=args.log_level,
-        )
-
         basicConfig(level=getattr(logging, config.log_level))
 
         log.info("Starting setup for Azure Automated Log Forwarding...")
@@ -182,6 +165,31 @@ def main():
         log.error("Check the Azure CLI output for more details")
         raise
 
+
+def main():
+    """Main installation flow that orchestrates all steps."""
+
+    try:
+        args = parse_arguments()
+        config = Configuration(
+            management_group_id=args.management_group,
+            control_plane_region=args.control_plane_region,
+            control_plane_sub_id=args.control_plane_subscription,
+            control_plane_rg=args.control_plane_resource_group,
+            monitored_subs=args.monitored_subscriptions,
+            datadog_api_key=args.datadog_api_key,
+            datadog_site=args.datadog_site,
+            resource_tag_filters=args.resource_tag_filters,
+            pii_scrubber_rules=args.pii_scrubber_rules,
+            datadog_telemetry=args.datadog_telemetry,
+            log_level=args.log_level,
+        )
+    except Exception as e:
+        log.error(f"Failed to parse arguments: {e}")
+
+    install_log_forwarder(config)
+
+        
 
 if __name__ == "__main__":
     main()
