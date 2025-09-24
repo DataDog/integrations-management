@@ -165,7 +165,7 @@ def get_flat_permission(auth_token: str, scope: str) -> FlatPermission:
 ScopeType = Literal["subscription", "management_group"]
 
 
-@dataclass
+@dataclass(eq=True)
 class Scope(ABC):
     """An Azure scope."""
 
@@ -181,6 +181,9 @@ class Scope(ABC):
     @abstractmethod
     def scope(self) -> str:
         pass
+
+    def __hash__(self) -> int:
+        return hash(self.id)
 
 
 class Subscription(Scope):
