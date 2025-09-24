@@ -551,6 +551,11 @@ def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
         monitored_subs=",".join([s.name for s in subscriptions]),
         datadog_api_key=os.environ["DD_API_KEY"],
     )
+    if "tagFilters" in config:
+        log_forwarder_config.resource_tag_filters = config["tagFilters"]
+    if "piiFilters" in config:
+        log_forwarder_config.pii_scrubber_rules = config["piiFilters"]
+        
     install_log_forwarder(log_forwarder_config)
 
 
