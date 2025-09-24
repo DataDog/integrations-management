@@ -13,16 +13,8 @@ During final testing, you should upload the executable into Azure Cloud Shell an
 See instructions in main `azure` folder
 
 ### Build/Ship
-Run from the `integration_quickstart` folder:
-Zip app into a single executable file `dist/azure_integration_quickstart.pyz`
-
-```bash
-python -m zipapp src \
-  -o dist/azure_integration_quickstart.pyz \
-  -p "/usr/bin/env python3" \
-  -m "setup:main"
-chmod +x dist/azure_integration_quickstart.pyz
-```
+Run from the `azure` folder:
+`bash integration_quickstart/build.sh`
 
 # Execution
 To run integration quickstart, you must first open the Quickstart onboarding UI, which can be found [here](https://app.datadoghq.com/integrations/azure/add?config_azure-new-onboarding=true) under "Quickstart".

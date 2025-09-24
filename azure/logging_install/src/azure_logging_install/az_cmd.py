@@ -85,7 +85,7 @@ def list_users_subscriptions() -> dict[str, str]:
     return {sub["id"]: sub["name"] for sub in subs_json}
 
 
-def execute(az_cmd: AzCmd) -> str:
+def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
     """Run an Azure CLI command and return output or raise error."""
 
     full_command = az_cmd.str()
@@ -97,7 +97,7 @@ def execute(az_cmd: AzCmd) -> str:
             result = subprocess.run(
                 full_command, shell=True, check=True, capture_output=True, text=True
             )
-            if result.returncode != 0:
+            if result.returncode != 0 and not can_fail:
                 log.error(f"Command failed: {full_command}")
                 log.error(result.stderr)
                 raise RuntimeError(f"Command failed: {full_command}")
@@ -132,6 +132,8 @@ def execute(az_cmd: AzCmd) -> str:
                 if error_details:
                     raise AccessError(f"{error_message}: {error_details}") from e
                 raise AccessError(error_message) from e
+            if can_fail:
+                return ""
             log.error(f"Command failed: {full_command}")
             log.error(e.stderr)
             raise RuntimeError(f"Command failed: {full_command}") from e

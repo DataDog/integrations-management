@@ -46,18 +46,25 @@ class TestExistingLfo(TestCase):
 
     def test_check_existing_lfo_no_installations(self):
         """Test when no LFO installations exist"""
-        self.execute_mock.return_value = "[]"
+        self.execute_mock.return_value = json.dumps({'data':[]})
 
-        result = check_existing_lfo(self.config, SUB_ID_TO_NAME)
+        result = check_existing_lfo(self.config.all_subscriptions, SUB_ID_TO_NAME)
 
         self.assertEqual(result, {})
         self.assertEqual(
-            self.execute_mock.call_count, len(self.config.all_subscriptions)
+            self.execute_mock.call_count, 1
         )
 
     def test_check_existing_lfo_single_installation(self):
         """Test with a single existing LFO installation"""
-        mock_func_apps = [{"resourceGroup": "lfo-rg", "name": "resources-task-abc123"}]
+        mock_func_apps = {
+            "data": [{
+                "resourceGroup": "lfo-rg",
+                "name": "resources-task-abc123",
+                "location": "eastus",
+                "subscriptionId": "sub-1"
+            }]
+        }
         mock_monitored_subs_json = json.dumps(
             {
                 "sub-1": SUB_ID_TO_NAME["sub-1"],
@@ -67,13 +74,11 @@ class TestExistingLfo(TestCase):
         )
 
         self.execute_mock.side_effect = [
-            json.dumps(mock_func_apps),  # functionapp list for first subscription
+            json.dumps(mock_func_apps),  # functionapp json for first subscription
             mock_monitored_subs_json,  # appsettings for resources-task-abc123 (TSV returns raw JSON string)
-            "[]",  # functionapp list for second subscription (empty)
-            "[]",  # functionapp list for third subscription (empty)
         ]
 
-        result = check_existing_lfo(self.config, SUB_ID_TO_NAME)
+        result = check_existing_lfo(self.config.all_subscriptions, SUB_ID_TO_NAME)
 
         self.assertEqual(len(result), 1)
         self.assertIn("abc123", result)
@@ -87,18 +92,26 @@ class TestExistingLfo(TestCase):
         }
         self.assertEqual(lfo_metadata.monitored_subs, expected_monitored_subs)
         self.assertIn(CONTROL_PLANE_SUBSCRIPTION, self.config.all_subscriptions)
-        self.assertEqual(lfo_metadata.control_plane_rg, "lfo-rg")
+        self.assertEqual(lfo_metadata.control_plane.resource_group, "lfo-rg")
 
     def test_check_existing_lfo_multiple_installations(self):
         """Test with multiple existing LFO installations"""
-        mock_func_apps_sub1 = [
-            {"resourceGroup": "lfo-rg-1", "name": "resources-task-def456"}
-        ]
-
-        mock_func_apps_sub2 = [
-            {"resourceGroup": "lfo-rg-2", "name": "resources-task-ghi789"}
-        ]
-
+        mock_func_apps = {
+            "data": [
+                {
+                    "resourceGroup": "lfo-rg-1",
+                    "name": "resources-task-def456",
+                    "location": "eastus",
+                    "subscriptionId": "sub-1"
+                },
+                {
+                    "resourceGroup": "lfo-rg-2",
+                    "name": "resources-task-ghi789",
+                    "location": "eastus",
+                    "subscriptionId": "sub-2"
+                },
+            ],
+        }
         mock_monitored_subs_1_json = json.dumps(
             {
                 "sub-1": SUB_ID_TO_NAME["sub-1"],
@@ -113,14 +126,13 @@ class TestExistingLfo(TestCase):
         )
 
         self.execute_mock.side_effect = [
-            json.dumps(mock_func_apps_sub1),  # functionapp list for first subscription
+            json.dumps(mock_func_apps),  # functionapp list for first subscription
             mock_monitored_subs_1_json,  # appsettings for resources-task-def456 (TSV returns raw JSON string)
-            json.dumps(mock_func_apps_sub2),  # functionapp list for second subscription
             mock_monitored_subs_2_json,  # appsettings for resources-task-ghi789 (TSV returns raw JSON string)
             "[]",  # functionapp list for third subscription (empty)
         ]
 
-        result = check_existing_lfo(self.config, SUB_ID_TO_NAME)
+        result = check_existing_lfo(self.config.all_subscriptions, SUB_ID_TO_NAME)
 
         self.assertEqual(len(result), 2)
         self.assertIn("def456", result)
@@ -132,7 +144,7 @@ class TestExistingLfo(TestCase):
             "sub-2": SUB_ID_TO_NAME["sub-2"],
         }
         self.assertEqual(lfo_1.monitored_subs, expected_lfo_1_subs)
-        self.assertEqual(lfo_1.control_plane_rg, "lfo-rg-1")
+        self.assertEqual(lfo_1.control_plane.resource_group, "lfo-rg-1")
 
         lfo_2 = result["ghi789"]
         expected_lfo_2_subs = {
@@ -140,4 +152,4 @@ class TestExistingLfo(TestCase):
             "sub-4": SUB_ID_TO_NAME["sub-4"],
         }
         self.assertEqual(lfo_2.monitored_subs, expected_lfo_2_subs)
-        self.assertEqual(lfo_2.control_plane_rg, "lfo-rg-2")
+        self.assertEqual(lfo_2.control_plane.resource_group, "lfo-rg-2")
