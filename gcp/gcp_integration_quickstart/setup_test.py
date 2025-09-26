@@ -728,9 +728,8 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
         )
         self.integration_configuration = IntegrationConfiguration(
             metric_namespace_configs=[{"namespace": "test"}],
-            cloud_run_revision_filters=[],
+            monitored_resource_configs=[{"cloud_run": ["filter1"]}],
             account_tags=["tag1", "tag2"],
-            host_filters=[],
             resource_collection_enabled=True,
             automute=False,
         )
@@ -841,9 +840,8 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
                         "client_email": self.service_account,
                         "is_per_project_quota_enabled": True,
                         "metric_namespace_configs": [{"namespace": "test"}],
-                        "cloud_run_revision_filters": [],
+                        "monitored_resource_configs": [{"cloud_run": ["filter1"]}],
                         "account_tags": ["tag1", "tag2"],
-                        "host_filters": [],
                         "resource_collection_enabled": True,
                         "automute": False,
                     },
