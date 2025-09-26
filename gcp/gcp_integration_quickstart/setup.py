@@ -269,9 +269,8 @@ class IntegrationConfiguration:
     """Holds configuration details for the GCP integration with Datadog."""
 
     metric_namespace_configs: list[dict[str, Any]]
-    cloud_run_revision_filters: list[str]
+    monitored_resource_configs: list[dict[str, list[str]]]
     account_tags: list[str]
-    host_filters: list[str]
     resource_collection_enabled: bool
     automute: bool
 
