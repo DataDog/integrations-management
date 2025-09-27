@@ -482,8 +482,9 @@ class TestGCloudFunction(unittest.TestCase):
     @patch("setup.gcloud")
     @patch("setup.dd_request")
     @patch("setup.request")
+    @patch("setup.fetch_folders")
     def test_collect_configuration_scopes_get_service_accounts_404(
-        self, mock_request, mock_dd_request, mock_gcloud
+        self, mock_fetch_folders, mock_request, mock_dd_request, mock_gcloud
     ):
         """Test collect_configuration_scopes when get service accounts endpoint returns 404 (no existing accounts)."""
 
@@ -496,7 +497,7 @@ class TestGCloudFunction(unittest.TestCase):
             200,
         )
 
-        # Mock gcloud responses for auth token, projects, and folders
+        # Mock gcloud responses for auth token and projects
         def gcloud_side_effect(cmd, *_):
             if "auth print-access-token" in cmd:
                 return {"token": "test-token"}
@@ -508,18 +509,19 @@ class TestGCloudFunction(unittest.TestCase):
                         "parent": {"id": "parent123"},
                     }
                 ]
-            elif "alpha resource-manager folders search" in cmd:
-                return [
-                    {
-                        "displayName": "Test Folder",
-                        "name": "folders/folder123",
-                        "parent": "folders/parent456",
-                    }
-                ]
             else:
                 return None
 
         mock_gcloud.side_effect = gcloud_side_effect
+
+        # Mock fetch_folders response
+        mock_fetch_folders.return_value = [
+            {
+                "displayName": "Test Folder",
+                "name": "folders/folder123",
+                "parent": "folders/parent456",
+            }
+        ]
 
         step_reporter = Mock()
 
@@ -531,7 +533,7 @@ class TestGCloudFunction(unittest.TestCase):
             "GET", "/api/v2/integration/gcp/accounts"
         )
 
-        # Verify gcloud was called for auth token, projects and folders
+        # Verify gcloud was called for auth token and projects
         expected_gcloud_calls = [
             call(
                 'projects list         --filter="lifecycleState=ACTIVE AND NOT projectId:sys*"',
@@ -539,15 +541,12 @@ class TestGCloudFunction(unittest.TestCase):
                 "projectId",
                 "parent.id",
             ),
-            call(
-                'alpha resource-manager folders search         --query="lifecycleState=ACTIVE"',
-                "displayName",
-                "name",
-                "parent",
-            ),
             call("auth print-access-token"),
         ]
         mock_gcloud.assert_has_calls(expected_gcloud_calls)
+
+        # Verify fetch_folders was called
+        mock_fetch_folders.assert_called_once_with("test-token")
 
         # Verify step_reporter.report was called with metadata
         step_reporter.report.assert_called_once()
@@ -560,8 +559,9 @@ class TestGCloudFunction(unittest.TestCase):
     @patch("setup.gcloud")
     @patch("setup.dd_request")
     @patch("setup.request")
+    @patch("setup.fetch_folders")
     def test_collect_configuration_scopes_get_service_accounts_200(
-        self, mock_request, mock_dd_request, mock_gcloud
+        self, mock_fetch_folders, mock_request, mock_dd_request, mock_gcloud
     ):
         """Test collect_configuration_scopes when get service accounts endpoint returns 200 (existing accounts)."""
 
@@ -577,7 +577,7 @@ class TestGCloudFunction(unittest.TestCase):
             200,
         )
 
-        # Mock gcloud responses for auth token, projects, and folders
+        # Mock gcloud responses for auth token and projects
         def gcloud_side_effect(cmd, *_):
             if "auth print-access-token" in cmd:
                 return {"token": "test-token"}
@@ -589,18 +589,19 @@ class TestGCloudFunction(unittest.TestCase):
                         "parent": {"id": "parent123"},
                     }
                 ]
-            elif "alpha resource-manager folders search" in cmd:
-                return [
-                    {
-                        "displayName": "Test Folder",
-                        "name": "folders/folder123",
-                        "parent": "folders/parent456",
-                    }
-                ]
             else:
                 return None
 
         mock_gcloud.side_effect = gcloud_side_effect
+
+        # Mock fetch_folders response
+        mock_fetch_folders.return_value = [
+            {
+                "displayName": "Test Folder",
+                "name": "folders/folder123",
+                "parent": "folders/parent456",
+            }
+        ]
 
         step_reporter = Mock()
 
@@ -611,7 +612,7 @@ class TestGCloudFunction(unittest.TestCase):
             "GET", "/api/v2/integration/gcp/accounts"
         )
 
-        # Verify gcloud was called for auth token, projects and folders
+        # Verify gcloud was called for auth token and projects
         expected_gcloud_calls = [
             call(
                 'projects list         --filter="lifecycleState=ACTIVE AND NOT projectId:sys*"',
@@ -619,15 +620,12 @@ class TestGCloudFunction(unittest.TestCase):
                 "projectId",
                 "parent.id",
             ),
-            call(
-                'alpha resource-manager folders search         --query="lifecycleState=ACTIVE"',
-                "displayName",
-                "name",
-                "parent",
-            ),
             call("auth print-access-token"),
         ]
         mock_gcloud.assert_has_calls(expected_gcloud_calls)
+
+        # Verify fetch_folders was called
+        mock_fetch_folders.assert_called_once_with("test-token")
 
         # Verify step_reporter.report was called with metadata
         step_reporter.report.assert_called_once()
@@ -658,6 +656,109 @@ class TestGCloudFunction(unittest.TestCase):
         mock_dd_request.assert_called_once_with(
             "GET", "/api/v2/integration/gcp/accounts"
         )
+
+
+class TestFetchFolders(unittest.TestCase):
+    """Test the fetch_folders function."""
+
+    @patch("setup.request")
+    def test_fetch_folders_success(self, mock_request):
+        """Test fetch_folders when successful."""
+        mock_request.return_value = (
+            '{"folders": [{"displayName": "Test Folder", "name": "folders/folder123", "parent": "folders/parent456"}]}',
+            200,
+        )
+
+        result = fetch_folders("test-token")
+
+        mock_request.assert_called_once_with(
+            "POST",
+            "https://cloudresourcemanager.googleapis.com/v2/folders:search",
+            {"query": "lifecycleState=ACTIVE"},
+            headers={
+                "Authorization": "Bearer test-token",
+                "Content-Type": "application/json",
+            },
+        )
+        self.assertEqual(
+            result,
+            [
+                {
+                    "displayName": "Test Folder",
+                    "name": "folders/folder123",
+                    "parent": "folders/parent456",
+                }
+            ],
+        )
+
+    @patch("setup.request")
+    def test_fetch_folders_with_pagination(self, mock_request):
+        """Test fetch_folders with pagination."""
+        # First call returns first page with nextPageToken
+        # Second call returns second page without nextPageToken
+        mock_request.side_effect = [
+            (
+                '{"folders": [{"displayName": "Folder 1", "name": "folders/folder1", "parent": "folders/parent1"}], "nextPageToken": "token123"}',
+                200,
+            ),
+            (
+                '{"folders": [{"displayName": "Folder 2", "name": "folders/folder2", "parent": "folders/parent2"}]}',
+                200,
+            ),
+        ]
+
+        result = fetch_folders("test-token")
+
+        self.assertEqual(mock_request.call_count, 2)
+
+        mock_request.assert_any_call(
+            "POST",
+            "https://cloudresourcemanager.googleapis.com/v2/folders:search",
+            {"query": "lifecycleState=ACTIVE"},
+            headers={
+                "Authorization": "Bearer test-token",
+                "Content-Type": "application/json",
+            },
+        )
+
+        mock_request.assert_any_call(
+            "POST",
+            "https://cloudresourcemanager.googleapis.com/v2/folders:search",
+            {
+                "query": "lifecycleState=ACTIVE",
+                "pageToken": "token123",
+            },
+            headers={
+                "Authorization": "Bearer test-token",
+                "Content-Type": "application/json",
+            },
+        )
+
+        self.assertEqual(
+            result,
+            [
+                {
+                    "displayName": "Folder 1",
+                    "name": "folders/folder1",
+                    "parent": "folders/parent1",
+                },
+                {
+                    "displayName": "Folder 2",
+                    "name": "folders/folder2",
+                    "parent": "folders/parent2",
+                },
+            ],
+        )
+
+    @patch("setup.request")
+    def test_fetch_folders_api_error(self, mock_request):
+        """Test fetch_folders when API returns error."""
+        mock_request.return_value = ('{"error": "server error"}', 500)
+
+        with self.assertRaises(RuntimeError) as context:
+            fetch_folders("test-token")
+
+        self.assertIn("failed to fetch folders", str(context.exception))
 
 
 class TestFetchIamPermissionsFor(unittest.TestCase):
