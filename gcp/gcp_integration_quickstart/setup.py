@@ -2,6 +2,7 @@
 # Unless explicitly stated otherwise all files in this repository are licensed under the Apache 2 License.
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
+
 import json
 import os
 import ssl
@@ -293,6 +294,47 @@ def fetch_iam_permissions_for(
     return resource_container, response, status
 
 
+def fetch_folders(auth_token: str) -> list[dict[str, Any]]:
+    """Fetch all active GCP folders."""
+
+    response, status = request(
+        "POST",
+        "https://cloudresourcemanager.googleapis.com/v2/folders:search",
+        {"query": "lifecycleState=ACTIVE"},
+        headers={
+            "Authorization": f"Bearer {auth_token}",
+            "Content-Type": "application/json",
+        },
+    )
+
+    json_response = json.loads(response)
+    if status != 200:
+        raise RuntimeError(f"failed to fetch folders: {response}")
+
+    folders = [folder for folder in json_response.get("folders", [])]
+
+    while json_response.get("nextPageToken"):
+        response, status = request(
+            "POST",
+            "https://cloudresourcemanager.googleapis.com/v2/folders:search",
+            {
+                "query": "lifecycleState=ACTIVE",
+                "pageToken": json_response.get("nextPageToken"),
+            },
+            headers={
+                "Authorization": f"Bearer {auth_token}",
+                "Content-Type": "application/json",
+            },
+        )
+        json_response = json.loads(response)
+        if status != 200:
+            raise RuntimeError(f"failed to fetch folders: {response}")
+
+        folders.extend([folder for folder in json_response.get("folders", [])])
+
+    return folders
+
+
 def from_dict_recursive(data: dict[str, Any]) -> ResourceContainer:
     """Recursively convert a dict into Folder or Project depending on resource_container_type"""
     if data.get("resource_container_type") not in ("folder", "project"):
@@ -306,10 +348,10 @@ def from_dict_recursive(data: dict[str, Any]) -> ResourceContainer:
 
 
 def filter_configuration_scope(
+    token: str,
     configuration_scope: ConfigurationScope,
 ) -> ConfigurationScope:
     """Filter the configuration scope to only include projects and folders with the required permissions."""
-    token = gcloud("auth print-access-token")["token"]
     projects: list[Project] = []
     folders: list[Folder] = []
 
@@ -336,22 +378,22 @@ def filter_configuration_scope(
             project_futures + folder_futures
         )
 
-        for future in as_completed(all_futures):
-            resource, response, status = future.result()
+    for future in as_completed(all_futures):
+        resource, response, status = future.result()
 
-            data = json.loads(response)
-            permissions = set(data.get("permissions", []))
+        data = json.loads(response)
+        permissions = set(data.get("permissions", []))
 
-            if status == 200 and any(
-                permission not in permissions
-                for permission in resource.required_permissions
-            ):
-                continue
+        if status == 200 and any(
+            permission not in permissions
+            for permission in resource.required_permissions
+        ):
+            continue
 
-            if isinstance(resource, Project):
-                projects.append(resource)
-            else:
-                folders.append(resource)
+        if isinstance(resource, Project):
+            projects.append(resource)
+        else:
+            folders.append(resource)
 
     parent_id_to_scope: dict[str, list] = defaultdict(list[ResourceContainer])
     for resource_container in [*projects, *folders]:
@@ -458,21 +500,18 @@ def collect_configuration_scopes(step_reporter: StepStatusReporter) -> None:
         *["name", "projectId", "parent.id"],
     )
 
-    list_folder_output = gcloud(
-        'alpha resource-manager folders search \
-        --query="lifecycleState=ACTIVE"',
-        *["displayName", "name", "parent"],
-    )
-
     projects = [
         Project(
             name=p["name"],
-            parent_id=p["parent"]["id"],
+            parent_id=p.get("parent", {}).get("id", ""),
             id=p["projectId"],
             is_already_monitored=p["projectId"] in monitored_projects,
         )
         for p in list_project_output
     ]
+
+    token = gcloud("auth print-access-token")["token"]
+    list_folder_output = fetch_folders(token)
 
     folders = []
     for f in list_folder_output:
@@ -485,10 +524,11 @@ def collect_configuration_scopes(step_reporter: StepStatusReporter) -> None:
         folders.append(folder)
 
     filtered_configuration = filter_configuration_scope(
+        token,
         ConfigurationScope(
             projects=projects,
             folders=folders,
-        )
+        ),
     )
 
     step_reporter.report(
