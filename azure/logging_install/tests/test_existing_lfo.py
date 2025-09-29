@@ -27,7 +27,7 @@ SUB_ID_TO_NAME = {
     "sub-4": "Test Subscription 4",
     CONTROL_PLANE_SUBSCRIPTION: "Test Control Plane Subscription",
 }
-RESOURCE_TAG_FILTER = "env:prod,team:infra"
+RESOURCE_TAG_FILTER = "env:prod,team:infra,!env:test"
 PII_SCRUBBER_RULE = "rule1:\n  pattern: 'sensitive'\n  replacement: 'test'"
 
 
@@ -63,18 +63,17 @@ class TestExistingLfo(TestCase):
                 return "installed"
             if "graph query" in cmd:
                 return func_apps_json
-            if MONITORED_SUBSCRIPTIONS_KEY in cmd:
+            if "config appsettings list" in cmd:
                 resource_task_name = cmd.split("--name")[1].split()[0]
-                key = resource_task_name + "-" + MONITORED_SUBSCRIPTIONS_KEY
-                return func_apps_settings_json[key]
-            if RESOURCE_TAG_FILTERS_KEY in cmd:
-                resource_task_name = cmd.split("--name")[1].split()[0]
-                key = resource_task_name + "-" + RESOURCE_TAG_FILTERS_KEY
-                return func_apps_settings_json[key]
-            if PII_SCRUBBER_RULES_KEY in cmd:
-                resource_task_name = cmd.split("--name")[1].split()[0]
-                key = resource_task_name + "-" + PII_SCRUBBER_RULES_KEY
-                return func_apps_settings_json[key]
+                if MONITORED_SUBSCRIPTIONS_KEY in cmd:
+                    key = resource_task_name + "-" + MONITORED_SUBSCRIPTIONS_KEY
+                    return func_apps_settings_json[key]
+                if RESOURCE_TAG_FILTERS_KEY in cmd:
+                    key = resource_task_name + "-" + RESOURCE_TAG_FILTERS_KEY
+                    return func_apps_settings_json[key]
+                if PII_SCRUBBER_RULES_KEY in cmd:
+                    key = resource_task_name + "-" + PII_SCRUBBER_RULES_KEY
+                    return func_apps_settings_json[key]
             raise AssertionError(f"Unexpected az cmd: {cmd}")
 
         return _router
