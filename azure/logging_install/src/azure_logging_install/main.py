@@ -11,6 +11,7 @@ from .deploy import deploy_control_plane, run_initial_deploy
 from .resource_setup import create_resource_group
 from .role_setup import grant_permissions
 from .validation import check_fresh_install, validate_user_parameters, validate_az_cli
+from .errors import InputParamValidationError
 
 
 log = getLogger("installer")
@@ -23,15 +24,7 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    # Required parameters
-    parser.add_argument(
-        "-mg",
-        "--management-group",
-        type=str,
-        required=True,
-        help="Management group ID to deploy under (required)",
-    )
-
+    # Required params
     parser.add_argument(
         "--control-plane-region",
         type=str,
@@ -172,7 +165,6 @@ def main():
     try:
         args = parse_arguments()
         config = Configuration(
-            management_group_id=args.management_group,
             control_plane_region=args.control_plane_region,
             control_plane_sub_id=args.control_plane_subscription,
             control_plane_rg=args.control_plane_resource_group,
@@ -186,10 +178,10 @@ def main():
         )
     except Exception as e:
         log.error(f"Failed to parse arguments: {e}")
+        raise InputParamValidationError(f"Failed to initialize: {e}")
 
     install_log_forwarder(config)
 
-        
 
 if __name__ == "__main__":
     main()

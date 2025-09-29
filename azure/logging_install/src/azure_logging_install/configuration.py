@@ -19,7 +19,6 @@ class Configuration:
     """User-specified configuration parameters and derivations necessary for deployment"""
 
     # Required user-specified params
-    management_group_id: str
     control_plane_region: str
     control_plane_sub_id: str
     control_plane_rg: str
@@ -38,7 +37,7 @@ class Configuration:
         This ID is suffixed on Azure resources we create to identify their relationship to the control plane.
         """
 
-        combined = f"{self.management_group_id}{self.control_plane_sub_id}{self.control_plane_rg}{self.control_plane_region}"
+        combined = f"{self.control_plane_sub_id}{self.control_plane_rg}{self.control_plane_region}"
 
         namespace = uuid.UUID(NIL_UUID)
         guid = str(uuid.uuid5(namespace, combined)).lower()

@@ -1,5 +1,4 @@
 # stdlib
-# stdlib
 import json
 from unittest import TestCase
 from unittest.mock import patch as mock_patch, MagicMock
@@ -18,7 +17,6 @@ from azure_logging_install.errors import (
 )
 
 # Test data
-MANAGEMENT_GROUP_ID = "test-mg"
 CONTROL_PLANE_REGION = "eastus"
 CONTROL_PLANE_SUBSCRIPTION = "test-sub-1"
 CONTROL_PLANE_RESOURCE_GROUP = "test-rg"
@@ -33,7 +31,8 @@ SUB_ID_TO_NAME = {
     CONTROL_PLANE_SUBSCRIPTION: "Test Control Plane Subscription",
 }
 CONTROL_PLANE_SUB_ID_TO_NAME = (
-    CONTROL_PLANE_SUBSCRIPTION, "Test Control Plane Subscription",
+    CONTROL_PLANE_SUBSCRIPTION,
+    "Test Control Plane Subscription",
 )
 
 MOCK_DATADOG_VALID_RESPONSE = {
@@ -60,7 +59,6 @@ class TestValidation(TestCase):
 
         # Create test configuration
         self.config = Configuration(
-            management_group_id=MANAGEMENT_GROUP_ID,
             control_plane_region=CONTROL_PLANE_REGION,
             control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION,
             control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
@@ -138,24 +136,9 @@ class TestValidation(TestCase):
         """Test successful user configuration validation"""
         validation.validate_user_config(self.config)
 
-    def test_validate_user_config_empty_management_group(self):
-        """Test validation fails with empty management group"""
-        config = Configuration(
-            management_group_id="",
-            control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION,
-            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-            monitored_subs=MONITORED_SUBSCRIPTIONS,
-            datadog_api_key=DATADOG_API_KEY,
-        )
-
-        with self.assertRaises(InputParamValidationError):
-            validation.validate_user_config(config)
-
     def test_validate_user_config_empty_monitored_subs(self):
         """Test validation fails with empty monitored subscriptions"""
         config = Configuration(
-            management_group_id=MANAGEMENT_GROUP_ID,
             control_plane_region=CONTROL_PLANE_REGION,
             control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION,
             control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
@@ -376,7 +359,9 @@ class TestValidation(TestCase):
             result = validation.check_fresh_install(self.config, SUB_ID_TO_NAME)
 
             self.assertEqual(result, {})
-            mock_check_existing.assert_called_once_with(self.config.all_subscriptions, SUB_ID_TO_NAME)
+            mock_check_existing.assert_called_once_with(
+                self.config.all_subscriptions, SUB_ID_TO_NAME
+            )
 
     def test_check_fresh_install_with_existing_lfos(self):
         """Test existing LFO installations are found"""
@@ -388,13 +373,17 @@ class TestValidation(TestCase):
                     "sub-1": SUB_ID_TO_NAME["sub-1"],
                     "sub-2": SUB_ID_TO_NAME["sub-2"],
                 },
-                control_plane=LfoControlPlane(CONTROL_PLANE_SUB_ID_TO_NAME, "existing-rg", "eastus")
+                control_plane=LfoControlPlane(
+                    CONTROL_PLANE_SUB_ID_TO_NAME, "existing-rg", "eastus"
+                ),
             ),
             "def456": LfoMetadata(
                 monitored_subs={
                     "sub-3": SUB_ID_TO_NAME["sub-3"],
                 },
-                control_plane=LfoControlPlane(CONTROL_PLANE_SUB_ID_TO_NAME, "another-rg", "westus")
+                control_plane=LfoControlPlane(
+                    CONTROL_PLANE_SUB_ID_TO_NAME, "another-rg", "westus"
+                ),
             ),
         }
 
@@ -407,4 +396,6 @@ class TestValidation(TestCase):
             result = validation.check_fresh_install(self.config, SUB_ID_TO_NAME)
 
             self.assertEqual(result, mock_existing_lfos)
-            mock_check_existing.assert_called_once_with(self.config.all_subscriptions, SUB_ID_TO_NAME)
+            mock_check_existing.assert_called_once_with(
+                self.config.all_subscriptions, SUB_ID_TO_NAME
+            )
