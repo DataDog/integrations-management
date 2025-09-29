@@ -77,17 +77,25 @@ def find_existing_lfo_control_planes(
     return existing_control_planes
 
 
-def query_function_app_env_var(
-    control_plane: LfoControlPlane, resource_task_name: str, env_var_key: str
-) -> str:
-    return execute(
+def query_function_app_env_vars(
+    control_plane: LfoControlPlane, resource_task_name: str
+) -> dict[str, str]:
+    """Query all environment variables for a function app and return as a dictionary."""
+    env_vars_list = execute(
         AzCmd("functionapp", "config appsettings list")
         .param("--subscription", control_plane.subscription[0])
         .param("--name", resource_task_name)
         .param("--resource-group", control_plane.resource_group)
-        .param("--query", f"\"[?name=='{env_var_key}'].value\"")
-        .param("--output", "tsv")
+        .param("--output", "json")
     )
+
+    try:
+        env_vars = loads(env_vars_list)
+        return {env_var["name"]: env_var["value"] for env_var in env_vars}
+    except (JSONDecodeError, KeyError, TypeError) as e:
+        log.error(f"Failed to parse environment variables: {env_vars_list}")
+        log.error(f"Error: {e}")
+        raise
 
 
 def check_existing_lfo(
@@ -104,10 +112,9 @@ def check_existing_lfo(
     for resource_task_name, control_plane in control_planes.items():
         control_plane_id = resource_task_name.split("-")[-1]
 
-        monitored_sub_ids_str = query_function_app_env_var(
-            control_plane, resource_task_name, MONITORED_SUBSCRIPTIONS_KEY
-        )
+        lfo_env_vars = query_function_app_env_vars(control_plane, resource_task_name)
 
+        monitored_sub_ids_str = lfo_env_vars.get(MONITORED_SUBSCRIPTIONS_KEY, "")
         if not monitored_sub_ids_str:
             continue
 
@@ -118,13 +125,8 @@ def check_existing_lfo(
             log.error(f"Error: {e}")
             raise
 
-        tag_filters = query_function_app_env_var(
-            control_plane, resource_task_name, RESOURCE_TAG_FILTERS_KEY
-        )
-
-        pii_rules = query_function_app_env_var(
-            control_plane, resource_task_name, PII_SCRUBBER_RULES_KEY
-        )
+        tag_filters = lfo_env_vars.get(RESOURCE_TAG_FILTERS_KEY, "")
+        pii_rules = lfo_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
 
         existing_lfos[control_plane_id] = LfoMetadata(
             control_plane,
