@@ -164,7 +164,6 @@ def main():
     try:
         args = parse_arguments()
         config = Configuration(
-            management_group_id=args.management_group,
             control_plane_region=args.control_plane_region,
             control_plane_sub_id=args.control_plane_subscription,
             control_plane_rg=args.control_plane_resource_group,
