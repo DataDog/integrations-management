@@ -33,7 +33,8 @@ SUB_ID_TO_NAME = {
     CONTROL_PLANE_SUBSCRIPTION: "Test Control Plane Subscription",
 }
 CONTROL_PLANE_SUB_ID_TO_NAME = (
-    CONTROL_PLANE_SUBSCRIPTION, "Test Control Plane Subscription",
+    CONTROL_PLANE_SUBSCRIPTION,
+    "Test Control Plane Subscription",
 )
 
 MOCK_DATADOG_VALID_RESPONSE = {
@@ -376,7 +377,9 @@ class TestValidation(TestCase):
             result = validation.check_fresh_install(self.config, SUB_ID_TO_NAME)
 
             self.assertEqual(result, {})
-            mock_check_existing.assert_called_once_with(self.config.all_subscriptions, SUB_ID_TO_NAME)
+            mock_check_existing.assert_called_once_with(
+                self.config.all_subscriptions, SUB_ID_TO_NAME
+            )
 
     def test_check_fresh_install_with_existing_lfos(self):
         """Test existing LFO installations are found"""
@@ -388,13 +391,21 @@ class TestValidation(TestCase):
                     "sub-1": SUB_ID_TO_NAME["sub-1"],
                     "sub-2": SUB_ID_TO_NAME["sub-2"],
                 },
-                control_plane=LfoControlPlane(CONTROL_PLANE_SUB_ID_TO_NAME, "existing-rg", "eastus")
+                control_plane=LfoControlPlane(
+                    CONTROL_PLANE_SUB_ID_TO_NAME, "existing-rg", "eastus"
+                ),
+                tag_filter="env:prod,team:infra",
+                pii_rules="rule1:\n  pattern: 'sensitive'\n  replacement: 'test'",
             ),
             "def456": LfoMetadata(
                 monitored_subs={
                     "sub-3": SUB_ID_TO_NAME["sub-3"],
                 },
-                control_plane=LfoControlPlane(CONTROL_PLANE_SUB_ID_TO_NAME, "another-rg", "westus")
+                control_plane=LfoControlPlane(
+                    CONTROL_PLANE_SUB_ID_TO_NAME, "another-rg", "westus"
+                ),
+                tag_filter="env:prod,team:infra",
+                pii_rules="rule1:\n  pattern: 'sensitive'\n  replacement: 'test'",
             ),
         }
 
@@ -407,4 +418,6 @@ class TestValidation(TestCase):
             result = validation.check_fresh_install(self.config, SUB_ID_TO_NAME)
 
             self.assertEqual(result, mock_existing_lfos)
-            mock_check_existing.assert_called_once_with(self.config.all_subscriptions, SUB_ID_TO_NAME)
+            mock_check_existing.assert_called_once_with(
+                self.config.all_subscriptions, SUB_ID_TO_NAME
+            )
