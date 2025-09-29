@@ -11,6 +11,7 @@ from .deploy import deploy_control_plane, run_initial_deploy
 from .resource_setup import create_resource_group
 from .role_setup import grant_permissions
 from .validation import check_fresh_install, validate_user_parameters, validate_az_cli
+from .errors import InputParamValidationError
 
 
 log = getLogger("installer")
@@ -177,6 +178,7 @@ def main():
         )
     except Exception as e:
         log.error(f"Failed to parse arguments: {e}")
+        raise InputParamValidationError(f"Failed to initialize: {e}")
 
     install_log_forwarder(config)
 

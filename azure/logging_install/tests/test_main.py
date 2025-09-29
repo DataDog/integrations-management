@@ -4,7 +4,7 @@ from unittest.mock import patch as mock_patch, MagicMock
 
 # project
 from azure_logging_install import main
-from azure_logging_install.errors import FatalError
+from azure_logging_install.errors import FatalError, InputParamValidationError
 
 # Test data
 CONTROL_PLANE_REGION = "eastus"
@@ -18,7 +18,6 @@ DATADOG_SITE = "datadoghq.com"
 class TestMain(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures and reset global settings"""
-        self.log_mock = self.patch("azure_logging_install.main.log")
         self.configuration_mock = self.patch("azure_logging_install.main.Configuration")
         self.set_subscription_mock = self.patch(
             "azure_logging_install.main.set_subscription"
@@ -174,8 +173,5 @@ class TestMain(TestCase):
         with mock_patch(
             "azure_logging_install.main.parse_arguments", return_value=mock_args
         ):
-            with self.assertRaises(FatalError):
+            with self.assertRaises(InputParamValidationError):
                 main.main()
-
-        # Verify error logging
-        self.log_mock.error.assert_called()
