@@ -4,7 +4,13 @@ from unittest import TestCase
 from unittest.mock import patch as mock_patch
 
 # project
-from azure_logging_install.existing_lfo import check_existing_lfo, LfoMetadata
+from azure_logging_install.existing_lfo import (
+    check_existing_lfo,
+    LfoMetadata,
+    MONITORED_SUBSCRIPTIONS_KEY,
+    RESOURCE_TAG_FILTERS_KEY,
+    PII_SCRUBBER_RULES_KEY,
+)
 from azure_logging_install.configuration import Configuration
 
 # Test data
@@ -21,6 +27,8 @@ SUB_ID_TO_NAME = {
     "sub-4": "Test Subscription 4",
     CONTROL_PLANE_SUBSCRIPTION: "Test Control Plane Subscription",
 }
+RESOURCE_TAG_FILTER = "env:prod,team:infra"
+PII_SCRUBBER_RULE = "rule1:\n  pattern: 'sensitive'\n  replacement: 'test'"
 
 
 class TestExistingLfo(TestCase):
@@ -55,9 +63,18 @@ class TestExistingLfo(TestCase):
                 return "installed"
             if "graph query" in cmd:
                 return func_apps_json
-            if "config appsettings list" in cmd:
+            if MONITORED_SUBSCRIPTIONS_KEY in cmd:
                 resource_task_name = cmd.split("--name")[1].split()[0]
-                return func_apps_settings_json[resource_task_name]
+                key = resource_task_name + "-" + MONITORED_SUBSCRIPTIONS_KEY
+                return func_apps_settings_json[key]
+            if RESOURCE_TAG_FILTERS_KEY in cmd:
+                resource_task_name = cmd.split("--name")[1].split()[0]
+                key = resource_task_name + "-" + RESOURCE_TAG_FILTERS_KEY
+                return func_apps_settings_json[key]
+            if PII_SCRUBBER_RULES_KEY in cmd:
+                resource_task_name = cmd.split("--name")[1].split()[0]
+                key = resource_task_name + "-" + PII_SCRUBBER_RULES_KEY
+                return func_apps_settings_json[key]
             raise AssertionError(f"Unexpected az cmd: {cmd}")
 
         return _router
@@ -95,7 +112,11 @@ class TestExistingLfo(TestCase):
 
         self.execute_mock.side_effect = self.make_execute_router(
             json.dumps(mock_func_apps),  # graph query for function apps
-            {"resources-task-abc123": mock_monitored_subs_json},
+            {
+                "resources-task-abc123-MONITORED_SUBSCRIPTIONS": mock_monitored_subs_json,
+                "resources-task-abc123-RESOURCE_TAG_FILTERS": RESOURCE_TAG_FILTER,
+                "resources-task-abc123-PII_SCRUBBER_RULES": PII_SCRUBBER_RULE,
+            },
         )
 
         result = check_existing_lfo(self.config.all_subscriptions, SUB_ID_TO_NAME)
@@ -110,9 +131,11 @@ class TestExistingLfo(TestCase):
             "sub-2": SUB_ID_TO_NAME["sub-2"],
             "sub-3": SUB_ID_TO_NAME["sub-3"],
         }
-        self.assertEqual(lfo_metadata.monitored_subs, expected_monitored_subs)
         self.assertIn(CONTROL_PLANE_SUBSCRIPTION, self.config.all_subscriptions)
         self.assertEqual(lfo_metadata.control_plane.resource_group, "lfo-rg")
+        self.assertEqual(lfo_metadata.monitored_subs, expected_monitored_subs)
+        self.assertEqual(lfo_metadata.tag_filter, RESOURCE_TAG_FILTER)
+        self.assertEqual(lfo_metadata.pii_rules, PII_SCRUBBER_RULE)
 
     def test_check_existing_lfo_multiple_installations(self):
         """Test with multiple existing LFO installations"""
@@ -144,12 +167,18 @@ class TestExistingLfo(TestCase):
                 "sub-4": SUB_ID_TO_NAME["sub-4"],
             }
         )
+        mock_resource_tag_filters = RESOURCE_TAG_FILTER
+        mock_pii_scrubber_rules = PII_SCRUBBER_RULE
 
         self.execute_mock.side_effect = self.make_execute_router(
             json.dumps(mock_func_apps),  # graph query for function apps
             {
-                "resources-task-def456": mock_monitored_subs_1_json,
-                "resources-task-ghi789": mock_monitored_subs_2_json,
+                "resources-task-def456-MONITORED_SUBSCRIPTIONS": mock_monitored_subs_1_json,
+                "resources-task-ghi789-MONITORED_SUBSCRIPTIONS": mock_monitored_subs_2_json,
+                "resources-task-def456-RESOURCE_TAG_FILTERS": mock_resource_tag_filters,
+                "resources-task-ghi789-RESOURCE_TAG_FILTERS": mock_resource_tag_filters,
+                "resources-task-def456-PII_SCRUBBER_RULES": mock_pii_scrubber_rules,
+                "resources-task-ghi789-PII_SCRUBBER_RULES": mock_pii_scrubber_rules,
             },
         )
 
@@ -166,6 +195,8 @@ class TestExistingLfo(TestCase):
         }
         self.assertEqual(lfo_1.monitored_subs, expected_lfo_1_subs)
         self.assertEqual(lfo_1.control_plane.resource_group, "lfo-rg-1")
+        self.assertEqual(lfo_1.tag_filter, RESOURCE_TAG_FILTER)
+        self.assertEqual(lfo_1.pii_rules, PII_SCRUBBER_RULE)
 
         lfo_2 = result["ghi789"]
         expected_lfo_2_subs = {
@@ -174,3 +205,5 @@ class TestExistingLfo(TestCase):
         }
         self.assertEqual(lfo_2.monitored_subs, expected_lfo_2_subs)
         self.assertEqual(lfo_2.control_plane.resource_group, "lfo-rg-2")
+        self.assertEqual(lfo_2.tag_filter, RESOURCE_TAG_FILTER)
+        self.assertEqual(lfo_2.pii_rules, PII_SCRUBBER_RULE)
