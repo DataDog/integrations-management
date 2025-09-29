@@ -12,7 +12,6 @@ LFO_STORAGE_PREFIX = "lfostorage"
 LOG_FORWARDER_ENV_PREFIX = "dd-log-forwarder-env-"
 DEPLOYER_JOB_PREFIX = "deployer-task-"
 
-MANAGEMENT_GROUP_ID = "test-mg"
 CONTROL_PLANE_REGION = "eastus"
 CONTROL_PLANE_SUBSCRIPTION = "test-sub-1"
 CONTROL_PLANE_RESOURCE_GROUP = "test-rg"
@@ -41,7 +40,6 @@ class TestConfiguration(TestCase):
     def create_test_config(self, **overrides):
         """Helper to create a test configuration with optional overrides"""
         defaults = {
-            "management_group_id": MANAGEMENT_GROUP_ID,
             "control_plane_region": CONTROL_PLANE_REGION,
             "control_plane_sub_id": CONTROL_PLANE_SUBSCRIPTION,
             "control_plane_rg": CONTROL_PLANE_RESOURCE_GROUP,
@@ -59,7 +57,6 @@ class TestConfiguration(TestCase):
     def test_configuration_initialization_with_defaults(self):
         """Test Configuration initialization with default values"""
         config = Configuration(
-            management_group_id=MANAGEMENT_GROUP_ID,
             control_plane_region=CONTROL_PLANE_REGION,
             control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION,
             control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
@@ -68,7 +65,6 @@ class TestConfiguration(TestCase):
         )
 
         # Required fields
-        self.assertEqual(config.management_group_id, MANAGEMENT_GROUP_ID)
         self.assertEqual(config.control_plane_region, CONTROL_PLANE_REGION)
         self.assertEqual(config.control_plane_sub_id, CONTROL_PLANE_SUBSCRIPTION)
         self.assertEqual(config.control_plane_rg, CONTROL_PLANE_RESOURCE_GROUP)
@@ -111,7 +107,7 @@ class TestConfiguration(TestCase):
     def test_generate_control_plane_id_different_inputs(self):
         """Test control plane ID changes with different inputs"""
         config1 = self.create_test_config()
-        config2 = self.create_test_config(management_group_id="different-mg")
+        config2 = self.create_test_config(control_plane_rg="different-rg")
 
         id1 = config1.generate_control_plane_id()
         id2 = config2.generate_control_plane_id()

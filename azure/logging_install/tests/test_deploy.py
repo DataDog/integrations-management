@@ -48,7 +48,6 @@ class TestDeploy(TestCase):
 
         # Create test configuration
         self.config = Configuration(
-            management_group_id="test-mg",
             control_plane_region=CONTROL_PLANE_REGION,
             control_plane_sub_id=CONTROL_PLANE_SUB_ID,
             control_plane_rg=CONTROL_PLANE_RG,
