@@ -26,7 +26,9 @@ import time
 import traceback
 from typing import Any, Generator, Literal, Optional, TypeVar, TypedDict, Union
 
+from azure_logging_install.configuration import Configuration
 from azure_logging_install.existing_lfo import find_existing_lfo_control_planes
+from azure_logging_install.main import install_log_forwarder
 
 # General util
 
@@ -180,6 +182,9 @@ class Scope(ABC):
     def scope(self) -> str:
         pass
 
+    def __hash__(self) -> int:
+        return hash(self.id)
+
 
 class Subscription(Scope):
     """An Azure subscription."""
@@ -223,6 +228,13 @@ class AppRegistration:
     tenant_id: str
     client_id: str
     client_secret: str
+
+@dataclass
+class UserSelections:
+    """The selections the user has made in the quickstart onboarding UI"""
+    scopes: Sequence[Scope]
+    app_registration_config: dict
+    log_forwarding_config: Optional[dict] = None
 
 
 def az(cmd: str) -> str:
@@ -414,7 +426,7 @@ def get_management_group_scopes() -> list[ManagementGroup]:
         )
     return list(management_groups)
 
-def collect_available_scopes(connection: HTTPSConnection, workflow_id: str) -> tuple[list[Scope], list[Scope]]:
+def report_available_scopes(connection: HTTPSConnection, workflow_id: str) -> tuple[list[Scope], list[Scope]]:
     """Send Datadog the subscriptions and management groups that the user has permission to grant access to."""
     subscriptions = filter_scopes_by_permission(get_subscription_scopes())
     management_groups = filter_scopes_by_permission(get_management_group_scopes())
@@ -437,12 +449,14 @@ def collect_available_scopes(connection: HTTPSConnection, workflow_id: str) -> t
         raise RuntimeError(f"Error submitting available scopes to Datadog: {data}")
     return (subscriptions, management_groups)
     
-def collect_log_forwarders(subscriptions: list[Scope], step_metadata: dict) -> None:
+def report_existing_log_forwarders(subscriptions: list[Scope], step_metadata: dict) -> bool:
+    """Send Datadog any existing Log Forwarders in the tenant and return whether we found exactly 1 Forwarder, in which case we will potentially update it."""
     scope_id_to_name = { s.id:s.name for s in subscriptions }
     forwarders = find_existing_lfo_control_planes(scope_id_to_name)
     step_metadata["log_forwarders"] = [asdict(forwarder) for forwarder in forwarders.values()]
+    return len(forwarders) == 1
 
-def receive_user_selections(connection: HTTPSConnection, workflow_id: str) -> tuple[Sequence[Scope], dict]:
+def receive_user_selections(connection: HTTPSConnection, workflow_id: str) -> UserSelections:
     """Poll and wait for the user to submit their desired scopes and configuration options."""
     while True:
         response = dd_get(connection, f"/api/unstable/integration/azure/setup/selections/{workflow_id}")
@@ -453,11 +467,20 @@ def receive_user_selections(connection: HTTPSConnection, workflow_id: str) -> tu
         elif response.status >= 400:
             raise RuntimeError(f"Error retrieving user selections from Datadog: {data}")
         json_response = json.loads(data)
-        return (
-            [Subscription(**s) for s in json_response["data"]["attributes"]["subscriptions"]["subscriptions"]]
-            + [ManagementGroup(**mg) for mg in json_response["data"]["attributes"]["management_groups"]["management_groups"]],
-            json.loads(json_response["data"]["attributes"]["config_options"]),
+        attributes = json_response["data"]["attributes"]
+        return UserSelections(
+            tuple([Subscription(**s) for s in attributes["subscriptions"]["subscriptions"]]
+            + [ManagementGroup(**mg) for mg in attributes["management_groups"]["management_groups"]]),
+            json.loads(attributes["config_options"]),
+            json.loads(attributes["log_forwarding_options"]) if "log_forwarding_options" in attributes and attributes["log_forwarding_options"] else None
         )
+    
+def flatten_scopes(scopes: Sequence[Scope]) -> set[Subscription]:
+    """Convert a list of scopes into a set of subscriptions, with management groups represented as their constituent subscriptions"""
+    return set(
+        [s for s in scopes if isinstance(s, Subscription)] + 
+        [s for subs in [m.subscriptions.subscriptions for m in scopes if isinstance(m, ManagementGroup)] for s in subs]
+    )
 
 
 DATADOG_ROLE = "Monitoring Reader"
@@ -524,6 +547,23 @@ def submit_config_identifier(connection: HTTPSConnection, workflow_id: str, app_
     data = response.read().decode("utf-8")
     if response.status >= 400:
         raise RuntimeError(f"Error submitting configuration identifier to Datadog: {data}")
+    
+
+def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
+    log_forwarder_config = Configuration(
+        management_group_id="", #TODO(AZINTS-3935): Make this not required
+        control_plane_region=config["controlPlaneRegion"],
+        control_plane_sub_id=config["controlPlaneSubscription"]["id"],
+        control_plane_rg=config["resourceGroupName"],
+        monitored_subs=",".join([s.name for s in subscriptions]),
+        datadog_api_key=os.environ["DD_API_KEY"],
+    )
+    if "tagFilters" in config:
+        log_forwarder_config.resource_tag_filters = config["tagFilters"]
+    if "piiFilters" in config:
+        log_forwarder_config.pii_scrubber_rules = config["piiFilters"]
+        
+    install_log_forwarder(log_forwarder_config)
 
 
 def assign_permissions(client_id: str, scopes: Sequence[Scope]) -> None:
@@ -576,17 +616,20 @@ def main():
             print("Connected! Leave this window open and go back to the Datadog UI to continue.")
 
         with status.report_step("scopes", "Collecting scopes"):
-            subscriptions, _ = collect_available_scopes(datadog_connection, workflow_id)
+            subscriptions, _ = report_available_scopes(datadog_connection, workflow_id)
         with status.report_step("log_forwarders", "Collecting existing Log Forwarders") as step_metadata:
-            collect_log_forwarders(subscriptions, step_metadata)
+            exactly_one_log_forwarder = report_existing_log_forwarders(subscriptions, step_metadata)
         with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
-            scopes, config = receive_user_selections(datadog_connection, workflow_id)
+            selections = receive_user_selections(datadog_connection, workflow_id)
         with status.report_step("app_registration", "Creating app registration in Azure"):
-            app_registration = create_app_registration_with_permissions(scopes)
+            app_registration = create_app_registration_with_permissions(selections.scopes)
         with status.report_step("integration_config", "Submitting new configuration to Datadog"):
-            submit_integration_config(datadog_connection, app_registration, config)
+            submit_integration_config(datadog_connection, app_registration, selections.app_registration_config)
         with status.report_step("config_identifier", "Submitting new configuration identifier to Datadog"):
             submit_config_identifier(datadog_connection, workflow_id, app_registration)
+        if selections.log_forwarding_config:
+            with status.report_step("upsert_log_forwarder", f"{'Updating' if exactly_one_log_forwarder else 'Creating'} Log Forwarder"):
+                upsert_log_forwarder(selections.log_forwarding_config, flatten_scopes(selections.scopes))
 
     print("Script succeeded. You may close this window.")
 
