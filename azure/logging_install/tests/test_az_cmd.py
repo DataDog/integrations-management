@@ -12,12 +12,14 @@ from azure_logging_install.errors import (
     ResourceNotFoundError,
 )
 
-# Test data
-TEST_SUBSCRIPTION_ID = "test-sub-id"
-TEST_SERVICE = "functionapp"
-TEST_ACTION = "create"
-TEST_RESOURCE_GROUP = "test-rg"
-TEST_LOCATION = "eastus"
+from tests.test_data import (
+    CONTROL_PLANE_SUBSCRIPTION_ID,
+    CONTROL_PLANE_RESOURCE_GROUP,
+    CONTROL_PLANE_REGION,
+)
+
+FUNCTION_APP = "functionapp"
+CREATE = "create"
 
 
 class TestAzCmd(TestCase):
@@ -34,9 +36,9 @@ class TestAzCmd(TestCase):
 
     def test_az_cmd_initialization(self):
         """Test AzCmd builder initialization"""
-        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
+        cmd = az_cmd.AzCmd(FUNCTION_APP, CREATE)
 
-        self.assertEqual(cmd.cmd, [TEST_SERVICE, "create"])
+        self.assertEqual(cmd.cmd, [FUNCTION_APP, CREATE])
 
     def test_az_cmd_initialization_with_multi_word_action(self):
         """Test AzCmd builder with multi-word action"""
@@ -46,25 +48,25 @@ class TestAzCmd(TestCase):
 
     def test_az_cmd_param(self):
         """Test adding key-value parameters"""
-        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
-        result = cmd.param("--resource-group", TEST_RESOURCE_GROUP)
+        cmd = az_cmd.AzCmd(FUNCTION_APP, CREATE)
+        result = cmd.param("--resource-group", CONTROL_PLANE_RESOURCE_GROUP)
 
         self.assertIs(result, cmd)
         self.assertEqual(
             cmd.cmd,
-            [TEST_SERVICE, "create", "--resource-group", TEST_RESOURCE_GROUP],
+            [FUNCTION_APP, CREATE, "--resource-group", CONTROL_PLANE_RESOURCE_GROUP],
         )
 
     def test_az_cmd_param_list(self):
         """Test adding list parameters"""
-        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
+        cmd = az_cmd.AzCmd(FUNCTION_APP, CREATE)
         values = ["value1", "value2", "value3"]
         result = cmd.param_list("--tags", values)
 
         self.assertIs(result, cmd)
         expected = [
-            TEST_SERVICE,
-            "create",
+            FUNCTION_APP,
+            CREATE,
             "--tags",
             "value1",
             "value2",
@@ -74,28 +76,28 @@ class TestAzCmd(TestCase):
 
     def test_az_cmd_flag(self):
         """Test adding flags"""
-        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
+        cmd = az_cmd.AzCmd(FUNCTION_APP, CREATE)
         result = cmd.flag("--yes")
 
         self.assertIs(result, cmd)
-        self.assertEqual(cmd.cmd, [TEST_SERVICE, "create", "--yes"])
+        self.assertEqual(cmd.cmd, [FUNCTION_APP, CREATE, "--yes"])
 
     def test_az_cmd_chaining(self):
         """Test method chaining"""
         cmd = (
-            az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
-            .param("--resource-group", TEST_RESOURCE_GROUP)
-            .param("--location", TEST_LOCATION)
+            az_cmd.AzCmd(FUNCTION_APP, CREATE)
+            .param("--resource-group", CONTROL_PLANE_RESOURCE_GROUP)
+            .param("--location", CONTROL_PLANE_REGION)
             .flag("--yes")
         )
 
         expected = [
-            TEST_SERVICE,
-            "create",
+            FUNCTION_APP,
+            CREATE,
             "--resource-group",
-            TEST_RESOURCE_GROUP,
+            CONTROL_PLANE_RESOURCE_GROUP,
             "--location",
-            TEST_LOCATION,
+            CONTROL_PLANE_REGION,
             "--yes",
         ]
         self.assertEqual(cmd.cmd, expected)
@@ -103,21 +105,19 @@ class TestAzCmd(TestCase):
     def test_az_cmd_str(self):
         """Test string representation of command"""
         cmd = (
-            az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
-            .param("--resource-group", TEST_RESOURCE_GROUP)
+            az_cmd.AzCmd(FUNCTION_APP, CREATE)
+            .param("--resource-group", CONTROL_PLANE_RESOURCE_GROUP)
             .flag("--yes")
         )
 
-        expected = (
-            f"az {TEST_SERVICE} create --resource-group {TEST_RESOURCE_GROUP} --yes"
-        )
+        expected = f"az {FUNCTION_APP} create --resource-group {CONTROL_PLANE_RESOURCE_GROUP} --yes"
         self.assertEqual(cmd.str(), expected)
 
     # ===== Execute Function Tests ===== #
 
     def test_execute_success(self):
         """Test successful command execution"""
-        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION).param("--name", "test")
+        cmd = az_cmd.AzCmd(FUNCTION_APP, CREATE).param("--name", "test")
         mock_result = Mock()
         mock_result.stdout = "success output"
         mock_result.returncode = 0
@@ -130,7 +130,7 @@ class TestAzCmd(TestCase):
 
     def test_execute_authorization_error(self):
         """Test execute handles authorization errors"""
-        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
+        cmd = az_cmd.AzCmd(FUNCTION_APP, CREATE)
 
         error = subprocess.CalledProcessError(1, "az")
         error.stderr = f"{az_cmd.AUTH_FAILED_ERROR}: Access denied"
@@ -141,7 +141,7 @@ class TestAzCmd(TestCase):
 
     def test_execute_refresh_token_error(self):
         """Test execute handles refresh token errors"""
-        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
+        cmd = az_cmd.AzCmd(FUNCTION_APP, CREATE)
 
         error = subprocess.CalledProcessError(1, "az")
         error.stderr = f"{az_cmd.REFRESH_TOKEN_EXPIRED_ERROR}: Token expired"
@@ -152,7 +152,7 @@ class TestAzCmd(TestCase):
 
     def test_execute_resource_not_found_error(self):
         """Test execute handles resource not found errors"""
-        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
+        cmd = az_cmd.AzCmd(FUNCTION_APP, CREATE)
 
         error = subprocess.CalledProcessError(1, "az")
         error.stderr = f"{az_cmd.RESOURCE_NOT_FOUND_ERROR}: The resource was not found"
@@ -163,7 +163,7 @@ class TestAzCmd(TestCase):
 
     def test_execute_rate_limit_error_with_retry(self):
         """Test execute retries on rate limit errors"""
-        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
+        cmd = az_cmd.AzCmd(FUNCTION_APP, CREATE)
 
         # First call fails with rate limit, second succeeds
         error = subprocess.CalledProcessError(1, "az")
@@ -183,7 +183,7 @@ class TestAzCmd(TestCase):
 
     def test_execute_rate_limit_max_retries(self):
         """Test execute raises exception after max retries"""
-        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
+        cmd = az_cmd.AzCmd(FUNCTION_APP, CREATE)
 
         error = subprocess.CalledProcessError(1, "az")
         error.stderr = f"{az_cmd.AZURE_THROTTLING_ERROR}: Rate limit exceeded"
@@ -197,7 +197,7 @@ class TestAzCmd(TestCase):
 
     def test_execute_resource_collection_throttling(self):
         """Test execute handles resource collection throttling"""
-        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
+        cmd = az_cmd.AzCmd(FUNCTION_APP, CREATE)
 
         # First call fails with throttling, second succeeds
         error = subprocess.CalledProcessError(1, "az")
@@ -219,7 +219,7 @@ class TestAzCmd(TestCase):
 
     def test_execute_subprocess_exception(self):
         """Test execute handles subprocess exceptions"""
-        cmd = az_cmd.AzCmd(TEST_SERVICE, TEST_ACTION)
+        cmd = az_cmd.AzCmd(FUNCTION_APP, CREATE)
 
         # Mock CalledProcessError
         error = subprocess.CalledProcessError(1, "az")
@@ -238,7 +238,7 @@ class TestAzCmd(TestCase):
         mock_result.returncode = 0
         self.subprocess_mock.return_value = mock_result
 
-        az_cmd.set_subscription(TEST_SUBSCRIPTION_ID)
+        az_cmd.set_subscription(CONTROL_PLANE_SUBSCRIPTION_ID)
 
         # Verify the correct command was called
         call_args = self.subprocess_mock.call_args
@@ -246,7 +246,7 @@ class TestAzCmd(TestCase):
         self.assertIn("account", cmd_list)
         self.assertIn("set", cmd_list)
         self.assertIn("--subscription", cmd_list)
-        self.assertIn(TEST_SUBSCRIPTION_ID, cmd_list)
+        self.assertIn(CONTROL_PLANE_SUBSCRIPTION_ID, cmd_list)
 
     def test_set_subscription_with_error(self):
         """Test set_subscription handles errors"""
@@ -257,7 +257,7 @@ class TestAzCmd(TestCase):
         self.subprocess_mock.return_value = mock_result
 
         with self.assertRaises(RuntimeError):
-            az_cmd.set_subscription(TEST_SUBSCRIPTION_ID)
+            az_cmd.set_subscription(CONTROL_PLANE_SUBSCRIPTION_ID)
 
     # ===== Error Pattern Recognition Tests ===== #
 

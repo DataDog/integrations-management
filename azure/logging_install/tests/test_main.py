@@ -6,13 +6,14 @@ from unittest.mock import patch as mock_patch, MagicMock
 from azure_logging_install import main
 from azure_logging_install.errors import FatalError, InputParamValidationError
 
-# Test data
-CONTROL_PLANE_REGION = "eastus"
-CONTROL_PLANE_SUBSCRIPTION = "test-sub-1"
-CONTROL_PLANE_RESOURCE_GROUP = "test-rg"
-MONITORED_SUBSCRIPTIONS = "sub-1,sub-2"
-DATADOG_API_KEY = "test-api-key"
-DATADOG_SITE = "datadoghq.com"
+from tests.test_data import (
+    CONTROL_PLANE_REGION,
+    CONTROL_PLANE_SUBSCRIPTION_ID,
+    CONTROL_PLANE_RESOURCE_GROUP,
+    MONITORED_SUBSCRIPTIONS,
+    DATADOG_API_KEY,
+    DATADOG_SITE,
+)
 
 
 class TestMain(TestCase):
@@ -53,7 +54,7 @@ class TestMain(TestCase):
             "--control-plane-region",
             CONTROL_PLANE_REGION,
             "--control-plane-subscription",
-            CONTROL_PLANE_SUBSCRIPTION,
+            CONTROL_PLANE_SUBSCRIPTION_ID,
             "--control-plane-resource-group",
             CONTROL_PLANE_RESOURCE_GROUP,
             "--monitored-subscriptions",
@@ -66,7 +67,7 @@ class TestMain(TestCase):
             args = main.parse_arguments()
 
         self.assertEqual(args.control_plane_region, CONTROL_PLANE_REGION)
-        self.assertEqual(args.control_plane_subscription, CONTROL_PLANE_SUBSCRIPTION)
+        self.assertEqual(args.control_plane_subscription, CONTROL_PLANE_SUBSCRIPTION_ID)
         self.assertEqual(
             args.control_plane_resource_group, CONTROL_PLANE_RESOURCE_GROUP
         )
@@ -81,7 +82,7 @@ class TestMain(TestCase):
             "--control-plane-region",
             CONTROL_PLANE_REGION,
             "--control-plane-subscription",
-            CONTROL_PLANE_SUBSCRIPTION,
+            CONTROL_PLANE_SUBSCRIPTION_ID,
             "--control-plane-resource-group",
             CONTROL_PLANE_RESOURCE_GROUP,
             "--monitored-subscriptions",
@@ -114,7 +115,7 @@ class TestMain(TestCase):
             "script.py",
             # Missing --control-plane-region
             "--control-plane-subscription",
-            CONTROL_PLANE_SUBSCRIPTION,
+            CONTROL_PLANE_SUBSCRIPTION_ID,
             "--control-plane-resource-group",
             CONTROL_PLANE_RESOURCE_GROUP,
             "--monitored-subscriptions",
@@ -135,7 +136,7 @@ class TestMain(TestCase):
 
         mock_args = MagicMock()
         mock_args.control_plane_region = CONTROL_PLANE_REGION
-        mock_args.control_plane_subscription = CONTROL_PLANE_SUBSCRIPTION
+        mock_args.control_plane_subscription = CONTROL_PLANE_SUBSCRIPTION_ID
         mock_args.control_plane_resource_group = CONTROL_PLANE_RESOURCE_GROUP
         mock_args.monitored_subscriptions = MONITORED_SUBSCRIPTIONS
         mock_args.datadog_api_key = DATADOG_API_KEY
