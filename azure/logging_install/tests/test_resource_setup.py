@@ -7,9 +7,11 @@ from azure_logging_install import resource_setup
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.errors import FatalError, ResourceNotFoundError
 
-# Test data
-CONTROL_PLANE_RG = "test-control-plane-rg"
-CONTROL_PLANE_REGION = "eastus"
+from tests.test_data import (
+    CONTROL_PLANE_REGION,
+    CONTROL_PLANE_RESOURCE_GROUP,
+)
+
 STORAGE_ACCOUNT_NAME = "teststorageaccount"
 CONTAINER_APP_ENV_NAME = "test-env"
 CONTAINER_APP_JOB_NAME = "test-job"
@@ -29,7 +31,7 @@ class TestResourceSetup(TestCase):
         self.config = Configuration(
             control_plane_region=CONTROL_PLANE_REGION,
             control_plane_sub_id="test-sub",
-            control_plane_rg=CONTROL_PLANE_RG,
+            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
             monitored_subs="sub-1,sub-2",
             datadog_api_key="test-api-key",
         )
@@ -44,7 +46,9 @@ class TestResourceSetup(TestCase):
 
     def test_create_resource_group_success(self):
         """Test successful resource group creation"""
-        resource_setup.create_resource_group(CONTROL_PLANE_RG, CONTROL_PLANE_REGION)
+        resource_setup.create_resource_group(
+            CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION
+        )
 
         self.execute_mock.assert_called_once()
         call_args = self.execute_mock.call_args[0][0]
@@ -52,11 +56,11 @@ class TestResourceSetup(TestCase):
 
         self.assertIn("group", cmd_str)
         self.assertIn("create", cmd_str)
-        self.assertIn(CONTROL_PLANE_RG, cmd_str)
+        self.assertIn(CONTROL_PLANE_RESOURCE_GROUP, cmd_str)
         self.assertIn(CONTROL_PLANE_REGION, cmd_str)
 
         self.log_mock.info.assert_called_with(
-            f"Creating resource group {CONTROL_PLANE_RG} in {CONTROL_PLANE_REGION}"
+            f"Creating resource group {CONTROL_PLANE_RESOURCE_GROUP} in {CONTROL_PLANE_REGION}"
         )
 
     def test_create_resource_group_failure(self):
@@ -64,14 +68,16 @@ class TestResourceSetup(TestCase):
         self.execute_mock.side_effect = FatalError("Creation failed")
 
         with self.assertRaises(FatalError):
-            resource_setup.create_resource_group(CONTROL_PLANE_RG, CONTROL_PLANE_REGION)
+            resource_setup.create_resource_group(
+                CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION
+            )
 
     # ===== Storage Account Tests ===== #
 
     def test_create_storage_account_success(self):
         """Test successful storage account creation"""
         resource_setup.create_storage_account(
-            STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RG, CONTROL_PLANE_REGION
+            STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION
         )
 
         self.execute_mock.assert_called_once()
@@ -82,7 +88,7 @@ class TestResourceSetup(TestCase):
         self.assertIn("account", cmd_str)
         self.assertIn("create", cmd_str)
         self.assertIn(STORAGE_ACCOUNT_NAME, cmd_str)
-        self.assertIn(CONTROL_PLANE_RG, cmd_str)
+        self.assertIn(CONTROL_PLANE_RESOURCE_GROUP, cmd_str)
         self.assertIn(CONTROL_PLANE_REGION, cmd_str)
         self.assertIn("Standard_LRS", cmd_str)
         self.assertIn("StorageV2", cmd_str)
@@ -98,7 +104,7 @@ class TestResourceSetup(TestCase):
             self.execute_mock.return_value = "Succeeded"  # Return state directly
 
             resource_setup.wait_for_storage_account_ready(
-                STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RG
+                STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RESOURCE_GROUP
             )
 
             self.execute_mock.assert_called_once()
@@ -114,7 +120,7 @@ class TestResourceSetup(TestCase):
 
             with self.assertRaises(TimeoutError):
                 resource_setup.wait_for_storage_account_ready(
-                    STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RG
+                    STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RESOURCE_GROUP
                 )
 
     def test_wait_for_storage_account_ready_failed_state(self):
@@ -125,7 +131,7 @@ class TestResourceSetup(TestCase):
 
             with self.assertRaises(RuntimeError):
                 resource_setup.wait_for_storage_account_ready(
-                    STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RG
+                    STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RESOURCE_GROUP
                 )
 
     # ===== Container App Environment Tests ===== #
@@ -140,7 +146,7 @@ class TestResourceSetup(TestCase):
         ]
 
         resource_setup.create_container_app_environment(
-            CONTAINER_APP_ENV_NAME, CONTROL_PLANE_RG, CONTROL_PLANE_REGION
+            CONTAINER_APP_ENV_NAME, CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION
         )
 
         # Should have been called twice: once for show, once for create
@@ -154,7 +160,7 @@ class TestResourceSetup(TestCase):
         self.assertIn("env", cmd_str)
         self.assertIn("create", cmd_str)
         self.assertIn(CONTAINER_APP_ENV_NAME, cmd_str)
-        self.assertIn(CONTROL_PLANE_RG, cmd_str)
+        self.assertIn(CONTROL_PLANE_RESOURCE_GROUP, cmd_str)
         self.assertIn(CONTROL_PLANE_REGION, cmd_str)
 
     # ===== Blob Container Tests ===== #
@@ -180,7 +186,9 @@ class TestResourceSetup(TestCase):
     def test_create_file_share_success(self):
         """Test successful file share creation"""
         # create_file_share takes 2 args: storage_account_name, control_plane_rg
-        resource_setup.create_file_share(STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RG)
+        resource_setup.create_file_share(
+            STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RESOURCE_GROUP
+        )
 
         self.execute_mock.assert_called_once()
         call_args = self.execute_mock.call_args[0][0]
@@ -197,7 +205,7 @@ class TestResourceSetup(TestCase):
         """Test successful container app job creation"""
         mock_config = MagicMock()
         mock_config.deployer_job_name = CONTAINER_APP_JOB_NAME
-        mock_config.control_plane_rg = CONTROL_PLANE_RG
+        mock_config.control_plane_rg = CONTROL_PLANE_RESOURCE_GROUP
         mock_config.control_plane_env_name = CONTAINER_APP_ENV_NAME
         mock_config.control_plane_sub_id = "test-sub"
         mock_config.deployer_image_url = "test-image:latest"
@@ -263,7 +271,9 @@ class TestResourceSetup(TestCase):
         self.execute_mock.side_effect = ResourceNotFoundError("Resource not found")
 
         with self.assertRaises(ResourceNotFoundError):
-            resource_setup.create_resource_group(CONTROL_PLANE_RG, CONTROL_PLANE_REGION)
+            resource_setup.create_resource_group(
+                CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION
+            )
 
     def test_wait_function_retries_on_not_found(self):
         """Test wait functions handle ResourceNotFoundError correctly"""
@@ -276,7 +286,7 @@ class TestResourceSetup(TestCase):
 
             with self.assertRaises(ResourceNotFoundError):
                 resource_setup.wait_for_storage_account_ready(
-                    STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RG
+                    STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RESOURCE_GROUP
                 )
 
             # Should have been called once and then exception propagated

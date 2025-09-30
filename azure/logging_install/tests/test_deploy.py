@@ -7,10 +7,11 @@ from azure_logging_install import deploy
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.errors import FatalError
 
-# Test data
-CONTROL_PLANE_RG = "test-control-plane-rg"
-CONTROL_PLANE_REGION = "eastus"
-CONTROL_PLANE_SUB_ID = "test-sub-id"
+from tests.test_data import (
+    CONTROL_PLANE_REGION,
+    CONTROL_PLANE_SUBSCRIPTION_ID,
+    CONTROL_PLANE_RESOURCE_GROUP,
+)
 
 
 class TestDeploy(TestCase):
@@ -49,8 +50,8 @@ class TestDeploy(TestCase):
         # Create test configuration
         self.config = Configuration(
             control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id=CONTROL_PLANE_SUB_ID,
-            control_plane_rg=CONTROL_PLANE_RG,
+            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
+            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
             monitored_subs="sub-1,sub-2",
             datadog_api_key="test-api-key",
         )

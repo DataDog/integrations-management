@@ -6,20 +6,21 @@ from unittest.mock import patch as mock_patch
 # project
 from azure_logging_install.configuration import Configuration
 
-# Test data
+from tests.test_data import (
+    CONTROL_PLANE_REGION,
+    CONTROL_PLANE_SUBSCRIPTION_ID,
+    CONTROL_PLANE_RESOURCE_GROUP,
+    DATADOG_API_KEY,
+    DATADOG_SITE,
+    RESOURCE_TAG_FILTERS,
+    PII_SCRUBBER_RULES,
+    MONITORED_SUBSCRIPTIONS,
+)
+
 CONTROL_PLANE_ID_LENGTH = 12
 LFO_STORAGE_PREFIX = "lfostorage"
 LOG_FORWARDER_ENV_PREFIX = "dd-log-forwarder-env-"
 DEPLOYER_JOB_PREFIX = "deployer-task-"
-
-CONTROL_PLANE_REGION = "eastus"
-CONTROL_PLANE_SUBSCRIPTION = "test-sub-1"
-CONTROL_PLANE_RESOURCE_GROUP = "test-rg"
-MONITORED_SUBSCRIPTIONS = "sub-1,sub-2,sub-3"
-DATADOG_API_KEY = "test-api-key"
-DATADOG_SITE = "datadoghq.com"
-RESOURCE_TAG_FILTERS = "env:prod,team:infra"
-PII_SCRUBBER_RULES = "rule1:\n  - pattern: test"
 TEST_STORAGE_KEY = "test-storage-key"
 
 
@@ -41,7 +42,7 @@ class TestConfiguration(TestCase):
         """Helper to create a test configuration with optional overrides"""
         defaults = {
             "control_plane_region": CONTROL_PLANE_REGION,
-            "control_plane_sub_id": CONTROL_PLANE_SUBSCRIPTION,
+            "control_plane_sub_id": CONTROL_PLANE_SUBSCRIPTION_ID,
             "control_plane_rg": CONTROL_PLANE_RESOURCE_GROUP,
             "monitored_subs": MONITORED_SUBSCRIPTIONS,
             "datadog_api_key": DATADOG_API_KEY,
@@ -58,7 +59,7 @@ class TestConfiguration(TestCase):
         """Test Configuration initialization with default values"""
         config = Configuration(
             control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION,
+            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
             control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
             monitored_subs=MONITORED_SUBSCRIPTIONS,
             datadog_api_key=DATADOG_API_KEY,
@@ -66,7 +67,7 @@ class TestConfiguration(TestCase):
 
         # Required fields
         self.assertEqual(config.control_plane_region, CONTROL_PLANE_REGION)
-        self.assertEqual(config.control_plane_sub_id, CONTROL_PLANE_SUBSCRIPTION)
+        self.assertEqual(config.control_plane_sub_id, CONTROL_PLANE_SUBSCRIPTION_ID)
         self.assertEqual(config.control_plane_rg, CONTROL_PLANE_RESOURCE_GROUP)
         self.assertEqual(config.monitored_subs, MONITORED_SUBSCRIPTIONS)
         self.assertEqual(config.datadog_api_key, DATADOG_API_KEY)
