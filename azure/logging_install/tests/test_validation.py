@@ -18,17 +18,22 @@ from azure_logging_install.errors import (
 
 # Test data
 CONTROL_PLANE_REGION = "eastus"
-CONTROL_PLANE_SUBSCRIPTION_ID = "test-sub-1-id"
+CONTROL_PLANE_SUBSCRIPTION_ID = "cp-sub-id"
 CONTROL_PLANE_SUBSCRIPTION_NAME = "Test Control Plane Subscription"
 CONTROL_PLANE_RESOURCE_GROUP = "test-rg"
-MONITORED_SUBSCRIPTIONS = "sub-1,sub-2"
+CONTROL_PLANE_CACHE_STORAGE_NAME = f"lfostorage{CONTROL_PLANE_SUBSCRIPTION_ID}"
 DATADOG_API_KEY = "test-api-key"
 DATADOG_SITE = "datadoghq.com"
+SUB_1_ID = "sub-1-id"
+SUB_2_ID = "sub-2-id"
+SUB_3_ID = "sub-3-id"
+SUB_4_ID = "sub-4-id"
+MONITORED_SUBSCRIPTIONS = f"{SUB_1_ID},{SUB_2_ID}"
 SUB_ID_TO_NAME = {
-    "sub-1-id": "Test Subscription 1",
-    "sub-2-id": "Test Subscription 2",
-    "sub-3-id": "Test Subscription 3",
-    "sub-4-id": "Test Subscription 4",
+    SUB_1_ID: "Test Subscription 1",
+    SUB_2_ID: "Test Subscription 2",
+    SUB_3_ID: "Test Subscription 3",
+    SUB_4_ID: "Test Subscription 4",
     CONTROL_PLANE_SUBSCRIPTION_ID: CONTROL_PLANE_SUBSCRIPTION_NAME,
 }
 
@@ -165,11 +170,11 @@ class TestValidation(TestCase):
 
     def test_validate_monitored_subs_access_success(self):
         """Test successful monitored subscriptions access validation"""
-        validation.validate_monitored_subs_access(["sub-1-id", "sub-2-id"])
+        validation.validate_monitored_subs_access([SUB_1_ID, SUB_2_ID])
 
         self.assertEqual(self.set_subscription_mock.call_count, 2)
-        self.set_subscription_mock.assert_any_call("sub-1-id")
-        self.set_subscription_mock.assert_any_call("sub-2-id")
+        self.set_subscription_mock.assert_any_call(SUB_1_ID)
+        self.set_subscription_mock.assert_any_call(SUB_2_ID)
 
     def test_validate_monitored_subs_access_partial_failure(self):
         """Test monitored subscriptions access validation with partial failure"""
@@ -179,7 +184,7 @@ class TestValidation(TestCase):
         ]  # First succeeds, second fails
 
         with self.assertRaises(AccessError):
-            validation.validate_monitored_subs_access(["sub-1", "sub-2"])
+            validation.validate_monitored_subs_access([SUB_1_ID, SUB_2_ID])
 
     # ===== Resource Provider Registration Tests ===== #
 
@@ -191,7 +196,7 @@ class TestValidation(TestCase):
         ]
         self.execute_mock.return_value = json.dumps(mock_providers)
 
-        validation.validate_resource_provider_registrations({"sub-1", "sub-2"})
+        validation.validate_resource_provider_registrations({SUB_1_ID, SUB_2_ID})
 
         self.assertEqual(self.execute_mock.call_count, 2)
 
@@ -204,7 +209,7 @@ class TestValidation(TestCase):
         self.execute_mock.return_value = json.dumps(mock_providers)
 
         with self.assertRaises(ResourceProviderRegistrationValidationError):
-            validation.validate_resource_provider_registrations({"sub-1"})
+            validation.validate_resource_provider_registrations({SUB_1_ID})
 
     def test_validate_resource_provider_registrations_multiple_subs(self):
         """Test resource provider registration validation for multiple subscriptions"""
@@ -214,7 +219,7 @@ class TestValidation(TestCase):
         ]
         self.execute_mock.return_value = json.dumps(mock_providers)
 
-        validation.validate_resource_provider_registrations({"sub-1", "sub-2"})
+        validation.validate_resource_provider_registrations({SUB_1_ID, SUB_2_ID})
 
         self.assertEqual(self.execute_mock.call_count, 2)
 
@@ -230,7 +235,7 @@ class TestValidation(TestCase):
         validation.validate_resource_names(
             CONTROL_PLANE_RESOURCE_GROUP,
             CONTROL_PLANE_SUBSCRIPTION_ID,
-            "teststorage123",
+            CONTROL_PLANE_CACHE_STORAGE_NAME,
         )
 
         self.assertEqual(self.execute_mock.call_count, 2)
@@ -247,7 +252,7 @@ class TestValidation(TestCase):
             validation.validate_resource_names(
                 CONTROL_PLANE_RESOURCE_GROUP,
                 CONTROL_PLANE_SUBSCRIPTION_ID,
-                "teststorage123",
+                CONTROL_PLANE_CACHE_STORAGE_NAME,
             )
         except ExistenceCheckError:
             pass  # Expected if resource group exists
@@ -263,7 +268,7 @@ class TestValidation(TestCase):
             validation.validate_resource_names(
                 CONTROL_PLANE_RESOURCE_GROUP,
                 CONTROL_PLANE_SUBSCRIPTION_ID,
-                "teststorage123",
+                CONTROL_PLANE_CACHE_STORAGE_NAME,
             )
         except ExistenceCheckError:
             pass  # Expected if storage name is unavailable
@@ -371,8 +376,8 @@ class TestValidation(TestCase):
         mock_existing_lfos = {
             "abc123": LfoMetadata(
                 monitored_subs={
-                    "sub-1-id": SUB_ID_TO_NAME["sub-1-id"],
-                    "sub-2-id": SUB_ID_TO_NAME["sub-2-id"],
+                    SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
+                    SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
                 },
                 control_plane=LfoControlPlane(
                     CONTROL_PLANE_SUBSCRIPTION_ID,
@@ -385,7 +390,7 @@ class TestValidation(TestCase):
             ),
             "def456": LfoMetadata(
                 monitored_subs={
-                    "sub-3-id": SUB_ID_TO_NAME["sub-3-id"],
+                    SUB_3_ID: SUB_ID_TO_NAME[SUB_3_ID],
                 },
                 control_plane=LfoControlPlane(
                     CONTROL_PLANE_SUBSCRIPTION_ID,
