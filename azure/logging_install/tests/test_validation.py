@@ -16,26 +16,21 @@ from azure_logging_install.errors import (
     ResourceProviderRegistrationValidationError,
 )
 
-# Test data
-CONTROL_PLANE_REGION = "eastus"
-CONTROL_PLANE_SUBSCRIPTION_ID = "cp-sub-id"
-CONTROL_PLANE_SUBSCRIPTION_NAME = "Test Control Plane Subscription"
-CONTROL_PLANE_RESOURCE_GROUP = "test-rg"
+from tests.test_data import (
+    CONTROL_PLANE_REGION,
+    CONTROL_PLANE_SUBSCRIPTION_ID,
+    CONTROL_PLANE_SUBSCRIPTION_NAME,
+    CONTROL_PLANE_RESOURCE_GROUP,
+    DATADOG_API_KEY,
+    DATADOG_SITE,
+    SUB_1_ID,
+    SUB_2_ID,
+    SUB_3_ID,
+    MONITORED_SUBSCRIPTIONS,
+    SUB_ID_TO_NAME,
+)
+
 CONTROL_PLANE_CACHE_STORAGE_NAME = f"lfostorage{CONTROL_PLANE_SUBSCRIPTION_ID}"
-DATADOG_API_KEY = "test-api-key"
-DATADOG_SITE = "datadoghq.com"
-SUB_1_ID = "sub-1-id"
-SUB_2_ID = "sub-2-id"
-SUB_3_ID = "sub-3-id"
-SUB_4_ID = "sub-4-id"
-MONITORED_SUBSCRIPTIONS = f"{SUB_1_ID},{SUB_2_ID}"
-SUB_ID_TO_NAME = {
-    SUB_1_ID: "Test Subscription 1",
-    SUB_2_ID: "Test Subscription 2",
-    SUB_3_ID: "Test Subscription 3",
-    SUB_4_ID: "Test Subscription 4",
-    CONTROL_PLANE_SUBSCRIPTION_ID: CONTROL_PLANE_SUBSCRIPTION_NAME,
-}
 
 MOCK_DATADOG_VALID_RESPONSE = {
     "valid": True,
