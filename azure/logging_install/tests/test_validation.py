@@ -376,6 +376,8 @@ class TestValidation(TestCase):
                 control_plane=LfoControlPlane(
                     CONTROL_PLANE_SUB_ID_TO_NAME, "existing-rg", "eastus"
                 ),
+                tag_filter="env:prod,team:infra",
+                pii_rules="rule1:\n  pattern: 'sensitive'\n  replacement: 'test'",
             ),
             "def456": LfoMetadata(
                 monitored_subs={
@@ -384,6 +386,8 @@ class TestValidation(TestCase):
                 control_plane=LfoControlPlane(
                     CONTROL_PLANE_SUB_ID_TO_NAME, "another-rg", "westus"
                 ),
+                tag_filter="env:prod,team:infra",
+                pii_rules="rule1:\n  pattern: 'sensitive'\n  replacement: 'test'",
             ),
         }
 
