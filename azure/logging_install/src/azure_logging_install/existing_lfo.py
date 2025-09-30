@@ -15,7 +15,8 @@ PII_SCRUBBER_RULES_KEY: Final = "PII_SCRUBBER_RULES"
 
 @dataclass(frozen=True)
 class LfoControlPlane:
-    subscription: tuple[str, str]  # id, name
+    sub_id: str
+    sub_name: str
     resource_group: str
     region: str
 
@@ -70,7 +71,8 @@ def find_existing_lfo_control_planes(
     for func_app in func_apps_response["data"]:
         subscription_id = func_app["subscriptionId"]
         existing_control_planes[func_app["name"]] = LfoControlPlane(
-            (subscription_id, sub_id_to_name[subscription_id]),
+            subscription_id,
+            sub_id_to_name[subscription_id],
             func_app["resourceGroup"],
             func_app["location"],
         )
@@ -83,7 +85,7 @@ def query_function_app_env_vars(
     """Query all environment variables for a function app and return as a dictionary."""
     env_vars_list = execute(
         AzCmd("functionapp", "config appsettings list")
-        .param("--subscription", control_plane.subscription[0])
+        .param("--subscription", control_plane.sub_id)
         .param("--name", resource_task_name)
         .param("--resource-group", control_plane.resource_group)
         .param("--output", "json")

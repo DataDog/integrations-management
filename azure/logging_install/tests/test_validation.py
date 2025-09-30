@@ -18,22 +18,19 @@ from azure_logging_install.errors import (
 
 # Test data
 CONTROL_PLANE_REGION = "eastus"
-CONTROL_PLANE_SUBSCRIPTION = "test-sub-1"
+CONTROL_PLANE_SUBSCRIPTION_ID = "test-sub-1-id"
+CONTROL_PLANE_SUBSCRIPTION_NAME = "Test Control Plane Subscription"
 CONTROL_PLANE_RESOURCE_GROUP = "test-rg"
 MONITORED_SUBSCRIPTIONS = "sub-1,sub-2"
 DATADOG_API_KEY = "test-api-key"
 DATADOG_SITE = "datadoghq.com"
 SUB_ID_TO_NAME = {
-    "sub-1": "Test Subscription 1",
-    "sub-2": "Test Subscription 2",
-    "sub-3": "Test Subscription 3",
-    "sub-4": "Test Subscription 4",
-    CONTROL_PLANE_SUBSCRIPTION: "Test Control Plane Subscription",
+    "sub-1-id": "Test Subscription 1",
+    "sub-2-id": "Test Subscription 2",
+    "sub-3-id": "Test Subscription 3",
+    "sub-4-id": "Test Subscription 4",
+    CONTROL_PLANE_SUBSCRIPTION_ID: CONTROL_PLANE_SUBSCRIPTION_NAME,
 }
-CONTROL_PLANE_SUB_ID_TO_NAME = (
-    CONTROL_PLANE_SUBSCRIPTION,
-    "Test Control Plane Subscription",
-)
 
 MOCK_DATADOG_VALID_RESPONSE = {
     "valid": True,
@@ -60,7 +57,7 @@ class TestValidation(TestCase):
         # Create test configuration
         self.config = Configuration(
             control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION,
+            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
             control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
             monitored_subs=MONITORED_SUBSCRIPTIONS,
             datadog_api_key=DATADOG_API_KEY,
@@ -140,7 +137,7 @@ class TestValidation(TestCase):
         """Test validation fails with empty monitored subscriptions"""
         config = Configuration(
             control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION,
+            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
             control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
             monitored_subs="",
             datadog_api_key=DATADOG_API_KEY,
@@ -153,24 +150,26 @@ class TestValidation(TestCase):
 
     def test_validate_control_plane_sub_access_success(self):
         """Test successful control plane subscription access validation"""
-        validation.validate_control_plane_sub_access(CONTROL_PLANE_SUBSCRIPTION)
+        validation.validate_control_plane_sub_access(CONTROL_PLANE_SUBSCRIPTION_ID)
 
-        self.set_subscription_mock.assert_called_once_with(CONTROL_PLANE_SUBSCRIPTION)
+        self.set_subscription_mock.assert_called_once_with(
+            CONTROL_PLANE_SUBSCRIPTION_ID
+        )
 
     def test_validate_control_plane_sub_access_failure(self):
         """Test control plane subscription access validation failure"""
         self.set_subscription_mock.side_effect = AccessError("No access")
 
         with self.assertRaises(AccessError):
-            validation.validate_control_plane_sub_access(CONTROL_PLANE_SUBSCRIPTION)
+            validation.validate_control_plane_sub_access(CONTROL_PLANE_SUBSCRIPTION_ID)
 
     def test_validate_monitored_subs_access_success(self):
         """Test successful monitored subscriptions access validation"""
-        validation.validate_monitored_subs_access(["sub-1", "sub-2"])
+        validation.validate_monitored_subs_access(["sub-1-id", "sub-2-id"])
 
         self.assertEqual(self.set_subscription_mock.call_count, 2)
-        self.set_subscription_mock.assert_any_call("sub-1")
-        self.set_subscription_mock.assert_any_call("sub-2")
+        self.set_subscription_mock.assert_any_call("sub-1-id")
+        self.set_subscription_mock.assert_any_call("sub-2-id")
 
     def test_validate_monitored_subs_access_partial_failure(self):
         """Test monitored subscriptions access validation with partial failure"""
@@ -229,7 +228,9 @@ class TestValidation(TestCase):
         ]
 
         validation.validate_resource_names(
-            CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_SUBSCRIPTION, "teststorage123"
+            CONTROL_PLANE_RESOURCE_GROUP,
+            CONTROL_PLANE_SUBSCRIPTION_ID,
+            "teststorage123",
         )
 
         self.assertEqual(self.execute_mock.call_count, 2)
@@ -245,7 +246,7 @@ class TestValidation(TestCase):
         try:
             validation.validate_resource_names(
                 CONTROL_PLANE_RESOURCE_GROUP,
-                CONTROL_PLANE_SUBSCRIPTION,
+                CONTROL_PLANE_SUBSCRIPTION_ID,
                 "teststorage123",
             )
         except ExistenceCheckError:
@@ -261,7 +262,7 @@ class TestValidation(TestCase):
         try:
             validation.validate_resource_names(
                 CONTROL_PLANE_RESOURCE_GROUP,
-                CONTROL_PLANE_SUBSCRIPTION,
+                CONTROL_PLANE_SUBSCRIPTION_ID,
                 "teststorage123",
             )
         except ExistenceCheckError:
@@ -370,21 +371,27 @@ class TestValidation(TestCase):
         mock_existing_lfos = {
             "abc123": LfoMetadata(
                 monitored_subs={
-                    "sub-1": SUB_ID_TO_NAME["sub-1"],
-                    "sub-2": SUB_ID_TO_NAME["sub-2"],
+                    "sub-1-id": SUB_ID_TO_NAME["sub-1-id"],
+                    "sub-2-id": SUB_ID_TO_NAME["sub-2-id"],
                 },
                 control_plane=LfoControlPlane(
-                    CONTROL_PLANE_SUB_ID_TO_NAME, "existing-rg", "eastus"
+                    CONTROL_PLANE_SUBSCRIPTION_ID,
+                    CONTROL_PLANE_SUBSCRIPTION_NAME,
+                    "existing-rg",
+                    "eastus",
                 ),
                 tag_filter="env:prod,team:infra",
                 pii_rules="rule1:\n  pattern: 'sensitive'\n  replacement: 'test'",
             ),
             "def456": LfoMetadata(
                 monitored_subs={
-                    "sub-3": SUB_ID_TO_NAME["sub-3"],
+                    "sub-3-id": SUB_ID_TO_NAME["sub-3-id"],
                 },
                 control_plane=LfoControlPlane(
-                    CONTROL_PLANE_SUB_ID_TO_NAME, "another-rg", "westus"
+                    CONTROL_PLANE_SUBSCRIPTION_ID,
+                    CONTROL_PLANE_SUBSCRIPTION_NAME,
+                    "another-rg",
+                    "westus",
                 ),
                 tag_filter="env:prod,team:infra",
                 pii_rules="rule1:\n  pattern: 'sensitive'\n  replacement: 'test'",
