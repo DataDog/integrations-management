@@ -403,6 +403,7 @@ class TestValidation(TestCase):
                 "azure_logging_install.validation.check_existing_lfo",
                 return_value=mock_existing_lfos,
             ) as mock_check_existing,
+            mock_patch("builtins.input", return_value="y"),
         ):
             result = validation.check_fresh_install(self.config, SUB_ID_TO_NAME)
 
