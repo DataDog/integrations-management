@@ -212,7 +212,7 @@ def create_function_app(config: Configuration, name: str):
 
 def set_function_app_env_vars(config: Configuration, function_app_name: str):
     """Update the environment variables for a function app - some are exclusive to specific tasks"""
-    log.info(f"Configuring app settigns for function app {function_app_name}")
+    log.info(f"Configuring app settings for function app {function_app_name}")
 
     common_settings = {
         "AzureWebJobsStorage": config.get_control_plane_cache_conn_string(),

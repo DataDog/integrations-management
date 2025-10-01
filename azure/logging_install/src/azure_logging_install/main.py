@@ -141,9 +141,9 @@ def create_new_lfo(config: Configuration):
     log_header("Success! Azure Automated Log Forwarding installation completed!")
 
 
-def update_existing_lfo(config: Configuration, existing_lfos: dict[str, LfoMetadata]):
+def update_existing_lfo(config: Configuration, existing_lfo: LfoMetadata):
     """Update an existing LFO for the given configuration"""
-    existing_monitored_sub_ids = set(existing_lfos[0].monitored_subs.keys())
+    existing_monitored_sub_ids = set(existing_lfo.monitored_subs.keys())
     new_monitored_sub_ids = set(config.monitored_subscriptions)
 
     log.info("STEP 2: Updating settings for control plane tasks")
@@ -174,7 +174,8 @@ def install_log_forwarder(config: Configuration):
             )
             log.info("Updating existing installation...")
 
-            update_existing_lfo(config, existing_lfos)
+            existing_lfo = next(iter(existing_lfos.values()))
+            update_existing_lfo(config, existing_lfo)
         else:
             log.info(
                 "Validation completed - no existing log forwarding installation found"
