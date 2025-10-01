@@ -21,6 +21,8 @@ from .existing_lfo import update_existing_lfo
 
 log = getLogger("installer")
 
+SKIP_SINGLETON_CHECK = False
+
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -105,6 +107,12 @@ def parse_arguments():
         help="Set the log level (default: INFO)",
     )
 
+    parser.add_argument(
+        "--skip-singleton-check",
+        action="store_true",
+        help=argparse.SUPPRESS,  # For test purposes only
+    )
+
     return parser.parse_args()
 
 
@@ -153,7 +161,12 @@ def install_log_forwarder(config: Configuration):
         sub_id_to_name = list_users_subscriptions()
         existing_lfos = check_fresh_install(config, sub_id_to_name)
         if existing_lfos:
-            validate_singleton_lfo(config, existing_lfos)
+            if SKIP_SINGLETON_CHECK:
+                log.debug(
+                    "Skipping singleton check - existing log forwarding installation found"
+                )
+            else:
+                validate_singleton_lfo(config, existing_lfos)
             log.info(
                 "Validation completed - existing log forwarding installation found"
             )
@@ -179,6 +192,10 @@ def main():
 
     try:
         args = parse_arguments()
+
+        global SKIP_SINGLETON_CHECK
+        SKIP_SINGLETON_CHECK = args.skip_singleton_check
+
         config = Configuration(
             control_plane_region=args.control_plane_region,
             control_plane_sub_id=args.control_plane_subscription,

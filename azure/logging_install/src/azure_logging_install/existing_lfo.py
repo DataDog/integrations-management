@@ -3,8 +3,9 @@ from json import JSONDecodeError, loads
 from logging import getLogger
 from typing import Final, Optional
 
-from .configuration import Configuration
 from .az_cmd import AzCmd, execute
+from .configuration import Configuration
+from .main import log_header
 from .resource_setup import set_function_app_env_vars
 from .role_setup import grant_subscriptions_permissions
 
@@ -149,7 +150,7 @@ def check_existing_lfo(
 def update_existing_lfo(config: Configuration, existing_lfo: LfoMetadata):
     """Update an existing LFO for the given configuration"""
 
-    log.info("STEP 2: Grant permissions to any new scopes added for log forwarding")
+    log_header("STEP 2: Grant permissions to any new scopes added for log forwarding")
     existing_monitored_sub_ids = set(existing_lfo.monitored_subs.keys())
     new_monitored_sub_ids = set(config.monitored_subscriptions)
     sub_ids_that_need_permissions = new_monitored_sub_ids - existing_monitored_sub_ids
@@ -159,7 +160,7 @@ def update_existing_lfo(config: Configuration, existing_lfo: LfoMetadata):
     else:
         log.info("No new subscriptions added - skipping permission grant")
 
-    log.info("STEP 3: Updating settings for control plane tasks")
+    log_header("STEP 3: Updating settings for control plane tasks")
     existing_tag_filters = existing_lfo.tag_filter
     existing_pii_rules = existing_lfo.pii_rules
     new_tag_filters = config.resource_tag_filters
@@ -175,3 +176,5 @@ def update_existing_lfo(config: Configuration, existing_lfo: LfoMetadata):
         # If the user is removing a sub from the existing monitored subs, LFO will automatically cease log forwarding for the removed sub
         log.info(f"Updating settings for function app {function_app_name}")
         set_function_app_env_vars(config, function_app_name)
+
+    log_header("Success! Azure Automated Log Forwarding installation updated!")

@@ -210,12 +210,13 @@ def create_initial_deploy_role(config: Configuration):
 
 
 def get_function_app_principal_id(
-    control_plane_resource_group: str, function_app_name: str
+    control_plane_resource_group: str, control_plane_sub_id: str, function_app_name: str
 ) -> str:
     """Get the principal ID of a Function App's managed identity."""
     log.debug(f"Getting principal ID for Function App {function_app_name}")
     output = execute(
         AzCmd("functionapp", "identity show")
+        .param("--subscription", control_plane_sub_id)
         .param("--name", function_app_name)
         .param("--resource-group", control_plane_resource_group)
         .param("--query", "principalId")
@@ -268,13 +269,15 @@ def grant_subscriptions_permissions(config: Configuration, sub_ids: Iterable[str
     """Grant permissions to a set of subscriptions."""
 
     resource_principal_id = get_function_app_principal_id(
-        config.control_plane_rg, config.resources_task_name
+        config.control_plane_rg, config.control_plane_sub_id, config.resources_task_name
     )
     scaling_principal_id = get_function_app_principal_id(
-        config.control_plane_rg, config.scaling_task_name
+        config.control_plane_rg, config.control_plane_sub_id, config.scaling_task_name
     )
     diagnostic_principal_id = get_function_app_principal_id(
-        config.control_plane_rg, config.diagnostic_settings_task_name
+        config.control_plane_rg,
+        config.control_plane_sub_id,
+        config.diagnostic_settings_task_name,
     )
 
     for sub_id in sub_ids:
