@@ -232,9 +232,10 @@ class TestMain(TestCase):
         self.grant_permissions_mock.assert_not_called()
         self.run_initial_deploy_mock.assert_not_called()
 
-    def test_update_existing_lfo_success(self):
-        """Test successful update of existing LFO installation"""
+    def test_update_existing_lfo_subs_and_settings(self):
+        """Test successful update of existing LFO installation where a new subscription and new tag filters are specified"""
 
+        # Mock represents the new incoming config with an additional subscription (sub 3) and new tag filters
         mock_config = MagicMock()
         mock_config.monitored_subscriptions = [SUB_1_ID, SUB_2_ID, SUB_3_ID]
         mock_config.control_plane_function_app_names = [
@@ -242,8 +243,10 @@ class TestMain(TestCase):
             SCALING_TASK_NAME,
             DIAGNOSTIC_SETTINGS_TASK_NAME,
         ]
+        mock_config.resource_tag_filters = RESOURCE_TAG_FILTERS
+        mock_config.pii_scrubber_rules = PII_SCRUBBER_RULES
 
-        # Create mock existing LFO with some overlapping subscriptions
+        # Existing LFO with a missing sub and different tag filter
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
                 control_plane=LfoControlPlane(
@@ -255,7 +258,61 @@ class TestMain(TestCase):
                 monitored_subs={
                     SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
                     SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
-                },  # Missing SUB_3
+                },
+                tag_filter="env:staging",
+                pii_rules=PII_SCRUBBER_RULES,
+            )
+        }
+
+        with (
+            mock_patch(
+                "azure_logging_install.main.set_function_app_env_vars"
+            ) as mock_set_env_vars,
+            mock_patch(
+                "azure_logging_install.main.grant_subscriptions_permissions"
+            ) as mock_grant_subs_perms,
+        ):
+            existing_lfo = next(iter(existing_lfos.values()))
+            main.update_existing_lfo(mock_config, existing_lfo)
+
+            # Verify function app environment variables are updated due to new tag filter
+            self.assertEqual(mock_set_env_vars.call_count, 3)
+            mock_set_env_vars.assert_any_call(mock_config, RESOURCE_TASK_NAME)
+            mock_set_env_vars.assert_any_call(mock_config, SCALING_TASK_NAME)
+            mock_set_env_vars.assert_any_call(
+                mock_config, DIAGNOSTIC_SETTINGS_TASK_NAME
+            )
+
+            # Verify permissions are granted only for new subscription
+            mock_grant_subs_perms.assert_called_once_with(mock_config, {SUB_3_ID})
+
+    def test_update_existing_lfo_monitored_subs_only(self):
+        """Test successful update of existing LFO installation - new subscriptions only"""
+
+        # Mock has new config with an additional subscription (sub 3), but same tag filters and PII rules
+        mock_config = MagicMock()
+        mock_config.monitored_subscriptions = [SUB_1_ID, SUB_2_ID, SUB_3_ID]
+        mock_config.control_plane_function_app_names = [
+            RESOURCE_TASK_NAME,
+            SCALING_TASK_NAME,
+            DIAGNOSTIC_SETTINGS_TASK_NAME,
+        ]
+        mock_config.resource_tag_filters = RESOURCE_TAG_FILTERS
+        mock_config.pii_scrubber_rules = PII_SCRUBBER_RULES
+
+        # Create mock existing LFO with some overlapping subscriptions, but no sub 3
+        existing_lfos = {
+            CONTROL_PLANE_ID: LfoMetadata(
+                control_plane=LfoControlPlane(
+                    CONTROL_PLANE_SUBSCRIPTION_ID,
+                    CONTROL_PLANE_SUBSCRIPTION_NAME,
+                    CONTROL_PLANE_RESOURCE_GROUP,
+                    CONTROL_PLANE_REGION,
+                ),
+                monitored_subs={
+                    SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
+                    SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
+                },
                 tag_filter=RESOURCE_TAG_FILTERS,
                 pii_rules=PII_SCRUBBER_RULES,
             )
@@ -272,15 +329,10 @@ class TestMain(TestCase):
             existing_lfo = next(iter(existing_lfos.values()))
             main.update_existing_lfo(mock_config, existing_lfo)
 
-            # Verify function app environment variables are updated
-            self.assertEqual(mock_set_env_vars.call_count, 3)
-            mock_set_env_vars.assert_any_call(mock_config, RESOURCE_TASK_NAME)
-            mock_set_env_vars.assert_any_call(mock_config, SCALING_TASK_NAME)
-            mock_set_env_vars.assert_any_call(
-                mock_config, DIAGNOSTIC_SETTINGS_TASK_NAME
-            )
+            # Verify function app environment variables are not updated since they remain the same
+            self.assertEqual(mock_set_env_vars.call_count, 0)
 
-            # Verify permissions are granted only for new subscriptions (SUB_3_ID)
+            # Verify permissions are granted only for new subscription
             mock_grant_subs_perms.assert_called_once_with(mock_config, {SUB_3_ID})
 
     def test_update_existing_lfo_tag_filter_pii_settings(self):
@@ -338,7 +390,51 @@ class TestMain(TestCase):
             self.assertEqual(updated_config.pii_scrubber_rules, PII_SCRUBBER_RULES)
 
             # Verify no new subscription permissions granted
-            mock_grant_subs_perms.assert_called_once_with(test_config, set())
+            mock_grant_subs_perms.assert_not_called()
+
+    def test_update_existing_lfo_noop(self):
+        """Test update when no changes are needed"""
+
+        test_config = TEST_CONFIG
+        test_config.control_plane_function_app_names = [
+            RESOURCE_TASK_NAME,
+            SCALING_TASK_NAME,
+            DIAGNOSTIC_SETTINGS_TASK_NAME,
+        ]
+
+        existing_lfos = {
+            CONTROL_PLANE_ID: LfoMetadata(
+                control_plane=LfoControlPlane(
+                    test_config.control_plane_sub_id,
+                    SUB_ID_TO_NAME[test_config.control_plane_sub_id],
+                    test_config.control_plane_rg,
+                    test_config.control_plane_region,
+                ),
+                monitored_subs={
+                    sub_id: SUB_ID_TO_NAME[sub_id]
+                    for sub_id in test_config.monitored_subscriptions
+                },
+                tag_filter=RESOURCE_TAG_FILTERS,
+                pii_rules=PII_SCRUBBER_RULES,
+            )
+        }
+
+        with (
+            mock_patch(
+                "azure_logging_install.main.set_function_app_env_vars"
+            ) as mock_set_env_vars,
+            mock_patch(
+                "azure_logging_install.main.grant_subscriptions_permissions"
+            ) as mock_grant_subs_perms,
+        ):
+            existing_lfo = next(iter(existing_lfos.values()))
+            main.update_existing_lfo(test_config, existing_lfo)
+
+            # Verify no function app environment variables are updated
+            mock_set_env_vars.assert_not_called()
+
+            # Verify no new subscription permissions granted
+            mock_grant_subs_perms.assert_not_called()
 
     def test_install_log_forwarder_new_installation(self):
         """Test install_log_forwarder flow for new installation"""
