@@ -7,8 +7,8 @@ from logging import basicConfig, getLogger
 from .az_cmd import list_users_subscriptions, set_subscription
 from .configuration import Configuration
 from .deploy import deploy_control_plane, run_initial_deploy
-from .resource_setup import create_resource_group
-from .role_setup import grant_permissions
+from .resource_setup import create_resource_group, set_function_app_env_vars
+from .role_setup import grant_permissions, grant_subscriptions_permissions
 from .validation import (
     check_fresh_install,
     validate_user_parameters,
@@ -145,11 +145,15 @@ def update_existing_lfo(config: Configuration, existing_lfos: dict[str, LfoMetad
     """Update an existing LFO for the given configuration"""
     existing_monitored_sub_ids = set(existing_lfos[0].monitored_subs.keys())
     new_monitored_sub_ids = set(config.monitored_subscriptions)
-    sub_ids_that_need_permissions = new_monitored_sub_ids - existing_monitored_sub_ids
 
-    # update the monitored_subscriptions value in the control plane
-    # execute step 4 for the new subs
-    pass
+    log.info("STEP 2: Updating settings for control plane tasks")
+    for function_app_name in config.control_plane_function_app_names:
+        log.info(f"Updating settings for function app {function_app_name}")
+        set_function_app_env_vars(config, function_app_name)
+
+    log.info("STEP 3: Grant permissions to any new scopes added for log forwarding")
+    sub_ids_that_need_permissions = new_monitored_sub_ids - existing_monitored_sub_ids
+    grant_subscriptions_permissions(config, sub_ids_that_need_permissions)
 
 
 def install_log_forwarder(config: Configuration):
@@ -166,13 +170,16 @@ def install_log_forwarder(config: Configuration):
         if existing_lfos:
             validate_singleton_lfo(config, existing_lfos)
             log.info(
-                "Validation completed - existing log forwarding installation found. Updating existing installation."
+                "Validation completed - existing log forwarding installation found"
             )
+            log.info("Updating existing installation...")
+
             update_existing_lfo(config, existing_lfos)
         else:
             log.info(
-                "Validation completed - no existing log forwarding installation found. Creating new installation."
+                "Validation completed - no existing log forwarding installation found"
             )
+            log.info("Creating new installation...")
             create_new_lfo(config)
 
     except Exception as e:
