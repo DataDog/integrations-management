@@ -167,7 +167,7 @@ def create_app_service_plan(
 
 
 def create_function_app(config: Configuration, name: str):
-    """Create function app and configure settings depending on task type"""
+    """Create a function app for a control plane task and configure function app runtime"""
     try:
         log.info(f"Checking if Function App '{name}' already exists...")
         execute(
@@ -201,12 +201,25 @@ def create_function_app(config: Configuration, name: str):
             .flag("--assign-identity")
         )
 
+        log.debug(f"Configuring Linux runtime for Function App {name}")
+        execute(
+            AzCmd("functionapp", "config set")
+            .param("--name", name)
+            .param("--resource-group", config.control_plane_rg)
+            .param("--linux-fx-version", shlex.quote("Python|3.11"))
+        )
+
+
+def set_function_app_env_vars(config: Configuration, function_app_name: str):
+    """Update the environment variables for a function app - some are exclusive to specific tasks"""
+    log.info(f"Configuring app settigns for function app {function_app_name}")
+
     common_settings = {
         "AzureWebJobsStorage": config.get_control_plane_cache_conn_string(),
         "FUNCTIONS_EXTENSION_VERSION": "~4",
         "FUNCTIONS_WORKER_RUNTIME": "python",
         "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING": config.get_control_plane_cache_conn_string(),
-        "WEBSITE_CONTENTSHARE": name,
+        "WEBSITE_CONTENTSHARE": function_app_name,
         "AzureWebJobsFeatureFlags": "EnableWorkerIndexing",
         "DD_API_KEY": config.datadog_api_key,
         "DD_SITE": config.datadog_site,
@@ -216,16 +229,16 @@ def create_function_app(config: Configuration, name: str):
     }
 
     # Task-specific settings
-    if name == config.resources_task_name:
+    if function_app_name == config.resources_task_name:
         specific_settings = {
             "MONITORED_SUBSCRIPTIONS": ",".join(config.monitored_subscriptions),
             "RESOURCE_TAG_FILTERS": config.resource_tag_filters,
         }
-    elif name == config.diagnostic_settings_task_name:
+    elif function_app_name == config.diagnostic_settings_task_name:
         specific_settings = {
             "RESOURCE_GROUP": config.control_plane_rg,
         }
-    elif name == config.scaling_task_name:
+    elif function_app_name == config.scaling_task_name:
         specific_settings = {
             "RESOURCE_GROUP": config.control_plane_rg,
             "FORWARDER_IMAGE": f"{IMAGE_REGISTRY_URL}/forwarder:latest",
@@ -234,7 +247,7 @@ def create_function_app(config: Configuration, name: str):
         }
     else:
         raise FatalError(
-            f"Unknown function app task when configuring app settings: {name}"
+            f"Unknown function app task when configuring app settings: {function_app_name}"
         )
 
     all_settings = {**common_settings, **specific_settings}
@@ -245,27 +258,19 @@ def create_function_app(config: Configuration, name: str):
         tmpfile_path = tmpfile.name
 
     try:
-        log.debug(f"Configuring app settings for Function App {name}")
+        log.debug(f"Configuring app settings for Function App {function_app_name}")
         execute(
             AzCmd("functionapp", "config appsettings set")
-            .param("--name", name)
+            .param("--name", function_app_name)
             .param("--resource-group", config.control_plane_rg)
             .param("--settings", f"@{tmpfile_path}")
         )
     finally:
         os.unlink(tmpfile_path)
 
-    log.debug(f"Configuring Linux runtime for Function App {name}")
-    execute(
-        AzCmd("functionapp", "config set")
-        .param("--name", name)
-        .param("--resource-group", config.control_plane_rg)
-        .param("--linux-fx-version", shlex.quote("Python|3.11"))
-    )
-
 
 def create_function_apps(config: Configuration):
-    """Create Resources Task, Scaling Task, and Diagnostic Settings Task function apps"""
+    """Create function apps for LFO Resources Task, Scaling Task, and Diagnostic Settings Task"""
     log.info("Creating App Service Plan...")
     create_app_service_plan(
         config.app_service_plan_name,
@@ -275,8 +280,8 @@ def create_function_apps(config: Configuration):
 
     log.info("Creating Function Apps...")
     for function_app_name in config.control_plane_function_app_names:
-        log.info(f"Creating Function App: {function_app_name}")
         create_function_app(config, function_app_name)
+        set_function_app_env_vars(config, function_app_name)
 
     log.info("Function Apps created and configured")
 

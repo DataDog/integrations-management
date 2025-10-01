@@ -16,6 +16,7 @@ from .validation import (
     validate_singleton_lfo,
 )
 from .errors import InputParamValidationError
+from .existing_lfo import LfoMetadata
 
 
 log = getLogger("installer")
@@ -114,6 +115,43 @@ def log_header(message: str):
     log.info(header)
 
 
+def create_new_lfo(config: Configuration):
+    """Create a new LFO for the given configuration"""
+
+    log_header("STEP 2: Creating control plane resource group...")
+    set_subscription(config.control_plane_sub_id)
+    create_resource_group(config.control_plane_rg, config.control_plane_region)
+    log.info("Control plane resource group created")
+
+    log_header("STEP 3: Deploying control plane infrastructure...")
+    deploy_control_plane(config)
+
+    log_header("STEP 4: Setting up subscription permissions...")
+    grant_permissions(config)
+    log.info("Subscription and resource group permissions configured")
+
+    log_header("STEP 5: Triggering initial deploy...")
+    run_initial_deploy(
+        config.deployer_job_name,
+        config.control_plane_rg,
+        config.control_plane_sub_id,
+    )
+    log.info("Initial deployment triggered")
+
+    log_header("Success! Azure Automated Log Forwarding installation completed!")
+
+
+def update_existing_lfo(config: Configuration, existing_lfos: dict[str, LfoMetadata]):
+    """Update an existing LFO for the given configuration"""
+    existing_monitored_sub_ids = set(existing_lfos[0].monitored_subs.keys())
+    new_monitored_sub_ids = set(config.monitored_subscriptions)
+    sub_ids_that_need_permissions = new_monitored_sub_ids - existing_monitored_sub_ids
+
+    # update the monitored_subscriptions value in the control plane
+    # execute step 4 for the new subs
+    pass
+
+
 def install_log_forwarder(config: Configuration):
     try:
         basicConfig(level=getattr(logging, config.log_level))
@@ -127,30 +165,15 @@ def install_log_forwarder(config: Configuration):
         existing_lfos = check_fresh_install(config, sub_id_to_name)
         if existing_lfos:
             validate_singleton_lfo(config, existing_lfos)
-
-        log.info("Validation completed")
-
-        log_header("STEP 2: Creating control plane resource group...")
-        set_subscription(config.control_plane_sub_id)
-        create_resource_group(config.control_plane_rg, config.control_plane_region)
-        log.info("Control plane resource group created")
-
-        log_header("STEP 3: Deploying control plane infrastructure...")
-        deploy_control_plane(config)
-
-        log_header("STEP 4: Setting up subscription permissions...")
-        grant_permissions(config)
-        log.info("Subscription and resource group permissions configured")
-
-        log_header("STEP 5: Triggering initial deploy...")
-        run_initial_deploy(
-            config.deployer_job_name,
-            config.control_plane_rg,
-            config.control_plane_sub_id,
-        )
-        log.info("Initial deployment triggered")
-
-        log_header("Success! Azure Automated Log Forwarding installation completed!")
+            log.info(
+                "Validation completed - existing log forwarding installation found. Updating existing installation."
+            )
+            update_existing_lfo(config, existing_lfos)
+        else:
+            log.info(
+                "Validation completed - no existing log forwarding installation found. Creating new installation."
+            )
+            create_new_lfo(config)
 
     except Exception as e:
         log.error(f"Failed with error: {e}")
