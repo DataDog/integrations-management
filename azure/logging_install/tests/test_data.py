@@ -49,3 +49,13 @@ TEST_CONFIG = Configuration(
     datadog_telemetry=True,
     log_level="INFO",
 )
+
+
+def get_test_config():
+    test_config = TEST_CONFIG
+    test_config.control_plane_function_app_names = [
+        RESOURCE_TASK_NAME,
+        SCALING_TASK_NAME,
+        DIAGNOSTIC_SETTINGS_TASK_NAME,
+    ]
+    return test_config

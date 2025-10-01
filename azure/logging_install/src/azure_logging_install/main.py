@@ -7,8 +7,8 @@ from logging import basicConfig, getLogger
 from .az_cmd import list_users_subscriptions, set_subscription
 from .configuration import Configuration
 from .deploy import deploy_control_plane, run_initial_deploy
-from .resource_setup import create_resource_group, set_function_app_env_vars
-from .role_setup import grant_permissions, grant_subscriptions_permissions
+from .resource_setup import create_resource_group
+from .role_setup import grant_permissions
 from .validation import (
     check_fresh_install,
     validate_user_parameters,
@@ -16,7 +16,7 @@ from .validation import (
     validate_singleton_lfo,
 )
 from .errors import InputParamValidationError
-from .existing_lfo import LfoMetadata
+from .existing_lfo import update_existing_lfo
 
 
 log = getLogger("installer")
@@ -139,37 +139,6 @@ def create_new_lfo(config: Configuration):
     log.info("Initial deployment triggered")
 
     log_header("Success! Azure Automated Log Forwarding installation completed!")
-
-
-def update_existing_lfo(config: Configuration, existing_lfo: LfoMetadata):
-    """Update an existing LFO for the given configuration"""
-
-    log.info("STEP 2: Grant permissions to any new scopes added for log forwarding")
-    existing_monitored_sub_ids = set(existing_lfo.monitored_subs.keys())
-    new_monitored_sub_ids = set(config.monitored_subscriptions)
-    sub_ids_that_need_permissions = new_monitored_sub_ids - existing_monitored_sub_ids
-
-    if sub_ids_that_need_permissions:
-        grant_subscriptions_permissions(config, sub_ids_that_need_permissions)
-    else:
-        log.info("No new subscriptions added - skipping permission grant")
-
-    log.info("STEP 3: Updating settings for control plane tasks")
-    existing_tag_filters = existing_lfo.tag_filter
-    existing_pii_rules = existing_lfo.pii_rules
-    new_tag_filters = config.resource_tag_filters
-    new_pii_rules = config.pii_scrubber_rules
-
-    if existing_tag_filters == new_tag_filters and existing_pii_rules == new_pii_rules:
-        log.info("No changes to settings detected - skipping update")
-        return
-
-    for function_app_name in config.control_plane_function_app_names:
-        # Updating env vars will overwrite values for monitored subs, tag filters, and PII rules
-        # LFO will auto-adjust behavior based on these settings
-        # If the user is removing a sub from the existing monitored subs, LFO will automatically cease log forwarding for the removed sub
-        log.info(f"Updating settings for function app {function_app_name}")
-        set_function_app_env_vars(config, function_app_name)
 
 
 def install_log_forwarder(config: Configuration):
