@@ -5,14 +5,28 @@ from unittest.mock import patch as mock_patch, MagicMock
 # project
 from azure_logging_install import main
 from azure_logging_install.errors import FatalError, InputParamValidationError
+from azure_logging_install.existing_lfo import LfoMetadata, LfoControlPlane
 
 from tests.test_data import (
+    CONTROL_PLANE_ID,
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_SUBSCRIPTION_ID,
+    CONTROL_PLANE_SUBSCRIPTION_NAME,
     CONTROL_PLANE_RESOURCE_GROUP,
-    MONITORED_SUBSCRIPTIONS,
     DATADOG_API_KEY,
     DATADOG_SITE,
+    DEPLOYER_JOB_NAME,
+    DIAGNOSTIC_SETTINGS_TASK_NAME,
+    MONITORED_SUBSCRIPTIONS,
+    PII_SCRUBBER_RULES,
+    RESOURCE_TAG_FILTERS,
+    RESOURCE_TASK_NAME,
+    SUB_1_ID,
+    SUB_2_ID,
+    SUB_3_ID,
+    SUB_ID_TO_NAME,
+    SCALING_TASK_NAME,
+    TEST_CONFIG,
 )
 
 
@@ -73,7 +87,7 @@ class TestMain(TestCase):
         )
         self.assertEqual(args.monitored_subscriptions, MONITORED_SUBSCRIPTIONS)
         self.assertEqual(args.datadog_api_key, DATADOG_API_KEY)
-        self.assertEqual(args.datadog_site, DATADOG_SITE)  # default value
+        self.assertEqual(args.datadog_site, DATADOG_SITE)
 
     def test_parse_arguments_with_optional_params(self):
         """Test parsing arguments with optional parameters"""
@@ -92,9 +106,9 @@ class TestMain(TestCase):
             "--datadog-site",
             "datadoghq.eu",
             "--resource-tag-filters",
-            "env:prod,team:infra",
+            RESOURCE_TAG_FILTERS,
             "--pii-scrubber-rules",
-            "rules:\n  - pattern: test",
+            PII_SCRUBBER_RULES,
             "--datadog-telemetry",
             "--log-level",
             "DEBUG",
@@ -104,8 +118,8 @@ class TestMain(TestCase):
             args = main.parse_arguments()
 
         self.assertEqual(args.datadog_site, "datadoghq.eu")
-        self.assertEqual(args.resource_tag_filters, "env:prod,team:infra")
-        self.assertEqual(args.pii_scrubber_rules, "rules:\n  - pattern: test")
+        self.assertEqual(args.resource_tag_filters, RESOURCE_TAG_FILTERS)
+        self.assertEqual(args.pii_scrubber_rules, PII_SCRUBBER_RULES)
         self.assertTrue(args.datadog_telemetry)
         self.assertEqual(args.log_level, "DEBUG")
 
@@ -141,8 +155,8 @@ class TestMain(TestCase):
         mock_args.monitored_subscriptions = MONITORED_SUBSCRIPTIONS
         mock_args.datadog_api_key = DATADOG_API_KEY
         mock_args.datadog_site = DATADOG_SITE
-        mock_args.resource_tag_filters = ""
-        mock_args.pii_scrubber_rules = ""
+        mock_args.resource_tag_filters = RESOURCE_TAG_FILTERS
+        mock_args.pii_scrubber_rules = PII_SCRUBBER_RULES
         mock_args.datadog_telemetry = False
         mock_args.log_level = "INFO"
 
@@ -176,3 +190,261 @@ class TestMain(TestCase):
         ):
             with self.assertRaises(InputParamValidationError):
                 main.main()
+
+    # ===== Integration Flow Tests ===== #
+
+    def test_create_new_lfo_success(self):
+        """Test successful creation of new LFO installation"""
+        mock_config = MagicMock()
+        mock_config.control_plane_sub_id = CONTROL_PLANE_SUBSCRIPTION_ID
+        mock_config.control_plane_rg = CONTROL_PLANE_RESOURCE_GROUP
+        mock_config.control_plane_region = CONTROL_PLANE_REGION
+        mock_config.deployer_job_name = DEPLOYER_JOB_NAME
+
+        main.create_new_lfo(mock_config)
+
+        # Verify all steps are called in correct order
+        self.set_subscription_mock.assert_called_once_with(
+            CONTROL_PLANE_SUBSCRIPTION_ID
+        )
+        self.create_resource_group_mock.assert_called_once_with(
+            CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION
+        )
+        self.deploy_control_plane_mock.assert_called_once_with(mock_config)
+        self.grant_permissions_mock.assert_called_once_with(mock_config)
+        self.run_initial_deploy_mock.assert_called_once_with(
+            DEPLOYER_JOB_NAME,
+            CONTROL_PLANE_RESOURCE_GROUP,
+            CONTROL_PLANE_SUBSCRIPTION_ID,
+        )
+
+    def test_create_new_lfo_handles_errors(self):
+        """Test create_new_lfo handles errors properly"""
+        mock_config = MagicMock()
+        error_message = "Resource group creation failed"
+        self.create_resource_group_mock.side_effect = FatalError(error_message)
+
+        with self.assertRaises(FatalError) as context:
+            main.create_new_lfo(mock_config)
+
+        self.assertEqual(str(context.exception), error_message)
+        self.deploy_control_plane_mock.assert_not_called()
+        self.grant_permissions_mock.assert_not_called()
+        self.run_initial_deploy_mock.assert_not_called()
+
+    def test_update_existing_lfo_success(self):
+        """Test successful update of existing LFO installation"""
+
+        mock_config = MagicMock()
+        mock_config.monitored_subscriptions = [SUB_1_ID, SUB_2_ID, SUB_3_ID]
+        mock_config.control_plane_function_app_names = [
+            RESOURCE_TASK_NAME,
+            SCALING_TASK_NAME,
+            DIAGNOSTIC_SETTINGS_TASK_NAME,
+        ]
+
+        # Create mock existing LFO with some overlapping subscriptions
+        existing_lfos = {
+            CONTROL_PLANE_ID: LfoMetadata(
+                control_plane=LfoControlPlane(
+                    CONTROL_PLANE_SUBSCRIPTION_ID,
+                    CONTROL_PLANE_SUBSCRIPTION_NAME,
+                    CONTROL_PLANE_RESOURCE_GROUP,
+                    CONTROL_PLANE_REGION,
+                ),
+                monitored_subs={
+                    SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
+                    SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
+                },  # Missing SUB_3
+                tag_filter=RESOURCE_TAG_FILTERS,
+                pii_rules=PII_SCRUBBER_RULES,
+            )
+        }
+
+        with (
+            mock_patch(
+                "azure_logging_install.main.set_function_app_env_vars"
+            ) as mock_set_env_vars,
+            mock_patch(
+                "azure_logging_install.main.grant_subscriptions_permissions"
+            ) as mock_grant_subs_perms,
+        ):
+            existing_lfo = next(iter(existing_lfos.values()))
+            main.update_existing_lfo(mock_config, existing_lfo)
+
+            # Verify function app environment variables are updated
+            self.assertEqual(mock_set_env_vars.call_count, 3)
+            mock_set_env_vars.assert_any_call(mock_config, RESOURCE_TASK_NAME)
+            mock_set_env_vars.assert_any_call(mock_config, SCALING_TASK_NAME)
+            mock_set_env_vars.assert_any_call(
+                mock_config, DIAGNOSTIC_SETTINGS_TASK_NAME
+            )
+
+            # Verify permissions are granted only for new subscriptions (SUB_3_ID)
+            mock_grant_subs_perms.assert_called_once_with(mock_config, {SUB_3_ID})
+
+    def test_update_existing_lfo_tag_filter_pii_settings(self):
+        """Test update when no new subscriptions are added but tag filters and PII rules change"""
+
+        # Test config contains new tag filters and PII rules
+        test_config = TEST_CONFIG
+        test_config.control_plane_function_app_names = [
+            RESOURCE_TASK_NAME,
+            SCALING_TASK_NAME,
+            DIAGNOSTIC_SETTINGS_TASK_NAME,
+        ]
+
+        # Existing LFO has same monitored subs, but old tag filters and PII rules
+        existing_lfos = {
+            CONTROL_PLANE_ID: LfoMetadata(
+                control_plane=LfoControlPlane(
+                    test_config.control_plane_sub_id,
+                    SUB_ID_TO_NAME[test_config.control_plane_sub_id],
+                    test_config.control_plane_rg,
+                    test_config.control_plane_region,
+                ),
+                monitored_subs={
+                    sub_id: SUB_ID_TO_NAME[sub_id]
+                    for sub_id in test_config.monitored_subscriptions
+                },
+                tag_filter="env:staging,team:legacy",
+                pii_rules="old-rule:\n  pattern: 'old pattern'\n  replacement: 'OLD'",
+            )
+        }
+
+        with (
+            mock_patch(
+                "azure_logging_install.main.set_function_app_env_vars"
+            ) as mock_set_env_vars,
+            mock_patch(
+                "azure_logging_install.main.grant_subscriptions_permissions"
+            ) as mock_grant_subs_perms,
+        ):
+            existing_lfo = next(iter(existing_lfos.values()))
+            main.update_existing_lfo(test_config, existing_lfo)
+
+            # Verify call for env var updates with new tag filters and PII rules
+            self.assertEqual(mock_set_env_vars.call_count, 3)
+            mock_set_env_vars.assert_any_call(test_config, RESOURCE_TASK_NAME)
+            mock_set_env_vars.assert_any_call(test_config, SCALING_TASK_NAME)
+            mock_set_env_vars.assert_any_call(
+                test_config, DIAGNOSTIC_SETTINGS_TASK_NAME
+            )
+
+            # Verify the config passed to set_function_app_env_vars has the updated values
+            call_args = mock_set_env_vars.call_args[0]
+            updated_config = call_args[0]
+            self.assertEqual(updated_config.resource_tag_filters, RESOURCE_TAG_FILTERS)
+            self.assertEqual(updated_config.pii_scrubber_rules, PII_SCRUBBER_RULES)
+
+            # Verify no new subscription permissions granted
+            mock_grant_subs_perms.assert_called_once_with(test_config, set())
+
+    def test_install_log_forwarder_new_installation(self):
+        """Test install_log_forwarder flow for new installation"""
+        test_config = TEST_CONFIG
+
+        with (
+            mock_patch(
+                "azure_logging_install.main.validate_az_cli"
+            ) as mock_validate_cli,
+            mock_patch(
+                "azure_logging_install.main.validate_user_parameters"
+            ) as mock_validate_params,
+            mock_patch(
+                "azure_logging_install.main.list_users_subscriptions"
+            ) as mock_list_subs,
+            mock_patch(
+                "azure_logging_install.main.check_fresh_install"
+            ) as mock_check_fresh,
+            mock_patch("azure_logging_install.main.create_new_lfo") as mock_create_new,
+        ):
+            mock_list_subs.return_value = SUB_ID_TO_NAME
+            mock_check_fresh.return_value = {}  # No existing LFOs found
+
+            # Execute the function
+            main.install_log_forwarder(test_config)
+
+            # Verify validation steps
+            mock_validate_cli.assert_called_once()
+            mock_validate_params.assert_called_once_with(test_config)
+            mock_list_subs.assert_called_once()
+            mock_check_fresh.assert_called_once_with(test_config, SUB_ID_TO_NAME)
+
+            # Verify new installation path is taken
+            mock_create_new.assert_called_once_with(test_config)
+
+    def test_install_log_forwarder_existing_installation(self):
+        """Test install_log_forwarder flow for existing installation"""
+        test_config = TEST_CONFIG
+
+        existing_lfo = LfoMetadata(
+            control_plane=LfoControlPlane(
+                CONTROL_PLANE_SUBSCRIPTION_ID,
+                CONTROL_PLANE_SUBSCRIPTION_NAME,
+                CONTROL_PLANE_RESOURCE_GROUP,
+                CONTROL_PLANE_REGION,
+            ),
+            monitored_subs={
+                CONTROL_PLANE_SUBSCRIPTION_ID: CONTROL_PLANE_SUBSCRIPTION_NAME
+            },
+            tag_filter=RESOURCE_TAG_FILTERS,
+            pii_rules=PII_SCRUBBER_RULES,
+        )
+        existing_lfos = {CONTROL_PLANE_ID: existing_lfo}
+
+        with (
+            mock_patch(
+                "azure_logging_install.main.validate_az_cli"
+            ) as mock_validate_cli,
+            mock_patch(
+                "azure_logging_install.main.validate_user_parameters"
+            ) as mock_validate_params,
+            mock_patch(
+                "azure_logging_install.main.list_users_subscriptions"
+            ) as mock_list_subs,
+            mock_patch(
+                "azure_logging_install.main.check_fresh_install"
+            ) as mock_check_fresh,
+            mock_patch(
+                "azure_logging_install.main.validate_singleton_lfo"
+            ) as mock_validate_singleton,
+            mock_patch(
+                "azure_logging_install.main.update_existing_lfo"
+            ) as mock_update_existing,
+        ):
+            mock_list_subs.return_value = SUB_ID_TO_NAME
+            mock_check_fresh.return_value = existing_lfos
+
+            # Execute the function
+            main.install_log_forwarder(test_config)
+
+            # Verify validation steps
+            mock_validate_cli.assert_called_once()
+            mock_validate_params.assert_called_once_with(test_config)
+            mock_list_subs.assert_called_once()
+            mock_check_fresh.assert_called_once_with(test_config, SUB_ID_TO_NAME)
+            mock_validate_singleton.assert_called_once_with(test_config, existing_lfos)
+
+            # Verify existing installation path is taken
+            expected_lfo = next(iter(existing_lfos.values()))
+            mock_update_existing.assert_called_once_with(test_config, expected_lfo)
+
+    def test_install_log_forwarder_handles_exceptions(self):
+        """Test install_log_forwarder handles exceptions properly"""
+        test_config = TEST_CONFIG
+
+        with (
+            mock_patch(
+                "azure_logging_install.main.validate_az_cli"
+            ) as mock_validate_cli,
+        ):
+            # Mock validation failure
+            error_message = "Azure CLI validation failed"
+            mock_validate_cli.side_effect = FatalError(error_message)
+
+            with self.assertRaises(FatalError) as context:
+                main.install_log_forwarder(test_config)
+
+            # Verify the correct exception was raised
+            self.assertEqual(str(context.exception), error_message)

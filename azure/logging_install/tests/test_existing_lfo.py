@@ -26,7 +26,9 @@ from tests.test_data import (
     SUB_3_ID,
     SUB_4_ID,
     RESOURCE_TAG_FILTERS,
+    RESOURCE_TASK_NAME,
     PII_SCRUBBER_RULES,
+    CONTROL_PLANE_ID,
 )
 
 
@@ -91,7 +93,7 @@ class TestExistingLfo(TestCase):
             "data": [
                 {
                     "resourceGroup": "lfo-rg",
-                    "name": "resources-task-abc123",
+                    "name": RESOURCE_TASK_NAME,
                     "location": "eastus",
                     "subscriptionId": SUB_1_ID,
                 }
@@ -108,7 +110,7 @@ class TestExistingLfo(TestCase):
         self.execute_mock.side_effect = self.make_execute_router(
             json.dumps(mock_func_apps),  # graph query for function apps
             {
-                "resources-task-abc123": {
+                RESOURCE_TASK_NAME: {
                     MONITORED_SUBSCRIPTIONS_KEY: mock_monitored_subs_json,
                     RESOURCE_TAG_FILTERS_KEY: RESOURCE_TAG_FILTERS,
                     PII_SCRUBBER_RULES_KEY: PII_SCRUBBER_RULES,
@@ -119,9 +121,9 @@ class TestExistingLfo(TestCase):
         result = check_existing_lfo(self.config.all_subscriptions, SUB_ID_TO_NAME)
 
         self.assertEqual(len(result), 1)
-        self.assertIn("abc123", result)
+        self.assertIn(CONTROL_PLANE_ID, result)
 
-        lfo_metadata = result["abc123"]
+        lfo_metadata = result[CONTROL_PLANE_ID]
         self.assertIsInstance(lfo_metadata, LfoMetadata)
         expected_monitored_subs = {
             SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
