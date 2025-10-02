@@ -218,7 +218,7 @@ def create_function_app(config: Configuration, name: str):
     # Task-specific settings
     if name == config.resources_task_name:
         specific_settings = {
-            "MONITORED_SUBSCRIPTIONS": ",".join(config.monitored_subscriptions),
+            "MONITORED_SUBSCRIPTIONS": json.dumps(config.monitored_subscriptions),
             "RESOURCE_TAG_FILTERS": config.resource_tag_filters,
         }
     elif name == config.diagnostic_settings_task_name:
