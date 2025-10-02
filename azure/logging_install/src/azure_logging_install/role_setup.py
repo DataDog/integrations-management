@@ -1,10 +1,10 @@
 import json
 import time
-from logging import getLogger
 from typing import Iterable
 
 from .az_cmd import AzCmd, execute, set_subscription
 from .configuration import Configuration
+from .logging import log
 from .constants import (
     INITIAL_DEPLOY_IDENTITY_NAME,
     MONITORING_CONTRIBUTOR_ID,
@@ -14,8 +14,6 @@ from .constants import (
     WEBSITE_CONTRIBUTOR_ID,
 )
 from .errors import ExistenceCheckError, ResourceNotFoundError, TimeoutError
-
-log = getLogger("installer")
 
 
 def create_initial_deploy_identity(control_plane_rg: str, control_plane_region: str):

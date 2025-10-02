@@ -2,7 +2,7 @@
 
 import argparse
 import logging
-from logging import basicConfig, getLogger
+from logging import basicConfig
 
 from .az_cmd import list_users_subscriptions, set_subscription
 from .configuration import Configuration
@@ -17,9 +17,7 @@ from .validation import (
 )
 from .errors import InputParamValidationError
 from .existing_lfo import update_existing_lfo
-
-
-log = getLogger("installer")
+from .logging import log, log_header
 
 SKIP_SINGLETON_CHECK = False
 
@@ -114,13 +112,6 @@ def parse_arguments():
     )
 
     return parser.parse_args()
-
-
-def log_header(message: str):
-    """Log a formatted header message."""
-    separator = "=" * 70
-    header = "\n".join(["", separator, message, separator, ""])
-    log.info(header)
 
 
 def create_new_lfo(config: Configuration):

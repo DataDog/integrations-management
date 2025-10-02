@@ -1,8 +1,8 @@
 import json
 import urllib.error
 import urllib.request
-from logging import getLogger
 import sys
+from dataclasses import asdict
 
 from .az_cmd import AzCmd, execute, set_subscription
 from .configuration import Configuration
@@ -14,10 +14,8 @@ from .errors import (
     InputParamValidationError,
     ResourceProviderRegistrationValidationError,
 )
-from dataclasses import asdict
 from .existing_lfo import check_existing_lfo, LfoMetadata
-
-log = getLogger("installer")
+from .logging import log
 
 
 def validate_user_parameters(config: Configuration):

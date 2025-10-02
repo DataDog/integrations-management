@@ -1,6 +1,5 @@
-from logging import getLogger
-
 from .az_cmd import AzCmd, execute, set_subscription
+from .logging import log
 from .configuration import Configuration
 from .resource_setup import (
     create_blob_container,
@@ -14,8 +13,6 @@ from .resource_setup import (
 from .role_setup import (
     create_initial_deploy_role,
 )
-
-log = getLogger("installer")
 
 
 def deploy_lfo_deployer(config: Configuration):

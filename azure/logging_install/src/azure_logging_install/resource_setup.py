@@ -2,11 +2,11 @@ import json
 import os
 import shlex
 import tempfile
-from logging import getLogger
 from time import time, sleep
 
 from .az_cmd import AzCmd, execute
 from .configuration import Configuration
+from .logging import log
 from .constants import (
     CONTROL_PLANE_CACHE,
     IMAGE_REGISTRY_URL,
@@ -17,8 +17,6 @@ from .errors import (
     FatalError,
     ResourceNotFoundError,
 )
-
-log = getLogger("installer")
 
 # =============================================================================
 # Subscription, Resource Group, Storage Account

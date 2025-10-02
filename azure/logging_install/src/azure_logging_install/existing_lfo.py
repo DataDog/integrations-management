@@ -1,16 +1,12 @@
 from dataclasses import dataclass
 from json import JSONDecodeError, loads
-from logging import getLogger
 from typing import Final, Optional
 
 from .az_cmd import AzCmd, execute
 from .configuration import Configuration
-from .main import log_header
+from .logging import log, log_header
 from .resource_setup import set_function_app_env_vars
 from .role_setup import grant_subscriptions_permissions
-
-
-log = getLogger("installer")
 
 CONTROL_PLANE_RESOURCES_TASK_PREFIX: Final = "resources-task"
 MONITORED_SUBSCRIPTIONS_KEY: Final = "MONITORED_SUBSCRIPTIONS"

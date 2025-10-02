@@ -292,7 +292,7 @@ class TestResourceSetup(TestCase):
         """Test wait functions handle ResourceNotFoundError correctly"""
         # Mock time.time() calls correctly
         with mock_patch("azure_logging_install.resource_setup.time") as mock_time:
-            mock_time.side_effect = [0, 5]  # Simulate time progression
+            mock_time.side_effect = [0, 1]  # Simulate time progression
 
             # The function doesn't actually retry on ResourceNotFoundError - it propagates it
             self.execute_mock.side_effect = ResourceNotFoundError("Not found yet")
