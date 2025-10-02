@@ -1,9 +1,10 @@
 import json
 import time
-from logging import getLogger
+from typing import Iterable
 
 from .az_cmd import AzCmd, execute, set_subscription
 from .configuration import Configuration
+from .logging import log
 from .constants import (
     INITIAL_DEPLOY_IDENTITY_NAME,
     MONITORING_CONTRIBUTOR_ID,
@@ -13,8 +14,6 @@ from .constants import (
     WEBSITE_CONTRIBUTOR_ID,
 )
 from .errors import ExistenceCheckError, ResourceNotFoundError, TimeoutError
-
-log = getLogger("installer")
 
 
 def create_initial_deploy_identity(control_plane_rg: str, control_plane_region: str):
@@ -209,12 +208,13 @@ def create_initial_deploy_role(config: Configuration):
 
 
 def get_function_app_principal_id(
-    control_plane_resource_group: str, function_app_name: str
+    control_plane_resource_group: str, control_plane_sub_id: str, function_app_name: str
 ) -> str:
     """Get the principal ID of a Function App's managed identity."""
     log.debug(f"Getting principal ID for Function App {function_app_name}")
     output = execute(
         AzCmd("functionapp", "identity show")
+        .param("--subscription", control_plane_sub_id)
         .param("--name", function_app_name)
         .param("--resource-group", control_plane_resource_group)
         .param("--query", "principalId")
@@ -263,32 +263,22 @@ def assign_role(scope: str, principal_id: str, role_id: str, control_plane_id: s
     )
 
 
-def grant_permissions(config: Configuration):
-    """Grant permissions across all monitored subscriptions."""
-    log.info("Setting up permissions across monitored subscriptions...")
-
-    log.info("Assigning Website Contributor role to deployer container app job...")
-    deployer_principal_id = get_container_app_job_principal_id(
-        config.control_plane_rg, config.deployer_job_name
-    )
-    assign_role(
-        config.control_plane_rg_scope,
-        deployer_principal_id,
-        WEBSITE_CONTRIBUTOR_ID,
-        config.control_plane_id,
-    )
+def grant_subscriptions_permissions(config: Configuration, sub_ids: Iterable[str]):
+    """Grant permissions to a set of subscriptions."""
 
     resource_principal_id = get_function_app_principal_id(
-        config.control_plane_rg, config.resources_task_name
+        config.control_plane_rg, config.control_plane_sub_id, config.resources_task_name
     )
     scaling_principal_id = get_function_app_principal_id(
-        config.control_plane_rg, config.scaling_task_name
+        config.control_plane_rg, config.control_plane_sub_id, config.scaling_task_name
     )
     diagnostic_principal_id = get_function_app_principal_id(
-        config.control_plane_rg, config.diagnostic_settings_task_name
+        config.control_plane_rg,
+        config.control_plane_sub_id,
+        config.diagnostic_settings_task_name,
     )
 
-    for sub_id in config.monitored_subscriptions:
+    for sub_id in sub_ids:
         log.info(f"Create resource group in subscription: {sub_id}")
         set_subscription(sub_id)
         execute(
@@ -329,4 +319,22 @@ def grant_permissions(config: Configuration):
         )
 
     set_subscription(config.control_plane_sub_id)
-    log.info("Subscription permission setup complete")
+    log.info("Subscriptions permission setup complete")
+
+
+def grant_permissions(config: Configuration):
+    """Grant permissions for control plane and monitored subscriptions"""
+    log.info("Setting up permissions for control plane and monitored subscriptions...")
+
+    log.info("Assigning Website Contributor role to deployer container app job...")
+    deployer_principal_id = get_container_app_job_principal_id(
+        config.control_plane_rg, config.deployer_job_name
+    )
+    assign_role(
+        config.control_plane_rg_scope,
+        deployer_principal_id,
+        WEBSITE_CONTRIBUTOR_ID,
+        config.control_plane_id,
+    )
+
+    grant_subscriptions_permissions(config, config.all_subscriptions)

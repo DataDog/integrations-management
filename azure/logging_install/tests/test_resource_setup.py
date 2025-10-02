@@ -244,10 +244,14 @@ class TestResourceSetup(TestCase):
         with mock_patch(
             "azure_logging_install.resource_setup.create_function_app"
         ) as mock_create_func:
-            resource_setup.create_function_apps(self.config)
+            # Mock the storage key retrieval to avoid actual Azure CLI calls
+            with mock_patch.object(
+                self.config, "get_control_plane_cache_key", return_value="test-key"
+            ):
+                resource_setup.create_function_apps(self.config)
 
-            # Should create multiple function apps
-            self.assertGreater(mock_create_func.call_count, 0)
+                # Should create 3 function apps (resources, scaling, diagnostic settings)
+                self.assertEqual(mock_create_func.call_count, 3)
 
     def test_create_function_app_success(self):
         """Test successful individual function app creation"""
@@ -255,13 +259,22 @@ class TestResourceSetup(TestCase):
         with mock_patch.object(
             self.config, "get_control_plane_cache_key", return_value="test-key"
         ):
-            # Use the actual resource task name from config
-            app_name = self.config.resources_task_name
+            # Mock the function app existence check to return ResourceNotFoundError
+            # so it proceeds to create the function app
+            self.execute_mock.side_effect = [
+                ResourceNotFoundError(
+                    "Function app not found"
+                ),  # First call (existence check)
+                None,  # Second call (create function app)
+                None,  # Third call (configure runtime)
+            ]
 
-            resource_setup.create_function_app(self.config, app_name)
+            resource_setup.create_function_app(
+                self.config, self.config.resources_task_name
+            )
 
-            # Should call execute multiple times for app service plan and function app
-            self.assertGreater(self.execute_mock.call_count, 1)
+            # Should call execute 3 times: check existence, create app, configure runtime
+            self.assertEqual(self.execute_mock.call_count, 3)
 
     # ===== Error Handling Tests ===== #
 
@@ -279,7 +292,7 @@ class TestResourceSetup(TestCase):
         """Test wait functions handle ResourceNotFoundError correctly"""
         # Mock time.time() calls correctly
         with mock_patch("azure_logging_install.resource_setup.time") as mock_time:
-            mock_time.side_effect = [0, 5]  # Simulate time progression
+            mock_time.side_effect = [0, 1]  # Simulate time progression
 
             # The function doesn't actually retry on ResourceNotFoundError - it propagates it
             self.execute_mock.side_effect = ResourceNotFoundError("Not found yet")

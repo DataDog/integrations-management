@@ -1,7 +1,8 @@
 import json
 import urllib.error
 import urllib.request
-from logging import getLogger
+import sys
+from dataclasses import asdict
 
 from .az_cmd import AzCmd, execute, set_subscription
 from .configuration import Configuration
@@ -13,10 +14,8 @@ from .errors import (
     InputParamValidationError,
     ResourceProviderRegistrationValidationError,
 )
-from dataclasses import asdict
 from .existing_lfo import check_existing_lfo, LfoMetadata
-
-log = getLogger("installer")
+from .logging import log
 
 
 def validate_user_parameters(config: Configuration):
@@ -53,10 +52,51 @@ def check_fresh_install(
     """Validate whether we are doing a fresh log forwarding install."""
     existing_lfos = check_existing_lfo(config.all_subscriptions, sub_id_to_name)
     if existing_lfos:
-        log.info("Found existing log forwarding installations")
+        log.info("Found existing log forwarding installation(s)")
         serializable_lfos = {k: asdict(v) for k, v in existing_lfos.items()}
-        log.info(json.dumps(serializable_lfos, indent=2))
+        log.debug(json.dumps(serializable_lfos, indent=2))
+
+        # TODO AZINTS-3894: Report state of azure env to front end
+        log.info("Continue? (y/n)")
+        if input() != "y":
+            log.info("Exiting...")
+            sys.exit(0)
+
     return existing_lfos
+
+
+def validate_singleton_lfo(
+    config: Configuration, existing_lfos: dict[str, LfoMetadata]
+):
+    uninstall_link = "https://docs.datadoghq.com/logs/guide/azure-automated-log-forwarding/#uninstall"
+    existing_count = len(existing_lfos)
+    if existing_count > 1:
+        log.error(
+            "Multiple existing log forwarding installations found in this Azure environment. Only one is allowed."
+        )
+        log.error(
+            "Please delete any extraneous log forwarding installations, then edit a single one to have a larger scope."
+        )
+        log.info(f"Uninstall instructions: {uninstall_link}")
+        log.info("Exiting...")
+        sys.exit(0)
+
+    existing_lfo_control_plane_id = next(iter(existing_lfos.values())).control_plane.id
+
+    if (
+        existing_count == 1
+        and existing_lfo_control_plane_id.casefold()
+        != config.control_plane_id.casefold()
+    ):
+        log.error(
+            f"Existing log forwarding installation with differing control plane ID '{existing_lfo_control_plane_id}' found in this Azure environment. New installation ID is '{config.control_plane_id}'."
+        )
+        log.error(
+            "Please delete the existing log forwarding installation before installing a new one or edit the existing one to have a larger scope."
+        )
+        log.info(f"Uninstall instructions: {uninstall_link}")
+        log.info("Exiting...")
+        sys.exit(0)
 
 
 def check_providers_per_subscription(sub_ids: set[str]) -> dict[str, list[str]]:

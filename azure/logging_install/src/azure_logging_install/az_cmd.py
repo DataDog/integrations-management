@@ -1,6 +1,5 @@
 import json
 import subprocess
-from logging import getLogger
 from re import search
 from time import sleep
 from typing import Union
@@ -11,8 +10,7 @@ from .errors import (
     RefreshTokenError,
     ResourceNotFoundError,
 )
-
-log = getLogger("installer")
+from .logging import log
 
 
 AUTH_FAILED_ERROR = "AuthorizationFailed"

@@ -2,19 +2,24 @@
 
 import argparse
 import logging
-import sys
-from logging import basicConfig, getLogger
+from logging import basicConfig
 
 from .az_cmd import list_users_subscriptions, set_subscription
 from .configuration import Configuration
 from .deploy import deploy_control_plane, run_initial_deploy
 from .resource_setup import create_resource_group
 from .role_setup import grant_permissions
-from .validation import check_fresh_install, validate_user_parameters, validate_az_cli
+from .validation import (
+    check_fresh_install,
+    validate_user_parameters,
+    validate_az_cli,
+    validate_singleton_lfo,
+)
 from .errors import InputParamValidationError
+from .existing_lfo import update_existing_lfo
+from .logging import log, log_header
 
-
-log = getLogger("installer")
+SKIP_SINGLETON_CHECK = False
 
 
 def parse_arguments():
@@ -100,14 +105,39 @@ def parse_arguments():
         help="Set the log level (default: INFO)",
     )
 
+    parser.add_argument(
+        "--skip-singleton-check",
+        action="store_true",
+        help=argparse.SUPPRESS,  # For test purposes only
+    )
+
     return parser.parse_args()
 
 
-def log_header(message: str):
-    """Log a formatted header message."""
-    separator = "=" * 70
-    header = "\n".join(["", separator, message, separator, ""])
-    log.info(header)
+def create_new_lfo(config: Configuration):
+    """Create a new LFO for the given configuration"""
+
+    log_header("STEP 2: Creating control plane resource group...")
+    set_subscription(config.control_plane_sub_id)
+    create_resource_group(config.control_plane_rg, config.control_plane_region)
+    log.info("Control plane resource group created")
+
+    log_header("STEP 3: Deploying control plane infrastructure...")
+    deploy_control_plane(config)
+
+    log_header("STEP 4: Setting up subscription permissions...")
+    grant_permissions(config)
+    log.info("Subscription and resource group permissions configured")
+
+    log_header("STEP 5: Triggering initial deploy...")
+    run_initial_deploy(
+        config.deployer_job_name,
+        config.control_plane_rg,
+        config.control_plane_sub_id,
+    )
+    log.info("Initial deployment triggered")
+
+    log_header("Success! Azure Automated Log Forwarding installation completed!")
 
 
 def install_log_forwarder(config: Configuration):
@@ -121,37 +151,26 @@ def install_log_forwarder(config: Configuration):
         validate_user_parameters(config)
         sub_id_to_name = list_users_subscriptions()
         existing_lfos = check_fresh_install(config, sub_id_to_name)
-
         if existing_lfos:
-            # TODO AZINTS-3894: Report state of azure env to front end
-            log.info("Continue? (y/n)")
-            if input() != "y":
-                log.info("Exiting...")
-                sys.exit(0)
+            if SKIP_SINGLETON_CHECK:
+                log.debug(
+                    "Skipping singleton check - existing log forwarding installation found"
+                )
+            else:
+                validate_singleton_lfo(config, existing_lfos)
+            log.info(
+                "Validation completed - existing log forwarding installation found"
+            )
+            log.info("Updating existing installation...")
 
-        log.info("Validation completed")
-
-        log_header("STEP 2: Creating control plane resource group...")
-        set_subscription(config.control_plane_sub_id)
-        create_resource_group(config.control_plane_rg, config.control_plane_region)
-        log.info("Control plane resource group created")
-
-        log_header("STEP 3: Deploying control plane infrastructure...")
-        deploy_control_plane(config)
-
-        log_header("STEP 4: Setting up subscription permissions...")
-        grant_permissions(config)
-        log.info("Subscription and resource group permissions configured")
-
-        log_header("STEP 5: Triggering initial deploy...")
-        run_initial_deploy(
-            config.deployer_job_name,
-            config.control_plane_rg,
-            config.control_plane_sub_id,
-        )
-        log.info("Initial deployment triggered")
-
-        log_header("Success! Azure Automated Log Forwarding installation completed!")
+            existing_lfo = next(iter(existing_lfos.values()))
+            update_existing_lfo(config, existing_lfo)
+        else:
+            log.info(
+                "Validation completed - no existing log forwarding installation found"
+            )
+            log.info("Creating new installation...")
+            create_new_lfo(config)
 
     except Exception as e:
         log.error(f"Failed with error: {e}")
@@ -164,6 +183,10 @@ def main():
 
     try:
         args = parse_arguments()
+
+        global SKIP_SINGLETON_CHECK
+        SKIP_SINGLETON_CHECK = args.skip_singleton_check
+
         config = Configuration(
             control_plane_region=args.control_plane_region,
             control_plane_sub_id=args.control_plane_subscription,
