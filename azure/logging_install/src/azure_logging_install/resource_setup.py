@@ -229,7 +229,7 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
     # Task-specific settings
     if function_app_name == config.resources_task_name:
         specific_settings = {
-            "MONITORED_SUBSCRIPTIONS": ",".join(config.monitored_subscriptions),
+            "MONITORED_SUBSCRIPTIONS": json.dumps(config.monitored_subscriptions),
             "RESOURCE_TAG_FILTERS": config.resource_tag_filters,
         }
     elif function_app_name == config.diagnostic_settings_task_name:
