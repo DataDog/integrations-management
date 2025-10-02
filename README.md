@@ -1,3 +1,3 @@
 # Integrations Management
 
-Innovating the Datadog user experience around integration management and onboarding
+This repository contains tooling for streamlining and automating the setup and maintenance of Datadog integrations.
