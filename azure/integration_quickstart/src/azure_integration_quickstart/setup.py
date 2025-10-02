@@ -214,7 +214,7 @@ class ManagementGroup(Scope):
     @property
     def scope(self) -> str:
         return self.id
-    
+
 @dataclass
 class ManagementGroupListResult:
     id: str
@@ -348,8 +348,8 @@ class StatusReporter:
             if step_complete:
                 step_complete.set()
             if loading_message_thread:
-                loading_message_thread.join()  
-                # leave line blank and cursor at the beginning  
+                loading_message_thread.join()
+                # leave line blank and cursor at the beginning
                 print(f"\r{' '*60}", end="")
                 print("\r", end="")
             self.report(step_id, Status.OK, f"{step_id}: {Status.OK}", step_metadata or None)
@@ -417,7 +417,7 @@ def get_management_group_scopes() -> list[ManagementGroup]:
     except RuntimeError:
         # Expected, this means the user doesn't have permissions for any management groups but not necessarily blocking
         return []
-    
+
     # enrich each result with all of its children subscriptions (at any depth)
     with ThreadPoolExecutor(MAX_WORKERS) as executor:
         management_groups = executor.map(
@@ -448,7 +448,7 @@ def report_available_scopes(connection: HTTPSConnection, workflow_id: str) -> tu
     if response.status >= 400:
         raise RuntimeError(f"Error submitting available scopes to Datadog: {data}")
     return (subscriptions, management_groups)
-    
+
 def report_existing_log_forwarders(subscriptions: list[Scope], step_metadata: dict) -> bool:
     """Send Datadog any existing Log Forwarders in the tenant and return whether we found exactly 1 Forwarder, in which case we will potentially update it."""
     scope_id_to_name = { s.id:s.name for s in subscriptions }
@@ -474,11 +474,11 @@ def receive_user_selections(connection: HTTPSConnection, workflow_id: str) -> Us
             json.loads(attributes["config_options"]),
             json.loads(attributes["log_forwarding_options"]) if "log_forwarding_options" in attributes and attributes["log_forwarding_options"] else None
         )
-    
+
 def flatten_scopes(scopes: Sequence[Scope]) -> set[Subscription]:
     """Convert a list of scopes into a set of subscriptions, with management groups represented as their constituent subscriptions"""
     return set(
-        [s for s in scopes if isinstance(s, Subscription)] + 
+        [s for s in scopes if isinstance(s, Subscription)] +
         [s for subs in [m.subscriptions.subscriptions for m in scopes if isinstance(m, ManagementGroup)] for s in subs]
     )
 
@@ -547,7 +547,7 @@ def submit_config_identifier(connection: HTTPSConnection, workflow_id: str, app_
     data = response.read().decode("utf-8")
     if response.status >= 400:
         raise RuntimeError(f"Error submitting configuration identifier to Datadog: {data}")
-    
+
 
 def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
     log_forwarder_config = Configuration(
@@ -562,7 +562,7 @@ def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
         log_forwarder_config.resource_tag_filters = config["tagFilters"]
     if "piiFilters" in config:
         log_forwarder_config.pii_scrubber_rules = config["piiFilters"]
-        
+
     install_log_forwarder(log_forwarder_config)
 
 
