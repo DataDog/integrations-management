@@ -4,7 +4,7 @@
 
 import unittest
 from unittest.mock import Mock, call, patch
-
+from urllib.error import HTTPError
 from setup import *
 
 
@@ -68,6 +68,89 @@ class TestHTTPFunctions(unittest.TestCase):
         )
         self.assertEqual(result_data, "response data")
         self.assertEqual(result_status, 200)
+
+    @patch("setup.time.sleep")
+    @patch("setup.urllib.request.urlopen")
+    def test_request_success_no_retry(self, mock_urlopen, mock_sleep):
+        """Test request succeeds on first attempt."""
+        mock_response = Mock()
+        mock_response.read.return_value.decode.return_value = '{"success": true}'
+        mock_response.status = 200
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        result_data, result_status = request("GET", "https://example.com")
+
+        self.assertEqual(result_data, '{"success": true}')
+        self.assertEqual(result_status, 200)
+        mock_urlopen.assert_called_once()
+        mock_sleep.assert_not_called()
+
+    @patch("setup.time.sleep")
+    @patch("setup.urllib.request.urlopen")
+    def test_request_retry_on_server_error(self, mock_urlopen, mock_sleep):
+        """Test request retries on 500 server error and eventually succeeds."""
+
+        # First two calls raise HTTPError 500, third succeeds
+        mock_response_success = Mock()
+        mock_response_success.read.return_value.decode.return_value = (
+            '{"success": true}'
+        )
+        mock_response_success.status = 200
+
+        mock_error_response = Mock()
+        mock_error_response.read.return_value.decode.return_value = (
+            '{"error": "server error"}'
+        )
+        mock_error_response.code = 500
+
+        http_error = HTTPError(
+            "https://example.com", 500, "Internal Server Error", {}, None
+        )
+        http_error.read = lambda: b'{"error": "server error"}'
+        http_error.code = 500
+
+        mock_success_context = Mock()
+        mock_success_context.__enter__ = Mock(return_value=mock_response_success)
+        mock_success_context.__exit__ = Mock(return_value=None)
+
+        mock_urlopen.side_effect = [http_error, http_error, mock_success_context]
+
+        result_data, result_status = request("GET", "https://example.com")
+
+        self.assertEqual(result_data, '{"success": true}')
+        self.assertEqual(result_status, 200)
+        self.assertEqual(mock_urlopen.call_count, 3)
+        self.assertEqual(mock_sleep.call_count, 2)
+
+        mock_sleep.assert_any_call(1.0)
+        mock_sleep.assert_any_call(2.0)
+
+    @patch("setup.time.sleep")
+    @patch("setup.urllib.request.urlopen")
+    def test_request_retry_on_url_error(self, mock_urlopen, mock_sleep):
+        """Test request retries on URLError (network issues) and eventually succeeds."""
+        
+        # First two calls raise HTTPError 500, third succeeds
+        mock_response_success = Mock()
+        mock_response_success.read.return_value.decode.return_value = (
+            '{"success": true}'
+        )
+        mock_response_success.status = 200
+
+        url_error = URLError("nodename nor servname provided")
+
+        mock_success_context = Mock()
+        mock_success_context.__enter__ = Mock(return_value=mock_response_success)
+        mock_success_context.__exit__ = Mock(return_value=None)
+
+        mock_urlopen.side_effect = [url_error, url_error, mock_success_context]
+
+        result_data, result_status = request("GET", "https://example.com")
+
+        self.assertEqual(result_data, '{"success": true}')
+        self.assertEqual(result_status, 200)
+        self.assertEqual(mock_urlopen.call_count, 3)
+        self.assertEqual(mock_sleep.call_count, 2)
 
 
 class TestIsValidWorkflowId(unittest.TestCase):
