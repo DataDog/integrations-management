@@ -23,5 +23,4 @@ __pycache__/
 *.egg-info/
 
 # Build artifacts
-dist/
 build/
