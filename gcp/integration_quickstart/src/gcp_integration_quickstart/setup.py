@@ -711,7 +711,7 @@ def find_or_create_service_account(
     return resp["email"]
 
 
-if __name__ == "__main__":
+def main():
     if missing_environment_vars := REQUIRED_ENVIRONMENT_VARS - os.environ.keys():
         print(
             f"Missing required environment variables: {', '.join(missing_environment_vars)}"
@@ -775,3 +775,7 @@ if __name__ == "__main__":
         )
 
     print("Script succeeded. You may close this window.")
+
+
+if __name__ == "__main__":
+    main()
