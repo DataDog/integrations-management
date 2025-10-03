@@ -129,7 +129,7 @@ class TestHTTPFunctions(unittest.TestCase):
     @patch("setup.urllib.request.urlopen")
     def test_request_retry_on_url_error(self, mock_urlopen, mock_sleep):
         """Test request retries on URLError (network issues) and eventually succeeds."""
-        
+
         # First two calls raise HTTPError 500, third succeeds
         mock_response_success = Mock()
         mock_response_success.read.return_value.decode.return_value = (
