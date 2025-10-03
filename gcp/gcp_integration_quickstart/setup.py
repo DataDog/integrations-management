@@ -10,7 +10,7 @@ import subprocess
 import time
 import urllib.request
 import urllib.response
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from collections import defaultdict
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
@@ -63,29 +63,45 @@ def request(
     method: str,
     url: str,
     body: dict[str, Any] | None = None,
-    headers: dict[str, str] | None = None,
+    headers: dict[str, str] = {},
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+    retry_status_codes: set[int] = {500, 502, 503, 504},
 ) -> Tuple[str, int]:
-    """Submit a request to the given URL with the specified method and body."""
+    """Submit a request to the given URL with the specified method and body with retry logic."""
 
-    ssl_context = ssl.create_default_context()
+    for attempt in range(max_retries):
+        req = urllib.request.Request(
+            url,
+            method=method,
+            headers=headers,
+            data=json.dumps(body).encode("utf-8") if body else None,
+        )
 
-    req = urllib.request.Request(
-        url,
-        method=method,
-        headers=headers,
-        data=json.dumps(body).encode("utf-8") if body else None,
-    )
+        try:
+            with urllib.request.urlopen(
+                req, context=ssl.create_default_context()
+            ) as response:
+                data, status = response.read().decode("utf-8"), response.status
+                return data, status
+        except HTTPError as e:
+            data, status = e.read().decode("utf-8"), e.code
+            if status in retry_status_codes:
+                if attempt < max_retries - 1:
+                    time.sleep(base_delay * (2**attempt))
+                    continue
 
-    try:
-        with urllib.request.urlopen(req, context=ssl_context) as response:
-            data, status = response.read().decode("utf-8"), response.status
+                raise RuntimeError(f"HTTP error {status}: {data}")
+
             return data, status
-    except HTTPError as e:
-        data, status = e.read().decode("utf-8"), e.code
-        if status >= 500:
-            raise RuntimeError(f"HTTP error {status}: {data}")
+        except URLError as e:
+            if attempt < max_retries - 1:
+                time.sleep(base_delay * (2**attempt))
+                continue
 
-        return data, status
+            raise RuntimeError(
+                f"Network error after {max_retries} attempts: {e.reason}"
+            ) from e
 
 
 ResourceContainer = Union["Project", "Folder"]
@@ -355,7 +371,7 @@ def filter_configuration_scope(
     projects: list[Project] = []
     folders: list[Folder] = []
 
-    with ThreadPoolExecutor(max_workers=25) as executor:
+    with ThreadPoolExecutor(max_workers=20) as executor:
         project_futures: list[Future[Tuple[Project, str, int]]] = [
             executor.submit(
                 fetch_iam_permissions_for,
