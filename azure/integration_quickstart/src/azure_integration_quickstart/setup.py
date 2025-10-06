@@ -236,26 +236,14 @@ class UserSelections:
     app_registration_config: dict
     log_forwarding_config: Optional[dict] = None
 
-@dataclass
-class LogForwarderPayload:
+class LogForwarderPayload(TypedDict):
     """Log Forwarder format expected by quickstart UI"""
     resourceGroupName: str
     controlPlaneSubscriptionId: str
     controlPlaneSubscriptionName: str
     controlPlaneRegion: str
-    tagFilters: Optional[str] = None
-    piiFilters: Optional[str] = None
-
-    @staticmethod
-    def from_lfo_metadata(metadata: LfoMetadata) -> 'LogForwarderPayload':
-        return LogForwarderPayload(
-            resourceGroupName=metadata.control_plane.resource_group,
-            controlPlaneSubscriptionId=metadata.control_plane.sub_id,
-            controlPlaneSubscriptionName=metadata.control_plane.sub_name,
-            controlPlaneRegion=metadata.control_plane.region,
-            tagFilters=metadata.tag_filter,
-            piiFilters=metadata.pii_rules,
-        )
+    tagFilters: Optional[str]
+    piiFilters: Optional[str]
 
 def az(cmd: str) -> str:
     """Run Azure CLI command and produce its output. Raise an exception if it fails."""
@@ -273,6 +261,7 @@ def az_json(cmd: str) -> Any:
     if not az_response:
         return None
     return json.loads(az_response)
+
 
 # Datadog utils
 
@@ -468,11 +457,21 @@ def report_available_scopes(connection: HTTPSConnection, workflow_id: str) -> tu
         raise RuntimeError(f"Error submitting available scopes to Datadog: {data}")
     return (subscriptions, management_groups)
 
+def build_log_forwarder_payload(metadata: LfoMetadata) -> LogForwarderPayload:
+    return LogForwarderPayload(
+        resourceGroupName=metadata.control_plane.resource_group,
+        controlPlaneSubscriptionId=metadata.control_plane.sub_id,
+        controlPlaneSubscriptionName=metadata.control_plane.sub_name,
+        controlPlaneRegion=metadata.control_plane.region,
+        tagFilters=metadata.tag_filter,
+        piiFilters=metadata.pii_rules,
+    )
+
 def report_existing_log_forwarders(subscriptions: list[Scope], step_metadata: dict) -> bool:
     """Send Datadog any existing Log Forwarders in the tenant and return whether we found exactly 1 Forwarder, in which case we will potentially update it."""
     scope_id_to_name = { s.id:s.name for s in subscriptions }
     forwarders = check_existing_lfo(set(scope_id_to_name.keys()), scope_id_to_name)
-    step_metadata["log_forwarders"] = [asdict(LogForwarderPayload.from_lfo_metadata(forwarder)) for forwarder in forwarders.values()]
+    step_metadata["log_forwarders"] = [build_log_forwarder_payload(forwarder) for forwarder in forwarders.values()]
     return len(forwarders) == 1
 
 def receive_user_selections(connection: HTTPSConnection, workflow_id: str) -> UserSelections:
