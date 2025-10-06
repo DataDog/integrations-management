@@ -27,7 +27,7 @@ import traceback
 from typing import Any, Generator, Literal, Optional, TypeVar, TypedDict, Union
 
 from azure_logging_install.configuration import Configuration
-from azure_logging_install.existing_lfo import find_existing_lfo_control_planes
+from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
 from azure_logging_install.main import install_log_forwarder
 
 # General util
@@ -236,6 +236,26 @@ class UserSelections:
     app_registration_config: dict
     log_forwarding_config: Optional[dict] = None
 
+@dataclass
+class LogForwarderPayload:
+    """Log Forwarder format expected by quickstart UI"""
+    resourceGroupName: str
+    controlPlaneSubscriptionId: str
+    controlPlaneSubscriptionName: str
+    controlPlaneRegion: str
+    tagFilters: Optional[str] = None
+    piiFilters: Optional[str] = None
+
+    @staticmethod
+    def from_lfo_metadata(metadata: LfoMetadata) -> 'LogForwarderPayload':
+        return LogForwarderPayload(
+            resourceGroupName=metadata.control_plane.resource_group,
+            controlPlaneSubscriptionId=metadata.control_plane.sub_id,
+            controlPlaneSubscriptionName=metadata.control_plane.sub_name,
+            controlPlaneRegion=metadata.control_plane.region,
+            tagFilters=metadata.tag_filter,
+            piiFilters=metadata.pii_rules,
+        )
 
 def az(cmd: str) -> str:
     """Run Azure CLI command and produce its output. Raise an exception if it fails."""
@@ -253,7 +273,6 @@ def az_json(cmd: str) -> Any:
     if not az_response:
         return None
     return json.loads(az_response)
-
 
 # Datadog utils
 
@@ -452,8 +471,8 @@ def report_available_scopes(connection: HTTPSConnection, workflow_id: str) -> tu
 def report_existing_log_forwarders(subscriptions: list[Scope], step_metadata: dict) -> bool:
     """Send Datadog any existing Log Forwarders in the tenant and return whether we found exactly 1 Forwarder, in which case we will potentially update it."""
     scope_id_to_name = { s.id:s.name for s in subscriptions }
-    forwarders = find_existing_lfo_control_planes(scope_id_to_name)
-    step_metadata["log_forwarders"] = [asdict(forwarder) for forwarder in forwarders.values()]
+    forwarders = check_existing_lfo(set(scope_id_to_name.keys()), scope_id_to_name)
+    step_metadata["log_forwarders"] = [asdict(LogForwarderPayload.from_lfo_metadata(forwarder)) for forwarder in forwarders.values()]
     return len(forwarders) == 1
 
 def receive_user_selections(connection: HTTPSConnection, workflow_id: str) -> UserSelections:
@@ -551,7 +570,6 @@ def submit_config_identifier(connection: HTTPSConnection, workflow_id: str, app_
 
 def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
     log_forwarder_config = Configuration(
-        management_group_id="", #TODO(AZINTS-3935): Make this not required
         control_plane_region=config["controlPlaneRegion"],
         control_plane_sub_id=config["controlPlaneSubscription"]["id"],
         control_plane_rg=config["resourceGroupName"],
