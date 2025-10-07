@@ -571,7 +571,7 @@ def submit_config_identifier(connection: HTTPSConnection, workflow_id: str, app_
 def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
     log_forwarder_config = Configuration(
         control_plane_region=config["controlPlaneRegion"],
-        control_plane_sub_id=config["controlPlaneSubscription"]["id"],
+        control_plane_sub_id=config["controlPlaneSubscriptionId"],
         control_plane_rg=config["resourceGroupName"],
         monitored_subs=",".join([s.name for s in subscriptions]),
         datadog_api_key=os.environ["DD_API_KEY"],
