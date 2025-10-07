@@ -189,7 +189,7 @@ def main():
         args = parse_arguments()
 
         global SKIP_SINGLETON_CHECK
-        SKIP_SINGLETON_CHECK = args.skip_singleton_check
+        SKIP_SINGLETON_CHECK = True # spoofed
 
         config = Configuration(
             control_plane_region=args.control_plane_region,

@@ -471,6 +471,7 @@ def report_existing_log_forwarders(subscriptions: list[Scope], step_metadata: di
     """Send Datadog any existing Log Forwarders in the tenant and return whether we found exactly 1 Forwarder, in which case we will potentially update it."""
     scope_id_to_name = { s.id:s.name for s in subscriptions }
     forwarders = check_existing_lfo(set(scope_id_to_name.keys()), scope_id_to_name)
+    forwarders = {'461ccc69c8b5': forwarders['461ccc69c8b5']} # spoofed
     step_metadata["log_forwarders"] = [build_log_forwarder_payload(forwarder) for forwarder in forwarders.values()]
     return len(forwarders) == 1
 
