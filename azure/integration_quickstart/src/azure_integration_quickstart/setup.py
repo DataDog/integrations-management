@@ -470,8 +470,8 @@ def build_log_forwarder_payload(metadata: LfoMetadata) -> LogForwarderPayload:
 def report_existing_log_forwarders(subscriptions: list[Scope], step_metadata: dict) -> bool:
     """Send Datadog any existing Log Forwarders in the tenant and return whether we found exactly 1 Forwarder, in which case we will potentially update it."""
     scope_id_to_name = { s.id:s.name for s in subscriptions }
-    # spoofed
-    forwarders = {}
+    forwarders = check_existing_lfo(set(scope_id_to_name.keys()), scope_id_to_name)
+    forwarders = {'461ccc69c8b5': forwarders['461ccc69c8b5']} # spoofed
     step_metadata["log_forwarders"] = [build_log_forwarder_payload(forwarder) for forwarder in forwarders.values()]
     return len(forwarders) == 1
 
@@ -571,7 +571,7 @@ def submit_config_identifier(connection: HTTPSConnection, workflow_id: str, app_
 def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
     log_forwarder_config = Configuration(
         control_plane_region=config["controlPlaneRegion"],
-        control_plane_sub_id=config["controlPlaneSubscription"]["id"],
+        control_plane_sub_id=config["controlPlaneSubscriptionId"],
         control_plane_rg=config["resourceGroupName"],
         monitored_subs=",".join([s.name for s in subscriptions]),
         datadog_api_key=os.environ["DD_API_KEY"],
