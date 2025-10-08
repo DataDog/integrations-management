@@ -12,21 +12,17 @@ During final testing, you should upload the executable into Azure Cloud Shell an
 See instructions in main `azure` folder
 
 ### Testing
-Run all tests from the `logging_install` folder:
+Run all tests from the `azure` folder:
 ```bash
-python -m pytest tests/ --tb=short
+python -m pytest logging_install/tests/ --tb=short
 ```
 
 ### Build/Ship
-Run from the `logging_install` folder:
+Run from the `azure` folder:
 Zip app into a single executable file `dist/azure_logging_install.pyz`
 
 ```bash
-python -m zipapp src \
-  -o dist/azure_logging_install.pyz \
-  -p "/usr/bin/env python3" \
-  -m "azure_logging_install.main:main"
-chmod +x dist/azure_logging_install.pyz
+logging_install/build.sh
 ```
 
 ### Execution

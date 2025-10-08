@@ -3,7 +3,8 @@
     "python.defaultInterpreterPath": "~/.pyenv/versions/3.9.22/azintegrationmanagement/bin/python",
     "python.analysis.extraPaths": [
         "./integration_quickstart/src",
-        "./logging_install/src"
+        "./logging_install/src",
+        "./shared/src"
     ],
     "python.analysis.autoSearchPaths": true,
     "python.terminal.activateEnvironment": true
