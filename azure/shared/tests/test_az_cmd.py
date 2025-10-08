@@ -8,15 +8,15 @@ from unittest import TestCase
 from unittest.mock import Mock, patch as mock_patch
 
 # project
-from azure_logging_install import az_cmd
-from azure_logging_install.errors import (
+from az_shared import az_cmd
+from az_shared.errors import (
     AccessError,
     RateLimitExceededError,
     RefreshTokenError,
     ResourceNotFoundError,
 )
 
-from tests.test_data import (
+from shared.tests.test_data import (
     CONTROL_PLANE_SUBSCRIPTION_ID,
     CONTROL_PLANE_RESOURCE_GROUP,
     CONTROL_PLANE_REGION,
@@ -29,8 +29,8 @@ CREATE = "create"
 class TestAzCmd(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures and reset global settings"""
-        self.subprocess_mock = self.patch("azure_logging_install.az_cmd.subprocess.run")
-        self.sleep_mock = self.patch("azure_logging_install.az_cmd.sleep")
+        self.subprocess_mock = self.patch("az_shared.az_cmd.subprocess.run")
+        self.sleep_mock = self.patch("az_shared.az_cmd.sleep")
 
     def patch(self, path: str, **kwargs):
         """Helper method to patch and auto-cleanup"""
