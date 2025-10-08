@@ -17,6 +17,8 @@ MONITORED_SUBSCRIPTIONS_KEY: Final = "MONITORED_SUBSCRIPTIONS"
 RESOURCE_TAG_FILTERS_KEY: Final = "RESOURCE_TAG_FILTERS"
 PII_SCRUBBER_RULES_KEY: Final = "PII_SCRUBBER_RULES"
 
+UNKNOWN_SUB_NAME_MESSAGE: Final = "Unknown (insufficient Azure permission)"
+
 
 @dataclass(frozen=True)
 class LfoControlPlane:
@@ -140,7 +142,7 @@ def check_existing_lfo(
             monitored_subs={
                 sub_id: sub_id_to_name[sub_id]
                 if sub_id in sub_id_to_name
-                else "Unknown (insufficient Azure permission)"
+                else UNKNOWN_SUB_NAME_MESSAGE
                 for sub_id in monitored_sub_ids
             },
             tag_filter=tag_filters,

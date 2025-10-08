@@ -16,6 +16,7 @@ from azure_logging_install.existing_lfo import (
     RESOURCE_TAG_FILTERS_KEY,
     PII_SCRUBBER_RULES_KEY,
     LfoControlPlane,
+    UNKNOWN_SUB_NAME_MESSAGE,
 )
 from azure_logging_install.configuration import Configuration
 
@@ -223,7 +224,7 @@ class TestExistingLfo(TestCase):
 
     def test_check_existing_lfo_insufficient_sub_permissions(self):
         """Test with an existing LFO installation where the user doesn't have permissions to read a monitored subscription"""
-        unknown_sub_id = "Unknown-sub-id"
+        unknown_sub_id = "unknown-sub-id"
         mock_func_apps = {
             "data": [
                 {
@@ -263,7 +264,7 @@ class TestExistingLfo(TestCase):
             {
                 SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
                 SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
-                unknown_sub_id: "Unknown (insufficient Azure permission)",
+                unknown_sub_id: UNKNOWN_SUB_NAME_MESSAGE,
             },
         )
 
