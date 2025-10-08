@@ -8,18 +8,19 @@ import urllib.request
 import sys
 from dataclasses import asdict
 
-from .az_cmd import AzCmd, execute, set_subscription
-from .configuration import Configuration
-from .constants import REQUIRED_RESOURCE_PROVIDERS
-from .errors import (
+from az_shared.az_cmd import AzCmd, execute, set_subscription
+from az_shared.errors import (
     AccessError,
     DatadogAccessValidationError,
     ExistenceCheckError,
     InputParamValidationError,
     ResourceProviderRegistrationValidationError,
 )
+from az_shared.logs import log
+
+from .configuration import Configuration
+from .constants import REQUIRED_RESOURCE_PROVIDERS
 from .existing_lfo import check_existing_lfo, LfoMetadata
-from .logging import log
 
 
 def validate_user_parameters(config: Configuration):

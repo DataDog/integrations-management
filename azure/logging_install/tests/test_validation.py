@@ -8,11 +8,7 @@ from unittest import TestCase
 from unittest.mock import patch as mock_patch, MagicMock
 
 # project
-from azure_logging_install import validation
-from azure_logging_install.existing_lfo import LfoControlPlane
-from azure_logging_install.configuration import Configuration
-from azure_logging_install.constants import REQUIRED_RESOURCE_PROVIDERS
-from azure_logging_install.errors import (
+from az_shared.errors import (
     AccessError,
     DatadogAccessValidationError,
     ExistenceCheckError,
@@ -20,7 +16,12 @@ from azure_logging_install.errors import (
     ResourceProviderRegistrationValidationError,
 )
 
-from tests.test_data import (
+from azure_logging_install import validation
+from azure_logging_install.existing_lfo import LfoControlPlane
+from azure_logging_install.configuration import Configuration
+from azure_logging_install.constants import REQUIRED_RESOURCE_PROVIDERS
+
+from logging_install.tests.test_data import (
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_SUBSCRIPTION_ID,
     CONTROL_PLANE_SUBSCRIPTION_NAME,

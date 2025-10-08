@@ -7,15 +7,16 @@ from unittest import TestCase
 from unittest.mock import patch as mock_patch, MagicMock
 
 # project
+from az_shared.errors import FatalError, InputParamValidationError
+
 from azure_logging_install import main
-from azure_logging_install.errors import FatalError, InputParamValidationError
 from azure_logging_install.existing_lfo import (
     LfoMetadata,
     LfoControlPlane,
     update_existing_lfo,
 )
 
-from tests.test_data import (
+from logging_install.tests.test_data import (
     CONTROL_PLANE_ID,
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_SUBSCRIPTION_ID,

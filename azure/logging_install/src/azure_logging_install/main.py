@@ -8,7 +8,10 @@ import argparse
 import logging
 from logging import basicConfig
 
-from .az_cmd import list_users_subscriptions, set_subscription
+from az_shared.az_cmd import list_users_subscriptions, set_subscription
+from az_shared.errors import InputParamValidationError
+from az_shared.logs import log, log_header
+
 from .configuration import Configuration
 from .deploy import deploy_control_plane, run_initial_deploy
 from .resource_setup import create_resource_group
@@ -19,9 +22,7 @@ from .validation import (
     validate_az_cli,
     validate_singleton_lfo,
 )
-from .errors import InputParamValidationError
 from .existing_lfo import update_existing_lfo
-from .logging import log, log_header
 
 SKIP_SINGLETON_CHECK = False
 

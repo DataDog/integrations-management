@@ -2,8 +2,9 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-from .az_cmd import AzCmd, execute, set_subscription
-from .logging import log
+from az_shared.az_cmd import AzCmd, execute, set_subscription
+from az_shared.logs import log
+
 from .configuration import Configuration
 from .resource_setup import (
     create_blob_container,
