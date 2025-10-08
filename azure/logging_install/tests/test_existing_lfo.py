@@ -221,6 +221,52 @@ class TestExistingLfo(TestCase):
         self.assertEqual(lfo_2.tag_filter, "")
         self.assertEqual(lfo_2.pii_rules, PII_SCRUBBER_RULES)
 
+    def test_check_existing_lfo_insufficient_sub_permissions(self):
+        """Test with an existing LFO installation where the user doesn't have permissions to read a monitored subscription"""
+        unknown_sub_id = "Unknown-sub-id"
+        mock_func_apps = {
+            "data": [
+                {
+                    "resourceGroup": "lfo-rg",
+                    "name": RESOURCE_TASK_NAME,
+                    "location": "eastus",
+                    "subscriptionId": SUB_1_ID,
+                }
+            ]
+        }
+        mock_monitored_subs_json = json.dumps(
+            {
+                SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
+                SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
+                unknown_sub_id: "User doesn't have access to read the subscription name",
+            }
+        )
+
+        self.execute_mock.side_effect = self.make_execute_router(
+            json.dumps(mock_func_apps),
+            {
+                RESOURCE_TASK_NAME: {
+                    MONITORED_SUBSCRIPTIONS_KEY: mock_monitored_subs_json,
+                }
+            },
+        )
+
+        result = check_existing_lfo(self.config.all_subscriptions, SUB_ID_TO_NAME)
+
+        self.assertEqual(len(result), 1)
+        self.assertIn(CONTROL_PLANE_ID, result)
+
+        lfo_metadata = result[CONTROL_PLANE_ID]
+        self.assertIsInstance(lfo_metadata, LfoMetadata)
+        self.assertEqual(
+            lfo_metadata.monitored_subs,
+            {
+                SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
+                SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
+                unknown_sub_id: "Unknown (insufficient Azure permission)",
+            },
+        )
+
     def test_update_existing_lfo_monitored_subs_only(self):
         """Test successful update of existing LFO installation - new subscriptions only"""
 

@@ -138,7 +138,10 @@ def check_existing_lfo(
         existing_lfos[control_plane_id] = LfoMetadata(
             control_plane,
             monitored_subs={
-                sub_id: sub_id_to_name[sub_id] for sub_id in monitored_sub_ids
+                sub_id: sub_id_to_name[sub_id]
+                if sub_id in sub_id_to_name
+                else "Unknown (insufficient Azure permission)"
+                for sub_id in monitored_sub_ids
             },
             tag_filter=tag_filters,
             pii_rules=pii_rules,
