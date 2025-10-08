@@ -129,9 +129,10 @@ def check_existing_lfo(
         scaling_task_env_vars = query_function_app_env_vars(
             control_plane, scaling_task_name
         )
-        lfo_env_vars = {**resource_task_env_vars, **scaling_task_env_vars}
 
-        monitored_sub_ids_str = lfo_env_vars.get(MONITORED_SUBSCRIPTIONS_KEY, "")
+        monitored_sub_ids_str = resource_task_env_vars.get(
+            MONITORED_SUBSCRIPTIONS_KEY, ""
+        )
         if not monitored_sub_ids_str:
             continue
 
@@ -142,8 +143,8 @@ def check_existing_lfo(
             log.error(f"Error: {e}")
             raise
 
-        tag_filters = lfo_env_vars.get(RESOURCE_TAG_FILTERS_KEY, "")
-        pii_rules = lfo_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
+        tag_filters = resource_task_env_vars.get(RESOURCE_TAG_FILTERS_KEY, "")
+        pii_rules = scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
 
         existing_lfos[control_plane_id] = LfoMetadata(
             control_plane,

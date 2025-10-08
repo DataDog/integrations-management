@@ -106,7 +106,13 @@ class TestExistingLfo(TestCase):
                     "name": RESOURCE_TASK_NAME,
                     "location": "eastus",
                     "subscriptionId": SUB_1_ID,
-                }
+                },
+                {
+                    "resourceGroup": "lfo-rg",
+                    "name": SCALING_TASK_NAME,
+                    "location": "eastus",
+                    "subscriptionId": SUB_1_ID,
+                },
             ]
         }
         mock_monitored_subs_json = json.dumps(
@@ -123,8 +129,10 @@ class TestExistingLfo(TestCase):
                 RESOURCE_TASK_NAME: {
                     MONITORED_SUBSCRIPTIONS_KEY: mock_monitored_subs_json,
                     RESOURCE_TAG_FILTERS_KEY: RESOURCE_TAG_FILTERS,
+                },
+                SCALING_TASK_NAME: {
                     PII_SCRUBBER_RULES_KEY: PII_SCRUBBER_RULES,
-                }
+                },
             },
         )
 
@@ -148,17 +156,32 @@ class TestExistingLfo(TestCase):
 
     def test_check_existing_lfo_multiple_installations(self):
         """Test with multiple existing LFO installations"""
+        control_plane_1_id = "def456"
+        control_plane_2_id = "ghi789"
+
         mock_func_apps = {
             "data": [
                 {
                     "resourceGroup": "lfo-rg-1",
-                    "name": "resources-task-def456",
+                    "name": f"resources-task-{control_plane_1_id}",
+                    "location": "eastus",
+                    "subscriptionId": SUB_1_ID,
+                },
+                {
+                    "resourceGroup": "lfo-rg-1",
+                    "name": f"scaling-task-{control_plane_1_id}",
                     "location": "eastus",
                     "subscriptionId": SUB_1_ID,
                 },
                 {
                     "resourceGroup": "lfo-rg-2",
-                    "name": "resources-task-ghi789",
+                    "name": f"resources-task-{control_plane_2_id}",
+                    "location": "eastus",
+                    "subscriptionId": SUB_2_ID,
+                },
+                {
+                    "resourceGroup": "lfo-rg-2",
+                    "name": f"scaling-task-{control_plane_2_id}",
                     "location": "eastus",
                     "subscriptionId": SUB_2_ID,
                 },
@@ -182,14 +205,18 @@ class TestExistingLfo(TestCase):
         self.execute_mock.side_effect = self.make_execute_router(
             json.dumps(mock_func_apps),  # graph query for function apps
             {
-                "resources-task-def456": {
+                f"resources-task-{control_plane_1_id}": {
                     MONITORED_SUBSCRIPTIONS_KEY: mock_monitored_subs_1_json,
                     RESOURCE_TAG_FILTERS_KEY: mock_resource_tag_filters,
+                },
+                f"scaling-task-{control_plane_1_id}": {
                     PII_SCRUBBER_RULES_KEY: "",
                 },
-                "resources-task-ghi789": {
+                f"resources-task-{control_plane_2_id}": {
                     MONITORED_SUBSCRIPTIONS_KEY: mock_monitored_subs_2_json,
                     RESOURCE_TAG_FILTERS_KEY: "",
+                },
+                f"scaling-task-{control_plane_2_id}": {
                     PII_SCRUBBER_RULES_KEY: mock_pii_scrubber_rules,
                 },
             },
@@ -198,10 +225,10 @@ class TestExistingLfo(TestCase):
         result = check_existing_lfo(self.config.all_subscriptions, SUB_ID_TO_NAME)
 
         self.assertEqual(len(result), 2)
-        self.assertIn("def456", result)
-        self.assertIn("ghi789", result)
+        self.assertIn(control_plane_1_id, result)
+        self.assertIn(control_plane_2_id, result)
 
-        lfo_1 = result["def456"]
+        lfo_1 = result[control_plane_1_id]
         expected_lfo_1_subs = {
             SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
             SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
@@ -211,7 +238,7 @@ class TestExistingLfo(TestCase):
         self.assertEqual(lfo_1.tag_filter, RESOURCE_TAG_FILTERS)
         self.assertEqual(lfo_1.pii_rules, "")
 
-        lfo_2 = result["ghi789"]
+        lfo_2 = result[control_plane_2_id]
         expected_lfo_2_subs = {
             SUB_3_ID: SUB_ID_TO_NAME[SUB_3_ID],
             SUB_4_ID: SUB_ID_TO_NAME[SUB_4_ID],
