@@ -16,6 +16,8 @@ from azure_logging_install.existing_lfo import (
     RESOURCE_TAG_FILTERS_KEY,
     PII_SCRUBBER_RULES_KEY,
     LfoControlPlane,
+    RESOURCES_TASK_PREFIX,
+    SCALING_TASK_PREFIX,
 )
 from azure_logging_install.configuration import Configuration
 
@@ -75,10 +77,10 @@ class TestExistingLfo(TestCase):
             if "graph query" in cmd:
                 return func_apps_json
             if "config appsettings list" in cmd:
-                resource_task_name = cmd.split("--name")[1].split()[0]
+                func_app_name = cmd.split("--name")[1].split()[0]
 
                 # Return env vars for this function app as a JSON list, like the az cli
-                env_vars = func_apps_settings.get(resource_task_name, {})
+                env_vars = func_apps_settings.get(func_app_name, {})
                 return json.dumps(
                     [{"name": key, "value": value} for key, value in env_vars.items()]
                 )
@@ -102,15 +104,15 @@ class TestExistingLfo(TestCase):
         mock_func_apps = {
             "data": [
                 {
-                    "resourceGroup": "lfo-rg",
+                    "resourceGroup": CONTROL_PLANE_RESOURCE_GROUP,
                     "name": RESOURCE_TASK_NAME,
-                    "location": "eastus",
+                    "location": CONTROL_PLANE_REGION,
                     "subscriptionId": SUB_1_ID,
                 },
                 {
-                    "resourceGroup": "lfo-rg",
+                    "resourceGroup": CONTROL_PLANE_RESOURCE_GROUP,
                     "name": SCALING_TASK_NAME,
-                    "location": "eastus",
+                    "location": CONTROL_PLANE_REGION,
                     "subscriptionId": SUB_1_ID,
                 },
             ]
@@ -149,7 +151,9 @@ class TestExistingLfo(TestCase):
             SUB_3_ID: SUB_ID_TO_NAME[SUB_3_ID],
         }
         self.assertIn(CONTROL_PLANE_SUBSCRIPTION_ID, self.config.all_subscriptions)
-        self.assertEqual(lfo_metadata.control_plane.resource_group, "lfo-rg")
+        self.assertEqual(
+            lfo_metadata.control_plane.resource_group, CONTROL_PLANE_RESOURCE_GROUP
+        )
         self.assertEqual(lfo_metadata.monitored_subs, expected_monitored_subs)
         self.assertEqual(lfo_metadata.tag_filter, RESOURCE_TAG_FILTERS)
         self.assertEqual(lfo_metadata.pii_rules, PII_SCRUBBER_RULES)
@@ -162,27 +166,27 @@ class TestExistingLfo(TestCase):
         mock_func_apps = {
             "data": [
                 {
-                    "resourceGroup": "lfo-rg-1",
-                    "name": f"resources-task-{control_plane_1_id}",
-                    "location": "eastus",
+                    "resourceGroup": CONTROL_PLANE_RESOURCE_GROUP,
+                    "name": f"{RESOURCES_TASK_PREFIX}{control_plane_1_id}",
+                    "location": CONTROL_PLANE_REGION,
                     "subscriptionId": SUB_1_ID,
                 },
                 {
-                    "resourceGroup": "lfo-rg-1",
-                    "name": f"scaling-task-{control_plane_1_id}",
-                    "location": "eastus",
+                    "resourceGroup": CONTROL_PLANE_RESOURCE_GROUP,
+                    "name": f"{SCALING_TASK_PREFIX}{control_plane_1_id}",
+                    "location": CONTROL_PLANE_REGION,
                     "subscriptionId": SUB_1_ID,
                 },
                 {
                     "resourceGroup": "lfo-rg-2",
-                    "name": f"resources-task-{control_plane_2_id}",
-                    "location": "eastus",
+                    "name": f"{RESOURCES_TASK_PREFIX}{control_plane_2_id}",
+                    "location": CONTROL_PLANE_REGION,
                     "subscriptionId": SUB_2_ID,
                 },
                 {
                     "resourceGroup": "lfo-rg-2",
-                    "name": f"scaling-task-{control_plane_2_id}",
-                    "location": "eastus",
+                    "name": f"{SCALING_TASK_PREFIX}{control_plane_2_id}",
+                    "location": CONTROL_PLANE_REGION,
                     "subscriptionId": SUB_2_ID,
                 },
             ],
@@ -205,18 +209,18 @@ class TestExistingLfo(TestCase):
         self.execute_mock.side_effect = self.make_execute_router(
             json.dumps(mock_func_apps),  # graph query for function apps
             {
-                f"resources-task-{control_plane_1_id}": {
+                f"{RESOURCES_TASK_PREFIX}{control_plane_1_id}": {
                     MONITORED_SUBSCRIPTIONS_KEY: mock_monitored_subs_1_json,
                     RESOURCE_TAG_FILTERS_KEY: mock_resource_tag_filters,
                 },
-                f"scaling-task-{control_plane_1_id}": {
+                f"{SCALING_TASK_PREFIX}{control_plane_1_id}": {
                     PII_SCRUBBER_RULES_KEY: "",
                 },
-                f"resources-task-{control_plane_2_id}": {
+                f"{RESOURCES_TASK_PREFIX}{control_plane_2_id}": {
                     MONITORED_SUBSCRIPTIONS_KEY: mock_monitored_subs_2_json,
                     RESOURCE_TAG_FILTERS_KEY: "",
                 },
-                f"scaling-task-{control_plane_2_id}": {
+                f"{SCALING_TASK_PREFIX}{control_plane_2_id}": {
                     PII_SCRUBBER_RULES_KEY: mock_pii_scrubber_rules,
                 },
             },
@@ -234,7 +238,9 @@ class TestExistingLfo(TestCase):
             SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
         }
         self.assertEqual(lfo_1.monitored_subs, expected_lfo_1_subs)
-        self.assertEqual(lfo_1.control_plane.resource_group, "lfo-rg-1")
+        self.assertEqual(
+            lfo_1.control_plane.resource_group, CONTROL_PLANE_RESOURCE_GROUP
+        )
         self.assertEqual(lfo_1.tag_filter, RESOURCE_TAG_FILTERS)
         self.assertEqual(lfo_1.pii_rules, "")
 
