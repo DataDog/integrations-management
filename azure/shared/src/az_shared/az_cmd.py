@@ -14,7 +14,7 @@ from .errors import (
     RefreshTokenError,
     ResourceNotFoundError,
 )
-from .logging import log
+from .logs import log
 
 
 AUTH_FAILED_ERROR = "AuthorizationFailed"

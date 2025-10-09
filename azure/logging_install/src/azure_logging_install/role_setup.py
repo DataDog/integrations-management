@@ -6,9 +6,12 @@ import json
 import time
 from typing import Iterable
 
-from .az_cmd import AzCmd, execute, set_subscription
+from az_shared.az_cmd import AzCmd, execute, set_subscription
+from az_shared.errors import ExistenceCheckError, ResourceNotFoundError, TimeoutError
+from az_shared.logs import log
+
 from .configuration import Configuration
-from .logging import log
+
 from .constants import (
     INITIAL_DEPLOY_IDENTITY_NAME,
     MONITORING_CONTRIBUTOR_ID,
@@ -17,7 +20,6 @@ from .constants import (
     STORAGE_READER_AND_DATA_ACCESS_ID,
     WEBSITE_CONTRIBUTOR_ID,
 )
-from .errors import ExistenceCheckError, ResourceNotFoundError, TimeoutError
 
 
 def create_initial_deploy_identity(control_plane_rg: str, control_plane_region: str):

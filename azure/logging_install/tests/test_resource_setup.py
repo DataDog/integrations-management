@@ -7,11 +7,12 @@ from unittest import TestCase
 from unittest.mock import patch as mock_patch, MagicMock
 
 # project
+from az_shared.errors import FatalError, ResourceNotFoundError
+
 from azure_logging_install import resource_setup
 from azure_logging_install.configuration import Configuration
-from azure_logging_install.errors import FatalError, ResourceNotFoundError
 
-from tests.test_data import (
+from logging_install.tests.test_data import (
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_RESOURCE_GROUP,
 )

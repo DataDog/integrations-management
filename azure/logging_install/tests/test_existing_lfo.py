@@ -22,7 +22,7 @@ from azure_logging_install.existing_lfo import (
 )
 from azure_logging_install.configuration import Configuration
 
-from tests.test_data import (
+from logging_install.tests.test_data import (
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_SUBSCRIPTION_ID,
     CONTROL_PLANE_RESOURCE_GROUP,
