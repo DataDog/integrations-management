@@ -8,6 +8,6 @@ cp -r integration_quickstart/src/gcp_integration_quickstart integration_quicksta
 python -m zipapp integration_quickstart/dist/tmp \
   -o integration_quickstart/dist/gcp_integration_quickstart.pyz \
   -p "/usr/bin/env python3" \
-  -m "gcp_integration_quickstart.setup:main"
+  -m "gcp_integration_quickstart.main:main"
 chmod +x integration_quickstart/dist/gcp_integration_quickstart.pyz
 rm -r integration_quickstart/dist/tmp

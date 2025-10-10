@@ -22,6 +22,13 @@ During final testing, upload the executable to Google Cloud Shell and run it the
 
 See instructions in the main `gcp/` folder.
 
+### Testing
+
+Run all tests from the `integration_quickstart` folder:
+```bash
+python -m pytest tests/ --tb=short
+```
+
 ### Build / Ship
 
 From the `gcp/` folder, run:
