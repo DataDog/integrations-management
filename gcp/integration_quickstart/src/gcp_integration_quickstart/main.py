@@ -37,6 +37,7 @@ REQUIRED_ENVIRONMENT_VARS: set[str] = {
 
 
 def main():
+    signal.signal(signal.SIGINT, sigint_handler)
     if missing_environment_vars := REQUIRED_ENVIRONMENT_VARS - os.environ.keys():
         print(
             f"Missing required environment variables: {', '.join(missing_environment_vars)}"
@@ -58,7 +59,9 @@ def main():
             ensure_login()
     except Exception as e:
         if "gcloud: command not found" in str(e):
-            print("You must install the GCloud CLI and log in to run this script.")
+            print(
+                "You must install the GCloud CLI and log in to run this script.\nhttps://cloud.google.com/sdk/docs/install"
+            )
         else:
             print("You must be logged in to GCloud CLI to run this script.")
         exit(1)
@@ -104,6 +107,10 @@ def main():
     print("Script succeeded. You may close this window.")
 
 
+def sigint_handler(_, __):
+    print("Script terminating.")
+    sys.exit(0)
+
+
 if __name__ == "__main__":
-    signal.signal(signal.SIGINT, lambda _, __: sys.exit(0))
     main()
