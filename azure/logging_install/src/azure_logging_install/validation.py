@@ -3,9 +3,10 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 import json
+import sys
 import urllib.error
 import urllib.request
-import sys
+import uuid
 from dataclasses import asdict
 
 from az_shared.az_cmd import AzCmd, execute, set_subscription
@@ -281,21 +282,32 @@ def validate_user_config(config: Configuration):
     if not config.control_plane_sub_id:
         raise InputParamValidationError("Control plane subscription not configured")
 
+    if not _is_valid_azure_subscription_id(config.control_plane_sub_id):
+        raise InputParamValidationError(
+            f"Control plane subscription ID '{config.control_plane_sub_id}' is not a valid Azure subscription ID (must be a valid UUID)"
+        )
+
     if not config.control_plane_rg:
         raise InputParamValidationError("Control plane resource group not configured")
 
     if not config.control_plane_region:
         raise InputParamValidationError("Control plane location not configured")
 
-    if not config.monitored_subscriptions:
+    if not config.monitored_subs:
         raise InputParamValidationError(
             "Monitored subscriptions not properly configured."
         )
 
+    _validate_monitored_subscriptions(config.monitored_subs)
+
+    if config.resource_tag_filters:
+        _validate_tag_filters(config.resource_tag_filters)
+
+    if config.pii_scrubber_rules:
+        _validate_pii_scrubber_rules(config.pii_scrubber_rules)
+
     if config.log_level not in {"DEBUG", "INFO", "WARNING", "ERROR"}:
-        raise InputParamValidationError(
-            f"Invalid log level: {config.log_level}. Must be one of: DEBUG, INFO, WARNING, ERROR"
-        )
+        config.log_level = "INFO"
 
     log.debug("Configuration validation completed")
 
@@ -312,3 +324,55 @@ def validate_monitored_subs_access(monitored_subs: list[str]):
             raise AccessError(
                 f"Cannot access monitored subscription {sub_id}: {e}"
             ) from e
+
+
+def _is_valid_azure_subscription_id(subscription_id: str) -> bool:
+    """Validate that a subscription ID is a valid UUID format."""
+    try:
+        uuid.UUID(subscription_id.strip())
+        return True
+    except ValueError:
+        return False
+
+
+def _validate_monitored_subscriptions(monitored_subs: str):
+    """Validate that monitored subscriptions is a comma separated list of valid subscription IDs."""
+    if not monitored_subs or not monitored_subs.strip():
+        raise InputParamValidationError("Monitored subscriptions cannot be empty")
+
+    subscription_ids = [sub.strip() for sub in monitored_subs.split(",") if sub.strip()]
+
+    if not subscription_ids:
+        raise InputParamValidationError(
+            "Monitored subscriptions list contains no valid entries"
+        )
+
+    for sub_id in subscription_ids:
+        if not _is_valid_azure_subscription_id(sub_id):
+            raise InputParamValidationError(
+                f"Monitored subscription ID '{sub_id}' is not a valid Azure subscription ID (must be a valid UUID)"
+            )
+
+
+def _validate_tag_filters(tag_filters: str):
+    """Validate that tag_filters is a comma separated list of values."""
+    if not tag_filters or not tag_filters.strip():
+        return
+
+    filter_values = [tag.strip() for tag in tag_filters.split(",") if tag.strip()]
+
+    for tag_filter in filter_values:
+        if not tag_filter:
+            raise InputParamValidationError("Tag filters cannot contain empty values")
+
+
+def _validate_pii_scrubber_rules(pii_scrubber_rules: str):
+    """Validate a basic YAML format"""
+    if not pii_scrubber_rules or not pii_scrubber_rules.strip():
+        return
+
+    for line in pii_scrubber_rules.splitlines():
+        if not line.strip() or line.strip().startswith("#"):
+            continue
+        if ":" not in line:
+            raise InputParamValidationError("PII scrubber rules contain invalid YAML")
