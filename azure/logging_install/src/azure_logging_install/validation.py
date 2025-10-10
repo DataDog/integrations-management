@@ -365,6 +365,19 @@ def _validate_tag_filters(tag_filters: str):
         if not tag_filter:
             raise InputParamValidationError("Tag filters cannot contain empty values")
 
+        # Validate tags starts with a letter
+        if ":" in tag_filter:
+            tag_key = tag_filter.split(":", 1)[0].strip()
+            if tag_key and not tag_key[0].isalpha():
+                raise InputParamValidationError(
+                    f"Tag key '{tag_key}' must start with a letter"
+                )
+        else:
+            if not tag_filter[0].isalpha():
+                raise InputParamValidationError(
+                    f"Tag '{tag_filter}' must start with a letter"
+                )
+
 
 def _validate_pii_scrubber_rules(pii_scrubber_rules: str):
     """Validate a basic YAML format"""

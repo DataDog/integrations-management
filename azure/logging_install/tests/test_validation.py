@@ -21,7 +21,7 @@ from azure_logging_install.existing_lfo import LfoControlPlane
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.constants import REQUIRED_RESOURCE_PROVIDERS
 
-from logging_install.tests.test_data import (
+from tests.test_data import (
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_SUBSCRIPTION_ID,
     CONTROL_PLANE_SUBSCRIPTION_NAME,
@@ -131,25 +131,6 @@ class TestValidation(TestCase):
             validation.validate_az_cli()
 
         self.assertIn("Azure CLI not authenticated", str(context.exception))
-
-    # ===== User Configuration Validation Tests ===== #
-
-    def test_validate_user_config_success(self):
-        """Test successful user configuration validation"""
-        validation.validate_user_config(self.config)
-
-    def test_validate_user_config_empty_monitored_subs(self):
-        """Test validation fails with empty monitored subscriptions"""
-        config = Configuration(
-            control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-            monitored_subs="",
-            datadog_api_key=DATADOG_API_KEY,
-        )
-
-        with self.assertRaises(InputParamValidationError):
-            validation.validate_user_config(config)
 
     # ===== Subscription Access Validation Tests ===== #
 
@@ -416,3 +397,227 @@ class TestValidation(TestCase):
             mock_check_existing.assert_called_once_with(
                 self.config.all_subscriptions, SUB_ID_TO_NAME
             )
+
+    # ===== User Configuration Validation Tests ===== #
+
+    def test_validate_user_config_success(self):
+        """Test successful user configuration validation"""
+        validation.validate_user_config(self.config)
+
+    def test_control_plane_subscription_id_invalid(self):
+        """Test validation fails with invalid control plane subscription IDs"""
+        invalid_id_to_error_msg = {
+            "not-a-uuid": "not a valid Azure subscription ID",
+            "12345": "not a valid Azure subscription ID",
+            "invalid-uuid-format": "not a valid Azure subscription ID",
+            "1234abcd-1234-1234-1234": "not a valid Azure subscription ID",
+            "gggggggg-1111-4111-a111-111111111111": "not a valid Azure subscription ID",
+            "sss1iddd-58cc-4372-a567-0e02b2c3d479": "not a valid Azure subscription ID",
+            "": "Control plane subscription not configured",
+        }
+
+        for invalid_id, expected_error in invalid_id_to_error_msg.items():
+            with self.subTest(invalid_id=invalid_id):
+                config = Configuration(
+                    control_plane_region=CONTROL_PLANE_REGION,
+                    control_plane_sub_id=invalid_id,
+                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+                    monitored_subs=MONITORED_SUBSCRIPTIONS,
+                    datadog_api_key=DATADOG_API_KEY,
+                )
+
+                with self.assertRaises(InputParamValidationError) as context:
+                    validation.validate_user_config(config)
+
+                self.assertIn(expected_error, str(context.exception))
+
+    def test_control_plane_subscription_id_valid(self):
+        """Test validation succeeds with valid control plane subscription IDs"""
+        valid_ids = [
+            CONTROL_PLANE_SUBSCRIPTION_ID,
+            "11111111-1111-4111-a111-111111111111",
+            "aaaaaaaa-bbbb-4ccc-addd-eeeeeeeeeeee",
+        ]
+
+        for valid_id in valid_ids:
+            with self.subTest(valid_id=valid_id):
+                config = Configuration(
+                    control_plane_region=CONTROL_PLANE_REGION,
+                    control_plane_sub_id=valid_id,
+                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+                    monitored_subs=MONITORED_SUBSCRIPTIONS,
+                    datadog_api_key=DATADOG_API_KEY,
+                )
+
+                validation.validate_user_config(config)
+
+    def test_monitored_subscriptions_invalid(self):
+        """Test validation fails with invalid monitored subscriptions"""
+        invalid_subs_to_error_msg = {
+            "": "Monitored subscriptions",
+            "   ": "Monitored subscriptions",
+            ",,,": "no valid entries",
+            "invalid-uuid,22222222-2222-4222-a222-222222222222": "not a valid Azure subscription ID",
+            "11111111-1111-4111-a111-111111111111,not-a-uuid": "not a valid Azure subscription ID",
+            "sub1iddd-58cc-4372-a567-0e02b2c3d479": "not a valid Azure subscription ID",
+            "12345,67890": "not a valid Azure subscription ID",
+            "gggggggg-1111-4111-a111-111111111111": "not a valid Azure subscription ID",
+            f"{SUB_1_ID},invalid-uuid,{SUB_2_ID}": "not a valid Azure subscription ID",
+        }
+
+        for invalid_subs, expected_error in invalid_subs_to_error_msg.items():
+            with self.subTest(invalid_subs=invalid_subs):
+                config = Configuration(
+                    control_plane_region=CONTROL_PLANE_REGION,
+                    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
+                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+                    monitored_subs=invalid_subs,
+                    datadog_api_key=DATADOG_API_KEY,
+                )
+
+                with self.assertRaises(InputParamValidationError) as context:
+                    validation.validate_user_config(config)
+
+                self.assertIn(expected_error, str(context.exception))
+
+    def test_monitored_subscriptions_valid(self):
+        """Test validation succeeds with valid monitored subscriptions"""
+        valid_subs = [
+            MONITORED_SUBSCRIPTIONS,
+            SUB_1_ID,
+            f"{SUB_1_ID},{SUB_2_ID}",
+            f"{SUB_1_ID},{SUB_2_ID},{SUB_3_ID}",
+            f"  {SUB_1_ID}  ,  {SUB_2_ID}  ",  # spaces will get stripped
+        ]
+
+        for valid_sub in valid_subs:
+            with self.subTest(valid_sub=valid_sub):
+                config = Configuration(
+                    control_plane_region=CONTROL_PLANE_REGION,
+                    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
+                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+                    monitored_subs=valid_sub,
+                    datadog_api_key=DATADOG_API_KEY,
+                )
+
+                validation.validate_user_config(config)
+
+    # ===== Resource Tag Filters Validation Tests ===== #
+
+    def test_tag_filters_invalid(self):
+        """Test validation fails with invalid tag filters"""
+        must_start_with_letter = "must start with a letter"
+        invalid_filter_to_error_msg = {
+            "1env:prod": must_start_with_letter,
+            "123tag:value": must_start_with_letter,
+            "9team:infra": must_start_with_letter,
+            "0key:value": must_start_with_letter,
+            "_env:prod": must_start_with_letter,
+            "-team:infra": must_start_with_letter,
+            "@tag:value": must_start_with_letter,
+            "#key:value": must_start_with_letter,
+            "$var:test": must_start_with_letter,
+            "env:prod,1team:infra": must_start_with_letter,  # second tag invalid
+            "valid:tag,_invalid:tag": must_start_with_letter,  # second tag invalid
+            "9invalid:tag,another:valid": must_start_with_letter,  # first tag invalid
+        }
+
+        for invalid_filter, expected_error in invalid_filter_to_error_msg.items():
+            with self.subTest(invalid_filter=invalid_filter):
+                config = Configuration(
+                    control_plane_region=CONTROL_PLANE_REGION,
+                    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
+                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+                    monitored_subs=MONITORED_SUBSCRIPTIONS,
+                    datadog_api_key=DATADOG_API_KEY,
+                    resource_tag_filters=invalid_filter,
+                )
+
+                with self.assertRaises(InputParamValidationError) as context:
+                    validation.validate_user_config(config)
+
+                self.assertIn(expected_error, str(context.exception))
+
+    def test_tag_filters_valid(self):
+        """Test validation succeeds with valid tag filters"""
+        valid_filters = [
+            "",
+            "env:prod",
+            "Team:infra",
+            "a1:value",
+            "Z99:test",
+            "Environment:production",
+            "env:prod,team:infra",
+            "key1:value1",
+            "env:prod,team:infra,region:us-east",
+            "tag1:value1,tag2:value2,tag3:value3",
+            "justValue",
+            "two,values",
+        ]
+
+        for valid_filter in valid_filters:
+            with self.subTest(valid_filter=valid_filter):
+                config = Configuration(
+                    control_plane_region=CONTROL_PLANE_REGION,
+                    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
+                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+                    monitored_subs=MONITORED_SUBSCRIPTIONS,
+                    datadog_api_key=DATADOG_API_KEY,
+                    resource_tag_filters=valid_filter,
+                )
+
+                # Should not raise an exception
+                validation.validate_user_config(config)
+
+    # ===== PII Scrubber Rules Validation Tests ===== #
+
+    def test_pii_scrubber_rules_invalid(self):
+        """Test validation fails with invalid PII scrubber rules"""
+        invalid_rule_to_error_msg = {
+            "invalid yaml without colons": "invalid YAML",
+            "rule1\n  this is not valid yaml": "invalid YAML",
+            "line without colon\nrule: value": "invalid YAML",
+            "invalid line here\nvalid: line": "invalid YAML",
+        }
+
+        for invalid_rule, expected_error in invalid_rule_to_error_msg.items():
+            with self.subTest(invalid_rule=invalid_rule):
+                config = Configuration(
+                    control_plane_region=CONTROL_PLANE_REGION,
+                    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
+                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+                    monitored_subs=MONITORED_SUBSCRIPTIONS,
+                    datadog_api_key=DATADOG_API_KEY,
+                    pii_scrubber_rules=invalid_rule,
+                )
+
+                with self.assertRaises(InputParamValidationError) as context:
+                    validation.validate_user_config(config)
+
+                self.assertIn(expected_error, str(context.exception))
+
+    def test_pii_scrubber_rules_valid(self):
+        """Test validation succeeds with valid PII scrubber rules"""
+        valid_rules = [
+            "",  # empty string is optional
+            "# This is a comment\n# Another comment",  # comments only
+            "rule1: value1",
+            "rule1:\n  pattern: 'sensitive data'\n  replacement: 'redacted'",
+            "# This is a comment\nrule1: value1\nrule2: value2",
+            "key: value\nkey2: value2\n# comment",
+            "rule:\n  nested: value",
+        ]
+
+        for valid_rule in valid_rules:
+            with self.subTest(valid_rule=valid_rule):
+                config = Configuration(
+                    control_plane_region=CONTROL_PLANE_REGION,
+                    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
+                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+                    monitored_subs=MONITORED_SUBSCRIPTIONS,
+                    datadog_api_key=DATADOG_API_KEY,
+                    pii_scrubber_rules=valid_rule,
+                )
+
+                # Should not raise an exception
+                validation.validate_user_config(config)
