@@ -8,4 +8,4 @@ azure/ @DataDog/azure-integrations
 gcp/   @DataDog/gcp-integrations
 
 # Storage Monitoring
-storage-monitoring/    @DataDog/new-workloads
+azure/storage_monitoring/    @DataDog/new-workloads
