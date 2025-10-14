@@ -1,7 +1,12 @@
 #!/bin/bash
+
+# Unless explicitly stated otherwise all files in this repository are licensed under the Apache-2 License.
+
+# This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
+
 set -euo pipefail
 
-# Datadog Storage Monitoring – Azure Blob Inventory bootstrap (HNS-aware)
+# Datadog Storage Monitoring – Azure Blob Inventory bootstrap
 # - Creates an inventory container (if needed)
 # - Adds a Blob Inventory policy per account (HNS-safe)
 # - Grants Storage Blob Data Reader to the provided App Registration on that container
