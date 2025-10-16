@@ -114,13 +114,13 @@ def query_function_app_env_vars(
 def check_existing_lfo(
     subscriptions: set[str], sub_id_to_name: dict[str, str]
 ) -> dict[str, LfoMetadata]:
-    """Check if LFO is already installed on any of the given subscriptions"""
+    """Check if LFO is already installed on any of the given subscriptions. Returns a dict mapping control plane ID to LFO metadata."""
     log.info(
         "Checking if log forwarding is already installed in this Azure environment..."
     )
 
     control_planes = find_existing_lfo_control_planes(sub_id_to_name, subscriptions)
-    existing_lfos: dict[str, LfoMetadata] = {}  # map control plane ID to metadata
+    existing_lfos: dict[str, LfoMetadata] = {}
 
     for control_plane_id, control_plane in control_planes.items():
         resource_task_name = f"{RESOURCES_TASK_PREFIX}{control_plane_id}"
