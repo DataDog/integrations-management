@@ -87,7 +87,7 @@ def validate_singleton_lfo(
         log.info("Exiting...")
         sys.exit(0)
 
-    existing_lfo_control_plane_id = next(iter(existing_lfos.values())).control_plane.id
+    existing_lfo_control_plane_id = next(iter(existing_lfos.keys()))
 
     if (
         existing_count == 1

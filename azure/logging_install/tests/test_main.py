@@ -367,6 +367,7 @@ class TestMain(TestCase):
             mock_patch(
                 "azure_logging_install.main.update_existing_lfo"
             ) as mock_update_existing,
+            mock_patch("azure_logging_install.main.SKIP_SINGLETON_CHECK", False),
         ):
             mock_list_subs.return_value = SUB_ID_TO_NAME
             mock_check_fresh.return_value = existing_lfos
