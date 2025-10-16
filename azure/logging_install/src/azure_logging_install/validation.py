@@ -11,6 +11,7 @@ from dataclasses import asdict
 from az_shared.az_cmd import AzCmd, execute, set_subscription
 from az_shared.errors import (
     AccessError,
+    AzCliNotAuthenticatedError,
     DatadogAccessValidationError,
     ExistenceCheckError,
     InputParamValidationError,
@@ -48,7 +49,9 @@ def validate_az_cli():
         execute(AzCmd("account", "show"))
         log.debug("Azure CLI authentication verified")
     except Exception as e:
-        raise AccessError("Azure CLI not authenticated. Run 'az login' first.") from e
+        raise AzCliNotAuthenticatedError(
+            "Azure CLI is not authenticated. Please run 'az login' first and retry"
+        ) from e
 
 
 def check_fresh_install(
