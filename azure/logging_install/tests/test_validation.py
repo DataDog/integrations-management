@@ -413,7 +413,8 @@ class TestValidation(TestCase):
             "1234abcd-1234-1234-1234": "not a valid Azure subscription ID",
             "gggggggg-1111-4111-a111-111111111111": "not a valid Azure subscription ID",
             "sss1iddd-58cc-4372-a567-0e02b2c3d479": "not a valid Azure subscription ID",
-            "": "Control plane subscription not configured",
+            "": "Control plane subscription cannot be empty",
+            "  ": "Control plane subscription cannot be empty",
         }
 
         for invalid_id, expected_error in invalid_id_to_error_msg.items():
@@ -454,8 +455,8 @@ class TestValidation(TestCase):
     def test_monitored_subscriptions_invalid(self):
         """Test validation fails with invalid monitored subscriptions"""
         invalid_subs_to_error_msg = {
-            "": "Monitored subscriptions",
-            "   ": "Monitored subscriptions",
+            "": "Monitored subscriptions cannot be empty",
+            "   ": "Monitored subscriptions cannot be empty",
             ",,,": "no valid entries",
             "invalid-uuid,22222222-2222-4222-a222-222222222222": "not a valid Azure subscription ID",
             "11111111-1111-4111-a111-111111111111,not-a-uuid": "not a valid Azure subscription ID",

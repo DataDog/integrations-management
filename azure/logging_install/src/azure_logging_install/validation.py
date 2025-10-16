@@ -24,7 +24,15 @@ from .constants import REQUIRED_RESOURCE_PROVIDERS
 from .existing_lfo import check_existing_lfo, LfoMetadata
 
 
+def is_empty_or_whitespace(s: str) -> bool:
+    """Check if a string is empty or contains only whitespace."""
+
+    return not s or s.isspace()
+
+
 def validate_user_parameters(config: Configuration):
+    """Validate user-specified parameters."""
+
     validate_user_config(config)
     validate_azure_env(config)
     validate_datadog_credentials(config.datadog_api_key, config.datadog_site)
@@ -279,24 +287,19 @@ def validate_user_config(config: Configuration):
     """Validate user-specified configuration parameters."""
     log.info("Validating configuration parameters...")
 
-    if not config.control_plane_sub_id:
-        raise InputParamValidationError("Control plane subscription not configured")
+    if is_empty_or_whitespace(config.control_plane_sub_id):
+        raise InputParamValidationError("Control plane subscription cannot be empty")
 
     if not _is_valid_azure_subscription_id(config.control_plane_sub_id):
         raise InputParamValidationError(
-            f"Control plane subscription ID '{config.control_plane_sub_id}' is not a valid Azure subscription ID (must be a valid UUID)"
+            "Control plane subscription ID is not a valid Azure subscription ID (must be a valid UUID)"
         )
 
-    if not config.control_plane_rg:
-        raise InputParamValidationError("Control plane resource group not configured")
+    if is_empty_or_whitespace(config.control_plane_rg):
+        raise InputParamValidationError("Control plane resource group cannot be empty")
 
-    if not config.control_plane_region:
-        raise InputParamValidationError("Control plane location not configured")
-
-    if not config.monitored_subs:
-        raise InputParamValidationError(
-            "Monitored subscriptions not properly configured."
-        )
+    if is_empty_or_whitespace(config.control_plane_region):
+        raise InputParamValidationError("Control plane location cannot be empty")
 
     _validate_monitored_subscriptions(config.monitored_subs)
 
@@ -337,7 +340,7 @@ def _is_valid_azure_subscription_id(subscription_id: str) -> bool:
 
 def _validate_monitored_subscriptions(monitored_subs: str):
     """Validate that monitored subscriptions is a comma separated list of valid subscription IDs."""
-    if not monitored_subs or not monitored_subs.strip():
+    if is_empty_or_whitespace(monitored_subs):
         raise InputParamValidationError("Monitored subscriptions cannot be empty")
 
     subscription_ids = [sub.strip() for sub in monitored_subs.split(",") if sub.strip()]
@@ -356,7 +359,7 @@ def _validate_monitored_subscriptions(monitored_subs: str):
 
 def _validate_tag_filters(tag_filters: str):
     """Validate that tag_filters is a comma separated list of values."""
-    if not tag_filters or not tag_filters.strip():
+    if is_empty_or_whitespace(tag_filters):
         return
 
     filter_values = [tag.strip() for tag in tag_filters.split(",") if tag.strip()]
@@ -381,7 +384,7 @@ def _validate_tag_filters(tag_filters: str):
 
 def _validate_pii_scrubber_rules(pii_scrubber_rules: str):
     """Validate a basic YAML format"""
-    if not pii_scrubber_rules or not pii_scrubber_rules.strip():
+    if is_empty_or_whitespace(pii_scrubber_rules):
         return
 
     for line in pii_scrubber_rules.splitlines():
