@@ -72,13 +72,6 @@ def check_fresh_install(
         log.info("Found existing log forwarding installation(s)")
         serializable_lfos = {k: asdict(v) for k, v in existing_lfos.items()}
         log.debug(json.dumps(serializable_lfos, indent=2))
-
-        # TODO AZINTS-3894: Report state of azure env to front end
-        log.info("Continue? (y/n)")
-        if input() != "y":
-            log.info("Exiting...")
-            sys.exit(0)
-
     return existing_lfos
 
 
