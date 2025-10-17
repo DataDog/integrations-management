@@ -26,7 +26,11 @@ import time
 import traceback
 from typing import Any, Generator, Literal, Optional, TypeVar, TypedDict, Union
 
-from az_shared.errors import AccessError, UserActionRequiredError
+from az_shared.errors import (
+    AccessError,
+    AzCliNotAuthenticatedError,
+    UserActionRequiredError,
+)
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
 from azure_logging_install.main import install_log_forwarder
@@ -426,7 +430,9 @@ def open_datadog_connection():
 def ensure_login() -> None:
     """Ensure that the user is logged into the Azure CLI. If not, raise an exception."""
     if not az("account show"):
-        raise RuntimeError("Not logged in to Azure CLI")
+        raise AzCliNotAuthenticatedError(
+            "Azure CLI is not authenticated. Please run 'az login' first and retry"
+        )
 
 
 MAX_WORKERS = 50  # This was arbitrary. Feel free to change it.
