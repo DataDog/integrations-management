@@ -24,6 +24,10 @@ class UserActionRequiredError(Exception):
     """An error that requires user action to resolve."""
 
 
+class AzCliNotAuthenticatedError(UserActionRequiredError):
+    """Azure CLI is not authenticated. User needs to run 'az login'."""
+
+
 class AccessError(UserActionRequiredError):
     """Not authorized to access the resource."""
 

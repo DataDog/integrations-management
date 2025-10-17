@@ -10,6 +10,7 @@ from unittest.mock import patch as mock_patch, MagicMock
 # project
 from az_shared.errors import (
     AccessError,
+    AzCliNotAuthenticatedError,
     DatadogAccessValidationError,
     ExistenceCheckError,
     InputParamValidationError,
@@ -127,10 +128,10 @@ class TestValidation(TestCase):
         """Test Azure CLI validation when not authenticated"""
         self.execute_mock.side_effect = Exception("Please run 'az login'")
 
-        with self.assertRaises(AccessError) as context:
+        with self.assertRaises(AzCliNotAuthenticatedError) as context:
             validation.validate_az_cli()
 
-        self.assertIn("Azure CLI not authenticated", str(context.exception))
+        self.assertIn("Azure CLI is not authenticated", str(context.exception))
 
     # ===== Subscription Access Validation Tests ===== #
 

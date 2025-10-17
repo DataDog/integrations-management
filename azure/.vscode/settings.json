@@ -7,5 +7,6 @@
         "./shared/src"
     ],
     "python.analysis.autoSearchPaths": true,
-    "python.terminal.activateEnvironment": true
+    "python.terminal.activateEnvironment": true,
+    "python.languageServer": "Pylance"
 }
