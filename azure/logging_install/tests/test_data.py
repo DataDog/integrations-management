@@ -7,13 +7,13 @@
 from azure_logging_install.configuration import Configuration
 
 # Azure env test subscriptions
-SUB_1_ID = "sub-1-id"
-SUB_2_ID = "sub-2-id"
-SUB_3_ID = "sub-3-id"
-SUB_4_ID = "sub-4-id"
+SUB_1_ID = "11111111-1111-4111-a111-111111111111"
+SUB_2_ID = "22222222-2222-4222-a222-222222222222"
+SUB_3_ID = "33333333-3333-4333-a333-333333333333"
+SUB_4_ID = "44444444-4444-4444-a444-444444444444"
 
 # Control plane user settings
-CONTROL_PLANE_SUBSCRIPTION_ID = "cp-sub-id"
+CONTROL_PLANE_SUBSCRIPTION_ID = "cccccccc-cccc-4ccc-accc-cccccccccccc"
 CONTROL_PLANE_SUBSCRIPTION_NAME = "Test Control Plane Subscription"
 CONTROL_PLANE_REGION = "eastus"
 CONTROL_PLANE_RESOURCE_GROUP = "test-rg"
