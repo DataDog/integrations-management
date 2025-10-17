@@ -2,8 +2,8 @@
 
 This project sets up **Datadog's GCP integration** for new customers. It supports:
 
-- Metric Collection  
-- Resource Collection  
+- Metric Collection
+- Resource Collection
 - Additional integration features
 
 It is designed to work in conjunction with the **Quickstart onboarding UI**, which can be found [here](https://app.datadoghq.com/integrations/google-cloud-platform/add) under the "Quickstart" tab.
@@ -25,6 +25,7 @@ See instructions in the main `gcp/` folder.
 ### Testing
 
 Run all tests from the `integration_quickstart` folder:
+
 ```bash
 python -m pytest tests/ --tb=short
 ```
@@ -38,13 +39,9 @@ bash integration_quickstart/build.sh
 ```
 
 # Execution
+
 To run integration quickstart, you must first open the Quickstart onboarding UI, which can be found [here](https://app.datadoghq.com/integrations/google-cloud-platform/add) under "Quickstart".
 
-At the top of this page, you will see a "setup script" snippet. Copy that snippet into Google Cloud Shell. 
-
-It should look something like this:
-```bash
-DD_API_KEY=<generated datadog api key> DD_APP_KEY=<generated datadog app key> DD_SITE="datadoghq.com" WORKFLOW_ID=<unique onboarding workflow id> python -c "$(curl -s https://raw.githubusercontent.com/DataDog/integrations-management/refs/heads/main/gcp/integration_quickstart/dist/gcp_integration_quickstart.pyz)" 
-```
+At the top of this page, you will see a "setup script" snippet. Copy that snippet into Google Cloud Shell and run it.
 
 Once this command is run, the setup script will connect to Datadog and begin reporting back to the onboarding UI, where you will continue the setup process.
