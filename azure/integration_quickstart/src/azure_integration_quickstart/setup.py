@@ -26,6 +26,7 @@ import time
 import traceback
 from typing import Any, Generator, Literal, Optional, TypeVar, TypedDict, Union
 
+from az_shared.errors import AccessError, UserActionRequiredError
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
 from azure_logging_install.main import install_log_forwarder
@@ -545,7 +546,16 @@ def report_existing_log_forwarders(
 ) -> bool:
     """Send Datadog any existing Log Forwarders in the tenant and return whether we found exactly 1 Forwarder, in which case we will potentially update it."""
     scope_id_to_name = {s.id: s.name for s in subscriptions}
-    forwarders = check_existing_lfo(set(scope_id_to_name.keys()), scope_id_to_name)
+    try:
+        forwarders = check_existing_lfo(set(scope_id_to_name.keys()), scope_id_to_name)
+    except AccessError as e:
+        raise RuntimeError(
+            f"Insufficient Azure user permissions when checking for existing log forwarder configuration. Please check your Azure permissions and try again: {e}"
+        ) from e
+    except Exception as e:
+        raise RuntimeError(
+            f"Error when checking for existing log forwarders: {e}"
+        ) from e
     step_metadata["log_forwarders"] = [
         build_log_forwarder_payload(forwarder) for forwarder in forwarders.values()
     ]
@@ -696,7 +706,18 @@ def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
     if "piiFilters" in config:
         log_forwarder_config.pii_scrubber_rules = config["piiFilters"]
 
-    install_log_forwarder(log_forwarder_config)
+    try:
+        install_log_forwarder(log_forwarder_config)
+    except AccessError as e:
+        raise RuntimeError(
+            f"Insufficient Azure user permissions when installing log forwarder. Please check your Azure permissions and try again: {e}"
+        ) from e
+    except UserActionRequiredError as e:
+        raise RuntimeError(
+            f"Error when installing log forwarder. User action is required to resolve: {e}"
+        ) from e
+    except Exception as e:
+        raise RuntimeError(f"Error when installing log forwarder: {e}") from e
 
 
 def assign_permissions(client_id: str, scopes: Sequence[Scope]) -> None:
