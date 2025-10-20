@@ -34,6 +34,7 @@ from az_shared.errors import (
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
 from azure_logging_install.main import install_log_forwarder
+from .....common.workflow.reporter import WorkflowReporter
 
 # General util
 
@@ -547,9 +548,7 @@ def build_log_forwarder_payload(metadata: LfoMetadata) -> LogForwarderPayload:
     )
 
 
-def report_existing_log_forwarders(
-    subscriptions: list[Scope], step_metadata: dict
-) -> bool:
+def report_existing_log_forwarders(subscriptions: list[Scope]) -> tuple[dict, bool]:
     """Send Datadog any existing Log Forwarders in the tenant and return whether we found exactly 1 Forwarder, in which case we will potentially update it."""
     scope_id_to_name = {s.id: s.name for s in subscriptions}
     try:
@@ -562,10 +561,9 @@ def report_existing_log_forwarders(
         raise RuntimeError(
             f"Error when checking for existing log forwarders: {e}"
         ) from e
-    step_metadata["log_forwarders"] = [
+    return {"log_forwarders": [
         build_log_forwarder_payload(forwarder) for forwarder in forwarders.values()
-    ]
-    return len(forwarders) == 1
+    ]}, len(forwarders) == 1
 
 
 def receive_user_selections(
@@ -763,7 +761,8 @@ def main():
     workflow_id = os.environ["WORKFLOW_ID"]
 
     with open_datadog_connection() as datadog_connection:
-        status = StatusReporter(datadog_connection, workflow_id)
+        status = WorkflowReporter(workflow_id, "/api/unstable/integration/azure/setup/status")
+        status2 = StatusReporter(datadog_connection, workflow_id)
 
         # give up after 30 minutes
         timer = threading.Timer(30 * 60, time_out, [datadog_connection, status])
@@ -790,10 +789,9 @@ def main():
             subscriptions, _ = report_available_scopes(datadog_connection, workflow_id)
         with status.report_step(
             "log_forwarders", "Collecting existing Log Forwarders"
-        ) as step_metadata:
-            exactly_one_log_forwarder = report_existing_log_forwarders(
-                subscriptions, step_metadata
-            )
+        ) as step_reporter:
+            metadata, exactly_one_log_forwarder = report_existing_log_forwarders(subscriptions)
+            step_reporter.report(metadata)
         with status.report_step(
             "selections", "Waiting for user selections in the Datadog UI"
         ):
