@@ -375,6 +375,7 @@ class StatusReporter:
         self,
         step_id: str,
         loading_message: Optional[str] = None,
+        required: bool = True,
     ) -> Generator[dict, None, None]:
         """Report the start and outcome of a step in a workflow to Datadog."""
         self.report(step_id, Status.STARTED, f"{step_id}: {Status.STARTED}")
@@ -400,7 +401,8 @@ class StatusReporter:
                 Status.ERROR,
                 f"{step_id}: {Status.ERROR}: {traceback.format_exc()}",
             )
-            raise
+            if required:
+                raise
         else:
             if step_complete:
                 step_complete.set()
@@ -788,8 +790,11 @@ def main():
 
         with status.report_step("scopes", "Collecting scopes"):
             subscriptions, _ = report_available_scopes(datadog_connection, workflow_id)
+        exactly_one_log_forwarder = False
         with status.report_step(
-            "log_forwarders", "Collecting existing Log Forwarders"
+            "log_forwarders",
+            loading_message="Collecting existing Log Forwarders",
+            required=False,
         ) as step_metadata:
             exactly_one_log_forwarder = report_existing_log_forwarders(
                 subscriptions, step_metadata
