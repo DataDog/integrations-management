@@ -460,7 +460,7 @@ def filter_scopes_by_permission(scopes: Sequence[Scope]) -> list[Scope]:
 
 
 
-def get_subscription_scopes(tenant_id: str):
+def get_subscription_scopes(tenant_id: str) -> list[Subscription]:
     return [
         Subscription(**s)
         for s in az_json(
