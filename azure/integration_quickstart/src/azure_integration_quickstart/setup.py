@@ -34,7 +34,7 @@ from az_shared.errors import (
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
 from azure_logging_install.main import install_log_forwarder
-from .....common.workflow.reporter import WorkflowReporter
+from common.workflow.reporter import WorkflowReporter
 
 # General util
 
