@@ -19,10 +19,9 @@ from az_shared.errors import (
     ResourceProviderRegistrationValidationError,
 )
 from az_shared.logs import log
-
 from .configuration import Configuration
 from .constants import REQUIRED_RESOURCE_PROVIDERS
-from .existing_lfo import check_existing_lfo, LfoMetadata
+from .existing_lfo import LfoMetadata, check_existing_lfo
 
 
 def is_empty_or_whitespace(s: str) -> bool:

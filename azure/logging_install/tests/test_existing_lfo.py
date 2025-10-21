@@ -2,45 +2,41 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-# stdlib
 import json
 from unittest import TestCase
 from unittest.mock import patch as mock_patch
 
-# project
+from azure_logging_install.configuration import Configuration
 from azure_logging_install.existing_lfo import (
-    check_existing_lfo,
-    update_existing_lfo,
-    LfoMetadata,
     MONITORED_SUBSCRIPTIONS_KEY,
-    RESOURCE_TAG_FILTERS_KEY,
     PII_SCRUBBER_RULES_KEY,
-    LfoControlPlane,
-    UNKNOWN_SUB_NAME_MESSAGE,
+    RESOURCE_TAG_FILTERS_KEY,
     RESOURCES_TASK_PREFIX,
     SCALING_TASK_PREFIX,
+    UNKNOWN_SUB_NAME_MESSAGE,
+    LfoControlPlane, LfoMetadata,
+    check_existing_lfo,
+    update_existing_lfo,
 )
-from azure_logging_install.configuration import Configuration
-
 from logging_install.tests.test_data import (
+    CONTROL_PLANE_ID,
     CONTROL_PLANE_REGION,
-    CONTROL_PLANE_SUBSCRIPTION_ID,
     CONTROL_PLANE_RESOURCE_GROUP,
-    MONITORED_SUBSCRIPTIONS,
+    CONTROL_PLANE_SUBSCRIPTION_ID,
+    CONTROL_PLANE_SUBSCRIPTION_NAME,
     DATADOG_API_KEY,
     DATADOG_SITE,
-    SUB_ID_TO_NAME,
+    DIAGNOSTIC_SETTINGS_TASK_NAME,
+    MONITORED_SUBSCRIPTIONS,
+    PII_SCRUBBER_RULES,
+    RESOURCE_TAG_FILTERS,
+    RESOURCE_TASK_NAME,
+    SCALING_TASK_NAME,
     SUB_1_ID,
     SUB_2_ID,
     SUB_3_ID,
     SUB_4_ID,
-    RESOURCE_TAG_FILTERS,
-    RESOURCE_TASK_NAME,
-    PII_SCRUBBER_RULES,
-    CONTROL_PLANE_ID,
-    SCALING_TASK_NAME,
-    DIAGNOSTIC_SETTINGS_TASK_NAME,
-    CONTROL_PLANE_SUBSCRIPTION_NAME,
+    SUB_ID_TO_NAME,
     get_test_config,
 )
 

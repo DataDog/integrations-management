@@ -4,11 +4,10 @@
 
 from dataclasses import dataclass
 from json import JSONDecodeError, loads
-from typing import Final, Optional
+from typing import Final
 
 from az_shared.az_cmd import AzCmd, execute
 from az_shared.logs import log, log_header
-
 from .configuration import Configuration
 from .resource_setup import set_function_app_env_vars
 from .role_setup import grant_subscriptions_permissions
@@ -39,7 +38,7 @@ class LfoMetadata:
 
 
 def find_existing_lfo_control_planes(
-    sub_id_to_name: dict[str, str], subscriptions: Optional[set[str]] = None
+    sub_id_to_name: dict[str, str], subscriptions: set[str | None] = None
 ) -> dict[str, LfoControlPlane]:
     """Find existing LFO control planes in the tenant. If `subscriptions` is specified, search is limited to these subscriptions.
     Returns a dict mapping control plane ID to control plane data."""

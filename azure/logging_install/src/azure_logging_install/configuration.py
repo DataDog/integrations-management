@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from az_shared.az_cmd import AzCmd, execute
 from az_shared.errors import FatalError
 from az_shared.logs import log
-
 from .constants import (
     IMAGE_REGISTRY_URL,
     NIL_UUID,

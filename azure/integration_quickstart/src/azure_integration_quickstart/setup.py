@@ -6,16 +6,7 @@
 check_3_9 = {} | {}  # This script must be run with python >= 3.9
 
 # ruff: noqa: E402
-from abc import ABC, abstractmethod
-from collections.abc import Container, Iterable, Sequence
-from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import contextmanager
-from dataclasses import asdict, dataclass
-from datetime import datetime
-from enum import Enum
-from functools import lru_cache, reduce
 import json
-from operator import add
 import os
 import re
 import ssl
@@ -24,8 +15,17 @@ import sys
 import threading
 import time
 import traceback
-from typing import Any, Generator, Literal, Optional, TypeVar, TypedDict, Union
 import urllib.request
+from abc import ABC, abstractmethod
+from collections.abc import Container, Iterable, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from enum import Enum
+from functools import lru_cache, reduce
+from operator import add
+from typing import Any, Generator, Literal, TypedDict, TypeVar
 from urllib.error import HTTPError, URLError
 
 from az_shared.errors import (
@@ -80,10 +80,10 @@ def compile_wildcard(pattern: str) -> re.Pattern:
     return re.compile("^{}$".format(re.escape(pattern).replace(r"\*", ".*")))
 
 
-JsonAtom = Union[str, int, bool, None]
+JsonAtom = str | int | bool | None
 JsonDict = dict[str, "Json"]
 JsonList = list["Json"]
-Json = Union[JsonDict, JsonList, JsonAtom]
+Json = JsonDict | JsonList | JsonAtom
 
 
 def request(
@@ -301,7 +301,7 @@ class UserSelections:
 
     scopes: Sequence[Scope]
     app_registration_config: dict
-    log_forwarding_config: Optional[dict] = None
+    log_forwarding_config: dict | None = None
 
 
 class LogForwarderPayload(TypedDict):
@@ -311,8 +311,8 @@ class LogForwarderPayload(TypedDict):
     controlPlaneSubscriptionId: str
     controlPlaneSubscriptionName: str
     controlPlaneRegion: str
-    tagFilters: Optional[str]
-    piiFilters: Optional[str]
+    tagFilters: str | None
+    piiFilters: str | None
 
 
 def az(cmd: str) -> str:
@@ -376,7 +376,7 @@ class StatusReporter:
         step_id: str,
         status: Status,
         message: str,
-        metadata: Optional[Json] = None,
+        metadata: Json | None = None,
     ) -> None:
         """Report the status of a step in a workflow to Datadog."""
         attributes: dict[str, Json] = {
@@ -402,13 +402,13 @@ class StatusReporter:
     def report_step(
         self,
         step_id: str,
-        loading_message: Optional[str] = None,
+        loading_message: str | None = None,
         required: bool = True,
     ) -> Generator[dict, None, None]:
         """Report the start and outcome of a step in a workflow to Datadog."""
         self.report(step_id, Status.STARTED, f"{step_id}: {Status.STARTED}")
-        step_complete: Optional[threading.Event] = None
-        loading_message_thread: Optional[threading.Thread] = None
+        step_complete: threading.Event | None = None
+        loading_message_thread: threading.Thread | None = None
         try:
             if loading_message:
                 step_complete = threading.Event()

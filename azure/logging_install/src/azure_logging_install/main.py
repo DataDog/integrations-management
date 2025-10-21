@@ -11,18 +11,17 @@ from logging import basicConfig
 from az_shared.az_cmd import list_users_subscriptions, set_subscription
 from az_shared.errors import InputParamValidationError
 from az_shared.logs import log, log_header
-
 from .configuration import Configuration
 from .deploy import deploy_control_plane, run_initial_deploy
+from .existing_lfo import update_existing_lfo
 from .resource_setup import create_resource_group
 from .role_setup import grant_permissions
 from .validation import (
     check_fresh_install,
-    validate_user_parameters,
     validate_az_cli,
     validate_singleton_lfo,
+    validate_user_parameters,
 )
-from .existing_lfo import update_existing_lfo
 
 SKIP_SINGLETON_CHECK = False
 

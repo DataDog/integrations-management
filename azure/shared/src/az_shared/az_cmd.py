@@ -6,7 +6,6 @@ import json
 import subprocess
 from re import search
 from time import sleep
-from typing import Union
 
 from .errors import (
     AccessError,
@@ -15,7 +14,6 @@ from .errors import (
     ResourceNotFoundError,
 )
 from .logs import log
-
 
 AUTH_FAILED_ERROR = "AuthorizationFailed"
 AZURE_THROTTLING_ERROR = "TooManyRequests"
@@ -55,7 +53,7 @@ class AzCmd:
         return "az " + " ".join(self.cmd)
 
 
-def check_access_error(stderr: str) -> Union[str, None]:
+def check_access_error(stderr: str) -> str | None:
     # Sample:
     # (AuthorizationFailed) The client 'user@example.com' with object id '00000000-0000-0000-0000-000000000000'
     # does not have authorization to perform action 'Microsoft.Storage/storageAccounts/read'

@@ -4,7 +4,6 @@
 
 from az_shared.az_cmd import AzCmd, execute, set_subscription
 from az_shared.logs import log
-
 from .configuration import Configuration
 from .resource_setup import (
     create_blob_container,
@@ -15,9 +14,7 @@ from .resource_setup import (
     create_storage_account,
     wait_for_storage_account_ready,
 )
-from .role_setup import (
-    create_initial_deploy_role,
-)
+from .role_setup import create_initial_deploy_role
 
 
 def deploy_lfo_deployer(config: Configuration):

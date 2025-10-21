@@ -6,7 +6,7 @@ import json
 import os
 import shlex
 import tempfile
-from time import time, sleep
+from time import sleep, time
 
 from az_shared.az_cmd import AzCmd, execute
 from az_shared.errors import (
@@ -15,7 +15,6 @@ from az_shared.errors import (
     ResourceNotFoundError,
 )
 from az_shared.logs import log
-
 from .configuration import Configuration
 from .constants import (
     CONTROL_PLANE_CACHE,

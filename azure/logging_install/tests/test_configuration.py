@@ -2,23 +2,20 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-# stdlib
 import json
 from unittest import TestCase
 from unittest.mock import patch as mock_patch
 
-# project
 from azure_logging_install.configuration import Configuration
-
 from logging_install.tests.test_data import (
     CONTROL_PLANE_REGION,
-    CONTROL_PLANE_SUBSCRIPTION_ID,
     CONTROL_PLANE_RESOURCE_GROUP,
+    CONTROL_PLANE_SUBSCRIPTION_ID,
     DATADOG_API_KEY,
     DATADOG_SITE,
-    RESOURCE_TAG_FILTERS,
-    PII_SCRUBBER_RULES,
     MONITORED_SUBSCRIPTIONS,
+    PII_SCRUBBER_RULES,
+    RESOURCE_TAG_FILTERS,
 )
 
 CONTROL_PLANE_ID_LENGTH = 12

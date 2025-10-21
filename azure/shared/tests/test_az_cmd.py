@@ -2,12 +2,11 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-# stdlib
 import subprocess
 from unittest import TestCase
-from unittest.mock import Mock, patch as mock_patch
+from unittest.mock import Mock
+from unittest.mock import patch as mock_patch
 
-# project
 from az_shared import az_cmd
 from az_shared.errors import (
     AccessError,
@@ -15,11 +14,10 @@ from az_shared.errors import (
     RefreshTokenError,
     ResourceNotFoundError,
 )
-
 from shared.tests.test_data import (
-    CONTROL_PLANE_SUBSCRIPTION_ID,
-    CONTROL_PLANE_RESOURCE_GROUP,
     CONTROL_PLANE_REGION,
+    CONTROL_PLANE_RESOURCE_GROUP,
+    CONTROL_PLANE_SUBSCRIPTION_ID,
 )
 
 FUNCTION_APP = "functionapp"

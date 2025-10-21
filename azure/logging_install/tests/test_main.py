@@ -2,26 +2,23 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-# stdlib
 from unittest import TestCase
-from unittest.mock import patch as mock_patch, MagicMock
+from unittest.mock import MagicMock
+from unittest.mock import patch as mock_patch
 
-# project
 from az_shared.errors import FatalError, InputParamValidationError
-
 from azure_logging_install import main
 from azure_logging_install.existing_lfo import (
-    LfoMetadata,
     LfoControlPlane,
+    LfoMetadata,
     update_existing_lfo,
 )
-
 from logging_install.tests.test_data import (
     CONTROL_PLANE_ID,
     CONTROL_PLANE_REGION,
+    CONTROL_PLANE_RESOURCE_GROUP,
     CONTROL_PLANE_SUBSCRIPTION_ID,
     CONTROL_PLANE_SUBSCRIPTION_NAME,
-    CONTROL_PLANE_RESOURCE_GROUP,
     DATADOG_API_KEY,
     DATADOG_SITE,
     DEPLOYER_JOB_NAME,
@@ -30,11 +27,11 @@ from logging_install.tests.test_data import (
     PII_SCRUBBER_RULES,
     RESOURCE_TAG_FILTERS,
     RESOURCE_TASK_NAME,
+    SCALING_TASK_NAME,
     SUB_1_ID,
     SUB_2_ID,
     SUB_3_ID,
     SUB_ID_TO_NAME,
-    SCALING_TASK_NAME,
     get_test_config,
 )
 
