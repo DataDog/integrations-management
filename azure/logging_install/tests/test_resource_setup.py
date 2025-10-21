@@ -2,20 +2,16 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-# stdlib
+
 from unittest import TestCase
 from unittest.mock import MagicMock
 from unittest.mock import patch as mock_patch
 
-# project
 from az_shared.errors import FatalError, ResourceNotFoundError
 from azure_logging_install import resource_setup
 from azure_logging_install.configuration import Configuration
 
-from logging_install.tests.test_data import (
-    CONTROL_PLANE_REGION,
-    CONTROL_PLANE_RESOURCE_GROUP,
-)
+from logging_install.tests.test_data import CONTROL_PLANE_REGION, CONTROL_PLANE_RESOURCE_GROUP
 
 STORAGE_ACCOUNT_NAME = "teststorageaccount"
 CONTAINER_APP_ENV_NAME = "test-env"

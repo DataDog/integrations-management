@@ -2,12 +2,10 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-# stdlib
 import json
 from unittest import TestCase
 from unittest.mock import patch as mock_patch
 
-# project
 from azure_logging_install.configuration import Configuration
 
 from logging_install.tests.test_data import (

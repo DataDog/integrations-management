@@ -8,12 +8,7 @@ from re import search
 from time import sleep
 from typing import Union
 
-from .errors import (
-    AccessError,
-    RateLimitExceededError,
-    RefreshTokenError,
-    ResourceNotFoundError,
-)
+from .errors import AccessError, RateLimitExceededError, RefreshTokenError, ResourceNotFoundError
 from .logs import log
 
 AUTH_FAILED_ERROR = "AuthorizationFailed"

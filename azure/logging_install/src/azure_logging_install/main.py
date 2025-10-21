@@ -3,7 +3,6 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-
 import argparse
 import logging
 from logging import basicConfig
@@ -17,12 +16,7 @@ from .deploy import deploy_control_plane, run_initial_deploy
 from .existing_lfo import update_existing_lfo
 from .resource_setup import create_resource_group
 from .role_setup import grant_permissions
-from .validation import (
-    check_fresh_install,
-    validate_az_cli,
-    validate_singleton_lfo,
-    validate_user_parameters,
-)
+from .validation import check_fresh_install, validate_az_cli, validate_singleton_lfo, validate_user_parameters
 
 SKIP_SINGLETON_CHECK = False
 
