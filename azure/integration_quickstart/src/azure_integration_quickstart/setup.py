@@ -99,10 +99,7 @@ def request(
 
     for attempt in range(max_retries):
         req = urllib.request.Request(
-            url,
-            method=method,
-            headers=headers,
-            data=json.dumps(body).encode("utf-8") if body else None,
+            url, method=method, headers=headers, data=json.dumps(body).encode("utf-8") if body else None
         )
 
         try:
@@ -152,10 +149,7 @@ def get_permissions(auth_token: str, scope: str) -> list[Permission]:
     response, _ = request(
         "GET",
         f"https://management.azure.com{scope}/providers/Microsoft.Authorization/permissions?api-version=2022-04-01",
-        headers={
-            "Authorization": f"Bearer {auth_token}",
-            "Content-Type": "application/json",
-        },
+        headers={"Authorization": f"Bearer {auth_token}", "Content-Type": "application/json"},
     )
     return json.loads(response)["value"]
 
@@ -199,9 +193,7 @@ def flatten_permissions(permissions: Iterable[Permission]) -> FlatPermission:
     """Create a single permission used to determine whether actions are supported by any of the given permissions."""
     return FlatPermission(
         reduce(
-            add,
-            [Actions(p.get("actions", [])) - Actions(p.get("notActions", [])) for p in permissions],
-            Actions([]),
+            add, [Actions(p.get("actions", [])) - Actions(p.get("notActions", [])) for p in permissions], Actions([])
         ),
         reduce(
             add,
@@ -362,39 +354,20 @@ def loading_spinner(message: str, done: threading.Event):
 class StatusReporter:
     workflow_id: str
 
-    def report(
-        self,
-        step_id: str,
-        status: Status,
-        message: str,
-        metadata: Optional[Json] = None,
-    ) -> None:
+    def report(self, step_id: str, status: Status, message: str, metadata: Optional[Json] = None) -> None:
         """Report the status of a step in a workflow to Datadog."""
-        attributes: dict[str, Json] = {
-            "message": message,
-            "status": status.value,
-            "step_id": step_id,
-        }
+        attributes: dict[str, Json] = {"message": message, "status": status.value, "step_id": step_id}
         if metadata:
             attributes["metadata"] = metadata
         dd_request(
             "POST",
             "/api/unstable/integration/azure/setup/status",
-            {
-                "data": {
-                    "id": self.workflow_id,
-                    "type": "add_azure_app_registration",
-                    "attributes": attributes,
-                },
-            },
+            {"data": {"id": self.workflow_id, "type": "add_azure_app_registration", "attributes": attributes}},
         )
 
     @contextmanager
     def report_step(
-        self,
-        step_id: str,
-        loading_message: Optional[str] = None,
-        required: bool = True,
+        self, step_id: str, loading_message: Optional[str] = None, required: bool = True
     ) -> Generator[dict, None, None]:
         """Report the start and outcome of a step in a workflow to Datadog."""
         self.report(step_id, Status.STARTED, f"{step_id}: {Status.STARTED}")
@@ -413,11 +386,7 @@ class StatusReporter:
                 step_complete.set()
             if loading_message_thread:
                 loading_message_thread.join()
-            self.report(
-                step_id,
-                Status.ERROR,
-                f"{step_id}: {Status.ERROR}: {traceback.format_exc()}",
-            )
+            self.report(step_id, Status.ERROR, f"{step_id}: {Status.ERROR}: {traceback.format_exc()}")
             if required:
                 raise
         else:
@@ -467,9 +436,7 @@ def get_subscription_scopes(tenant_id: str) -> list[Subscription]:
     ]
 
 
-def get_management_group_from_list_result(
-    list_result: ManagementGroupListResult,
-) -> ManagementGroup:
+def get_management_group_from_list_result(list_result: ManagementGroupListResult) -> ManagementGroup:
     subscriptions_az_response = az_json(
         f'account management-group show --name "{list_result.az_name}" -e -r --query "children[].{{id:id, name:name}}" -o json'
     )
@@ -477,11 +444,7 @@ def get_management_group_from_list_result(
         subscriptions = [Subscription(**s) for s in subscriptions_az_response if s["id"].startswith("/subscriptions/")]
     else:
         subscriptions = []
-    return ManagementGroup(
-        id=list_result.id,
-        name=list_result.name,
-        subscriptions=SubscriptionList(subscriptions),
-    )
+    return ManagementGroup(list_result.id, list_result.name, SubscriptionList(subscriptions))
 
 
 def get_management_group_scopes(tenant_id: str) -> list[ManagementGroup]:
@@ -499,10 +462,7 @@ def get_management_group_scopes(tenant_id: str) -> list[ManagementGroup]:
 
     # enrich each result with all of its children subscriptions (at any depth)
     with ThreadPoolExecutor(MAX_WORKERS) as executor:
-        management_groups = executor.map(
-            get_management_group_from_list_result,
-            mgroup_list_results,
-        )
+        management_groups = executor.map(get_management_group_from_list_result, mgroup_list_results)
     return list(management_groups)
 
 
@@ -594,9 +554,7 @@ def flatten_scopes(scopes: Sequence[Scope]) -> set[Subscription]:
 DATADOG_ROLE = "Monitoring Reader"
 
 
-def create_app_registration_with_permissions(
-    scopes: Sequence[Scope],
-) -> AppRegistration:
+def create_app_registration_with_permissions(scopes: Sequence[Scope]) -> AppRegistration:
     """Create an app registration with the necessary permissions for Datadog to function over the given scopes."""
     result = az_json(
         f'ad sp create-for-rbac --name "datadog-azure-integration-{datetime.now().strftime("%Y-%m-%d-%H-%M-%S")}" --role "{DATADOG_ROLE}" --scopes {" ".join([s.scope for s in scopes])}'
@@ -649,10 +607,7 @@ def submit_config_identifier(workflow_id: str, app_registration: AppRegistration
             "data": {
                 "id": workflow_id,
                 "type": "add_azure_app_registration",
-                "attributes": {
-                    "client_id": app_registration.client_id,
-                    "tenant_id": app_registration.tenant_id,
-                },
+                "attributes": {"client_id": app_registration.client_id, "tenant_id": app_registration.tenant_id},
             }
         },
     )
@@ -690,17 +645,11 @@ def assign_permissions(client_id: str, scopes: Sequence[Scope]) -> None:
     with ThreadPoolExecutor(MAX_WORKERS) as executor:
         for scope in scopes:
             executor.submit(
-                az,
-                f'role assignment create --assignee "{client_id}" --role "{DATADOG_ROLE}" --scope "{scope.scope}"',
+                az, f'role assignment create --assignee "{client_id}" --role "{DATADOG_ROLE}" --scope "{scope.scope}"'
             )
 
 
-REQUIRED_ENVIRONMENT_VARS = {
-    "DD_API_KEY",
-    "DD_APP_KEY",
-    "DD_SITE",
-    "WORKFLOW_ID",
-}
+REQUIRED_ENVIRONMENT_VARS = {"DD_API_KEY", "DD_APP_KEY", "DD_SITE", "WORKFLOW_ID"}
 
 
 def time_out(status: StatusReporter):
@@ -756,8 +705,7 @@ def main():
         submit_config_identifier(workflow_id, app_registration)
     if selections.log_forwarding_config:
         with status.report_step(
-            "upsert_log_forwarder",
-            f"{'Updating' if exactly_one_log_forwarder else 'Creating'} Log Forwarder",
+            "upsert_log_forwarder", f"{'Updating' if exactly_one_log_forwarder else 'Creating'} Log Forwarder"
         ):
             upsert_log_forwarder(selections.log_forwarding_config, flatten_scopes(selections.scopes))
 
