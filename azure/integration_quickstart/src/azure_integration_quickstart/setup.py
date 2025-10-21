@@ -521,7 +521,6 @@ def report_available_scopes(
     management_groups = filter_scopes_by_permission(
         get_management_group_scopes(tenant_id)
     )
-    print(subscriptions)
     response = dd_post(
         connection,
         "/api/unstable/integration/azure/setup/scopes",
