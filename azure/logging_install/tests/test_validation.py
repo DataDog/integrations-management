@@ -2,13 +2,11 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-# stdlib
 import json
 from unittest import TestCase
 from unittest.mock import MagicMock
 from unittest.mock import patch as mock_patch
 
-# project
 from az_shared.errors import (
     AccessError,
     AzCliNotAuthenticatedError,
@@ -21,7 +19,6 @@ from azure_logging_install import validation
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.constants import REQUIRED_RESOURCE_PROVIDERS
 from azure_logging_install.existing_lfo import LfoControlPlane
-
 from tests.test_data import (
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_RESOURCE_GROUP,

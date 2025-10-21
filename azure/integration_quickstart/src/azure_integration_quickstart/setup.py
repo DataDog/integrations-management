@@ -28,11 +28,7 @@ from operator import add
 from typing import Any, Generator, Literal, Optional, TypedDict, TypeVar, Union
 from urllib.error import HTTPError, URLError
 
-from az_shared.errors import (
-    AccessError,
-    AzCliNotAuthenticatedError,
-    UserActionRequiredError,
-)
+from az_shared.errors import AccessError, AzCliNotAuthenticatedError, UserActionRequiredError
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
 from azure_logging_install.main import install_log_forwarder

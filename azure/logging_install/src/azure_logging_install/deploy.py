@@ -15,9 +15,7 @@ from .resource_setup import (
     create_storage_account,
     wait_for_storage_account_ready,
 )
-from .role_setup import (
-    create_initial_deploy_role,
-)
+from .role_setup import create_initial_deploy_role
 
 
 def deploy_lfo_deployer(config: Configuration):
