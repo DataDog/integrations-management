@@ -24,7 +24,7 @@ from .validation import (
     validate_user_parameters,
 )
 
-SKIP_SINGLETON_CHECK = False
+SKIP_SINGLETON_CHECK = True
 
 
 def parse_arguments():

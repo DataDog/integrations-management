@@ -108,6 +108,8 @@ def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) 
     control_planes = find_existing_lfo_control_planes(sub_id_to_name, subscriptions)
     existing_lfos: dict[str, LfoMetadata] = {}
 
+    return existing_lfos
+
     for control_plane_id, control_plane in control_planes.items():
         resource_task_name = f"{RESOURCES_TASK_PREFIX}{control_plane_id}"
         scaling_task_name = f"{SCALING_TASK_PREFIX}{control_plane_id}"
@@ -138,8 +140,6 @@ def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) 
             tag_filter=tag_filters,
             pii_rules=pii_rules,
         )
-
-    return existing_lfos
 
 
 def update_existing_lfo(config: Configuration, existing_lfo: LfoMetadata):
