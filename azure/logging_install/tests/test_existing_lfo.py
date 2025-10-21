@@ -228,24 +228,18 @@ class TestExistingLfo(TestCase):
         self.assertIn(control_plane_2_id, result)
 
         lfo_1 = result[control_plane_1_id]
-        expected_lfo_1_subs = {
-            SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
-            SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
-        }
-        self.assertEqual(lfo_1.monitored_subs, expected_lfo_1_subs)
         self.assertEqual(lfo_1.control_plane.resource_group, CONTROL_PLANE_RESOURCE_GROUP)
-        self.assertEqual(lfo_1.tag_filter, RESOURCE_TAG_FILTERS)
+        # Expect the rest to be empty since we shortcut on multiple LFOs
+        self.assertEqual(lfo_1.monitored_subs, {})
+        self.assertEqual(lfo_1.tag_filter, "")
         self.assertEqual(lfo_1.pii_rules, "")
 
         lfo_2 = result[control_plane_2_id]
-        expected_lfo_2_subs = {
-            SUB_3_ID: SUB_ID_TO_NAME[SUB_3_ID],
-            SUB_4_ID: SUB_ID_TO_NAME[SUB_4_ID],
-        }
-        self.assertEqual(lfo_2.monitored_subs, expected_lfo_2_subs)
         self.assertEqual(lfo_2.control_plane.resource_group, "lfo-rg-2")
+        # Expect the rest to be empty since we shortcut on multiple LFOs
+        self.assertEqual(lfo_2.monitored_subs, {})
         self.assertEqual(lfo_2.tag_filter, "")
-        self.assertEqual(lfo_2.pii_rules, PII_SCRUBBER_RULES)
+        self.assertEqual(lfo_2.pii_rules, "")
 
     def test_check_existing_lfo_insufficient_sub_permissions(self):
         """Test with an existing LFO installation where the user doesn't have permissions to read a monitored subscription"""
