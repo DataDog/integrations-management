@@ -16,7 +16,6 @@ from .errors import (
 )
 from .logs import log
 
-
 AUTH_FAILED_ERROR = "AuthorizationFailed"
 AZURE_THROTTLING_ERROR = "TooManyRequests"
 REFRESH_TOKEN_EXPIRED_ERROR = "AADSTS700082"
@@ -96,9 +95,7 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
 
     for attempt in range(MAX_RETRIES):
         try:
-            result = subprocess.run(
-                full_command, shell=True, check=True, capture_output=True, text=True
-            )
+            result = subprocess.run(full_command, shell=True, check=True, capture_output=True, text=True)
             if result.returncode != 0 and not can_fail:
                 log.error(f"Command failed: {full_command}")
                 log.error(result.stderr)
@@ -107,27 +104,16 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
         except subprocess.CalledProcessError as e:
             stderr = str(e.stderr)
             if RESOURCE_NOT_FOUND_ERROR in stderr:
-                raise ResourceNotFoundError(
-                    f"Resource not found when executing '{az_cmd}'"
-                ) from e
-            if (
-                AZURE_THROTTLING_ERROR in stderr
-                or RESOURCE_COLLECTION_THROTTLING_ERROR in stderr
-            ):
+                raise ResourceNotFoundError(f"Resource not found when executing '{az_cmd}'") from e
+            if AZURE_THROTTLING_ERROR in stderr or RESOURCE_COLLECTION_THROTTLING_ERROR in stderr:
                 if attempt < MAX_RETRIES - 1:
-                    log.warning(
-                        f"Azure throttling ongoing. Retrying in {delay} seconds..."
-                    )
+                    log.warning(f"Azure throttling ongoing. Retrying in {delay} seconds...")
                     sleep(delay)
                     delay *= RETRY_DELAY_MULTIPLIER
                     continue
-                raise RateLimitExceededError(
-                    "Rate limit exceeded. Please wait a few minutes and try again."
-                ) from e
+                raise RateLimitExceededError("Rate limit exceeded. Please wait a few minutes and try again.") from e
             if REFRESH_TOKEN_EXPIRED_ERROR in stderr:
-                raise RefreshTokenError(
-                    f"Auth token is expired. Refresh token before running '{az_cmd}'"
-                ) from e
+                raise RefreshTokenError(f"Auth token is expired. Refresh token before running '{az_cmd}'") from e
             if AUTH_FAILED_ERROR in stderr:
                 error_message = f"Insufficient permissions to access resource when executing '{az_cmd}'"
                 error_details = check_access_error(stderr)

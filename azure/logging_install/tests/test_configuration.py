@@ -12,13 +12,13 @@ from azure_logging_install.configuration import Configuration
 
 from logging_install.tests.test_data import (
     CONTROL_PLANE_REGION,
-    CONTROL_PLANE_SUBSCRIPTION_ID,
     CONTROL_PLANE_RESOURCE_GROUP,
+    CONTROL_PLANE_SUBSCRIPTION_ID,
     DATADOG_API_KEY,
     DATADOG_SITE,
-    RESOURCE_TAG_FILTERS,
-    PII_SCRUBBER_RULES,
     MONITORED_SUBSCRIPTIONS,
+    PII_SCRUBBER_RULES,
+    RESOURCE_TAG_FILTERS,
 )
 
 CONTROL_PLANE_ID_LENGTH = 12
@@ -32,9 +32,7 @@ class TestConfiguration(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures and reset global settings"""
         # Set up mocks
-        self.az_cmd_execute_mock = self.patch(
-            "azure_logging_install.configuration.execute"
-        )
+        self.az_cmd_execute_mock = self.patch("azure_logging_install.configuration.execute")
 
     def patch(self, path: str, **kwargs):
         """Helper method to patch and auto-cleanup"""
@@ -85,9 +83,7 @@ class TestConfiguration(TestCase):
 
     def test_configuration_initialization_with_custom_values(self):
         """Test Configuration initialization with custom values"""
-        config = self.create_test_config(
-            datadog_site="datadoghq.eu", datadog_telemetry=True, log_level="DEBUG"
-        )
+        config = self.create_test_config(datadog_site="datadoghq.eu", datadog_telemetry=True, log_level="DEBUG")
 
         self.assertEqual(config.datadog_site, "datadoghq.eu")
         self.assertEqual(config.resource_tag_filters, RESOURCE_TAG_FILTERS)
@@ -147,9 +143,7 @@ class TestConfiguration(TestCase):
 
     def test_all_subscriptions_property(self):
         """Test all_subscriptions property includes control plane + monitored"""
-        config = self.create_test_config(
-            control_plane_sub_id="control-sub", monitored_subs="mon1,mon2"
-        )
+        config = self.create_test_config(control_plane_sub_id="control-sub", monitored_subs="mon1,mon2")
 
         result = config.all_subscriptions
 
@@ -158,9 +152,7 @@ class TestConfiguration(TestCase):
 
     def test_all_subscriptions_property_no_duplicates(self):
         """Test all_subscriptions property removes duplicates"""
-        config = self.create_test_config(
-            control_plane_sub_id="same-sub", monitored_subs="same-sub,other-sub"
-        )
+        config = self.create_test_config(control_plane_sub_id="same-sub", monitored_subs="same-sub,other-sub")
 
         result = config.all_subscriptions
 
@@ -182,9 +174,7 @@ class TestConfiguration(TestCase):
         config = self.create_test_config()
         config.control_plane_cache_storage_key = None
         # Mock the execute to return a proper JSON response with valid permissions
-        mock_keys_response = [
-            {"keyName": "key1", "value": TEST_STORAGE_KEY, "permissions": "FULL"}
-        ]
+        mock_keys_response = [{"keyName": "key1", "value": TEST_STORAGE_KEY, "permissions": "FULL"}]
         self.az_cmd_execute_mock.return_value = json.dumps(mock_keys_response)
 
         result = config.get_control_plane_cache_key()
@@ -199,9 +189,7 @@ class TestConfiguration(TestCase):
         """Test control_plane_cache_storage_name includes control plane ID"""
         config = self.create_test_config()
 
-        self.assertTrue(
-            config.control_plane_cache_storage_name.startswith(LFO_STORAGE_PREFIX)
-        )
+        self.assertTrue(config.control_plane_cache_storage_name.startswith(LFO_STORAGE_PREFIX))
         self.assertEqual(
             len(config.control_plane_cache_storage_name),
             len(LFO_STORAGE_PREFIX) + CONTROL_PLANE_ID_LENGTH,
@@ -212,9 +200,7 @@ class TestConfiguration(TestCase):
         config = self.create_test_config(control_plane_region="westus2")
 
         self.assertIn("westus2", config.control_plane_env_name)
-        self.assertTrue(
-            config.control_plane_env_name.startswith(LOG_FORWARDER_ENV_PREFIX)
-        )
+        self.assertTrue(config.control_plane_env_name.startswith(LOG_FORWARDER_ENV_PREFIX))
         self.assertEqual(
             len(config.control_plane_env_name),
             len(LOG_FORWARDER_ENV_PREFIX) + len("westus2-") + CONTROL_PLANE_ID_LENGTH,

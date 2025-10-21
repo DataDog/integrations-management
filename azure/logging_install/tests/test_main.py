@@ -4,24 +4,24 @@
 
 # stdlib
 from unittest import TestCase
-from unittest.mock import patch as mock_patch, MagicMock
+from unittest.mock import MagicMock
+from unittest.mock import patch as mock_patch
 
 # project
 from az_shared.errors import FatalError, InputParamValidationError
-
 from azure_logging_install import main
 from azure_logging_install.existing_lfo import (
-    LfoMetadata,
     LfoControlPlane,
+    LfoMetadata,
     update_existing_lfo,
 )
 
 from logging_install.tests.test_data import (
     CONTROL_PLANE_ID,
     CONTROL_PLANE_REGION,
+    CONTROL_PLANE_RESOURCE_GROUP,
     CONTROL_PLANE_SUBSCRIPTION_ID,
     CONTROL_PLANE_SUBSCRIPTION_NAME,
-    CONTROL_PLANE_RESOURCE_GROUP,
     DATADOG_API_KEY,
     DATADOG_SITE,
     DEPLOYER_JOB_NAME,
@@ -30,11 +30,11 @@ from logging_install.tests.test_data import (
     PII_SCRUBBER_RULES,
     RESOURCE_TAG_FILTERS,
     RESOURCE_TASK_NAME,
+    SCALING_TASK_NAME,
     SUB_1_ID,
     SUB_2_ID,
     SUB_3_ID,
     SUB_ID_TO_NAME,
-    SCALING_TASK_NAME,
     get_test_config,
 )
 
@@ -43,24 +43,12 @@ class TestMain(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures and reset global settings"""
         self.configuration_mock = self.patch("azure_logging_install.main.Configuration")
-        self.set_subscription_mock = self.patch(
-            "azure_logging_install.main.set_subscription"
-        )
-        self.validate_user_parameters_mock = self.patch(
-            "azure_logging_install.main.validate_user_parameters"
-        )
-        self.create_resource_group_mock = self.patch(
-            "azure_logging_install.main.create_resource_group"
-        )
-        self.grant_permissions_mock = self.patch(
-            "azure_logging_install.main.grant_permissions"
-        )
-        self.deploy_control_plane_mock = self.patch(
-            "azure_logging_install.main.deploy_control_plane"
-        )
-        self.run_initial_deploy_mock = self.patch(
-            "azure_logging_install.main.run_initial_deploy"
-        )
+        self.set_subscription_mock = self.patch("azure_logging_install.main.set_subscription")
+        self.validate_user_parameters_mock = self.patch("azure_logging_install.main.validate_user_parameters")
+        self.create_resource_group_mock = self.patch("azure_logging_install.main.create_resource_group")
+        self.grant_permissions_mock = self.patch("azure_logging_install.main.grant_permissions")
+        self.deploy_control_plane_mock = self.patch("azure_logging_install.main.deploy_control_plane")
+        self.run_initial_deploy_mock = self.patch("azure_logging_install.main.run_initial_deploy")
 
     def patch(self, path: str, **kwargs):
         """Helper method to patch and auto-cleanup"""
@@ -91,9 +79,7 @@ class TestMain(TestCase):
 
         self.assertEqual(args.control_plane_region, CONTROL_PLANE_REGION)
         self.assertEqual(args.control_plane_subscription, CONTROL_PLANE_SUBSCRIPTION_ID)
-        self.assertEqual(
-            args.control_plane_resource_group, CONTROL_PLANE_RESOURCE_GROUP
-        )
+        self.assertEqual(args.control_plane_resource_group, CONTROL_PLANE_RESOURCE_GROUP)
         self.assertEqual(args.monitored_subscriptions, MONITORED_SUBSCRIPTIONS)
         self.assertEqual(args.datadog_api_key, DATADOG_API_KEY)
         self.assertEqual(args.datadog_site, DATADOG_SITE)
@@ -169,9 +155,7 @@ class TestMain(TestCase):
         mock_args.datadog_telemetry = False
         mock_args.log_level = "INFO"
 
-        with mock_patch(
-            "azure_logging_install.main.parse_arguments", return_value=mock_args
-        ):
+        with mock_patch("azure_logging_install.main.parse_arguments", return_value=mock_args):
             main.main()
 
         # Verify the flow of function calls
@@ -194,9 +178,7 @@ class TestMain(TestCase):
         self.configuration_mock.side_effect = FatalError("Test error")
 
         mock_args = MagicMock()
-        with mock_patch(
-            "azure_logging_install.main.parse_arguments", return_value=mock_args
-        ):
+        with mock_patch("azure_logging_install.main.parse_arguments", return_value=mock_args):
             with self.assertRaises(InputParamValidationError):
                 main.main()
 
@@ -213,12 +195,8 @@ class TestMain(TestCase):
         main.create_new_lfo(mock_config)
 
         # Verify all steps are called in correct order
-        self.set_subscription_mock.assert_called_once_with(
-            CONTROL_PLANE_SUBSCRIPTION_ID
-        )
-        self.create_resource_group_mock.assert_called_once_with(
-            CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION
-        )
+        self.set_subscription_mock.assert_called_once_with(CONTROL_PLANE_SUBSCRIPTION_ID)
+        self.create_resource_group_mock.assert_called_once_with(CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION)
         self.deploy_control_plane_mock.assert_called_once_with(mock_config)
         self.grant_permissions_mock.assert_called_once_with(mock_config)
         self.run_initial_deploy_mock.assert_called_once_with(
@@ -274,12 +252,8 @@ class TestMain(TestCase):
         }
 
         with (
-            mock_patch(
-                "azure_logging_install.existing_lfo.set_function_app_env_vars"
-            ) as mock_set_env_vars,
-            mock_patch(
-                "azure_logging_install.existing_lfo.grant_subscriptions_permissions"
-            ) as mock_grant_subs_perms,
+            mock_patch("azure_logging_install.existing_lfo.set_function_app_env_vars") as mock_set_env_vars,
+            mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
         ):
             existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(mock_config, existing_lfo)
@@ -288,9 +262,7 @@ class TestMain(TestCase):
             self.assertEqual(mock_set_env_vars.call_count, 3)
             mock_set_env_vars.assert_any_call(mock_config, RESOURCE_TASK_NAME)
             mock_set_env_vars.assert_any_call(mock_config, SCALING_TASK_NAME)
-            mock_set_env_vars.assert_any_call(
-                mock_config, DIAGNOSTIC_SETTINGS_TASK_NAME
-            )
+            mock_set_env_vars.assert_any_call(mock_config, DIAGNOSTIC_SETTINGS_TASK_NAME)
 
             # Verify permissions are granted only for new subscription
             mock_grant_subs_perms.assert_called_once_with(mock_config, {SUB_3_ID})
@@ -300,18 +272,10 @@ class TestMain(TestCase):
         test_config = get_test_config()
 
         with (
-            mock_patch(
-                "azure_logging_install.main.validate_az_cli"
-            ) as mock_validate_cli,
-            mock_patch(
-                "azure_logging_install.main.validate_user_parameters"
-            ) as mock_validate_params,
-            mock_patch(
-                "azure_logging_install.main.list_users_subscriptions"
-            ) as mock_list_subs,
-            mock_patch(
-                "azure_logging_install.main.check_fresh_install"
-            ) as mock_check_fresh,
+            mock_patch("azure_logging_install.main.validate_az_cli") as mock_validate_cli,
+            mock_patch("azure_logging_install.main.validate_user_parameters") as mock_validate_params,
+            mock_patch("azure_logging_install.main.list_users_subscriptions") as mock_list_subs,
+            mock_patch("azure_logging_install.main.check_fresh_install") as mock_check_fresh,
             mock_patch("azure_logging_install.main.create_new_lfo") as mock_create_new,
         ):
             mock_list_subs.return_value = SUB_ID_TO_NAME
@@ -340,33 +304,19 @@ class TestMain(TestCase):
                 CONTROL_PLANE_RESOURCE_GROUP,
                 CONTROL_PLANE_REGION,
             ),
-            monitored_subs={
-                CONTROL_PLANE_SUBSCRIPTION_ID: CONTROL_PLANE_SUBSCRIPTION_NAME
-            },
+            monitored_subs={CONTROL_PLANE_SUBSCRIPTION_ID: CONTROL_PLANE_SUBSCRIPTION_NAME},
             tag_filter=RESOURCE_TAG_FILTERS,
             pii_rules=PII_SCRUBBER_RULES,
         )
         existing_lfos = {CONTROL_PLANE_ID: existing_lfo}
 
         with (
-            mock_patch(
-                "azure_logging_install.main.validate_az_cli"
-            ) as mock_validate_cli,
-            mock_patch(
-                "azure_logging_install.main.validate_user_parameters"
-            ) as mock_validate_params,
-            mock_patch(
-                "azure_logging_install.main.list_users_subscriptions"
-            ) as mock_list_subs,
-            mock_patch(
-                "azure_logging_install.main.check_fresh_install"
-            ) as mock_check_fresh,
-            mock_patch(
-                "azure_logging_install.main.validate_singleton_lfo"
-            ) as mock_validate_singleton,
-            mock_patch(
-                "azure_logging_install.main.update_existing_lfo"
-            ) as mock_update_existing,
+            mock_patch("azure_logging_install.main.validate_az_cli") as mock_validate_cli,
+            mock_patch("azure_logging_install.main.validate_user_parameters") as mock_validate_params,
+            mock_patch("azure_logging_install.main.list_users_subscriptions") as mock_list_subs,
+            mock_patch("azure_logging_install.main.check_fresh_install") as mock_check_fresh,
+            mock_patch("azure_logging_install.main.validate_singleton_lfo") as mock_validate_singleton,
+            mock_patch("azure_logging_install.main.update_existing_lfo") as mock_update_existing,
             mock_patch("azure_logging_install.main.SKIP_SINGLETON_CHECK", False),
         ):
             mock_list_subs.return_value = SUB_ID_TO_NAME
@@ -391,9 +341,7 @@ class TestMain(TestCase):
         test_config = get_test_config()
 
         with (
-            mock_patch(
-                "azure_logging_install.main.validate_az_cli"
-            ) as mock_validate_cli,
+            mock_patch("azure_logging_install.main.validate_az_cli") as mock_validate_cli,
         ):
             # Mock validation failure
             error_message = "Azure CLI validation failed"

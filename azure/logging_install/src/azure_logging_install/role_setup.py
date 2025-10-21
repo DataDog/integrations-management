@@ -11,7 +11,6 @@ from az_shared.errors import ExistenceCheckError, ResourceNotFoundError, Timeout
 from az_shared.logs import log
 
 from .configuration import Configuration
-
 from .constants import (
     INITIAL_DEPLOY_IDENTITY_NAME,
     MONITORING_CONTRIBUTOR_ID,
@@ -58,17 +57,13 @@ def create_custom_container_app_start_role(role_name: str, role_scope: str):
             .param("--output", "tsv")
         )
         if output.strip():
-            log.info(
-                f"Custom role definition '{role_name}' already exists - reusing existing role"
-            )
+            log.info(f"Custom role definition '{role_name}' already exists - reusing existing role")
             return
 
         # `az role definition list` returns empty string if the role definition doesn't exist
         log.info(f"Custom role definition '{role_name}' not found - creating new role")
     except Exception as e:
-        raise ExistenceCheckError(
-            f"Failed to check if custom role definition '{role_name}' exists: {e}"
-        ) from e
+        raise ExistenceCheckError(f"Failed to check if custom role definition '{role_name}' exists: {e}") from e
 
     log.info(f"Creating custom role definition {role_name}")
 
@@ -85,15 +80,9 @@ def create_custom_container_app_start_role(role_name: str, role_scope: str):
         json.dump(role_definition, f)
 
     try:
-        execute(
-            AzCmd("role", "definition create").param(
-                "--role-definition", "custom_role.json"
-            )
-        )
+        execute(AzCmd("role", "definition create").param("--role-definition", "custom_role.json"))
     except Exception as e:
-        raise RuntimeError(
-            f"Failed to create custom role definition '{role_name}': {e}"
-        ) from e
+        raise RuntimeError(f"Failed to create custom role definition '{role_name}': {e}") from e
 
 
 def role_exists(role_id: str, scope: str, principal_id: str) -> bool:
@@ -131,13 +120,9 @@ def assign_custom_role_to_identity(
         .param("--output", "tsv")
     ).strip()
 
-    log.debug(
-        f"Checking if custom role assignment already exists for role {role_name} to identity {identity_id}"
-    )
+    log.debug(f"Checking if custom role assignment already exists for role {role_name} to identity {identity_id}")
     if role_exists(role_id, control_plane_rg_scope, identity_id):
-        log.info(
-            f"Custom role assignment already exists for role {role_name} to managed identity - skipping"
-        )
+        log.info(f"Custom role assignment already exists for role {role_name} to managed identity - skipping")
         return
     log.debug("Custom role assignment not found - creating new assignment")
 
@@ -176,18 +161,12 @@ def wait_for_role_definition_ready(role_name: str, role_scope: str) -> str:
                 return role_id
 
         except RuntimeError as e:
-            raise ExistenceCheckError(
-                f"Failure to check if role definition {role_name} is ready: {e}"
-            ) from e
+            raise ExistenceCheckError(f"Failure to check if role definition {role_name} is ready: {e}") from e
 
-        log.info(
-            f"Role definition {role_name} not yet available, will check again in {poll_interval} seconds"
-        )
+        log.info(f"Role definition {role_name} not yet available, will check again in {poll_interval} seconds")
         time.sleep(poll_interval)
 
-    raise TimeoutError(
-        f"Timeout waiting for role definition {role_name} to be ready after {max_wait_seconds} seconds"
-    )
+    raise TimeoutError(f"Timeout waiting for role definition {role_name} to be ready after {max_wait_seconds} seconds")
 
 
 def create_initial_deploy_role(config: Configuration):
@@ -196,13 +175,9 @@ def create_initial_deploy_role(config: Configuration):
 
     log.info("Defining custom ContainerAppStart role...")
     role_scope = config.control_plane_rg_scope
-    create_custom_container_app_start_role(
-        config.container_app_start_role_name, role_scope
-    )
+    create_custom_container_app_start_role(config.container_app_start_role_name, role_scope)
 
-    role_id = wait_for_role_definition_ready(
-        config.container_app_start_role_name, role_scope
-    )
+    role_id = wait_for_role_definition_ready(config.container_app_start_role_name, role_scope)
 
     log.info("Assigning custom role to identity...")
     assign_custom_role_to_identity(
@@ -229,9 +204,7 @@ def get_function_app_principal_id(
     return output.strip()
 
 
-def get_container_app_job_principal_id(
-    control_plane_resource_group: str, job_name: str
-) -> str:
+def get_container_app_job_principal_id(control_plane_resource_group: str, job_name: str) -> str:
     """Get the principal ID of a Container App Job's managed identity."""
     log.debug(f"Getting principal ID for Container App Job {job_name}")
     output = execute(
@@ -294,9 +267,7 @@ def grant_subscriptions_permissions(config: Configuration, sub_ids: Iterable[str
         )
 
         subscription_scope = f"/subscriptions/{sub_id}"
-        resource_group_scope = (
-            f"{subscription_scope}/resourceGroups/{config.control_plane_rg}"
-        )
+        resource_group_scope = f"{subscription_scope}/resourceGroups/{config.control_plane_rg}"
 
         log.info(f"Assigning permissions in subscription: {sub_id}")
         assign_role(
@@ -333,9 +304,7 @@ def grant_permissions(config: Configuration):
     log.info("Setting up permissions for control plane and monitored subscriptions...")
 
     log.info("Assigning Website Contributor role to deployer container app job...")
-    deployer_principal_id = get_container_app_job_principal_id(
-        config.control_plane_rg, config.deployer_job_name
-    )
+    deployer_principal_id = get_container_app_job_principal_id(config.control_plane_rg, config.deployer_job_name)
     assign_role(
         config.control_plane_rg_scope,
         deployer_principal_id,

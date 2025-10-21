@@ -14,15 +14,15 @@ from az_shared.logs import log, log_header
 
 from .configuration import Configuration
 from .deploy import deploy_control_plane, run_initial_deploy
+from .existing_lfo import update_existing_lfo
 from .resource_setup import create_resource_group
 from .role_setup import grant_permissions
 from .validation import (
     check_fresh_install,
-    validate_user_parameters,
     validate_az_cli,
     validate_singleton_lfo,
+    validate_user_parameters,
 )
-from .existing_lfo import update_existing_lfo
 
 SKIP_SINGLETON_CHECK = False
 
@@ -63,9 +63,7 @@ def parse_arguments():
         help="Comma-separated list of subscription IDs to monitor for log forwarding (required)",
     )
 
-    parser.add_argument(
-        "--datadog-api-key", type=str, required=True, help="Datadog API key (required)"
-    )
+    parser.add_argument("--datadog-api-key", type=str, required=True, help="Datadog API key (required)")
 
     parser.add_argument(
         "--datadog-site",
@@ -98,9 +96,7 @@ def parse_arguments():
         help="YAML formatted list of PII Scrubber Rules",
     )
 
-    parser.add_argument(
-        "--datadog-telemetry", action="store_true", help="Enable Datadog telemetry"
-    )
+    parser.add_argument("--datadog-telemetry", action="store_true", help="Enable Datadog telemetry")
 
     parser.add_argument(
         "--log-level",
@@ -158,22 +154,16 @@ def install_log_forwarder(config: Configuration):
         existing_lfos = check_fresh_install(config, sub_id_to_name)
         if existing_lfos:
             if SKIP_SINGLETON_CHECK:
-                log.debug(
-                    "Skipping singleton check - existing log forwarding installation found"
-                )
+                log.debug("Skipping singleton check - existing log forwarding installation found")
             else:
                 validate_singleton_lfo(config, existing_lfos)
-            log.info(
-                "Validation completed - existing log forwarding installation found"
-            )
+            log.info("Validation completed - existing log forwarding installation found")
             log.info("Updating existing installation...")
 
             existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(config, existing_lfo)
         else:
-            log.info(
-                "Validation completed - no existing log forwarding installation found"
-            )
+            log.info("Validation completed - no existing log forwarding installation found")
             log.info("Creating new installation...")
             create_new_lfo(config)
 

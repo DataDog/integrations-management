@@ -5,7 +5,8 @@
 # stdlib
 import json
 from unittest import TestCase
-from unittest.mock import patch as mock_patch, MagicMock
+from unittest.mock import MagicMock
+from unittest.mock import patch as mock_patch
 
 # project
 from az_shared.errors import (
@@ -16,23 +17,22 @@ from az_shared.errors import (
     InputParamValidationError,
     ResourceProviderRegistrationValidationError,
 )
-
 from azure_logging_install import validation
-from azure_logging_install.existing_lfo import LfoControlPlane
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.constants import REQUIRED_RESOURCE_PROVIDERS
+from azure_logging_install.existing_lfo import LfoControlPlane
 
 from tests.test_data import (
     CONTROL_PLANE_REGION,
+    CONTROL_PLANE_RESOURCE_GROUP,
     CONTROL_PLANE_SUBSCRIPTION_ID,
     CONTROL_PLANE_SUBSCRIPTION_NAME,
-    CONTROL_PLANE_RESOURCE_GROUP,
     DATADOG_API_KEY,
     DATADOG_SITE,
+    MONITORED_SUBSCRIPTIONS,
     SUB_1_ID,
     SUB_2_ID,
     SUB_3_ID,
-    MONITORED_SUBSCRIPTIONS,
     SUB_ID_TO_NAME,
 )
 
@@ -53,12 +53,8 @@ class TestValidation(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures and reset global settings"""
         self.execute_mock = self.patch("azure_logging_install.validation.execute")
-        self.set_subscription_mock = self.patch(
-            "azure_logging_install.validation.set_subscription"
-        )
-        self.urlopen_mock = self.patch(
-            "azure_logging_install.validation.urllib.request.urlopen"
-        )
+        self.set_subscription_mock = self.patch("azure_logging_install.validation.set_subscription")
+        self.urlopen_mock = self.patch("azure_logging_install.validation.urllib.request.urlopen")
 
         # Create test configuration
         self.config = Configuration(
@@ -81,12 +77,8 @@ class TestValidation(TestCase):
     def test_validate_user_parameters_success(self):
         """Test successful validation of user parameters"""
         with (
-            mock_patch(
-                "azure_logging_install.validation.validate_azure_env"
-            ) as mock_azure,
-            mock_patch(
-                "azure_logging_install.validation.validate_datadog_credentials"
-            ) as mock_datadog,
+            mock_patch("azure_logging_install.validation.validate_azure_env") as mock_azure,
+            mock_patch("azure_logging_install.validation.validate_datadog_credentials") as mock_datadog,
         ):
             validation.validate_user_parameters(self.config)
 
@@ -139,9 +131,7 @@ class TestValidation(TestCase):
         """Test successful control plane subscription access validation"""
         validation.validate_control_plane_sub_access(CONTROL_PLANE_SUBSCRIPTION_ID)
 
-        self.set_subscription_mock.assert_called_once_with(
-            CONTROL_PLANE_SUBSCRIPTION_ID
-        )
+        self.set_subscription_mock.assert_called_once_with(CONTROL_PLANE_SUBSCRIPTION_ID)
 
     def test_validate_control_plane_sub_access_failure(self):
         """Test control plane subscription access validation failure"""
@@ -173,8 +163,7 @@ class TestValidation(TestCase):
     def test_validate_resource_provider_registrations_success(self):
         """Test successful resource provider registration validation"""
         mock_providers = [
-            {"namespace": provider, "registrationState": "Registered"}
-            for provider in REQUIRED_RESOURCE_PROVIDERS
+            {"namespace": provider, "registrationState": "Registered"} for provider in REQUIRED_RESOURCE_PROVIDERS
         ]
         self.execute_mock.return_value = json.dumps(mock_providers)
 
@@ -196,8 +185,7 @@ class TestValidation(TestCase):
     def test_validate_resource_provider_registrations_multiple_subs(self):
         """Test resource provider registration validation for multiple subscriptions"""
         mock_providers = [
-            {"namespace": provider, "registrationState": "Registered"}
-            for provider in REQUIRED_RESOURCE_PROVIDERS
+            {"namespace": provider, "registrationState": "Registered"} for provider in REQUIRED_RESOURCE_PROVIDERS
         ]
         self.execute_mock.return_value = json.dumps(mock_providers)
 
@@ -260,9 +248,7 @@ class TestValidation(TestCase):
     def test_validate_datadog_credentials_success(self):
         """Test successful Datadog credentials validation"""
         mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(
-            MOCK_DATADOG_VALID_RESPONSE
-        ).encode("utf-8")
+        mock_response.read.return_value = json.dumps(MOCK_DATADOG_VALID_RESPONSE).encode("utf-8")
         mock_response.__enter__ = MagicMock(return_value=mock_response)
         mock_response.__exit__ = MagicMock(return_value=None)
         self.urlopen_mock.return_value = mock_response
@@ -271,9 +257,7 @@ class TestValidation(TestCase):
     def test_validate_datadog_credentials_invalid_api_key(self):
         """Test Datadog credentials validation with invalid API key"""
         mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(
-            MOCK_DATADOG_ERROR_RESPONSE
-        ).encode("utf-8")
+        mock_response.read.return_value = json.dumps(MOCK_DATADOG_ERROR_RESPONSE).encode("utf-8")
         mock_response.__enter__ = MagicMock(return_value=mock_response)
         mock_response.__exit__ = MagicMock(return_value=None)
         self.urlopen_mock.return_value = mock_response
@@ -284,9 +268,7 @@ class TestValidation(TestCase):
     def test_validate_datadog_credentials_different_sites(self):
         """Test Datadog credentials validation with different sites"""
         mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(
-            MOCK_DATADOG_VALID_RESPONSE
-        ).encode("utf-8")
+        mock_response.read.return_value = json.dumps(MOCK_DATADOG_VALID_RESPONSE).encode("utf-8")
         mock_response.__enter__ = MagicMock(return_value=mock_response)
         mock_response.__exit__ = MagicMock(return_value=None)
         self.urlopen_mock.return_value = mock_response
@@ -303,15 +285,9 @@ class TestValidation(TestCase):
         with (
             mock_patch("azure_logging_install.validation.validate_user_config"),
             mock_patch("azure_logging_install.validation.validate_az_cli"),
-            mock_patch(
-                "azure_logging_install.validation.validate_control_plane_sub_access"
-            ),
-            mock_patch(
-                "azure_logging_install.validation.validate_monitored_subs_access"
-            ),
-            mock_patch(
-                "azure_logging_install.validation.validate_resource_provider_registrations"
-            ),
+            mock_patch("azure_logging_install.validation.validate_control_plane_sub_access"),
+            mock_patch("azure_logging_install.validation.validate_monitored_subs_access"),
+            mock_patch("azure_logging_install.validation.validate_resource_provider_registrations"),
             mock_patch("azure_logging_install.validation.validate_resource_names"),
         ):
             validation.validate_azure_env(self.config)
@@ -319,18 +295,10 @@ class TestValidation(TestCase):
     def test_validate_azure_env_calls_all_validations(self):
         """Test Azure environment validation calls all required validations"""
         with (
-            mock_patch(
-                "azure_logging_install.validation.validate_control_plane_sub_access"
-            ) as mock_cp_access,
-            mock_patch(
-                "azure_logging_install.validation.validate_monitored_subs_access"
-            ) as mock_mon_access,
-            mock_patch(
-                "azure_logging_install.validation.validate_resource_provider_registrations"
-            ) as mock_rp_reg,
-            mock_patch(
-                "azure_logging_install.validation.validate_resource_names"
-            ) as mock_res_names,
+            mock_patch("azure_logging_install.validation.validate_control_plane_sub_access") as mock_cp_access,
+            mock_patch("azure_logging_install.validation.validate_monitored_subs_access") as mock_mon_access,
+            mock_patch("azure_logging_install.validation.validate_resource_provider_registrations") as mock_rp_reg,
+            mock_patch("azure_logging_install.validation.validate_resource_names") as mock_res_names,
         ):
             validation.validate_azure_env(self.config)
 
@@ -341,15 +309,11 @@ class TestValidation(TestCase):
 
     def test_check_fresh_install_no_existing_lfos(self):
         """Test no existing LFO installations found"""
-        with mock_patch(
-            "azure_logging_install.validation.check_existing_lfo", return_value={}
-        ) as mock_check_existing:
+        with mock_patch("azure_logging_install.validation.check_existing_lfo", return_value={}) as mock_check_existing:
             result = validation.check_fresh_install(self.config, SUB_ID_TO_NAME)
 
             self.assertEqual(result, {})
-            mock_check_existing.assert_called_once_with(
-                self.config.all_subscriptions, SUB_ID_TO_NAME
-            )
+            mock_check_existing.assert_called_once_with(self.config.all_subscriptions, SUB_ID_TO_NAME)
 
     def test_check_fresh_install_with_existing_lfos(self):
         """Test existing LFO installations are found"""
@@ -395,9 +359,7 @@ class TestValidation(TestCase):
             result = validation.check_fresh_install(self.config, SUB_ID_TO_NAME)
 
             self.assertEqual(result, mock_existing_lfos)
-            mock_check_existing.assert_called_once_with(
-                self.config.all_subscriptions, SUB_ID_TO_NAME
-            )
+            mock_check_existing.assert_called_once_with(self.config.all_subscriptions, SUB_ID_TO_NAME)
 
     # ===== User Configuration Validation Tests ===== #
 
