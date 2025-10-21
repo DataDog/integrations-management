@@ -716,7 +716,7 @@ def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
         control_plane_region=config["controlPlaneRegion"],
         control_plane_sub_id=config["controlPlaneSubscriptionId"],
         control_plane_rg=config["resourceGroupName"],
-        monitored_subs=",".join([s.name for s in subscriptions]),
+        monitored_subs=",".join([s.id for s in subscriptions]),
         datadog_api_key=os.environ["DD_API_KEY"],
     )
     if "tagFilters" in config:
