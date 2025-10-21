@@ -14,17 +14,19 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import Enum
 from functools import lru_cache, reduce
-from http.client import HTTPResponse, HTTPSConnection
 import json
 from operator import add
 import os
 import re
+import ssl
 import subprocess
 import sys
 import threading
 import time
 import traceback
 from typing import Any, Generator, Literal, Optional, TypeVar, TypedDict, Union
+import urllib.request
+from urllib.error import HTTPError, URLError
 
 from az_shared.errors import (
     AccessError,
@@ -84,6 +86,51 @@ JsonList = list["Json"]
 Json = Union[JsonDict, JsonList, JsonAtom]
 
 
+def request(
+    method: str,
+    url: str,
+    body: dict[str, Any] | None = None,
+    headers: dict[str, str] = {},
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+    retry_status_codes: set[int] = {500, 502, 503, 504},
+) -> tuple[str, int]:
+    """Submit a request to the given URL with the specified method and body with retry logic."""
+
+    for attempt in range(max_retries):
+        req = urllib.request.Request(
+            url,
+            method=method,
+            headers=headers,
+            data=json.dumps(body).encode("utf-8") if body else None,
+        )
+
+        try:
+            with urllib.request.urlopen(
+                req, context=ssl.create_default_context()
+            ) as response:
+                data, status = response.read().decode("utf-8"), response.status
+                return data, status
+        except HTTPError as e:
+            data, status = e.read().decode("utf-8"), e.code
+            if status in retry_status_codes:
+                if attempt < max_retries - 1:
+                    time.sleep(base_delay * (2**attempt))
+                    continue
+
+                raise RuntimeError(f"HTTP error {status}: {data}")
+
+            return data, status
+        except URLError as e:
+            if attempt < max_retries - 1:
+                time.sleep(base_delay * (2**attempt))
+                continue
+
+            raise RuntimeError(
+                f"Network error after {max_retries} attempts: {e.reason}"
+            ) from e
+
+
 # Azure util
 
 
@@ -101,19 +148,17 @@ class Permission(TypedDict, total=False):
     notDataActions: list[Action]
 
 
-def get_permissions(
-    connection: HTTPSConnection, auth_token: str, scope: str
-) -> list[Permission]:
+def get_permissions(auth_token: str, scope: str) -> list[Permission]:
     """Fetch the permissions granted over a given scope."""
-    connection.request(
+    response, _ = request(
         "GET",
-        f"{scope}/providers/Microsoft.Authorization/permissions?api-version=2022-04-01",
+        f"https://management.azure.com{scope}/providers/Microsoft.Authorization/permissions?api-version=2022-04-01",
         headers={
             "Authorization": f"Bearer {auth_token}",
             "Content-Type": "application/json",
         },
     )
-    return json.loads(connection.getresponse().read().decode("utf-8"))["value"]
+    return json.loads(response)["value"]
 
 
 def is_action_lte(a1: Action, a2: Action) -> bool:
@@ -175,10 +220,7 @@ def flatten_permissions(permissions: Iterable[Permission]) -> FlatPermission:
 
 def get_flat_permission(auth_token: str, scope: str) -> FlatPermission:
     """Fetch the consolidated permission granted over a given scope."""
-    connection = HTTPSConnection("management.azure.com")
-    result = flatten_permissions(get_permissions(connection, auth_token, scope))
-    connection.close()
-    return result
+    return flatten_permissions(get_permissions(auth_token, scope))
 
 
 ScopeType = Literal["subscription", "management_group"]
@@ -296,31 +338,18 @@ def az_json(cmd: str) -> Any:
 # Datadog utils
 
 
-def dd_request(
-    connection: HTTPSConnection, method: str, endpoint: str, body: Optional[str] = None
-) -> HTTPResponse:
+def dd_request(method: str, path: str, body: dict[str, Any] | None = None) -> tuple[str, int]:
     """Submit a request to Datadog."""
-    connection.request(
+    return request(
         method,
-        endpoint,
-        body=body,
-        headers={
+        f"https://api.{os.environ['DD_SITE']}{path}",
+        body,
+        {
             "Content-Type": "application/json",
             "DD-API-KEY": os.environ["DD_API_KEY"],
             "DD-APPLICATION-KEY": os.environ["DD_APP_KEY"],
         },
     )
-    return connection.getresponse()
-
-
-def dd_get(connection: HTTPSConnection, endpoint: str) -> HTTPResponse:
-    """Submit a GET request to Datadog."""
-    return dd_request(connection, "GET", endpoint)
-
-
-def dd_post(connection: HTTPSConnection, endpoint: str, body: Json) -> HTTPResponse:
-    """Submit a POST request to Datadog."""
-    return dd_request(connection, "POST", endpoint, body=json.dumps(body))
 
 
 class Status(Enum):
@@ -340,7 +369,6 @@ def loading_spinner(message: str, done: threading.Event):
 
 @dataclass
 class StatusReporter:
-    connection: HTTPSConnection
     workflow_id: str
 
     def report(
@@ -358,8 +386,8 @@ class StatusReporter:
         }
         if metadata:
             attributes["metadata"] = metadata
-        dd_post(
-            self.connection,
+        dd_request(
+            "POST",
             "/api/unstable/integration/azure/setup/status",
             {
                 "data": {
@@ -368,7 +396,7 @@ class StatusReporter:
                     "attributes": attributes,
                 },
             },
-        ).read()
+        )
 
     @contextmanager
     def report_step(
@@ -414,16 +442,6 @@ class StatusReporter:
             self.report(
                 step_id, Status.OK, f"{step_id}: {Status.OK}", step_metadata or None
             )
-
-
-@contextmanager
-def open_datadog_connection():
-    datadog_site = os.environ["DD_SITE"]
-    datadog_connection = HTTPSConnection(f"api.{datadog_site}")
-    try:
-        yield datadog_connection
-    finally:
-        datadog_connection.close()
 
 
 # Main
@@ -512,17 +530,15 @@ def get_management_group_scopes(tenant_id: str) -> list[ManagementGroup]:
     return list(management_groups)
 
 
-def report_available_scopes(
-    connection: HTTPSConnection, workflow_id: str
-) -> tuple[list[Scope], list[Scope]]:
+def report_available_scopes(workflow_id: str) -> tuple[list[Scope], list[Scope]]:
     """Send Datadog the subscriptions and management groups that the user has permission to grant access to."""
     tenant_id = az_json("account show --query tenantId")
     subscriptions = filter_scopes_by_permission(get_subscription_scopes(tenant_id))
     management_groups = filter_scopes_by_permission(
         get_management_group_scopes(tenant_id)
     )
-    response = dd_post(
-        connection,
+    response, status = dd_request(
+        "POST",
         "/api/unstable/integration/azure/setup/scopes",
         {
             "data": {
@@ -539,9 +555,8 @@ def report_available_scopes(
             }
         },
     )
-    data = response.read().decode("utf-8")
-    if response.status >= 400:
-        raise RuntimeError(f"Error submitting available scopes to Datadog: {data}")
+    if status >= 400:
+        raise RuntimeError(f"Error submitting available scopes to Datadog: {response}")
     return (subscriptions, management_groups)
 
 
@@ -577,22 +592,16 @@ def report_existing_log_forwarders(
     return len(forwarders) == 1
 
 
-def receive_user_selections(
-    connection: HTTPSConnection, workflow_id: str
-) -> UserSelections:
+def receive_user_selections(workflow_id: str) -> UserSelections:
     """Poll and wait for the user to submit their desired scopes and configuration options."""
     while True:
-        response = dd_get(
-            connection,
-            f"/api/unstable/integration/azure/setup/selections/{workflow_id}",
-        )
-        data = response.read().decode("utf-8")
-        if response.status == 404 or not data:
+        response, status = dd_request("GET", f"/api/unstable/integration/azure/setup/selections/{workflow_id}")
+        if status == 404 or not response:
             time.sleep(1)
             continue
-        elif response.status >= 400:
-            raise RuntimeError(f"Error retrieving user selections from Datadog: {data}")
-        json_response = json.loads(data)
+        elif status >= 400:
+            raise RuntimeError(f"Error retrieving user selections from Datadog: {response}")
+        json_response = json.loads(response)
         attributes = json_response["data"]["attributes"]
         return UserSelections(
             tuple(
@@ -662,12 +671,10 @@ def add_ms_graph_app_role_assignments(
     az(f'ad app permission admin-consent --id "{app_registration.client_id}"')
 
 
-def submit_integration_config(
-    connection: HTTPSConnection, app_registration: AppRegistration, config: dict
-) -> None:
+def submit_integration_config(app_registration: AppRegistration, config: dict) -> None:
     """Submit a new configuration to Datadog."""
-    response = dd_post(
-        connection,
+    response, status = dd_request(
+        "POST",
         "/api/v1/integration/azure",
         {
             **config,
@@ -678,17 +685,14 @@ def submit_integration_config(
             "validate": False,
         },
     )
-    data = response.read().decode("utf-8")
-    if response.status >= 400:
-        raise RuntimeError(f"Error creating Azure Integration in Datadog: {data}")
+    if status >= 400:
+        raise RuntimeError(f"Error creating Azure Integration in Datadog: {response}")
 
 
-def submit_config_identifier(
-    connection: HTTPSConnection, workflow_id: str, app_registration: AppRegistration
-) -> None:
+def submit_config_identifier(workflow_id: str, app_registration: AppRegistration) -> None:
     """Submit an identifier to Datadog for the new configuration so that it can be displayed to the user."""
-    response = dd_post(
-        connection,
+    response, status = dd_request(
+        "POST",
         "/api/unstable/integration/azure/setup/serviceprincipal",
         {
             "data": {
@@ -701,10 +705,9 @@ def submit_config_identifier(
             }
         },
     )
-    data = response.read().decode("utf-8")
-    if response.status >= 400:
+    if status >= 400:
         raise RuntimeError(
-            f"Error submitting configuration identifier to Datadog: {data}"
+            f"Error submitting configuration identifier to Datadog: {response}"
         )
 
 
@@ -753,9 +756,8 @@ REQUIRED_ENVIRONMENT_VARS = {
 }
 
 
-def time_out(datadog_connection: HTTPSConnection, status: StatusReporter):
+def time_out(status: StatusReporter):
     status.report("connection", Status.ERROR, "session expired")
-    datadog_connection.close()
     print(
         "\nSession expired. If you still wish to create a new Datadog configuration, please reload the onboarding page in Datadog and reconnect using the provided command."
     )
@@ -771,69 +773,68 @@ def main():
 
     workflow_id = os.environ["WORKFLOW_ID"]
 
-    with open_datadog_connection() as datadog_connection:
-        status = StatusReporter(datadog_connection, workflow_id)
+    status = StatusReporter(workflow_id)
 
-        # give up after 30 minutes
-        timer = threading.Timer(30 * 60, time_out, [datadog_connection, status])
-        timer.daemon = True
-        timer.start()
+    # give up after 30 minutes
+    timer = threading.Timer(30 * 60, time_out, [status])
+    timer.daemon = True
+    timer.start()
 
-        try:
-            with status.report_step("login"):
-                ensure_login()
-        except Exception as e:
-            if "az: command not found" in str(e):
-                print("You must install and log in to Azure CLI to run this script.")
-            else:
-                print(
-                    "You must be logged in to Azure CLI to run this script. Run `az login` and try again."
-                )
-            sys.exit(1)
+    try:
+        with status.report_step("login"):
+            ensure_login()
+    except Exception as e:
+        if "az: command not found" in str(e):
+            print("You must install and log in to Azure CLI to run this script.")
         else:
             print(
-                "Connected! Leave this window open and go back to the Datadog UI to continue."
+                "You must be logged in to Azure CLI to run this script. Run `az login` and try again."
             )
+        sys.exit(1)
+    else:
+        print(
+            "Connected! Leave this window open and go back to the Datadog UI to continue."
+        )
 
-        with status.report_step("scopes", "Collecting scopes"):
-            subscriptions, _ = report_available_scopes(datadog_connection, workflow_id)
-        exactly_one_log_forwarder = False
+    with status.report_step("scopes", "Collecting scopes"):
+        subscriptions, _ = report_available_scopes(workflow_id)
+    exactly_one_log_forwarder = False
+    with status.report_step(
+        "log_forwarders",
+        loading_message="Collecting existing Log Forwarders",
+        required=False,
+    ) as step_metadata:
+        exactly_one_log_forwarder = report_existing_log_forwarders(
+            subscriptions, step_metadata
+        )
+    with status.report_step(
+        "selections", "Waiting for user selections in the Datadog UI"
+    ):
+        selections = receive_user_selections(workflow_id)
+    with status.report_step(
+        "app_registration", "Creating app registration in Azure"
+    ):
+        app_registration = create_app_registration_with_permissions(
+            selections.scopes
+        )
+    with status.report_step(
+        "integration_config", "Submitting new configuration to Datadog"
+    ):
+        submit_integration_config(
+            app_registration, selections.app_registration_config
+        )
+    with status.report_step(
+        "config_identifier", "Submitting new configuration identifier to Datadog"
+    ):
+        submit_config_identifier(workflow_id, app_registration)
+    if selections.log_forwarding_config:
         with status.report_step(
-            "log_forwarders",
-            loading_message="Collecting existing Log Forwarders",
-            required=False,
-        ) as step_metadata:
-            exactly_one_log_forwarder = report_existing_log_forwarders(
-                subscriptions, step_metadata
+            "upsert_log_forwarder",
+            f"{'Updating' if exactly_one_log_forwarder else 'Creating'} Log Forwarder",
+        ):
+            upsert_log_forwarder(
+                selections.log_forwarding_config, flatten_scopes(selections.scopes)
             )
-        with status.report_step(
-            "selections", "Waiting for user selections in the Datadog UI"
-        ):
-            selections = receive_user_selections(datadog_connection, workflow_id)
-        with status.report_step(
-            "app_registration", "Creating app registration in Azure"
-        ):
-            app_registration = create_app_registration_with_permissions(
-                selections.scopes
-            )
-        with status.report_step(
-            "integration_config", "Submitting new configuration to Datadog"
-        ):
-            submit_integration_config(
-                datadog_connection, app_registration, selections.app_registration_config
-            )
-        with status.report_step(
-            "config_identifier", "Submitting new configuration identifier to Datadog"
-        ):
-            submit_config_identifier(datadog_connection, workflow_id, app_registration)
-        if selections.log_forwarding_config:
-            with status.report_step(
-                "upsert_log_forwarder",
-                f"{'Updating' if exactly_one_log_forwarder else 'Creating'} Log Forwarder",
-            ):
-                upsert_log_forwarder(
-                    selections.log_forwarding_config, flatten_scopes(selections.scopes)
-                )
 
     print("Script succeeded. You may close this window.")
 
