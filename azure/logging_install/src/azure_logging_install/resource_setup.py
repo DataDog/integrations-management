@@ -6,7 +6,7 @@ import json
 import os
 import shlex
 import tempfile
-from time import time, sleep
+from time import sleep, time
 
 from az_shared.az_cmd import AzCmd, execute
 from az_shared.errors import (
@@ -31,16 +31,10 @@ from .constants import (
 def create_resource_group(control_plane_rg: str, control_plane_region: str):
     """Create resource group for control plane"""
     log.info(f"Creating resource group {control_plane_rg} in {control_plane_region}")
-    execute(
-        AzCmd("group", "create")
-        .param("--name", control_plane_rg)
-        .param("--location", control_plane_region)
-    )
+    execute(AzCmd("group", "create").param("--name", control_plane_rg).param("--location", control_plane_region))
 
 
-def create_storage_account(
-    storage_account_name: str, control_plane_rg: str, control_plane_region: str
-):
+def create_storage_account(storage_account_name: str, control_plane_rg: str, control_plane_region: str):
     """Create storage account for control plane cache"""
     log.info(f"Creating storage account {storage_account_name}")
     execute(
@@ -78,9 +72,7 @@ def create_file_share(storage_account_name: str, control_plane_rg: str):
     )
 
 
-def wait_for_storage_account_ready(
-    storage_account_name: str, control_plane_rg: str
-) -> None:
+def wait_for_storage_account_ready(storage_account_name: str, control_plane_rg: str) -> None:
     """Waits for storage account to be in 'Succeeded' provisioning state.
     Storage accounts are created asynchronously, so we need to wait for them to be ready.
     """
@@ -104,9 +96,7 @@ def wait_for_storage_account_ready(
             log.info(f"Storage account {storage_account_name} is ready")
             return
         elif state in ["Failed", "Canceled"]:
-            raise RuntimeError(
-                f"Storage account {storage_account_name} provisioning failed with state: {state}"
-            )
+            raise RuntimeError(f"Storage account {storage_account_name} provisioning failed with state: {state}")
 
         # Still provisioning, wait and check again
         sleep(5)
@@ -121,9 +111,7 @@ def wait_for_storage_account_ready(
 # =============================================================================
 
 
-def create_app_service_plan(
-    app_service_plan: str, control_plane_rg: str, control_plane_region: str
-):
+def create_app_service_plan(app_service_plan: str, control_plane_rg: str, control_plane_region: str):
     """Create app service plan that the function apps slot into"""
     try:
         log.info(f"Checking if App Service Plan '{app_service_plan}' already exists...")
@@ -132,16 +120,12 @@ def create_app_service_plan(
             .param("--name", app_service_plan)
             .param("--resource-group", control_plane_rg)
         )
-        log.info(
-            f"App Service Plan '{app_service_plan}' already exists - reusing existing plan"
-        )
+        log.info(f"App Service Plan '{app_service_plan}' already exists - reusing existing plan")
         return
     except ResourceNotFoundError:
         log.info(f"App Service Plan '{app_service_plan}' not found - creating new plan")
     except Exception as e:
-        raise ExistenceCheckError(
-            f"Failed to check if App Service Plan '{app_service_plan}' exists: {e}"
-        ) from e
+        raise ExistenceCheckError(f"Failed to check if App Service Plan '{app_service_plan}' exists: {e}") from e
 
     log.info(f"Creating App Service Plan {app_service_plan}")
 
@@ -173,22 +157,14 @@ def create_function_app(config: Configuration, name: str):
     """Create a function app for a control plane task and configure function app runtime"""
     try:
         log.info(f"Checking if Function App '{name}' already exists...")
-        execute(
-            AzCmd("functionapp", "show")
-            .param("--name", name)
-            .param("--resource-group", config.control_plane_rg)
-        )
-        log.info(
-            f"Function App '{name}' already exists - skipping creation and updating configuration"
-        )
+        execute(AzCmd("functionapp", "show").param("--name", name).param("--resource-group", config.control_plane_rg))
+        log.info(f"Function App '{name}' already exists - skipping creation and updating configuration")
         function_app_exists = True
     except ResourceNotFoundError:
         log.info(f"Function App '{name}' not found - creating new function app")
         function_app_exists = False
     except Exception as e:
-        raise ExistenceCheckError(
-            f"Failed to check if Function App '{name}' exists: {e}"
-        ) from e
+        raise ExistenceCheckError(f"Failed to check if Function App '{name}' exists: {e}") from e
 
     if not function_app_exists:
         log.info(f"Creating Function App {name}")
@@ -249,9 +225,7 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
             "PII_SCRUBBER_RULES": config.pii_scrubber_rules,
         }
     else:
-        raise FatalError(
-            f"Unknown function app task when configuring app settings: {function_app_name}"
-        )
+        raise FatalError(f"Unknown function app task when configuring app settings: {function_app_name}")
 
     all_settings = {**common_settings, **specific_settings}
 
@@ -302,22 +276,16 @@ def create_container_app_environment(
     """Create the Container App environment if it does not exist"""
 
     try:
-        log.info(
-            f"Checking if Container App environment '{control_plane_env}' already exists..."
-        )
+        log.info(f"Checking if Container App environment '{control_plane_env}' already exists...")
         execute(
             AzCmd("containerapp", "env show")
             .param("--name", control_plane_env)
             .param("--resource-group", control_plane_resource_group)
         )
-        log.info(
-            f"Container App environment '{control_plane_env}' already exists - reusing existing environment"
-        )
+        log.info(f"Container App environment '{control_plane_env}' already exists - reusing existing environment")
         return
     except ResourceNotFoundError:
-        log.info(
-            f"Container App environment '{control_plane_env}' not found - creating new environment"
-        )
+        log.info(f"Container App environment '{control_plane_env}' not found - creating new environment")
 
     log.info(f"Creating Container App environment {control_plane_env}")
     execute(
@@ -332,22 +300,16 @@ def create_container_app_job(config: Configuration):
     """Create the Container App job for the deployer if it does not exist"""
 
     try:
-        log.info(
-            f"Checking if Container App job '{config.deployer_job_name}' already exists..."
-        )
+        log.info(f"Checking if Container App job '{config.deployer_job_name}' already exists...")
         execute(
             AzCmd("containerapp", "job show")
             .param("--name", config.deployer_job_name)
             .param("--resource-group", config.control_plane_rg)
         )
-        log.info(
-            f"Container App job '{config.deployer_job_name}' already exists - reusing existing job"
-        )
+        log.info(f"Container App job '{config.deployer_job_name}' already exists - reusing existing job")
         return
     except ResourceNotFoundError:
-        log.info(
-            f"Container App job '{config.deployer_job_name}' not found - creating new job"
-        )
+        log.info(f"Container App job '{config.deployer_job_name}' not found - creating new job")
 
     log.info(f"Creating Container App job {config.deployer_job_name}")
 
@@ -365,9 +327,7 @@ def create_container_app_job(config: Configuration):
     ]
 
     secrets = [
-        shlex.quote(
-            f"connection-string={config.get_control_plane_cache_conn_string()}"
-        ),
+        shlex.quote(f"connection-string={config.get_control_plane_cache_conn_string()}"),
         shlex.quote(f"dd-api-key={config.datadog_api_key}"),
     ]
 

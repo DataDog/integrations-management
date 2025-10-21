@@ -46,9 +46,7 @@ def deploy_control_plane(config: Configuration):
         config.control_plane_rg,
         config.control_plane_region,
     )
-    wait_for_storage_account_ready(
-        config.control_plane_cache_storage_name, config.control_plane_rg
-    )
+    wait_for_storage_account_ready(config.control_plane_cache_storage_name, config.control_plane_rg)
     create_blob_container(
         config.control_plane_cache_storage_name,
         config.get_control_plane_cache_key(),
@@ -68,9 +66,7 @@ def deploy_control_plane(config: Configuration):
     log.info("Control plane infrastructure deployment completed")
 
 
-def run_initial_deploy(
-    deployer_job_name: str, control_plane_rg: str, control_plane_sub_id: str
-):
+def run_initial_deploy(deployer_job_name: str, control_plane_rg: str, control_plane_sub_id: str):
     """Trigger the initial deployment by starting the deployer container app job."""
     log.info("Triggering initial deployment by starting deployer container app job...")
 

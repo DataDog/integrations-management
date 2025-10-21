@@ -4,11 +4,11 @@
 
 # stdlib
 from unittest import TestCase
-from unittest.mock import patch as mock_patch, MagicMock
+from unittest.mock import MagicMock
+from unittest.mock import patch as mock_patch
 
 # project
 from az_shared.errors import FatalError, ResourceNotFoundError
-
 from azure_logging_install import resource_setup
 from azure_logging_install.configuration import Configuration
 
@@ -51,9 +51,7 @@ class TestResourceSetup(TestCase):
 
     def test_create_resource_group_success(self):
         """Test successful resource group creation"""
-        resource_setup.create_resource_group(
-            CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION
-        )
+        resource_setup.create_resource_group(CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION)
 
         self.execute_mock.assert_called_once()
         call_args = self.execute_mock.call_args[0][0]
@@ -73,17 +71,13 @@ class TestResourceSetup(TestCase):
         self.execute_mock.side_effect = FatalError("Creation failed")
 
         with self.assertRaises(FatalError):
-            resource_setup.create_resource_group(
-                CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION
-            )
+            resource_setup.create_resource_group(CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION)
 
     # ===== Storage Account Tests ===== #
 
     def test_create_storage_account_success(self):
         """Test successful storage account creation"""
-        resource_setup.create_storage_account(
-            STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION
-        )
+        resource_setup.create_storage_account(STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION)
 
         self.execute_mock.assert_called_once()
         call_args = self.execute_mock.call_args[0][0]
@@ -98,9 +92,7 @@ class TestResourceSetup(TestCase):
         self.assertIn("Standard_LRS", cmd_str)
         self.assertIn("StorageV2", cmd_str)
 
-        self.log_mock.info.assert_called_with(
-            f"Creating storage account {STORAGE_ACCOUNT_NAME}"
-        )
+        self.log_mock.info.assert_called_with(f"Creating storage account {STORAGE_ACCOUNT_NAME}")
 
     def test_wait_for_storage_account_ready_success(self):
         """Test waiting for storage account to be ready - success"""
@@ -108,14 +100,10 @@ class TestResourceSetup(TestCase):
             mock_time.side_effect = [0, 5]  # Simulate time progression
             self.execute_mock.return_value = "Succeeded"  # Return state directly
 
-            resource_setup.wait_for_storage_account_ready(
-                STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RESOURCE_GROUP
-            )
+            resource_setup.wait_for_storage_account_ready(STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RESOURCE_GROUP)
 
             self.execute_mock.assert_called_once()
-            self.log_mock.info.assert_called_with(
-                f"Storage account {STORAGE_ACCOUNT_NAME} is ready"
-            )
+            self.log_mock.info.assert_called_with(f"Storage account {STORAGE_ACCOUNT_NAME} is ready")
 
     def test_wait_for_storage_account_ready_timeout(self):
         """Test waiting for storage account times out"""
@@ -124,9 +112,7 @@ class TestResourceSetup(TestCase):
             self.execute_mock.return_value = "Creating"  # Always in Creating state
 
             with self.assertRaises(TimeoutError):
-                resource_setup.wait_for_storage_account_ready(
-                    STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RESOURCE_GROUP
-                )
+                resource_setup.wait_for_storage_account_ready(STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RESOURCE_GROUP)
 
     def test_wait_for_storage_account_ready_failed_state(self):
         """Test waiting for storage account with failed state"""
@@ -135,9 +121,7 @@ class TestResourceSetup(TestCase):
             self.execute_mock.return_value = "Failed"  # Failed state
 
             with self.assertRaises(RuntimeError):
-                resource_setup.wait_for_storage_account_ready(
-                    STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RESOURCE_GROUP
-                )
+                resource_setup.wait_for_storage_account_ready(STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RESOURCE_GROUP)
 
     # ===== Container App Environment Tests ===== #
 
@@ -191,9 +175,7 @@ class TestResourceSetup(TestCase):
     def test_create_file_share_success(self):
         """Test successful file share creation"""
         # create_file_share takes 2 args: storage_account_name, control_plane_rg
-        resource_setup.create_file_share(
-            STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RESOURCE_GROUP
-        )
+        resource_setup.create_file_share(STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RESOURCE_GROUP)
 
         self.execute_mock.assert_called_once()
         call_args = self.execute_mock.call_args[0][0]
@@ -214,9 +196,7 @@ class TestResourceSetup(TestCase):
         mock_config.control_plane_env_name = CONTAINER_APP_ENV_NAME
         mock_config.control_plane_sub_id = "test-sub"
         mock_config.deployer_image_url = "test-image:latest"
-        mock_config.get_control_plane_cache_conn_string.return_value = (
-            "test-conn-string"
-        )
+        mock_config.get_control_plane_cache_conn_string.return_value = "test-conn-string"
 
         # Mock both show and create calls (function checks if job exists first)
         self.execute_mock.side_effect = [
@@ -224,9 +204,7 @@ class TestResourceSetup(TestCase):
             None,  # Second call: job create (successful)
         ]
 
-        with mock_patch(
-            "azure_logging_install.resource_setup.tempfile.NamedTemporaryFile"
-        ) as mock_temp_file:
+        with mock_patch("azure_logging_install.resource_setup.tempfile.NamedTemporaryFile") as mock_temp_file:
             mock_temp_file.return_value.__enter__.return_value.name = "/tmp/test.json"
 
             resource_setup.create_container_app_job(mock_config)
@@ -246,13 +224,9 @@ class TestResourceSetup(TestCase):
 
     def test_create_function_apps_success(self):
         """Test successful function app creation"""
-        with mock_patch(
-            "azure_logging_install.resource_setup.create_function_app"
-        ) as mock_create_func:
+        with mock_patch("azure_logging_install.resource_setup.create_function_app") as mock_create_func:
             # Mock the storage key retrieval to avoid actual Azure CLI calls
-            with mock_patch.object(
-                self.config, "get_control_plane_cache_key", return_value="test-key"
-            ):
+            with mock_patch.object(self.config, "get_control_plane_cache_key", return_value="test-key"):
                 resource_setup.create_function_apps(self.config)
 
                 # Should create 3 function apps (resources, scaling, diagnostic settings)
@@ -261,22 +235,16 @@ class TestResourceSetup(TestCase):
     def test_create_function_app_success(self):
         """Test successful individual function app creation"""
         # Mock the storage key retrieval to avoid actual Azure CLI calls
-        with mock_patch.object(
-            self.config, "get_control_plane_cache_key", return_value="test-key"
-        ):
+        with mock_patch.object(self.config, "get_control_plane_cache_key", return_value="test-key"):
             # Mock the function app existence check to return ResourceNotFoundError
             # so it proceeds to create the function app
             self.execute_mock.side_effect = [
-                ResourceNotFoundError(
-                    "Function app not found"
-                ),  # First call (existence check)
+                ResourceNotFoundError("Function app not found"),  # First call (existence check)
                 None,  # Second call (create function app)
                 None,  # Third call (configure runtime)
             ]
 
-            resource_setup.create_function_app(
-                self.config, self.config.resources_task_name
-            )
+            resource_setup.create_function_app(self.config, self.config.resources_task_name)
 
             # Should call execute 3 times: check existence, create app, configure runtime
             self.assertEqual(self.execute_mock.call_count, 3)
@@ -289,9 +257,7 @@ class TestResourceSetup(TestCase):
         self.execute_mock.side_effect = ResourceNotFoundError("Resource not found")
 
         with self.assertRaises(ResourceNotFoundError):
-            resource_setup.create_resource_group(
-                CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION
-            )
+            resource_setup.create_resource_group(CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION)
 
     def test_wait_function_retries_on_not_found(self):
         """Test wait functions handle ResourceNotFoundError correctly"""
@@ -303,9 +269,7 @@ class TestResourceSetup(TestCase):
             self.execute_mock.side_effect = ResourceNotFoundError("Not found yet")
 
             with self.assertRaises(ResourceNotFoundError):
-                resource_setup.wait_for_storage_account_ready(
-                    STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RESOURCE_GROUP
-                )
+                resource_setup.wait_for_storage_account_ready(STORAGE_ACCOUNT_NAME, CONTROL_PLANE_RESOURCE_GROUP)
 
             # Should have been called once and then exception propagated
             self.assertEqual(self.execute_mock.call_count, 1)

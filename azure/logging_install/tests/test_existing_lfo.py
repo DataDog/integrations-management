@@ -7,40 +7,41 @@ import json
 from unittest import TestCase
 from unittest.mock import patch as mock_patch
 
-# project
-from azure_logging_install.existing_lfo import (
-    check_existing_lfo,
-    update_existing_lfo,
-    LfoMetadata,
-    MONITORED_SUBSCRIPTIONS_KEY,
-    RESOURCE_TAG_FILTERS_KEY,
-    PII_SCRUBBER_RULES_KEY,
-    LfoControlPlane,
-    UNKNOWN_SUB_NAME_MESSAGE,
-    RESOURCES_TASK_PREFIX,
-    SCALING_TASK_PREFIX,
-)
 from azure_logging_install.configuration import Configuration
 
+# project
+from azure_logging_install.existing_lfo import (
+    MONITORED_SUBSCRIPTIONS_KEY,
+    PII_SCRUBBER_RULES_KEY,
+    RESOURCE_TAG_FILTERS_KEY,
+    RESOURCES_TASK_PREFIX,
+    SCALING_TASK_PREFIX,
+    UNKNOWN_SUB_NAME_MESSAGE,
+    LfoControlPlane,
+    LfoMetadata,
+    check_existing_lfo,
+    update_existing_lfo,
+)
+
 from logging_install.tests.test_data import (
+    CONTROL_PLANE_ID,
     CONTROL_PLANE_REGION,
-    CONTROL_PLANE_SUBSCRIPTION_ID,
     CONTROL_PLANE_RESOURCE_GROUP,
-    MONITORED_SUBSCRIPTIONS,
+    CONTROL_PLANE_SUBSCRIPTION_ID,
+    CONTROL_PLANE_SUBSCRIPTION_NAME,
     DATADOG_API_KEY,
     DATADOG_SITE,
-    SUB_ID_TO_NAME,
+    DIAGNOSTIC_SETTINGS_TASK_NAME,
+    MONITORED_SUBSCRIPTIONS,
+    PII_SCRUBBER_RULES,
+    RESOURCE_TAG_FILTERS,
+    RESOURCE_TASK_NAME,
+    SCALING_TASK_NAME,
     SUB_1_ID,
     SUB_2_ID,
     SUB_3_ID,
     SUB_4_ID,
-    RESOURCE_TAG_FILTERS,
-    RESOURCE_TASK_NAME,
-    PII_SCRUBBER_RULES,
-    CONTROL_PLANE_ID,
-    SCALING_TASK_NAME,
-    DIAGNOSTIC_SETTINGS_TASK_NAME,
-    CONTROL_PLANE_SUBSCRIPTION_NAME,
+    SUB_ID_TO_NAME,
     get_test_config,
 )
 
@@ -82,9 +83,7 @@ class TestExistingLfo(TestCase):
 
                 # Return env vars for this function app as a JSON list, like the az cli
                 env_vars = func_apps_settings.get(func_app_name, {})
-                return json.dumps(
-                    [{"name": key, "value": value} for key, value in env_vars.items()]
-                )
+                return json.dumps([{"name": key, "value": value} for key, value in env_vars.items()])
             raise AssertionError(f"Unexpected az cmd: {cmd}")
 
         return _router
@@ -152,9 +151,7 @@ class TestExistingLfo(TestCase):
             SUB_3_ID: SUB_ID_TO_NAME[SUB_3_ID],
         }
         self.assertIn(CONTROL_PLANE_SUBSCRIPTION_ID, self.config.all_subscriptions)
-        self.assertEqual(
-            lfo_metadata.control_plane.resource_group, CONTROL_PLANE_RESOURCE_GROUP
-        )
+        self.assertEqual(lfo_metadata.control_plane.resource_group, CONTROL_PLANE_RESOURCE_GROUP)
         self.assertEqual(lfo_metadata.monitored_subs, expected_monitored_subs)
         self.assertEqual(lfo_metadata.tag_filter, RESOURCE_TAG_FILTERS)
         self.assertEqual(lfo_metadata.pii_rules, PII_SCRUBBER_RULES)
@@ -239,9 +236,7 @@ class TestExistingLfo(TestCase):
             SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
         }
         self.assertEqual(lfo_1.monitored_subs, expected_lfo_1_subs)
-        self.assertEqual(
-            lfo_1.control_plane.resource_group, CONTROL_PLANE_RESOURCE_GROUP
-        )
+        self.assertEqual(lfo_1.control_plane.resource_group, CONTROL_PLANE_RESOURCE_GROUP)
         self.assertEqual(lfo_1.tag_filter, RESOURCE_TAG_FILTERS)
         self.assertEqual(lfo_1.pii_rules, "")
 
@@ -327,12 +322,8 @@ class TestExistingLfo(TestCase):
         }
 
         with (
-            mock_patch(
-                "azure_logging_install.existing_lfo.set_function_app_env_vars"
-            ) as mock_set_env_vars,
-            mock_patch(
-                "azure_logging_install.existing_lfo.grant_subscriptions_permissions"
-            ) as mock_grant_subs_perms,
+            mock_patch("azure_logging_install.existing_lfo.set_function_app_env_vars") as mock_set_env_vars,
+            mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
         ):
             existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(test_config, existing_lfo)
@@ -358,22 +349,15 @@ class TestExistingLfo(TestCase):
                     test_config.control_plane_rg,
                     test_config.control_plane_region,
                 ),
-                monitored_subs={
-                    sub_id: SUB_ID_TO_NAME[sub_id]
-                    for sub_id in test_config.monitored_subscriptions
-                },
+                monitored_subs={sub_id: SUB_ID_TO_NAME[sub_id] for sub_id in test_config.monitored_subscriptions},
                 tag_filter="env:staging,team:legacy",
                 pii_rules="old-rule:\n  pattern: 'old pattern'\n  replacement: 'OLD'",
             )
         }
 
         with (
-            mock_patch(
-                "azure_logging_install.existing_lfo.set_function_app_env_vars"
-            ) as mock_set_env_vars,
-            mock_patch(
-                "azure_logging_install.existing_lfo.grant_subscriptions_permissions"
-            ) as mock_grant_subs_perms,
+            mock_patch("azure_logging_install.existing_lfo.set_function_app_env_vars") as mock_set_env_vars,
+            mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
         ):
             existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(test_config, existing_lfo)
@@ -382,9 +366,7 @@ class TestExistingLfo(TestCase):
             self.assertEqual(mock_set_env_vars.call_count, 3)
             mock_set_env_vars.assert_any_call(test_config, RESOURCE_TASK_NAME)
             mock_set_env_vars.assert_any_call(test_config, SCALING_TASK_NAME)
-            mock_set_env_vars.assert_any_call(
-                test_config, DIAGNOSTIC_SETTINGS_TASK_NAME
-            )
+            mock_set_env_vars.assert_any_call(test_config, DIAGNOSTIC_SETTINGS_TASK_NAME)
 
             # Verify the config passed to set_function_app_env_vars has the updated values
             call_args = mock_set_env_vars.call_args[0]
@@ -408,22 +390,15 @@ class TestExistingLfo(TestCase):
                     test_config.control_plane_rg,
                     test_config.control_plane_region,
                 ),
-                monitored_subs={
-                    sub_id: SUB_ID_TO_NAME[sub_id]
-                    for sub_id in test_config.monitored_subscriptions
-                },
+                monitored_subs={sub_id: SUB_ID_TO_NAME[sub_id] for sub_id in test_config.monitored_subscriptions},
                 tag_filter=RESOURCE_TAG_FILTERS,
                 pii_rules=PII_SCRUBBER_RULES,
             )
         }
 
         with (
-            mock_patch(
-                "azure_logging_install.existing_lfo.set_function_app_env_vars"
-            ) as mock_set_env_vars,
-            mock_patch(
-                "azure_logging_install.existing_lfo.grant_subscriptions_permissions"
-            ) as mock_grant_subs_perms,
+            mock_patch("azure_logging_install.existing_lfo.set_function_app_env_vars") as mock_set_env_vars,
+            mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
         ):
             existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(test_config, existing_lfo)

@@ -22,7 +22,7 @@ from az_shared.logs import log
 
 from .configuration import Configuration
 from .constants import REQUIRED_RESOURCE_PROVIDERS
-from .existing_lfo import check_existing_lfo, LfoMetadata
+from .existing_lfo import LfoMetadata, check_existing_lfo
 
 
 def is_empty_or_whitespace(s: str) -> bool:
@@ -58,14 +58,10 @@ def validate_az_cli():
         execute(AzCmd("account", "show"))
         log.debug("Azure CLI authentication verified")
     except Exception as e:
-        raise AzCliNotAuthenticatedError(
-            "Azure CLI is not authenticated. Please run 'az login' first and retry"
-        ) from e
+        raise AzCliNotAuthenticatedError("Azure CLI is not authenticated. Please run 'az login' first and retry") from e
 
 
-def check_fresh_install(
-    config: Configuration, sub_id_to_name: dict[str, str]
-) -> dict[str, LfoMetadata]:
+def check_fresh_install(config: Configuration, sub_id_to_name: dict[str, str]) -> dict[str, LfoMetadata]:
     """Validate whether we are doing a fresh log forwarding install."""
     existing_lfos = check_existing_lfo(config.all_subscriptions, sub_id_to_name)
     if existing_lfos:
@@ -75,9 +71,7 @@ def check_fresh_install(
     return existing_lfos
 
 
-def validate_singleton_lfo(
-    config: Configuration, existing_lfos: dict[str, LfoMetadata]
-):
+def validate_singleton_lfo(config: Configuration, existing_lfos: dict[str, LfoMetadata]):
     uninstall_link = "https://docs.datadoghq.com/logs/guide/azure-automated-log-forwarding/#uninstall"
     existing_count = len(existing_lfos)
     if existing_count > 1:
@@ -93,11 +87,7 @@ def validate_singleton_lfo(
 
     existing_lfo_control_plane_id = next(iter(existing_lfos.keys()))
 
-    if (
-        existing_count == 1
-        and existing_lfo_control_plane_id.casefold()
-        != config.control_plane_id.casefold()
-    ):
+    if existing_count == 1 and existing_lfo_control_plane_id.casefold() != config.control_plane_id.casefold():
         log.error(
             f"Existing log forwarding installation with differing control plane ID '{existing_lfo_control_plane_id}' found in this Azure environment. New installation ID is '{config.control_plane_id}'."
         )
@@ -131,24 +121,18 @@ def check_providers_per_subscription(sub_ids: set[str]) -> dict[str, list[str]]:
             providers_status = json.loads(output)
 
             # Create a lookup dict
-            provider_states = {
-                p["namespace"]: p["registrationState"] for p in providers_status
-            }
+            provider_states = {p["namespace"]: p["registrationState"] for p in providers_status}
 
             unregistered_providers = []
             for provider in REQUIRED_RESOURCE_PROVIDERS:
                 state = provider_states.get(provider, "NotFound")
                 if state != "Registered":
                     unregistered_providers.append(provider)
-                    log.debug(
-                        f"Subscription {sub_id}: Resource provider {provider} is {state}"
-                    )
+                    log.debug(f"Subscription {sub_id}: Resource provider {provider} is {state}")
 
             sub_to_unregistered_provider_list[sub_id] = unregistered_providers
         except Exception as e:
-            log.error(
-                f"Failed to validate resource providers in subscription {sub_id}: {e}"
-            )
+            log.error(f"Failed to validate resource providers in subscription {sub_id}: {e}")
             raise ResourceProviderRegistrationValidationError(
                 f"Resource provider validation failed for subscription {sub_id}: {e}"
             ) from e
@@ -159,9 +143,7 @@ def check_providers_per_subscription(sub_ids: set[str]) -> dict[str, list[str]]:
 def validate_resource_provider_registrations(sub_ids: set[str]):
     """Ensure the required Azure resource providers are registered across all subscriptions."""
 
-    log.info(
-        f"Checking required resource providers across {len(sub_ids)} subscription(s)..."
-    )
+    log.info(f"Checking required resource providers across {len(sub_ids)} subscription(s)...")
     sub_to_unregistered_provider_list = check_providers_per_subscription(sub_ids)
 
     success = True
@@ -171,16 +153,12 @@ def validate_resource_provider_registrations(sub_ids: set[str]):
             log.error(
                 f"Subscription {sub_id}: Detected unregistered resource providers: {', '.join(unregistered_providers)}"
             )
-            log.error(
-                "Please run the following commands to register the missing resource providers:"
-            )
+            log.error("Please run the following commands to register the missing resource providers:")
             log.error(f"az account set --subscription {sub_id}")
             for provider in unregistered_providers:
                 log.error(f"az provider register --namespace {provider}")
         else:
-            log.debug(
-                f"Subscription {sub_id}: All required resource providers are registered"
-            )
+            log.debug(f"Subscription {sub_id}: All required resource providers are registered")
 
     if not success:
         raise ResourceProviderRegistrationValidationError(
@@ -196,9 +174,7 @@ def validate_control_plane_sub_access(control_plane_sub_id: str):
         set_subscription(control_plane_sub_id)
         log.debug(f"Control plane subscription access verified: {control_plane_sub_id}")
     except Exception as e:
-        raise AccessError(
-            f"Cannot access control plane subscription {control_plane_sub_id}: {e}"
-        ) from e
+        raise AccessError(f"Cannot access control plane subscription {control_plane_sub_id}: {e}") from e
 
 
 def validate_resource_names(
@@ -212,38 +188,24 @@ def validate_resource_names(
     # Check if resource group already exists
     try:
         output = execute(
-            AzCmd("group", "exists")
-            .param("--name", control_plane_rg)
-            .param("--subscription", control_plane_sub_id)
+            AzCmd("group", "exists").param("--name", control_plane_rg).param("--subscription", control_plane_sub_id)
         )
         if output.strip().lower() == "true":
-            log.warning(
-                f"Resource group {control_plane_rg} already exists - will use existing"
-            )
+            log.warning(f"Resource group {control_plane_rg} already exists - will use existing")
         else:
             log.debug(f"Resource group name available: {control_plane_rg}")
     except Exception as e:
-        raise ExistenceCheckError(
-            f"Cannot check resource group availability: {e}"
-        ) from e
+        raise ExistenceCheckError(f"Cannot check resource group availability: {e}") from e
 
     # Check storage account name availability
     try:
-        result_json = execute(
-            AzCmd("storage", "account check-name").param(
-                "--name", control_plane_cache_storage_name
-            )
-        )
+        result_json = execute(AzCmd("storage", "account check-name").param("--name", control_plane_cache_storage_name))
         result = json.loads(result_json)
         if not result.get("nameAvailable", False):
-            log.info(
-                f"Storage account name '{control_plane_cache_storage_name}' exists - will use existing"
-            )
+            log.info(f"Storage account name '{control_plane_cache_storage_name}' exists - will use existing")
         log.debug(f"Storage account name available: {control_plane_cache_storage_name}")
     except json.JSONDecodeError as e:
-        raise ExistenceCheckError(
-            "Failed to parse storage account name availability check"
-        ) from e
+        raise ExistenceCheckError("Failed to parse storage account name availability check") from e
 
 
 def validate_datadog_credentials(datadog_api_key: str, datadog_site: str):
@@ -260,23 +222,15 @@ def validate_datadog_credentials(datadog_api_key: str, datadog_site: str):
         with urllib.request.urlopen(req) as response:
             response_json = json.loads(response.read())
             if not response_json.get("valid", False):
-                raise DatadogAccessValidationError(
-                    f"Datadog API Key validation with {datadog_site} failed"
-                )
+                raise DatadogAccessValidationError(f"Datadog API Key validation with {datadog_site} failed")
 
         log.debug("Datadog API credentials validated")
     except urllib.error.HTTPError as e:
-        raise DatadogAccessValidationError(
-            f"Failed to validate Datadog credentials: HTTP {e.code} {e.reason}"
-        ) from e
+        raise DatadogAccessValidationError(f"Failed to validate Datadog credentials: HTTP {e.code} {e.reason}") from e
     except urllib.error.URLError as e:
-        raise DatadogAccessValidationError(
-            f"Failed to validate Datadog credentials: {e.reason}"
-        ) from e
+        raise DatadogAccessValidationError(f"Failed to validate Datadog credentials: {e.reason}") from e
     except json.JSONDecodeError as e:
-        raise DatadogAccessValidationError(
-            f"Failed to parse Datadog validation response: {e}"
-        ) from e
+        raise DatadogAccessValidationError(f"Failed to parse Datadog validation response: {e}") from e
 
 
 def validate_user_config(config: Configuration):
@@ -320,9 +274,7 @@ def validate_monitored_subs_access(monitored_subs: list[str]):
             set_subscription(sub_id)
             log.debug(f"Monitored subscription access verified: {sub_id}")
         except Exception as e:
-            raise AccessError(
-                f"Cannot access monitored subscription {sub_id}: {e}"
-            ) from e
+            raise AccessError(f"Cannot access monitored subscription {sub_id}: {e}") from e
 
 
 def _is_valid_azure_subscription_id(subscription_id: str) -> bool:
@@ -342,9 +294,7 @@ def _validate_monitored_subscriptions(monitored_subs: str):
     subscription_ids = [sub.strip() for sub in monitored_subs.split(",") if sub.strip()]
 
     if not subscription_ids:
-        raise InputParamValidationError(
-            "Monitored subscriptions list contains no valid entries"
-        )
+        raise InputParamValidationError("Monitored subscriptions list contains no valid entries")
 
     for sub_id in subscription_ids:
         if not _is_valid_azure_subscription_id(sub_id):
@@ -366,9 +316,7 @@ def _validate_tag_filters(tag_filters: str):
 
         # Validate tag starts with a letter
         if not tag_filter[0].isalpha():
-            raise InputParamValidationError(
-                f"Tag '{tag_filter}' must start with a letter"
-            )
+            raise InputParamValidationError(f"Tag '{tag_filter}' must start with a letter")
 
 
 def _validate_pii_scrubber_rules(pii_scrubber_rules: str):

@@ -4,18 +4,18 @@
 
 # stdlib
 from unittest import TestCase
-from unittest.mock import patch as mock_patch, MagicMock
+from unittest.mock import MagicMock
+from unittest.mock import patch as mock_patch
 
 # project
 from az_shared.errors import FatalError
-
 from azure_logging_install import deploy
 from azure_logging_install.configuration import Configuration
 
 from logging_install.tests.test_data import (
     CONTROL_PLANE_REGION,
-    CONTROL_PLANE_SUBSCRIPTION_ID,
     CONTROL_PLANE_RESOURCE_GROUP,
+    CONTROL_PLANE_SUBSCRIPTION_ID,
 )
 
 
@@ -23,33 +23,19 @@ class TestDeploy(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures and reset global settings"""
         # Set up mocks
-        self.set_subscription_mock = self.patch(
-            "azure_logging_install.deploy.set_subscription"
-        )
-        self.create_storage_account_mock = self.patch(
-            "azure_logging_install.deploy.create_storage_account"
-        )
+        self.set_subscription_mock = self.patch("azure_logging_install.deploy.set_subscription")
+        self.create_storage_account_mock = self.patch("azure_logging_install.deploy.create_storage_account")
         self.wait_for_storage_account_ready_mock = self.patch(
             "azure_logging_install.deploy.wait_for_storage_account_ready"
         )
-        self.create_blob_container_mock = self.patch(
-            "azure_logging_install.deploy.create_blob_container"
-        )
-        self.create_file_share_mock = self.patch(
-            "azure_logging_install.deploy.create_file_share"
-        )
-        self.create_function_apps_mock = self.patch(
-            "azure_logging_install.deploy.create_function_apps"
-        )
-        self.create_initial_deploy_role_mock = self.patch(
-            "azure_logging_install.deploy.create_initial_deploy_role"
-        )
+        self.create_blob_container_mock = self.patch("azure_logging_install.deploy.create_blob_container")
+        self.create_file_share_mock = self.patch("azure_logging_install.deploy.create_file_share")
+        self.create_function_apps_mock = self.patch("azure_logging_install.deploy.create_function_apps")
+        self.create_initial_deploy_role_mock = self.patch("azure_logging_install.deploy.create_initial_deploy_role")
         self.create_container_app_environment_mock = self.patch(
             "azure_logging_install.deploy.create_container_app_environment"
         )
-        self.create_container_app_job_mock = self.patch(
-            "azure_logging_install.deploy.create_container_app_job"
-        )
+        self.create_container_app_job_mock = self.patch("azure_logging_install.deploy.create_container_app_job")
         self.execute_mock = self.patch("azure_logging_install.deploy.execute")
 
         # Create test configuration
@@ -84,9 +70,7 @@ class TestDeploy(TestCase):
 
     def test_deploy_lfo_deployer_role_creation_failure(self):
         """Test LFO deployer deployment handles role creation failure"""
-        self.create_initial_deploy_role_mock.side_effect = FatalError(
-            "Role creation failed"
-        )
+        self.create_initial_deploy_role_mock.side_effect = FatalError("Role creation failed")
 
         with self.assertRaises(FatalError):
             deploy.deploy_lfo_deployer(self.config)
@@ -97,9 +81,7 @@ class TestDeploy(TestCase):
 
     def test_deploy_lfo_deployer_environment_creation_failure(self):
         """Test LFO deployer deployment handles environment creation failure"""
-        self.create_container_app_environment_mock.side_effect = FatalError(
-            "Environment creation failed"
-        )
+        self.create_container_app_environment_mock.side_effect = FatalError("Environment creation failed")
 
         with self.assertRaises(FatalError):
             deploy.deploy_lfo_deployer(self.config)
@@ -114,15 +96,11 @@ class TestDeploy(TestCase):
     def test_deploy_control_plane_success(self):
         """Test successful control plane deployment"""
         # Mock the storage key retrieval to avoid actual Azure CLI calls
-        with mock_patch.object(
-            self.config, "get_control_plane_cache_key", return_value="test-key"
-        ):
+        with mock_patch.object(self.config, "get_control_plane_cache_key", return_value="test-key"):
             deploy.deploy_control_plane(self.config)
 
         # Verify subscription is set
-        self.set_subscription_mock.assert_called_once_with(
-            self.config.control_plane_sub_id
-        )
+        self.set_subscription_mock.assert_called_once_with(self.config.control_plane_sub_id)
 
         # Verify storage account creation and setup
         self.create_storage_account_mock.assert_called_once_with(
@@ -141,9 +119,7 @@ class TestDeploy(TestCase):
 
     def test_deploy_control_plane_storage_creation_failure(self):
         """Test control plane deployment handles storage creation failure"""
-        self.create_storage_account_mock.side_effect = FatalError(
-            "Storage creation failed"
-        )
+        self.create_storage_account_mock.side_effect = FatalError("Storage creation failed")
 
         with self.assertRaises(FatalError):
             deploy.deploy_control_plane(self.config)
@@ -156,9 +132,7 @@ class TestDeploy(TestCase):
 
     def test_deploy_control_plane_storage_wait_failure(self):
         """Test control plane deployment handles storage wait failure"""
-        self.wait_for_storage_account_ready_mock.side_effect = FatalError(
-            "Storage not ready"
-        )
+        self.wait_for_storage_account_ready_mock.side_effect = FatalError("Storage not ready")
 
         with self.assertRaises(FatalError):
             deploy.deploy_control_plane(self.config)
@@ -170,14 +144,10 @@ class TestDeploy(TestCase):
 
     def test_deploy_control_plane_function_apps_failure(self):
         """Test control plane deployment handles function app creation failure"""
-        self.create_function_apps_mock.side_effect = FatalError(
-            "Function app creation failed"
-        )
+        self.create_function_apps_mock.side_effect = FatalError("Function app creation failed")
 
         # Mock the storage key retrieval to avoid actual Azure CLI calls
-        with mock_patch.object(
-            self.config, "get_control_plane_cache_key", return_value="test-key"
-        ):
+        with mock_patch.object(self.config, "get_control_plane_cache_key", return_value="test-key"):
             with self.assertRaises(FatalError):
                 deploy.deploy_control_plane(self.config)
 
@@ -210,9 +180,7 @@ class TestDeploy(TestCase):
         """Test initial deployment handles execution failure"""
         self.execute_mock.side_effect = FatalError("Job execution failed")
 
-        with self.assertRaises(
-            RuntimeError
-        ):  # The function wraps errors in RuntimeError
+        with self.assertRaises(RuntimeError):  # The function wraps errors in RuntimeError
             deploy.run_initial_deploy(
                 self.config.deployer_job_name,
                 self.config.control_plane_rg,
@@ -237,16 +205,12 @@ class TestDeploy(TestCase):
 
         # Verify configuration properties are used correctly
         self.set_subscription_mock.assert_called_with("test-sub-123")
-        self.create_storage_account_mock.assert_called_with(
-            "teststorage123", "test-rg-456", "westus2"
-        )
+        self.create_storage_account_mock.assert_called_with("teststorage123", "test-rg-456", "westus2")
 
         # Test LFO deployer deployment
         deploy.deploy_lfo_deployer(mock_config)
 
-        self.create_container_app_environment_mock.assert_called_with(
-            "test-env-789", "test-rg-456", "westus2"
-        )
+        self.create_container_app_environment_mock.assert_called_with("test-env-789", "test-rg-456", "westus2")
 
     # ===== Deployment Flow Integration Tests ===== #
 
@@ -255,12 +219,8 @@ class TestDeploy(TestCase):
         # This would simulate a full deployment
         with (
             mock_patch("azure_logging_install.deploy.deploy_lfo_deployer") as mock_lfo,
-            mock_patch(
-                "azure_logging_install.deploy.deploy_control_plane"
-            ) as mock_control,
-            mock_patch(
-                "azure_logging_install.deploy.run_initial_deploy"
-            ) as mock_initial,
+            mock_patch("azure_logging_install.deploy.deploy_control_plane") as mock_control,
+            mock_patch("azure_logging_install.deploy.run_initial_deploy") as mock_initial,
         ):
             # Simulate main deployment flow
             mock_control(self.config)

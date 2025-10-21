@@ -52,9 +52,7 @@ class Configuration:
         if self.control_plane_cache_storage_key:
             return self.control_plane_cache_storage_key
 
-        log.debug(
-            f"Retrieving storage account key for {self.control_plane_cache_storage_name}"
-        )
+        log.debug(f"Retrieving storage account key for {self.control_plane_cache_storage_name}")
 
         try:
             output = execute(
@@ -65,14 +63,10 @@ class Configuration:
             keys_json = json.loads(output)
 
             if not isinstance(keys_json, list) or len(keys_json) == 0:
-                raise FatalError(
-                    f"Failed to retrieve storage account keys for {self.control_plane_cache_storage_name}"
-                )
+                raise FatalError(f"Failed to retrieve storage account keys for {self.control_plane_cache_storage_name}")
 
             for key_entry in keys_json:
-                if key_entry.get(
-                    "permissions"
-                ) == STORAGE_ACCOUNT_KEY_FULL_PERMISSIONS and key_entry.get("value"):
+                if key_entry.get("permissions") == STORAGE_ACCOUNT_KEY_FULL_PERMISSIONS and key_entry.get("value"):
                     self.control_plane_cache_storage_key = key_entry["value"]
                     break
             else:
@@ -96,9 +90,7 @@ class Configuration:
     def __post_init__(self):
         """Calculates derived values from user-specified params."""
 
-        self.monitored_subscriptions = [
-            sub.strip() for sub in self.monitored_subs.split(",") if sub.strip()
-        ]
+        self.monitored_subscriptions = [sub.strip() for sub in self.monitored_subs.split(",") if sub.strip()]
         self.all_subscriptions = {
             self.control_plane_sub_id,
             *self.monitored_subscriptions,
@@ -108,32 +100,22 @@ class Configuration:
         self.control_plane_id = self.generate_control_plane_id()
         log.info(f"Generated control plane ID: {self.control_plane_id}")
         self.control_plane_cache_storage_name = f"lfostorage{self.control_plane_id}"
-        self.control_plane_cache_storage_url = (
-            f"https://{self.control_plane_cache_storage_name}.blob.core.windows.net"
-        )
+        self.control_plane_cache_storage_url = f"https://{self.control_plane_cache_storage_name}.blob.core.windows.net"
         self.control_plane_cache_storage_key = None  # lazy-loaded
         self.control_plane_sub_scope = f"/subscriptions/{self.control_plane_sub_id}"
-        self.control_plane_rg_scope = (
-            f"{self.control_plane_sub_scope}/resourceGroups/{self.control_plane_rg}"
-        )
-        self.control_plane_env_name = (
-            f"dd-log-forwarder-env-{self.control_plane_id}-{self.control_plane_region}"
-        )
+        self.control_plane_rg_scope = f"{self.control_plane_sub_scope}/resourceGroups/{self.control_plane_rg}"
+        self.control_plane_env_name = f"dd-log-forwarder-env-{self.control_plane_id}-{self.control_plane_region}"
 
         # Deployer
         self.deployer_job_name = f"deployer-task-{self.control_plane_id}"
         self.deployer_image_url = f"{IMAGE_REGISTRY_URL}/deployer:latest"
-        self.container_app_start_role_name = (
-            f"ContainerAppStartRole{self.control_plane_id}"
-        )
+        self.container_app_start_role_name = f"ContainerAppStartRole{self.control_plane_id}"
 
         # Function apps (control plane tasks)
         self.app_service_plan_name = f"control-plane-asp-{self.control_plane_id}"
         self.resources_task_name = f"resources-task-{self.control_plane_id}"
         self.scaling_task_name = f"scaling-task-{self.control_plane_id}"
-        self.diagnostic_settings_task_name = (
-            f"diagnostic-settings-task-{self.control_plane_id}"
-        )
+        self.diagnostic_settings_task_name = f"diagnostic-settings-task-{self.control_plane_id}"
         self.control_plane_function_app_names = [
             self.resources_task_name,
             self.scaling_task_name,

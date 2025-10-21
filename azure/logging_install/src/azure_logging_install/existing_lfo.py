@@ -47,22 +47,14 @@ def find_existing_lfo_control_planes(
         if len(subscriptions) == 0:
             return {}  # searching empty set of subscriptions
         subscriptions_clause = " and subscriptionId in ({})".format(
-            ", ".join(
-                ["'{}'".format(subscription_id) for subscription_id in subscriptions]
-            )
+            ", ".join(["'{}'".format(subscription_id) for subscription_id in subscriptions])
         )
     else:
         subscriptions_clause = ""
 
     # make sure azure resource graph extension is installed
-    if not execute(
-        AzCmd("extension", "show").param("--name", "resource-graph"), can_fail=True
-    ):
-        execute(
-            AzCmd("extension", "add")
-            .param("--name", "resource-graph")
-            .param("--yes", "")
-        )
+    if not execute(AzCmd("extension", "show").param("--name", "resource-graph"), can_fail=True):
+        execute(AzCmd("extension", "add").param("--name", "resource-graph").param("--yes", ""))
 
     func_apps_json = execute(
         AzCmd("graph", "query").param(
@@ -90,9 +82,7 @@ def find_existing_lfo_control_planes(
     return existing_control_planes
 
 
-def query_function_app_env_vars(
-    control_plane: LfoControlPlane, resource_task_name: str
-) -> dict[str, str]:
+def query_function_app_env_vars(control_plane: LfoControlPlane, resource_task_name: str) -> dict[str, str]:
     """Query all environment variables for a function app and return as a dictionary."""
     env_vars_list = execute(
         AzCmd("functionapp", "config appsettings list")
@@ -111,13 +101,9 @@ def query_function_app_env_vars(
         raise
 
 
-def check_existing_lfo(
-    subscriptions: set[str], sub_id_to_name: dict[str, str]
-) -> dict[str, LfoMetadata]:
+def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) -> dict[str, LfoMetadata]:
     """Check if LFO is already installed on any of the given subscriptions. Returns a dict mapping control plane ID to LFO metadata."""
-    log.info(
-        "Checking if log forwarding is already installed in this Azure environment..."
-    )
+    log.info("Checking if log forwarding is already installed in this Azure environment...")
 
     control_planes = find_existing_lfo_control_planes(sub_id_to_name, subscriptions)
     existing_lfos: dict[str, LfoMetadata] = {}
@@ -126,16 +112,10 @@ def check_existing_lfo(
         resource_task_name = f"{RESOURCES_TASK_PREFIX}{control_plane_id}"
         scaling_task_name = f"{SCALING_TASK_PREFIX}{control_plane_id}"
 
-        resource_task_env_vars = query_function_app_env_vars(
-            control_plane, resource_task_name
-        )
-        scaling_task_env_vars = query_function_app_env_vars(
-            control_plane, scaling_task_name
-        )
+        resource_task_env_vars = query_function_app_env_vars(control_plane, resource_task_name)
+        scaling_task_env_vars = query_function_app_env_vars(control_plane, scaling_task_name)
 
-        monitored_sub_ids_str = resource_task_env_vars.get(
-            MONITORED_SUBSCRIPTIONS_KEY, ""
-        )
+        monitored_sub_ids_str = resource_task_env_vars.get(MONITORED_SUBSCRIPTIONS_KEY, "")
         if not monitored_sub_ids_str:
             continue
 
@@ -152,9 +132,7 @@ def check_existing_lfo(
         existing_lfos[control_plane_id] = LfoMetadata(
             control_plane,
             monitored_subs={
-                sub_id: sub_id_to_name[sub_id]
-                if sub_id in sub_id_to_name
-                else UNKNOWN_SUB_NAME_MESSAGE
+                sub_id: sub_id_to_name[sub_id] if sub_id in sub_id_to_name else UNKNOWN_SUB_NAME_MESSAGE
                 for sub_id in monitored_sub_ids
             },
             tag_filter=tag_filters,

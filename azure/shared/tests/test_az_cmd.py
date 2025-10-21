@@ -5,7 +5,8 @@
 # stdlib
 import subprocess
 from unittest import TestCase
-from unittest.mock import Mock, patch as mock_patch
+from unittest.mock import Mock
+from unittest.mock import patch as mock_patch
 
 # project
 from az_shared import az_cmd
@@ -17,9 +18,9 @@ from az_shared.errors import (
 )
 
 from shared.tests.test_data import (
-    CONTROL_PLANE_SUBSCRIPTION_ID,
-    CONTROL_PLANE_RESOURCE_GROUP,
     CONTROL_PLANE_REGION,
+    CONTROL_PLANE_RESOURCE_GROUP,
+    CONTROL_PLANE_SUBSCRIPTION_ID,
 )
 
 FUNCTION_APP = "functionapp"
@@ -108,11 +109,7 @@ class TestAzCmd(TestCase):
 
     def test_az_cmd_str(self):
         """Test string representation of command"""
-        cmd = (
-            az_cmd.AzCmd(FUNCTION_APP, CREATE)
-            .param("--resource-group", CONTROL_PLANE_RESOURCE_GROUP)
-            .flag("--yes")
-        )
+        cmd = az_cmd.AzCmd(FUNCTION_APP, CREATE).param("--resource-group", CONTROL_PLANE_RESOURCE_GROUP).flag("--yes")
 
         expected = f"az {FUNCTION_APP} create --resource-group {CONTROL_PLANE_RESOURCE_GROUP} --yes"
         self.assertEqual(cmd.str(), expected)
@@ -205,9 +202,7 @@ class TestAzCmd(TestCase):
 
         # First call fails with throttling, second succeeds
         error = subprocess.CalledProcessError(1, "az")
-        error.stderr = (
-            f"{az_cmd.RESOURCE_COLLECTION_THROTTLING_ERROR}: Too many requests"
-        )
+        error.stderr = f"{az_cmd.RESOURCE_COLLECTION_THROTTLING_ERROR}: Too many requests"
 
         mock_result_success = Mock()
         mock_result_success.stdout = "success after throttling"
