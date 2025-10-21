@@ -6,16 +6,7 @@
 check_3_9 = {} | {}  # This script must be run with python >= 3.9
 
 # ruff: noqa: E402
-from abc import ABC, abstractmethod
-from collections.abc import Container, Iterable, Sequence
-from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import contextmanager
-from dataclasses import asdict, dataclass
-from datetime import datetime
-from enum import Enum
-from functools import lru_cache, reduce
 import json
-from operator import add
 import os
 import re
 import ssl
@@ -24,8 +15,17 @@ import sys
 import threading
 import time
 import traceback
-from typing import Any, Generator, Literal, Optional, TypeVar, TypedDict, Union
 import urllib.request
+from abc import ABC, abstractmethod
+from collections.abc import Container, Iterable, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from enum import Enum
+from functools import lru_cache, reduce
+from operator import add
+from typing import Any, Generator, Literal, Optional, TypedDict, TypeVar, Union
 from urllib.error import HTTPError, URLError
 
 from az_shared.errors import (
@@ -106,9 +106,7 @@ def request(
         )
 
         try:
-            with urllib.request.urlopen(
-                req, context=ssl.create_default_context()
-            ) as response:
+            with urllib.request.urlopen(req, context=ssl.create_default_context()) as response:
                 data, status = response.read().decode("utf-8"), response.status
                 return data, status
         except HTTPError as e:
@@ -126,9 +124,7 @@ def request(
                 time.sleep(base_delay * (2**attempt))
                 continue
 
-            raise RuntimeError(
-                f"Network error after {max_retries} attempts: {e.reason}"
-            ) from e
+            raise RuntimeError(f"Network error after {max_retries} attempts: {e.reason}") from e
 
 
 # Azure util
@@ -201,18 +197,12 @@ def flatten_permissions(permissions: Iterable[Permission]) -> FlatPermission:
     return FlatPermission(
         reduce(
             add,
-            [
-                Actions(p.get("actions", [])) - Actions(p.get("notActions", []))
-                for p in permissions
-            ],
+            [Actions(p.get("actions", [])) - Actions(p.get("notActions", [])) for p in permissions],
             Actions([]),
         ),
         reduce(
             add,
-            [
-                Actions(p.get("dataActions", [])) - Actions(p.get("notDataActions", []))
-                for p in permissions
-            ],
+            [Actions(p.get("dataActions", [])) - Actions(p.get("notDataActions", [])) for p in permissions],
             Actions([]),
         ),
     )
@@ -318,9 +308,7 @@ class LogForwarderPayload(TypedDict):
 def az(cmd: str) -> str:
     """Run Azure CLI command and produce its output. Raise an exception if it fails."""
     try:
-        result = subprocess.run(
-            f"az {cmd}", shell=True, check=True, text=True, capture_output=True
-        )
+        result = subprocess.run(f"az {cmd}", shell=True, check=True, text=True, capture_output=True)
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Could not execute az command: {str(e.stderr)}")
     else:
@@ -412,9 +400,7 @@ class StatusReporter:
         try:
             if loading_message:
                 step_complete = threading.Event()
-                loading_message_thread = threading.Thread(
-                    target=loading_spinner, args=(loading_message, step_complete)
-                )
+                loading_message_thread = threading.Thread(target=loading_spinner, args=(loading_message, step_complete))
                 loading_message_thread.daemon = True
                 loading_message_thread.start()
             step_metadata = {}
@@ -439,9 +425,7 @@ class StatusReporter:
                 # leave line blank and cursor at the beginning
                 print(f"\r{' ' * 60}", end="")
                 print("\r", end="")
-            self.report(
-                step_id, Status.OK, f"{step_id}: {Status.OK}", step_metadata or None
-            )
+            self.report(step_id, Status.OK, f"{step_id}: {Status.OK}", step_metadata or None)
 
 
 # Main
@@ -450,9 +434,7 @@ class StatusReporter:
 def ensure_login() -> None:
     """Ensure that the user is logged into the Azure CLI. If not, raise an exception."""
     if not az("account show"):
-        raise AzCliNotAuthenticatedError(
-            "Azure CLI is not authenticated. Please run 'az login' first and retry"
-        )
+        raise AzCliNotAuthenticatedError("Azure CLI is not authenticated. Please run 'az login' first and retry")
 
 
 MAX_WORKERS = 50  # This was arbitrary. Feel free to change it.
@@ -466,25 +448,19 @@ def filter_scopes_by_permission(scopes: Sequence[Scope]) -> list[Scope]:
     access_token = az_json("account get-access-token")["accessToken"]
     with ThreadPoolExecutor(MAX_WORKERS) as executor:
         futures: list[Future[FlatPermission]] = [
-            executor.submit(get_flat_permission, access_token, scope.scope)
-            for scope in scopes
+            executor.submit(get_flat_permission, access_token, scope.scope) for scope in scopes
         ]
     return [
         scope
         for i, scope in enumerate(scopes)
-        if not futures[i].exception()
-        and ASSIGN_ROLES_ACTION in futures[i].result().actions
+        if not futures[i].exception() and ASSIGN_ROLES_ACTION in futures[i].result().actions
     ]
-
 
 
 def get_subscription_scopes(tenant_id: str) -> list[Subscription]:
     return [
         Subscription(**s)
-        for s in az_json(
-            'account list --query "[?tenantId==\'%s\'].{id:id, name:name}" -o json'
-            % tenant_id
-        )
+        for s in az_json("account list --query \"[?tenantId=='%s'].{id:id, name:name}\" -o json" % tenant_id)
     ]
 
 
@@ -495,11 +471,7 @@ def get_management_group_from_list_result(
         f'account management-group show --name "{list_result.az_name}" -e -r --query "children[].{{id:id, name:name}}" -o json'
     )
     if subscriptions_az_response:
-        subscriptions = [
-            Subscription(**s)
-            for s in subscriptions_az_response
-            if s["id"].startswith("/subscriptions/")
-        ]
+        subscriptions = [Subscription(**s) for s in subscriptions_az_response if s["id"].startswith("/subscriptions/")]
     else:
         subscriptions = []
     return ManagementGroup(
@@ -508,12 +480,13 @@ def get_management_group_from_list_result(
         subscriptions=SubscriptionList(subscriptions),
     )
 
+
 def get_management_group_scopes(tenant_id: str) -> list[ManagementGroup]:
     try:
         mgroup_list_results = [
             ManagementGroupListResult(**lr)
             for lr in az_json(
-                'account management-group list --query "[?tenantId==\'%s\'].{id:id, az_name:name, name:displayName}" -o json'
+                "account management-group list --query \"[?tenantId=='%s'].{id:id, az_name:name, name:displayName}\" -o json"
                 % tenant_id
             )
         ]
@@ -534,9 +507,7 @@ def report_available_scopes(workflow_id: str) -> tuple[list[Scope], list[Scope]]
     """Send Datadog the subscriptions and management groups that the user has permission to grant access to."""
     tenant_id = az_json("account show --query tenantId")
     subscriptions = filter_scopes_by_permission(get_subscription_scopes(tenant_id))
-    management_groups = filter_scopes_by_permission(
-        get_management_group_scopes(tenant_id)
-    )
+    management_groups = filter_scopes_by_permission(get_management_group_scopes(tenant_id))
     response, status = dd_request(
         "POST",
         "/api/unstable/integration/azure/setup/scopes",
@@ -545,12 +516,8 @@ def report_available_scopes(workflow_id: str) -> tuple[list[Scope], list[Scope]]
                 "id": workflow_id,
                 "type": "add_azure_app_registration",
                 "attributes": {
-                    "subscriptions": {
-                        "subscriptions": [asdict(s) for s in subscriptions]
-                    },
-                    "management_groups": {
-                        "management_groups": [asdict(m) for m in management_groups]
-                    },
+                    "subscriptions": {"subscriptions": [asdict(s) for s in subscriptions]},
+                    "management_groups": {"management_groups": [asdict(m) for m in management_groups]},
                 },
             }
         },
@@ -571,9 +538,7 @@ def build_log_forwarder_payload(metadata: LfoMetadata) -> LogForwarderPayload:
     )
 
 
-def report_existing_log_forwarders(
-    subscriptions: list[Scope], step_metadata: dict
-) -> bool:
+def report_existing_log_forwarders(subscriptions: list[Scope], step_metadata: dict) -> bool:
     """Send Datadog any existing Log Forwarders in the tenant and return whether we found exactly 1 Forwarder, in which case we will potentially update it."""
     scope_id_to_name = {s.id: s.name for s in subscriptions}
     try:
@@ -583,12 +548,8 @@ def report_existing_log_forwarders(
             f"Insufficient Azure user permissions when checking for existing log forwarder configuration. Please check your Azure permissions and try again: {e}"
         ) from e
     except Exception as e:
-        raise RuntimeError(
-            f"Error when checking for existing log forwarders: {e}"
-        ) from e
-    step_metadata["log_forwarders"] = [
-        build_log_forwarder_payload(forwarder) for forwarder in forwarders.values()
-    ]
+        raise RuntimeError(f"Error when checking for existing log forwarders: {e}") from e
+    step_metadata["log_forwarders"] = [build_log_forwarder_payload(forwarder) for forwarder in forwarders.values()]
     return len(forwarders) == 1
 
 
@@ -605,19 +566,12 @@ def receive_user_selections(workflow_id: str) -> UserSelections:
         attributes = json_response["data"]["attributes"]
         return UserSelections(
             tuple(
-                [
-                    Subscription(**s)
-                    for s in attributes["subscriptions"]["subscriptions"]
-                ]
-                + [
-                    ManagementGroup(**mg)
-                    for mg in attributes["management_groups"]["management_groups"]
-                ]
+                [Subscription(**s) for s in attributes["subscriptions"]["subscriptions"]]
+                + [ManagementGroup(**mg) for mg in attributes["management_groups"]["management_groups"]]
             ),
             json.loads(attributes["config_options"]),
             json.loads(attributes["log_forwarding_options"])
-            if "log_forwarding_options" in attributes
-            and attributes["log_forwarding_options"]
+            if "log_forwarding_options" in attributes and attributes["log_forwarding_options"]
             else None,
         )
 
@@ -628,11 +582,7 @@ def flatten_scopes(scopes: Sequence[Scope]) -> set[Subscription]:
         [s for s in scopes if isinstance(s, Subscription)]
         + [
             s
-            for subs in [
-                m.subscriptions.subscriptions
-                for m in scopes
-                if isinstance(m, ManagementGroup)
-            ]
+            for subs in [m.subscriptions.subscriptions for m in scopes if isinstance(m, ManagementGroup)]
             for s in subs
         ]
     )
@@ -654,9 +604,7 @@ def create_app_registration_with_permissions(
 MS_GRAPH_API = "00000003-0000-0000-c000-000000000000"
 
 
-def add_ms_graph_app_role_assignments(
-    app_registration: AppRegistration, roles: list[str]
-) -> None:
+def add_ms_graph_app_role_assignments(app_registration: AppRegistration, roles: list[str]) -> None:
     """Assign an app registration the necessary app roles for Datadog to function.
 
     See https://learn.microsoft.com/en-us/graph/permissions-reference for more information."""
@@ -706,9 +654,7 @@ def submit_config_identifier(workflow_id: str, app_registration: AppRegistration
         },
     )
     if status >= 400:
-        raise RuntimeError(
-            f"Error submitting configuration identifier to Datadog: {response}"
-        )
+        raise RuntimeError(f"Error submitting configuration identifier to Datadog: {response}")
 
 
 def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
@@ -731,9 +677,7 @@ def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
             f"Insufficient Azure user permissions when installing log forwarder. Please check your Azure permissions and try again: {e}"
         ) from e
     except UserActionRequiredError as e:
-        raise RuntimeError(
-            f"Error when installing log forwarder. User action is required to resolve: {e}"
-        ) from e
+        raise RuntimeError(f"Error when installing log forwarder. User action is required to resolve: {e}") from e
     except Exception as e:
         raise RuntimeError(f"Error when installing log forwarder: {e}") from e
 
@@ -766,9 +710,7 @@ def time_out(status: StatusReporter):
 
 def main():
     if missing_environment_vars := REQUIRED_ENVIRONMENT_VARS - os.environ.keys():
-        print(
-            f"Missing required environment variables: {', '.join(missing_environment_vars)}"
-        )
+        print(f"Missing required environment variables: {', '.join(missing_environment_vars)}")
         sys.exit(1)
 
     workflow_id = os.environ["WORKFLOW_ID"]
@@ -787,14 +729,10 @@ def main():
         if "az: command not found" in str(e):
             print("You must install and log in to Azure CLI to run this script.")
         else:
-            print(
-                "You must be logged in to Azure CLI to run this script. Run `az login` and try again."
-            )
+            print("You must be logged in to Azure CLI to run this script. Run `az login` and try again.")
         sys.exit(1)
     else:
-        print(
-            "Connected! Leave this window open and go back to the Datadog UI to continue."
-        )
+        print("Connected! Leave this window open and go back to the Datadog UI to continue.")
 
     with status.report_step("scopes", "Collecting scopes"):
         subscriptions, _ = report_available_scopes(workflow_id)
@@ -804,37 +742,21 @@ def main():
         loading_message="Collecting existing Log Forwarders",
         required=False,
     ) as step_metadata:
-        exactly_one_log_forwarder = report_existing_log_forwarders(
-            subscriptions, step_metadata
-        )
-    with status.report_step(
-        "selections", "Waiting for user selections in the Datadog UI"
-    ):
+        exactly_one_log_forwarder = report_existing_log_forwarders(subscriptions, step_metadata)
+    with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
         selections = receive_user_selections(workflow_id)
-    with status.report_step(
-        "app_registration", "Creating app registration in Azure"
-    ):
-        app_registration = create_app_registration_with_permissions(
-            selections.scopes
-        )
-    with status.report_step(
-        "integration_config", "Submitting new configuration to Datadog"
-    ):
-        submit_integration_config(
-            app_registration, selections.app_registration_config
-        )
-    with status.report_step(
-        "config_identifier", "Submitting new configuration identifier to Datadog"
-    ):
+    with status.report_step("app_registration", "Creating app registration in Azure"):
+        app_registration = create_app_registration_with_permissions(selections.scopes)
+    with status.report_step("integration_config", "Submitting new configuration to Datadog"):
+        submit_integration_config(app_registration, selections.app_registration_config)
+    with status.report_step("config_identifier", "Submitting new configuration identifier to Datadog"):
         submit_config_identifier(workflow_id, app_registration)
     if selections.log_forwarding_config:
         with status.report_step(
             "upsert_log_forwarder",
             f"{'Updating' if exactly_one_log_forwarder else 'Creating'} Log Forwarder",
         ):
-            upsert_log_forwarder(
-                selections.log_forwarding_config, flatten_scopes(selections.scopes)
-            )
+            upsert_log_forwarder(selections.log_forwarding_config, flatten_scopes(selections.scopes))
 
     print("Script succeeded. You may close this window.")
 

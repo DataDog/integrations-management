@@ -8,5 +8,12 @@
     ],
     "python.analysis.autoSearchPaths": true,
     "python.terminal.activateEnvironment": true,
-    "python.languageServer": "Pylance"
+    "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        }
+    },
+    "ruff.lineLength": 120
 }
