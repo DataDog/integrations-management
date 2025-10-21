@@ -477,10 +477,14 @@ def filter_scopes_by_permission(scopes: Sequence[Scope]) -> list[Scope]:
     ]
 
 
-def get_subscription_scopes():
+
+def get_subscription_scopes(tenant_id: str) -> list[Subscription]:
     return [
         Subscription(**s)
-        for s in az_json('account list --query "[].{id:id, name:name}" -o json')
+        for s in az_json(
+            'account list --query "[?tenantId==\'%s\'].{id:id, name:name}" -o json'
+            % tenant_id
+        )
     ]
 
 
@@ -504,13 +508,13 @@ def get_management_group_from_list_result(
         subscriptions=SubscriptionList(subscriptions),
     )
 
-
-def get_management_group_scopes() -> list[ManagementGroup]:
+def get_management_group_scopes(tenant_id: str) -> list[ManagementGroup]:
     try:
         mgroup_list_results = [
             ManagementGroupListResult(**lr)
             for lr in az_json(
-                'account management-group list --query "[].{id:id, az_name:name, name:displayName}" -o json'
+                'account management-group list --query "[?tenantId==\'%s\'].{id:id, az_name:name, name:displayName}" -o json'
+                % tenant_id
             )
         ]
     except RuntimeError:
@@ -528,8 +532,11 @@ def get_management_group_scopes() -> list[ManagementGroup]:
 
 def report_available_scopes(workflow_id: str) -> tuple[list[Scope], list[Scope]]:
     """Send Datadog the subscriptions and management groups that the user has permission to grant access to."""
-    subscriptions = filter_scopes_by_permission(get_subscription_scopes())
-    management_groups = filter_scopes_by_permission(get_management_group_scopes())
+    tenant_id = az_json("account show --query tenantId")
+    subscriptions = filter_scopes_by_permission(get_subscription_scopes(tenant_id))
+    management_groups = filter_scopes_by_permission(
+        get_management_group_scopes(tenant_id)
+    )
     response, status = dd_request(
         "POST",
         "/api/unstable/integration/azure/setup/scopes",
