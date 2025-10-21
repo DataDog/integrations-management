@@ -338,7 +338,9 @@ def az_json(cmd: str) -> Any:
 # Datadog utils
 
 
-def dd_request(method: str, path: str, body: dict[str, Any] | None = None) -> tuple[str, int]:
+def dd_request(
+    method: str, path: str, body: dict[str, Any] | None = None
+) -> tuple[str, int]:
     """Submit a request to Datadog."""
     return request(
         method,
@@ -477,12 +479,11 @@ def filter_scopes_by_permission(scopes: Sequence[Scope]) -> list[Scope]:
     ]
 
 
-
 def get_subscription_scopes(tenant_id: str) -> list[Subscription]:
     return [
         Subscription(**s)
         for s in az_json(
-            'account list --query "[?tenantId==\'%s\'].{id:id, name:name}" -o json'
+            "account list --query \"[?tenantId=='%s'].{id:id, name:name}\" -o json"
             % tenant_id
         )
     ]
@@ -508,12 +509,13 @@ def get_management_group_from_list_result(
         subscriptions=SubscriptionList(subscriptions),
     )
 
+
 def get_management_group_scopes(tenant_id: str) -> list[ManagementGroup]:
     try:
         mgroup_list_results = [
             ManagementGroupListResult(**lr)
             for lr in az_json(
-                'account management-group list --query "[?tenantId==\'%s\'].{id:id, az_name:name, name:displayName}" -o json'
+                "account management-group list --query \"[?tenantId=='%s'].{id:id, az_name:name, name:displayName}\" -o json"
                 % tenant_id
             )
         ]
@@ -595,12 +597,16 @@ def report_existing_log_forwarders(
 def receive_user_selections(workflow_id: str) -> UserSelections:
     """Poll and wait for the user to submit their desired scopes and configuration options."""
     while True:
-        response, status = dd_request("GET", f"/api/unstable/integration/azure/setup/selections/{workflow_id}")
+        response, status = dd_request(
+            "GET", f"/api/unstable/integration/azure/setup/selections/{workflow_id}"
+        )
         if status == 404 or not response:
             time.sleep(1)
             continue
         elif status >= 400:
-            raise RuntimeError(f"Error retrieving user selections from Datadog: {response}")
+            raise RuntimeError(
+                f"Error retrieving user selections from Datadog: {response}"
+            )
         json_response = json.loads(response)
         attributes = json_response["data"]["attributes"]
         return UserSelections(
@@ -689,7 +695,9 @@ def submit_integration_config(app_registration: AppRegistration, config: dict) -
         raise RuntimeError(f"Error creating Azure Integration in Datadog: {response}")
 
 
-def submit_config_identifier(workflow_id: str, app_registration: AppRegistration) -> None:
+def submit_config_identifier(
+    workflow_id: str, app_registration: AppRegistration
+) -> None:
     """Submit an identifier to Datadog for the new configuration so that it can be displayed to the user."""
     response, status = dd_request(
         "POST",
@@ -716,7 +724,7 @@ def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
         control_plane_region=config["controlPlaneRegion"],
         control_plane_sub_id=config["controlPlaneSubscriptionId"],
         control_plane_rg=config["resourceGroupName"],
-        monitored_subs=",".join([s.name for s in subscriptions]),
+        monitored_subs=",".join([s.id for s in subscriptions]),
         datadog_api_key=os.environ["DD_API_KEY"],
     )
     if "tagFilters" in config:
@@ -811,18 +819,12 @@ def main():
         "selections", "Waiting for user selections in the Datadog UI"
     ):
         selections = receive_user_selections(workflow_id)
-    with status.report_step(
-        "app_registration", "Creating app registration in Azure"
-    ):
-        app_registration = create_app_registration_with_permissions(
-            selections.scopes
-        )
+    with status.report_step("app_registration", "Creating app registration in Azure"):
+        app_registration = create_app_registration_with_permissions(selections.scopes)
     with status.report_step(
         "integration_config", "Submitting new configuration to Datadog"
     ):
-        submit_integration_config(
-            app_registration, selections.app_registration_config
-        )
+        submit_integration_config(app_registration, selections.app_registration_config)
     with status.report_step(
         "config_identifier", "Submitting new configuration identifier to Datadog"
     ):
