@@ -99,50 +99,8 @@ def wait_for_storage_account_ready(storage_account_name: str, control_plane_rg: 
 
 
 # =============================================================================
-# App Service Plan, Function Apps
+# Function Apps
 # =============================================================================
-
-
-def create_app_service_plan(app_service_plan: str, control_plane_rg: str, control_plane_region: str):
-    """Create app service plan that the function apps slot into"""
-    try:
-        log.info(f"Checking if App Service Plan '{app_service_plan}' already exists...")
-        execute(
-            AzCmd("appservice", "plan show")
-            .param("--name", app_service_plan)
-            .param("--resource-group", control_plane_rg)
-        )
-        log.info(f"App Service Plan '{app_service_plan}' already exists - reusing existing plan")
-        return
-    except ResourceNotFoundError:
-        log.info(f"App Service Plan '{app_service_plan}' not found - creating new plan")
-    except Exception as e:
-        raise ExistenceCheckError(f"Failed to check if App Service Plan '{app_service_plan}' exists: {e}") from e
-
-    log.info(f"Creating App Service Plan {app_service_plan}")
-
-    # Use `az resource create` instead of `az appservice plan create` because of Azure CLI issue with the SKU we utilize (Y1)
-    # https://github.com/Azure/azure-cli/issues/19864
-
-    properties_json = json.dumps(
-        {
-            "name": app_service_plan,
-            "location": control_plane_region,
-            "kind": "linux",
-            "sku": {"name": "Y1", "tier": "Dynamic"},
-            "properties": {"reserved": True},
-        }
-    )
-
-    execute(
-        AzCmd("resource", "create")
-        .param("--resource-group", control_plane_rg)
-        .param("--name", app_service_plan)
-        .param("--resource-type", "Microsoft.Web/serverfarms")
-        .flag("--is-full-object")
-        .param("--properties", shlex.quote(properties_json))
-        .param("--api-version", "2022-09-01")
-    )
 
 
 def create_function_app(config: Configuration, name: str):
@@ -240,12 +198,6 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
 
 def create_function_apps(config: Configuration):
     """Create function apps for LFO Resources Task, Scaling Task, and Diagnostic Settings Task"""
-    log.info("Creating App Service Plan...")
-    create_app_service_plan(
-        config.app_service_plan_name,
-        config.control_plane_rg,
-        config.control_plane_region,
-    )
 
     log.info("Creating Function Apps...")
     for function_app_name in config.control_plane_function_app_names:
