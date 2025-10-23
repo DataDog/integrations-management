@@ -86,7 +86,7 @@ def request(
                 context=ssl.create_default_context(),
             ) as response:
                 return response.read().decode("utf-8"), response.status
-        except (HTTPError, URLError) as e:
+        except URLError as e:
             can_retry = attempt < max_retries - 1
             if isinstance(e, HTTPError):
                 data, status = e.read().decode("utf-8"), e.code
