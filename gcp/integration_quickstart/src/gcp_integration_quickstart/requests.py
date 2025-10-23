@@ -7,20 +7,24 @@ import os
 import ssl
 import time
 import urllib.request
-from typing import Any, Tuple
+from typing import Any, Optional
 from urllib.error import HTTPError, URLError
 
 
 def request(
     method: str,
     url: str,
-    body: dict[str, Any] | None = None,
-    headers: dict[str, str] = {},
+    body: Optional[dict[str, Any]] = None,
+    headers: Optional[dict[str, str]] = {},
     max_retries: int = 3,
     base_delay: float = 1.0,
-    retry_status_codes: set[int] = {500, 502, 503, 504},
-) -> Tuple[str, int]:
+    retry_status_codes: Optional[set[int]] = None,
+) -> tuple[str, int]:
     """Submit a request to the given URL with the specified method and body with retry logic."""
+    if headers is None:
+        headers = {}
+    if retry_status_codes is None:
+        retry_status_codes = {500, 502, 503, 504}
 
     for attempt in range(max_retries):
         req = urllib.request.Request(
@@ -59,8 +63,8 @@ def request(
 def dd_request(
     method: str,
     path: str,
-    body: dict[str, Any] | None = None,
-) -> Tuple[str, int]:
+    body: Optional[dict[str, Any]] = None,
+) -> tuple[str, int]:
     """Submit a request to Datadog."""
     return request(
         method,
