@@ -40,7 +40,7 @@ T = TypeVar("T")
 
 @dataclass
 class UnionContainer(Container[T]):
-    """A container comprised other containers."""
+    """A container comprised of other containers."""
 
     containers: Iterable[Container[T]]
 
