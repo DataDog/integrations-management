@@ -76,11 +76,13 @@ def request(
     headers: Optional[dict[str, str]] = None,
     max_retries: int = 3,
     base_delay: float = 1.0,
-    retry_status_codes: set[int] = {500, 502, 503, 504},
+    retry_status_codes: Optional[set[int]] = None,
 ) -> tuple[str, int]:
     """Submit a request to the given URL with the specified method and body with retry logic."""
     if headers is None:
         headers = {}
+    if retry_status_codes is None:
+        retry_status_codes = {500, 502, 503, 504}
     for attempt in range(max_retries):
         try:
             with urlopen(
