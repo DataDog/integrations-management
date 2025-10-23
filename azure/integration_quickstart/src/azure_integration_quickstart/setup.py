@@ -15,7 +15,6 @@ import sys
 import threading
 import time
 import traceback
-import urllib.request
 from abc import ABC, abstractmethod
 from collections.abc import Container, Iterable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -26,6 +25,7 @@ from enum import Enum
 from functools import lru_cache
 from typing import Any, Generator, Literal, Optional, TypedDict, TypeVar, Union
 from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from az_shared.errors import AccessError, AzCliNotAuthenticatedError, UserActionRequiredError
 from azure_logging_install.configuration import Configuration
@@ -59,45 +59,48 @@ JsonList = list["Json"]
 Json = Union[JsonDict, JsonList, JsonAtom]
 
 
+@dataclass
+class RequestError(RuntimeError):
+    url: str
+    method: str
+    message: str
+
+    def __str__(self):
+        return f"{self.method} {self.url}: {self.message}"
+
+
 def request(
     method: str,
     url: str,
-    body: Optional[dict[str, Any]] = None,
+    body: Optional[Json] = None,
     headers: dict[str, str] = {},
     max_retries: int = 3,
     base_delay: float = 1.0,
     retry_status_codes: set[int] = {500, 502, 503, 504},
 ) -> tuple[str, int]:
     """Submit a request to the given URL with the specified method and body with retry logic."""
-
     for attempt in range(max_retries):
-        req = urllib.request.Request(
-            url, method=method, headers=headers, data=json.dumps(body).encode("utf-8") if body else None
-        )
-
         try:
-            with urllib.request.urlopen(req, context=ssl.create_default_context()) as response:
-                data, status = response.read().decode("utf-8"), response.status
-                return data, status
-        except HTTPError as e:
-            data, status = e.read().decode("utf-8"), e.code
-            if status in retry_status_codes:
-                if attempt < max_retries - 1:
-                    time.sleep(base_delay * (2**attempt))
-                    continue
-
-                raise RuntimeError(f"HTTP error {status}: {data}")
-
-            return data, status
+            with urlopen(
+                Request(url, method=method, headers=headers, data=json.dumps(body).encode("utf-8") if body else None),
+                context=ssl.create_default_context(),
+            ) as response:
+                return response.read().decode("utf-8"), response.status
         except URLError as e:
-            if attempt < max_retries - 1:
+            can_retry = attempt < max_retries - 1
+            if isinstance(e, HTTPError):
+                data, status = e.read().decode("utf-8"), e.code
+                if status not in retry_status_codes:
+                    can_retry = False
+                message = f"error {status}: {data}"
+            else:
+                message = f"network error: {e.reason}"
+            if can_retry:
                 time.sleep(base_delay * (2**attempt))
-                continue
-
-            raise RuntimeError(f"Network error after {max_retries} attempts: {e.reason}") from e
-
-    # We should never hit this
-    raise RuntimeError("Exceeded maximum number of attempts for request")
+            else:
+                raise RequestError(url, method, message) from e
+    # We should never hit this.
+    raise RequestError(url, method, "exceeded max retries")
 
 
 # Azure util
