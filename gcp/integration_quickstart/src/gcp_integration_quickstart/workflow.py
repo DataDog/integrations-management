@@ -4,7 +4,7 @@
 
 import json
 import time
-from typing import Any
+from typing import Any, Optional
 
 from .gcloud import gcloud
 from .requests import dd_request
@@ -16,7 +16,7 @@ def ensure_login() -> None:
         raise RuntimeError("not logged in to GCloud Shell")
 
 
-def receive_user_selections(workflow_id: str) -> dict[str, Any] | None:
+def receive_user_selections(workflow_id: str) -> Optional[dict[str, Any]]:
     """Receive user selections from the Datadog workflow."""
 
     while True:

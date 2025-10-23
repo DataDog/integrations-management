@@ -6,7 +6,7 @@ import json
 from collections import defaultdict
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import asdict
-from typing import Any, Tuple
+from typing import Any
 
 from .gcloud import gcloud
 from .models import (
@@ -22,7 +22,7 @@ from .requests import dd_request, request
 def fetch_iam_permissions_for(
     resource_container: ResourceContainer,
     auth_token: str,
-) -> Tuple[ResourceContainer, str, int]:
+) -> tuple[ResourceContainer, str, int]:
     """Verify if the given resource container has the required permissions."""
     response, status = request(
         "POST",
@@ -87,7 +87,7 @@ def filter_configuration_scope(
     folders: list[Folder] = []
 
     with ThreadPoolExecutor(max_workers=20) as executor:
-        project_futures: list[Future[Tuple[Project, str, int]]] = [
+        project_futures: list[Future[tuple[Project, str, int]]] = [
             executor.submit(
                 fetch_iam_permissions_for,
                 project,
@@ -96,7 +96,7 @@ def filter_configuration_scope(
             for project in configuration_scope.projects
         ]
 
-        folder_futures: list[Future[Tuple[Folder, str, int]]] = [
+        folder_futures: list[Future[tuple[Folder, str, int]]] = [
             executor.submit(
                 fetch_iam_permissions_for,
                 folder,
@@ -105,7 +105,7 @@ def filter_configuration_scope(
             for folder in configuration_scope.folders
         ]
 
-        all_futures: list[Future[Tuple[ResourceContainer, str, int]]] = (
+        all_futures: list[Future[tuple[ResourceContainer, str, int]]] = (
             project_futures + folder_futures
         )
 
