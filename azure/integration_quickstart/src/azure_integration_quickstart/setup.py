@@ -38,36 +38,14 @@ from azure_logging_install.main import install_log_forwarder
 T = TypeVar("T")
 
 
-class AlgebraicContainer(Container[T]):
-    """A container that supports operations of addition and subtraction."""
-
-    def __add__(self, other: Container[T]) -> Container[T]:
-        return UnionContainer(self, other)
-
-    def __sub__(self, other: Container[T]) -> Container[T]:
-        return DifferenceContainer(self, other)
-
-
 @dataclass
-class UnionContainer(AlgebraicContainer[T]):
-    """A container comprised of the union of two containers."""
+class UnionContainer(Container[T]):
+    """A container comprised of other containers."""
 
-    c1: Container[T]
-    c2: Container[T]
+    containers: Iterable[Container[T]]
 
     def __contains__(self, item: T) -> bool:
-        return item in self.c1 or item in self.c2
-
-
-@dataclass
-class DifferenceContainer(AlgebraicContainer[T]):
-    """A container comprised of the difference of two containers."""
-
-    c1: Container[T]
-    c2: Container[T]
-
-    def __contains__(self, item: T) -> bool:
-        return item in self.c1 and item not in self.c2
+        return any(item in container for container in self.containers)
 
 
 @lru_cache(maxsize=256)
@@ -164,14 +142,22 @@ def is_action_lte(a1: Action, a2: Action) -> bool:
     return bool(compile_wildcard(a2.lower()).match(a1.lower()))
 
 
-@dataclass
-class Actions(AlgebraicContainer[Action]):
-    """A container of actions that supports operations of addition and subtraction."""
+def is_action_overlapping(a1: Action, a2: Action) -> bool:
+    """Determine whether an action has any overlap with another action."""
+    return is_action_lte(a1, a2) or is_action_lte(a2, a1)
 
-    data: Iterable[Action]
+
+@dataclass
+class ActionContainer(Container[Action]):
+    """A container of actions."""
+
+    actions: Iterable[Action]
+    not_actions: Iterable[Action]
 
     def __contains__(self, action: Action) -> bool:
-        return any(is_action_lte(action, a) for a in self.data)
+        return (any(is_action_lte(action, a) for a in self.actions)) and not (
+            any(is_action_overlapping(a, action) for a in self.not_actions)
+        )
 
 
 @dataclass
@@ -188,13 +174,9 @@ class FlatPermission:
 def flatten_permissions(permissions: Iterable[Permission]) -> FlatPermission:
     """Create a single permission used to determine whether actions are supported by any of the given permissions."""
     return FlatPermission(
-        reduce(
-            add, [Actions(p.get("actions", [])) - Actions(p.get("notActions", [])) for p in permissions], Actions([])
-        ),
-        reduce(
-            add,
-            [Actions(p.get("dataActions", [])) - Actions(p.get("notDataActions", [])) for p in permissions],
-            Actions([]),
+        UnionContainer([ActionContainer(p.get("actions") or [], p.get("notActions") or []) for p in permissions]),
+        UnionContainer(
+            [ActionContainer(p.get("dataActions") or [], p.get("notDataActions") or []) for p in permissions]
         ),
     )
 
