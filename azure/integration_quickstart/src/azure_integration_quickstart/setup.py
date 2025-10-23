@@ -15,7 +15,6 @@ import sys
 import threading
 import time
 import traceback
-import urllib.request
 from abc import ABC, abstractmethod
 from collections.abc import Container, Iterable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -26,6 +25,7 @@ from enum import Enum
 from functools import lru_cache
 from typing import Any, Generator, Literal, Optional, TypedDict, TypeVar, Union
 from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from az_shared.errors import AccessError, AzCliNotAuthenticatedError, UserActionRequiredError
 from azure_logging_install.configuration import Configuration
@@ -81,10 +81,8 @@ def request(
     """Submit a request to the given URL with the specified method and body with retry logic."""
     for attempt in range(max_retries):
         try:
-            with urllib.request.urlopen(
-                urllib.request.Request(
-                    url, method=method, headers=headers, data=json.dumps(body).encode("utf-8") if body else None
-                ),
+            with urlopen(
+                Request(url, method=method, headers=headers, data=json.dumps(body).encode("utf-8") if body else None),
                 context=ssl.create_default_context(),
             ) as response:
                 return response.read().decode("utf-8"), response.status
