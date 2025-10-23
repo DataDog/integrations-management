@@ -23,8 +23,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import Enum
-from functools import lru_cache, reduce
-from operator import add
+from functools import lru_cache
 from typing import Any, Generator, Literal, Optional, TypedDict, TypeVar, Union
 from urllib.error import HTTPError, URLError
 
