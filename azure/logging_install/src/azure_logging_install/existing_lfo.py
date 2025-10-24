@@ -105,31 +105,40 @@ def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) 
     """Check if LFO is already installed on any of the given subscriptions. Returns a dict mapping control plane ID to LFO metadata."""
     log.info("Checking if log forwarding is already installed in this Azure environment...")
 
-    control_planes = find_existing_lfo_control_planes(sub_id_to_name, subscriptions)
-    existing_lfos: dict[str, LfoMetadata] = {}
+    control_planes = find_existing_lfo_control_planes(sub_id_to_name, subscriptions).items()
 
-    for control_plane_id, control_plane in control_planes.items():
-        resource_task_name = f"{RESOURCES_TASK_PREFIX}{control_plane_id}"
-        scaling_task_name = f"{SCALING_TASK_PREFIX}{control_plane_id}"
+    # if there is more than one, just return some LFO stubs since we won't be modifying them
+    if len(control_planes) > 1:
+        return {
+            control_plane_id: LfoMetadata(control_plane, {}, "", "")
+            for control_plane_id, control_plane in control_planes
+        }
+    if len(control_planes) <= 0:
+        return {}
 
-        resource_task_env_vars = query_function_app_env_vars(control_plane, resource_task_name)
-        scaling_task_env_vars = query_function_app_env_vars(control_plane, scaling_task_name)
+    control_plane_id, control_plane = next(iter(control_planes))
+    resource_task_name = f"{RESOURCES_TASK_PREFIX}{control_plane_id}"
+    scaling_task_name = f"{SCALING_TASK_PREFIX}{control_plane_id}"
 
-        monitored_sub_ids_str = resource_task_env_vars.get(MONITORED_SUBSCRIPTIONS_KEY, "")
-        if not monitored_sub_ids_str:
-            continue
+    resource_task_env_vars = query_function_app_env_vars(control_plane, resource_task_name)
+    scaling_task_env_vars = query_function_app_env_vars(control_plane, scaling_task_name)
 
-        try:
-            monitored_sub_ids = loads(monitored_sub_ids_str)
-        except JSONDecodeError as e:
-            log.error(f"Invalid JSON: {monitored_sub_ids_str}")
-            log.error(f"Error: {e}")
-            raise
+    monitored_sub_ids_str = resource_task_env_vars.get(MONITORED_SUBSCRIPTIONS_KEY, "")
+    if not monitored_sub_ids_str:
+        return {}
 
-        tag_filters = resource_task_env_vars.get(RESOURCE_TAG_FILTERS_KEY, "")
-        pii_rules = scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
+    try:
+        monitored_sub_ids = loads(monitored_sub_ids_str)
+    except JSONDecodeError as e:
+        log.error(f"Invalid JSON: {monitored_sub_ids_str}")
+        log.error(f"Error: {e}")
+        raise
 
-        existing_lfos[control_plane_id] = LfoMetadata(
+    tag_filters = resource_task_env_vars.get(RESOURCE_TAG_FILTERS_KEY, "")
+    pii_rules = scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
+
+    return {
+        control_plane_id: LfoMetadata(
             control_plane,
             monitored_subs={
                 sub_id: sub_id_to_name[sub_id] if sub_id in sub_id_to_name else UNKNOWN_SUB_NAME_MESSAGE
@@ -138,8 +147,7 @@ def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) 
             tag_filter=tag_filters,
             pii_rules=pii_rules,
         )
-
-    return existing_lfos
+    }
 
 
 def update_existing_lfo(config: Configuration, existing_lfo: LfoMetadata):
