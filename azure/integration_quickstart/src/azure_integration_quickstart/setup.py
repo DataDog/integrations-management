@@ -658,7 +658,7 @@ def main():
             print("You must be logged in to Azure CLI to run this script. Run `az login` and try again.")
         sys.exit(1)
     else:
-        print("Connected! Leave this window open and go back to the Datadog UI to continue.")
+        print("Connected! Leave this shell running and go back to the Datadog UI to continue.")
 
     with status.report_step("scopes", "Collecting scopes"):
         subscriptions, _ = report_available_scopes(workflow_id)
@@ -683,7 +683,7 @@ def main():
         ):
             upsert_log_forwarder(selections.log_forwarding_config, flatten_scopes(selections.scopes))
 
-    print("Script succeeded. You may close this window.")
+    print("Script succeeded. You may exit this shell.")
 
 
 if __name__ == "__main__":

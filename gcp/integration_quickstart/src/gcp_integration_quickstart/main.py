@@ -67,7 +67,7 @@ def main():
         exit(1)
     else:
         print(
-            "Connected! Leave this window open and go back to the Datadog UI to continue."
+            "Connected! Leave this shell running and go back to the Datadog UI to continue."
         )
 
     with workflow_reporter.report_step("scopes") as step_reporter:
@@ -104,7 +104,7 @@ def main():
             ),
         )
 
-    print("Script succeeded. You may close this window.")
+    print("Script succeeded. You may exit this shell.")
 
 
 def sigint_handler(_, __):
