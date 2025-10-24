@@ -59,16 +59,6 @@ JsonList = list["Json"]
 Json = Union[JsonDict, JsonList, JsonAtom]
 
 
-@dataclass
-class RequestError(RuntimeError):
-    url: str
-    method: str
-    message: str
-
-    def __str__(self):
-        return f"{self.method} {self.url}: {self.message}"
-
-
 def request(
     method: str,
     url: str,
@@ -93,18 +83,14 @@ def request(
         except URLError as e:
             can_retry = attempt < max_retries - 1
             if isinstance(e, HTTPError):
-                data, status = e.read().decode("utf-8"), e.code
-                if status not in retry_status_codes:
+                if e.code not in retry_status_codes:
                     can_retry = False
-                message = f"error {status}: {data}"
-            else:
-                message = f"network error: {e.reason}"
             if can_retry:
                 time.sleep(base_delay * (2**attempt))
             else:
-                raise RequestError(url, method, message) from e
+                raise e
     # We should never hit this.
-    raise RequestError(url, method, "exceeded max retries")
+    raise RuntimeError(f"{method} {url}: exceeded max retries")
 
 
 # Azure util
@@ -455,23 +441,24 @@ def report_available_scopes(workflow_id: str) -> tuple[list[Scope], list[Scope]]
     tenant_id = az_json("account show --query tenantId")
     subscriptions = filter_scopes_by_permission(get_subscription_scopes(tenant_id))
     management_groups = filter_scopes_by_permission(get_management_group_scopes(tenant_id))
-    response, status = dd_request(
-        "POST",
-        "/api/unstable/integration/azure/setup/scopes",
-        {
-            "data": {
-                "id": workflow_id,
-                "type": "add_azure_app_registration",
-                "attributes": {
-                    "subscriptions": {"subscriptions": [asdict(s) for s in subscriptions]},
-                    "management_groups": {"management_groups": [asdict(m) for m in management_groups]},
-                },
-            }
-        },
-    )
-    if status >= 400:
-        raise RuntimeError(f"Error submitting available scopes to Datadog: {response}")
-    return (subscriptions, management_groups)
+    try:
+        dd_request(
+            "POST",
+            "/api/unstable/integration/azure/setup/scopes",
+            {
+                "data": {
+                    "id": workflow_id,
+                    "type": "add_azure_app_registration",
+                    "attributes": {
+                        "subscriptions": {"subscriptions": [asdict(s) for s in subscriptions]},
+                        "management_groups": {"management_groups": [asdict(m) for m in management_groups]},
+                    },
+                }
+            },
+        )
+    except URLError as e:
+        raise RuntimeError("Error submitting available scopes to Datadog") from e
+    return subscriptions, management_groups
 
 
 def build_log_forwarder_payload(metadata: LfoMetadata) -> LogForwarderPayload:
@@ -503,12 +490,14 @@ def report_existing_log_forwarders(subscriptions: list[Scope], step_metadata: di
 def receive_user_selections(workflow_id: str) -> UserSelections:
     """Poll and wait for the user to submit their desired scopes and configuration options."""
     while True:
-        response, status = dd_request("GET", f"/api/unstable/integration/azure/setup/selections/{workflow_id}")
-        if status == 404 or not response:
-            time.sleep(1)
-            continue
-        elif status >= 400:
-            raise RuntimeError(f"Error retrieving user selections from Datadog: {response}")
+        try:
+            response, _ = dd_request("GET", f"/api/unstable/integration/azure/setup/selections/{workflow_id}")
+        except HTTPError as e:
+            if e.code == 404:
+                time.sleep(1)
+                continue
+            else:
+                raise RuntimeError("Error retrieving user selections from Datadog") from e
         json_response = json.loads(response)
         attributes = json_response["data"]["attributes"]
         return UserSelections(
@@ -566,37 +555,39 @@ def add_ms_graph_app_role_assignments(app_registration: AppRegistration, roles: 
 
 def submit_integration_config(app_registration: AppRegistration, config: dict) -> None:
     """Submit a new configuration to Datadog."""
-    response, status = dd_request(
-        "POST",
-        "/api/v1/integration/azure",
-        {
-            **config,
-            "client_id": app_registration.client_id,
-            "client_secret": app_registration.client_secret,
-            "tenant_name": app_registration.tenant_id,
-            "source": "quickstart",
-            "validate": False,
-        },
-    )
-    if status >= 400:
-        raise RuntimeError(f"Error creating Azure Integration in Datadog: {response}")
+    try:
+        dd_request(
+            "POST",
+            "/api/v1/integration/azure",
+            {
+                **config,
+                "client_id": app_registration.client_id,
+                "client_secret": app_registration.client_secret,
+                "tenant_name": app_registration.tenant_id,
+                "source": "quickstart",
+                "validate": False,
+            },
+        )
+    except URLError as e:
+        raise RuntimeError("Error creating Azure Integration in Datadog") from e
 
 
 def submit_config_identifier(workflow_id: str, app_registration: AppRegistration) -> None:
     """Submit an identifier to Datadog for the new configuration so that it can be displayed to the user."""
-    response, status = dd_request(
-        "POST",
-        "/api/unstable/integration/azure/setup/serviceprincipal",
-        {
-            "data": {
-                "id": workflow_id,
-                "type": "add_azure_app_registration",
-                "attributes": {"client_id": app_registration.client_id, "tenant_id": app_registration.tenant_id},
-            }
-        },
-    )
-    if status >= 400:
-        raise RuntimeError(f"Error submitting configuration identifier to Datadog: {response}")
+    try:
+        dd_request(
+            "POST",
+            "/api/unstable/integration/azure/setup/serviceprincipal",
+            {
+                "data": {
+                    "id": workflow_id,
+                    "type": "add_azure_app_registration",
+                    "attributes": {"client_id": app_registration.client_id, "tenant_id": app_registration.tenant_id},
+                }
+            },
+        )
+    except URLError as e:
+        raise RuntimeError("Error submitting configuration identifier to Datadog") from e
 
 
 def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
