@@ -15,7 +15,6 @@ import sys
 import threading
 import time
 import traceback
-import urllib.request
 from abc import ABC, abstractmethod
 from collections.abc import Container, Iterable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -23,10 +22,10 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import Enum
-from functools import lru_cache, reduce
-from operator import add
+from functools import lru_cache
 from typing import Any, Generator, Literal, Optional, TypedDict, TypeVar, Union
 from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from az_shared.errors import AccessError, AzCliNotAuthenticatedError, UserActionRequiredError
 from azure_logging_install.configuration import Configuration
@@ -38,36 +37,14 @@ from azure_logging_install.main import install_log_forwarder
 T = TypeVar("T")
 
 
-class AlgebraicContainer(Container[T]):
-    """A container that supports operations of addition and subtraction."""
-
-    def __add__(self, other: Container[T]) -> Container[T]:
-        return UnionContainer(self, other)
-
-    def __sub__(self, other: Container[T]) -> Container[T]:
-        return DifferenceContainer(self, other)
-
-
 @dataclass
-class UnionContainer(AlgebraicContainer[T]):
-    """A container comprised of the union of two containers."""
+class UnionContainer(Container[T]):
+    """A container comprised of other containers."""
 
-    c1: Container[T]
-    c2: Container[T]
+    containers: Iterable[Container[T]]
 
     def __contains__(self, item: T) -> bool:
-        return item in self.c1 or item in self.c2
-
-
-@dataclass
-class DifferenceContainer(AlgebraicContainer[T]):
-    """A container comprised of the difference of two containers."""
-
-    c1: Container[T]
-    c2: Container[T]
-
-    def __contains__(self, item: T) -> bool:
-        return item in self.c1 and item not in self.c2
+        return any(item in container for container in self.containers)
 
 
 @lru_cache(maxsize=256)
@@ -85,42 +62,34 @@ Json = Union[JsonDict, JsonList, JsonAtom]
 def request(
     method: str,
     url: str,
-    body: Optional[dict[str, Any]] = None,
-    headers: dict[str, str] = {},
+    body: Optional[Json] = None,
+    headers: Optional[dict[str, str]] = None,
     max_retries: int = 3,
     base_delay: float = 1.0,
-    retry_status_codes: set[int] = {500, 502, 503, 504},
+    retry_status_codes: Optional[set[int]] = None,
 ) -> tuple[str, int]:
     """Submit a request to the given URL with the specified method and body with retry logic."""
-
+    if headers is None:
+        headers = {}
+    if retry_status_codes is None:
+        retry_status_codes = {500, 502, 503, 504}
     for attempt in range(max_retries):
-        req = urllib.request.Request(
-            url, method=method, headers=headers, data=json.dumps(body).encode("utf-8") if body else None
-        )
-
         try:
-            with urllib.request.urlopen(req, context=ssl.create_default_context()) as response:
-                data, status = response.read().decode("utf-8"), response.status
-                return data, status
-        except HTTPError as e:
-            data, status = e.read().decode("utf-8"), e.code
-            if status in retry_status_codes:
-                if attempt < max_retries - 1:
-                    time.sleep(base_delay * (2**attempt))
-                    continue
-
-                raise RuntimeError(f"HTTP error {status}: {data}")
-
-            return data, status
+            with urlopen(
+                Request(url, method=method, headers=headers, data=json.dumps(body).encode("utf-8") if body else None),
+                context=ssl.create_default_context(),
+            ) as response:
+                return response.read().decode("utf-8"), response.status
         except URLError as e:
-            if attempt < max_retries - 1:
+            can_retry = attempt < max_retries - 1
+            if isinstance(e, HTTPError) and e.code not in retry_status_codes:
+                can_retry = False
+            if can_retry:
                 time.sleep(base_delay * (2**attempt))
-                continue
-
-            raise RuntimeError(f"Network error after {max_retries} attempts: {e.reason}") from e
-
-    # We should never hit this
-    raise RuntimeError("Exceeded maximum number of attempts for request")
+            else:
+                raise e
+    # We should never hit this.
+    raise RuntimeError(f"{method} {url}: exceeded max retries")
 
 
 # Azure util
@@ -164,14 +133,22 @@ def is_action_lte(a1: Action, a2: Action) -> bool:
     return bool(compile_wildcard(a2.lower()).match(a1.lower()))
 
 
-@dataclass
-class Actions(AlgebraicContainer[Action]):
-    """A container of actions that supports operations of addition and subtraction."""
+def is_action_overlapping(a1: Action, a2: Action) -> bool:
+    """Determine whether an action has any overlap with another action."""
+    return is_action_lte(a1, a2) or is_action_lte(a2, a1)
 
-    data: Iterable[Action]
+
+@dataclass
+class ActionContainer(Container[Action]):
+    """A container of actions."""
+
+    actions: Iterable[Action]
+    not_actions: Iterable[Action]
 
     def __contains__(self, action: Action) -> bool:
-        return any(is_action_lte(action, a) for a in self.data)
+        return (any(is_action_lte(action, a) for a in self.actions)) and not (
+            any(is_action_overlapping(a, action) for a in self.not_actions)
+        )
 
 
 @dataclass
@@ -188,13 +165,9 @@ class FlatPermission:
 def flatten_permissions(permissions: Iterable[Permission]) -> FlatPermission:
     """Create a single permission used to determine whether actions are supported by any of the given permissions."""
     return FlatPermission(
-        reduce(
-            add, [Actions(p.get("actions", [])) - Actions(p.get("notActions", [])) for p in permissions], Actions([])
-        ),
-        reduce(
-            add,
-            [Actions(p.get("dataActions", [])) - Actions(p.get("notDataActions", [])) for p in permissions],
-            Actions([]),
+        UnionContainer([ActionContainer(p.get("actions") or [], p.get("notActions") or []) for p in permissions]),
+        UnionContainer(
+            [ActionContainer(p.get("dataActions") or [], p.get("notDataActions") or []) for p in permissions]
         ),
     )
 
@@ -467,23 +440,24 @@ def report_available_scopes(workflow_id: str) -> tuple[list[Scope], list[Scope]]
     tenant_id = az_json("account show --query tenantId")
     subscriptions = filter_scopes_by_permission(get_subscription_scopes(tenant_id))
     management_groups = filter_scopes_by_permission(get_management_group_scopes(tenant_id))
-    response, status = dd_request(
-        "POST",
-        "/api/unstable/integration/azure/setup/scopes",
-        {
-            "data": {
-                "id": workflow_id,
-                "type": "add_azure_app_registration",
-                "attributes": {
-                    "subscriptions": {"subscriptions": [asdict(s) for s in subscriptions]},
-                    "management_groups": {"management_groups": [asdict(m) for m in management_groups]},
-                },
-            }
-        },
-    )
-    if status >= 400:
-        raise RuntimeError(f"Error submitting available scopes to Datadog: {response}")
-    return (subscriptions, management_groups)
+    try:
+        dd_request(
+            "POST",
+            "/api/unstable/integration/azure/setup/scopes",
+            {
+                "data": {
+                    "id": workflow_id,
+                    "type": "add_azure_app_registration",
+                    "attributes": {
+                        "subscriptions": {"subscriptions": [asdict(s) for s in subscriptions]},
+                        "management_groups": {"management_groups": [asdict(m) for m in management_groups]},
+                    },
+                }
+            },
+        )
+    except URLError as e:
+        raise RuntimeError("Error submitting available scopes to Datadog") from e
+    return subscriptions, management_groups
 
 
 def build_log_forwarder_payload(metadata: LfoMetadata) -> LogForwarderPayload:
@@ -515,12 +489,14 @@ def report_existing_log_forwarders(subscriptions: list[Scope], step_metadata: di
 def receive_user_selections(workflow_id: str) -> UserSelections:
     """Poll and wait for the user to submit their desired scopes and configuration options."""
     while True:
-        response, status = dd_request("GET", f"/api/unstable/integration/azure/setup/selections/{workflow_id}")
-        if status == 404 or not response:
-            time.sleep(1)
-            continue
-        elif status >= 400:
-            raise RuntimeError(f"Error retrieving user selections from Datadog: {response}")
+        try:
+            response, _ = dd_request("GET", f"/api/unstable/integration/azure/setup/selections/{workflow_id}")
+        except HTTPError as e:
+            if e.code == 404:
+                time.sleep(1)
+                continue
+            else:
+                raise RuntimeError("Error retrieving user selections from Datadog") from e
         json_response = json.loads(response)
         attributes = json_response["data"]["attributes"]
         return UserSelections(
@@ -578,37 +554,39 @@ def add_ms_graph_app_role_assignments(app_registration: AppRegistration, roles: 
 
 def submit_integration_config(app_registration: AppRegistration, config: dict) -> None:
     """Submit a new configuration to Datadog."""
-    response, status = dd_request(
-        "POST",
-        "/api/v1/integration/azure",
-        {
-            **config,
-            "client_id": app_registration.client_id,
-            "client_secret": app_registration.client_secret,
-            "tenant_name": app_registration.tenant_id,
-            "source": "quickstart",
-            "validate": False,
-        },
-    )
-    if status >= 400:
-        raise RuntimeError(f"Error creating Azure Integration in Datadog: {response}")
+    try:
+        dd_request(
+            "POST",
+            "/api/v1/integration/azure",
+            {
+                **config,
+                "client_id": app_registration.client_id,
+                "client_secret": app_registration.client_secret,
+                "tenant_name": app_registration.tenant_id,
+                "source": "quickstart",
+                "validate": False,
+            },
+        )
+    except URLError as e:
+        raise RuntimeError("Error creating Azure Integration in Datadog") from e
 
 
 def submit_config_identifier(workflow_id: str, app_registration: AppRegistration) -> None:
     """Submit an identifier to Datadog for the new configuration so that it can be displayed to the user."""
-    response, status = dd_request(
-        "POST",
-        "/api/unstable/integration/azure/setup/serviceprincipal",
-        {
-            "data": {
-                "id": workflow_id,
-                "type": "add_azure_app_registration",
-                "attributes": {"client_id": app_registration.client_id, "tenant_id": app_registration.tenant_id},
-            }
-        },
-    )
-    if status >= 400:
-        raise RuntimeError(f"Error submitting configuration identifier to Datadog: {response}")
+    try:
+        dd_request(
+            "POST",
+            "/api/unstable/integration/azure/setup/serviceprincipal",
+            {
+                "data": {
+                    "id": workflow_id,
+                    "type": "add_azure_app_registration",
+                    "attributes": {"client_id": app_registration.client_id, "tenant_id": app_registration.tenant_id},
+                }
+            },
+        )
+    except URLError as e:
+        raise RuntimeError("Error submitting configuration identifier to Datadog") from e
 
 
 def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):

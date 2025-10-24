@@ -4,7 +4,7 @@
 
 from contextlib import contextmanager
 from enum import Enum
-from typing import Any, Generator
+from typing import Any, Generator, Optional
 
 
 class Status(str, Enum):
@@ -20,7 +20,7 @@ class StepStatusReporter:
         self.step_id = step_id
 
     def report(
-        self, metadata: dict[str, Any] = None, message: str | None = None
+        self, metadata: Optional[dict[str, Any]] = None, message: Optional[str] = None
     ) -> None:
         """Report the status of a step in a workflow to Datadog."""
         self.status_reporter.report(
@@ -40,8 +40,8 @@ class WorkflowReporter:
         self,
         step: str,
         status: Status,
-        metadata: dict[str, Any] = None,
-        message: str | None = None,
+        metadata: Optional[dict[str, Any]] = None,
+        message: Optional[str] = None,
     ) -> None:
         """Report the status of a step in a workflow to Datadog."""
         response, status = self.dd_request(
