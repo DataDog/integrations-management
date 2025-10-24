@@ -82,9 +82,8 @@ def request(
                 return response.read().decode("utf-8"), response.status
         except URLError as e:
             can_retry = attempt < max_retries - 1
-            if isinstance(e, HTTPError):
-                if e.code not in retry_status_codes:
-                    can_retry = False
+            if isinstance(e, HTTPError) and e.code not in retry_status_codes:
+                can_retry = False
             if can_retry:
                 time.sleep(base_delay * (2**attempt))
             else:
