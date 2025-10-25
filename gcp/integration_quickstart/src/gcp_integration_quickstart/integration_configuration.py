@@ -5,10 +5,12 @@
 import json
 from dataclasses import asdict
 
-from .gcloud import gcloud
-from .models import ConfigurationScope, IntegrationConfiguration
+from .models import IntegrationConfiguration
 from .reporter import StepStatusReporter
-from .requests import dd_request
+from ..shared.gcloud import gcloud
+from ..shared.models import ConfigurationScope
+from ..shared.requests import dd_request
+from ..shared.service_accounts import find_or_create_service_account
 
 ROLE_TO_REQUIRED_API: dict[str, str] = {
     "roles/cloudasset.viewer": "cloudasset.googleapis.com",
@@ -147,36 +149,3 @@ def create_integration_with_permissions(
     step_reporter.report(
         metadata={"created_service_account_id": data.get("data", {}).get("id")}
     )
-
-
-def find_or_create_service_account(
-    step_reporter: StepStatusReporter, name: str, project_id: str
-) -> str:
-    """Create a service account with the given name in the specified project."""
-    step_reporter.report(
-        message=f"Looking for service account '{name}' in project '{project_id}'..."
-    )
-
-    service_account_search = gcloud(
-        f"iam service-accounts list \
-            --project={project_id}  \
-            --filter=\"email~'{name}'\"",
-        "email",
-    )
-    if service_account_search and len(service_account_search) > 0:
-        email = service_account_search[0]["email"]
-        step_reporter.report(message=f"Found existing service account '{email}'")
-        return email
-
-    step_reporter.report(
-        message=f"Creating new service account '{name}' in project '{project_id}'..."
-    )
-
-    resp = gcloud(
-        f'iam service-accounts create {name}  \
-           --display-name="Datadog Service Account" \
-           --project={project_id}',
-        "email",
-    )
-
-    return resp["email"]

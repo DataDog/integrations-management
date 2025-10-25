@@ -5,7 +5,7 @@
 import unittest
 from unittest.mock import patch
 
-from gcp_integration_quickstart.workflow import (
+from shared.workflow import (
     ensure_login,
     is_scopes_step_already_completed,
     is_valid_workflow_id,
@@ -15,7 +15,7 @@ from gcp_integration_quickstart.workflow import (
 class TestIsValidWorkflowId(unittest.TestCase):
     """Test the is_valid_workflow_id function."""
 
-    @patch("gcp_integration_quickstart.workflow.dd_request")
+    @patch("shared.workflow.dd_request")
     def test_is_valid_workflow_id_404(self, mock_dd_request):
         """Test is_valid_workflow_id when workflow doesn't exist (404)."""
         mock_dd_request.return_value = ('{"error": "not found"}', 404)
@@ -28,7 +28,7 @@ class TestIsValidWorkflowId(unittest.TestCase):
             "/api/unstable/integration/gcp/workflow/gcp-integration-setup/test-workflow-id",
         )
 
-    @patch("gcp_integration_quickstart.workflow.dd_request")
+    @patch("shared.workflow.dd_request")
     def test_is_valid_workflow_id_with_failed_steps(self, mock_dd_request):
         """Test is_valid_workflow_id when workflow has failed steps."""
         mock_dd_request.return_value = (
@@ -44,7 +44,7 @@ class TestIsValidWorkflowId(unittest.TestCase):
             "/api/unstable/integration/gcp/workflow/gcp-integration-setup/test-workflow-id",
         )
 
-    @patch("gcp_integration_quickstart.workflow.dd_request")
+    @patch("shared.workflow.dd_request")
     def test_is_valid_workflow_id_workflow_completed(self, mock_dd_request):
         """Test is_valid_workflow_id when workflow has completed successfully."""
         mock_dd_request.return_value = (
@@ -60,7 +60,7 @@ class TestIsValidWorkflowId(unittest.TestCase):
             "/api/unstable/integration/gcp/workflow/gcp-integration-setup/test-workflow-id",
         )
 
-    @patch("gcp_integration_quickstart.workflow.dd_request")
+    @patch("shared.workflow.dd_request")
     def test_is_valid_workflow_id_workflow_in_progress(self, mock_dd_request):
         """Test is_valid_workflow_id when workflow is still in progress."""
         mock_dd_request.return_value = (
@@ -76,7 +76,7 @@ class TestIsValidWorkflowId(unittest.TestCase):
             "/api/unstable/integration/gcp/workflow/gcp-integration-setup/test-workflow-id",
         )
 
-    @patch("gcp_integration_quickstart.workflow.dd_request")
+    @patch("shared.workflow.dd_request")
     def test_is_valid_workflow_id_api_error(self, mock_dd_request):
         """Test is_valid_workflow_id when API returns error status."""
         mock_dd_request.return_value = ('{"error": "server error"}', 500)
@@ -93,7 +93,7 @@ class TestIsValidWorkflowId(unittest.TestCase):
 class TestEnsureLogin(unittest.TestCase):
     """Test the ensure_login function."""
 
-    @patch("gcp_integration_quickstart.workflow.gcloud")
+    @patch("shared.workflow.gcloud")
     def test_ensure_login_success(self, mock_gcloud):
         """Test ensure_login when user is logged in."""
         mock_gcloud.return_value = [{"token": "dummy-token"}]
@@ -103,7 +103,7 @@ class TestEnsureLogin(unittest.TestCase):
 
         mock_gcloud.assert_called_once_with("auth print-access-token")
 
-    @patch("gcp_integration_quickstart.workflow.gcloud")
+    @patch("shared.workflow.gcloud")
     def test_ensure_login_failure(self, mock_gcloud):
         """Test ensure_login when user is not logged in."""
         mock_gcloud.return_value = []
@@ -117,7 +117,7 @@ class TestEnsureLogin(unittest.TestCase):
 class TestIsScopesStepAlreadyCompleted(unittest.TestCase):
     """Test the is_scopes_step_already_completed function."""
 
-    @patch("gcp_integration_quickstart.workflow.dd_request")
+    @patch("shared.workflow.dd_request")
     def test_is_scopes_step_already_completed_success(self, mock_dd_request):
         """Test is_scopes_step_already_completed when scopes step is finished."""
         mock_dd_request.return_value = (
@@ -133,7 +133,7 @@ class TestIsScopesStepAlreadyCompleted(unittest.TestCase):
             "/api/unstable/integration/gcp/workflow/gcp-integration-setup/test-workflow-id",
         )
 
-    @patch("gcp_integration_quickstart.workflow.dd_request")
+    @patch("shared.workflow.dd_request")
     def test_is_scopes_step_already_completed_not_finished(self, mock_dd_request):
         """Test is_scopes_step_already_completed when scopes step is not finished."""
         mock_dd_request.return_value = (
@@ -149,7 +149,7 @@ class TestIsScopesStepAlreadyCompleted(unittest.TestCase):
             "/api/unstable/integration/gcp/workflow/gcp-integration-setup/test-workflow-id",
         )
 
-    @patch("gcp_integration_quickstart.workflow.dd_request")
+    @patch("shared.workflow.dd_request")
     def test_is_scopes_step_already_completed_no_scopes_step(self, mock_dd_request):
         """Test is_scopes_step_already_completed when no scopes step exists."""
         mock_dd_request.return_value = (
@@ -165,7 +165,7 @@ class TestIsScopesStepAlreadyCompleted(unittest.TestCase):
             "/api/unstable/integration/gcp/workflow/gcp-integration-setup/test-workflow-id",
         )
 
-    @patch("gcp_integration_quickstart.workflow.dd_request")
+    @patch("shared.workflow.dd_request")
     def test_is_scopes_step_already_completed_http_error(self, mock_dd_request):
         """Test is_scopes_step_already_completed when HTTP request fails."""
         mock_dd_request.return_value = ('{"error": "not found"}', 404)

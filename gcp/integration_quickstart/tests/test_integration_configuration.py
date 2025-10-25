@@ -11,20 +11,20 @@ from gcp_integration_quickstart.integration_configuration import (
     ROLES_TO_ADD,
     assign_delegate_permissions,
     create_integration_with_permissions,
-    find_or_create_service_account,
 )
-from gcp_integration_quickstart.models import (
+from gcp_integration_quickstart.models import IntegrationConfiguration
+from shared.models import (
     ConfigurationScope,
     Folder,
-    IntegrationConfiguration,
     Project,
 )
+from shared.service_accounts import find_or_create_service_account
 
 
 class TestFindOrCreateServiceAccount(unittest.TestCase):
     """Test the find_or_create_service_account function."""
 
-    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    @patch("shared.service_accounts.gcloud")
     def test_find_or_create_service_account_existing(self, mock_gcloud):
         """Test find_or_create_service_account when service account already exists."""
         mock_gcloud.return_value = [{"email": "test@project.iam.gserviceaccount.com"}]
@@ -42,7 +42,7 @@ class TestFindOrCreateServiceAccount(unittest.TestCase):
         )
         self.assertEqual(result, "test@project.iam.gserviceaccount.com")
 
-    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    @patch("shared.service_accounts.gcloud")
     def test_find_or_create_service_account_new(self, mock_gcloud):
         """Test find_or_create_service_account when creating new service account."""
         # First call returns empty list (no existing account)
@@ -77,8 +77,8 @@ class TestFindOrCreateServiceAccount(unittest.TestCase):
 class TestAssignDelegatePermissions(unittest.TestCase):
     """Test the assign_delegate_permissions function."""
 
-    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
-    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
+    @patch("shared.gcloud.gcloud")
+    @patch("shared.requests.dd_request")
     def test_assign_delegate_permissions_success(self, mock_dd_request, mock_gcloud):
         """Test assign_delegate_permissions when successful."""
 
@@ -111,7 +111,7 @@ class TestAssignDelegatePermissions(unittest.TestCase):
             'projects add-iam-policy-binding "test-project"                 --member="serviceAccount:datadog-service-account@datadog.iam.gserviceaccount.com"                 --role="roles/iam.serviceAccountTokenCreator"                 --condition=None                 --quiet                 '
         )
 
-    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
+    @patch("shared.requests.dd_request")
     def test_assign_delegate_permissions_sts_failure(self, mock_dd_request):
         """Test assign_delegate_permissions when STS delegate request fails."""
 
@@ -143,8 +143,8 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             automute=False,
         )
 
-    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
-    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
+    @patch("shared.gcloud.gcloud")
+    @patch("shared.requests.dd_request")
     def test_create_integration_with_permissions_success(
         self, mock_dd_request, mock_gcloud
     ):
@@ -258,8 +258,8 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             },
         )
 
-    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
-    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
+    @patch("shared.gcloud.gcloud")
+    @patch("shared.requests.dd_request")
     def test_create_integration_with_permissions_integration_creation_failure(
         self, mock_dd_request, mock_gcloud
     ):

@@ -6,13 +6,13 @@ import subprocess
 import unittest
 from unittest.mock import Mock, patch
 
-from gcp_integration_quickstart.gcloud import gcloud
+from shared.gcloud import gcloud
 
 
 class TestGCloudFunction(unittest.TestCase):
     """Test the gcloud function."""
 
-    @patch("gcp_integration_quickstart.gcloud.subprocess.run")
+    @patch("shared.gcloud.subprocess.run")
     def test_gcloud_success(self, mock_run):
         """Test successful gcloud command execution."""
         mock_result = Mock()
@@ -31,7 +31,7 @@ class TestGCloudFunction(unittest.TestCase):
         )
         self.assertEqual(result, {"test": "data"})
 
-    @patch("gcp_integration_quickstart.gcloud.subprocess.run")
+    @patch("shared.gcloud.subprocess.run")
     def test_gcloud_with_keys(self, mock_run):
         """Test gcloud command with specific keys."""
         mock_result = Mock()
@@ -50,7 +50,7 @@ class TestGCloudFunction(unittest.TestCase):
         )
         self.assertEqual(result, {"test": "data"})
 
-    @patch("gcp_integration_quickstart.gcloud.subprocess.run")
+    @patch("shared.gcloud.subprocess.run")
     def test_gcloud_failure(self, mock_run):
         """Test gcloud command failure."""
         mock_run.side_effect = subprocess.CalledProcessError(

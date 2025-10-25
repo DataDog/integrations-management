@@ -7,12 +7,14 @@ import os
 import signal
 import sys
 
-from .integration_configuration import (
-    assign_delegate_permissions,
-    create_integration_with_permissions,
+from .dataflow_configuration import (
+    create_secret_manager_entry,
+    create_topics_with_subscription,
+    assign_required_dataflow_roles,
+    create_log_sinks,
+    create_dataflow_job,
 )
-from .models import IntegrationConfiguration
-from .reporter import WorkflowReporter
+from ..gcp_integration_quickstart.reporter import WorkflowReporter
 from ..shared.models import (
     ConfigurationScope,
     Project,
@@ -73,25 +75,40 @@ def main():
     with workflow_reporter.report_step("scopes") as step_reporter:
         if not is_scopes_step_already_completed(workflow_id):
             collect_configuration_scopes(step_reporter)
+
     with workflow_reporter.report_step("selections"):
         user_selections = receive_user_selections(workflow_id)
+        default_project_id = user_selections["default_project_id"]
+
+    with workflow_reporter.report_step(
+        "create_topic_with_subscription"
+    ) as step_reporter:
+        create_topics_with_subscription(
+            default_project_id,
+        )
     with workflow_reporter.report_step("create_service_account") as step_reporter:
+        datadog_dataflow_service_account_id = "datadog-dataflow"
         service_account_email = find_or_create_service_account(
             step_reporter,
-            user_selections["service_account_id"],
-            user_selections["default_project_id"],
+            datadog_dataflow_service_account_id,
+            default_project_id,
+            display_name="Datadog Dataflow Service Account",
         )
-    with workflow_reporter.report_step("assign_delegate_permissions") as step_reporter:
-        assign_delegate_permissions(
-            step_reporter, user_selections["default_project_id"]
-        )
+
     with workflow_reporter.report_step(
-        "create_integration_with_permissions"
+        "assign_required_dataflow_roles"
     ) as step_reporter:
-        create_integration_with_permissions(
-            step_reporter,
+        assign_required_dataflow_roles(service_account_email, default_project_id)
+
+    with workflow_reporter.report_step("create_secret_manager_entry") as step_reporter:
+        create_secret_manager_entry(
+            default_project_id,
             service_account_email,
-            IntegrationConfiguration(**user_selections["integration_configuration"]),
+        )
+
+    with workflow_reporter.report_step("create_log_sinks") as step_reporter:
+        create_log_sinks(
+            default_project_id,
             ConfigurationScope(
                 projects=[
                     Project(**project)
@@ -102,6 +119,13 @@ def main():
                     for folder in user_selections.get("folders", [])
                 ],
             ),
+        )
+
+    with workflow_reporter.report_step("create_dataflow_job") as step_reporter:
+        create_dataflow_job(
+            default_project_id,
+            service_account_email,
+            user_selections["region"],
         )
 
     print("Script succeeded. You may exit this shell.")
