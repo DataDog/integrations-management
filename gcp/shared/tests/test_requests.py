@@ -6,21 +6,21 @@ import unittest
 from unittest.mock import Mock, patch
 from urllib.error import HTTPError, URLError
 
-from shared.requests import dd_request, request
+from gcp_shared.requests import dd_request, request
 
 
 class TestHTTPFunctions(unittest.TestCase):
     """Test the HTTP request functions."""
 
     @patch(
-        "shared.requests.os.environ",
+        "gcp_shared.requests.os.environ",
         {
             "DD_API_KEY": "test_api_key",
             "DD_APP_KEY": "test_app_key",
             "DD_SITE": "test.datadog.com",
         },
     )
-    @patch("shared.requests.request")
+    @patch("gcp_shared.requests.request")
     def test_dd_request_post(self, mock_request):
         """Test dd_request with POST method and body."""
         mock_request.return_value = ("response data", 201)
@@ -43,14 +43,14 @@ class TestHTTPFunctions(unittest.TestCase):
         self.assertEqual(result_status, 201)
 
     @patch(
-        "shared.requests.os.environ",
+        "gcp_shared.requests.os.environ",
         {
             "DD_API_KEY": "test_api_key",
             "DD_APP_KEY": "test_app_key",
             "DD_SITE": "test.datadog.com",
         },
     )
-    @patch("shared.requests.request")
+    @patch("gcp_shared.requests.request")
     def test_dd_request_get(self, mock_request):
         """Test dd_request with GET method."""
         mock_request.return_value = ("response data", 200)
@@ -70,8 +70,8 @@ class TestHTTPFunctions(unittest.TestCase):
         self.assertEqual(result_data, "response data")
         self.assertEqual(result_status, 200)
 
-    @patch("shared.requests.time.sleep")
-    @patch("shared.requests.urllib.request.urlopen")
+    @patch("gcp_shared.requests.time.sleep")
+    @patch("gcp_shared.requests.urllib.request.urlopen")
     def test_request_success_no_retry(self, mock_urlopen, mock_sleep):
         """Test request succeeds on first attempt."""
         mock_response = Mock()
@@ -86,8 +86,8 @@ class TestHTTPFunctions(unittest.TestCase):
         mock_urlopen.assert_called_once()
         mock_sleep.assert_not_called()
 
-    @patch("shared.requests.time.sleep")
-    @patch("shared.requests.urllib.request.urlopen")
+    @patch("gcp_shared.requests.time.sleep")
+    @patch("gcp_shared.requests.urllib.request.urlopen")
     def test_request_retry_on_server_error(self, mock_urlopen, mock_sleep):
         """Test request retries on 500 server error and eventually succeeds."""
 
@@ -126,8 +126,8 @@ class TestHTTPFunctions(unittest.TestCase):
         mock_sleep.assert_any_call(1.0)
         mock_sleep.assert_any_call(2.0)
 
-    @patch("shared.requests.time.sleep")
-    @patch("shared.requests.urllib.request.urlopen")
+    @patch("gcp_shared.requests.time.sleep")
+    @patch("gcp_shared.requests.urllib.request.urlopen")
     def test_request_retry_on_url_error(self, mock_urlopen, mock_sleep):
         """Test request retries on URLError (network issues) and eventually succeeds."""
 

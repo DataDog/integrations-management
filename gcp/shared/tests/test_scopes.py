@@ -5,8 +5,8 @@
 import unittest
 from unittest.mock import Mock, call, patch
 
-from shared.models import Folder, Project
-from shared.scopes import (
+from gcp_shared.models import Folder, Project
+from gcp_shared.scopes import (
     collect_configuration_scopes,
     fetch_folders,
     fetch_iam_permissions_for,
@@ -16,7 +16,7 @@ from shared.scopes import (
 class TestFetchFolders(unittest.TestCase):
     """Test the fetch_folders function."""
 
-    @patch("shared.scopes.request")
+    @patch("gcp_shared.scopes.request")
     def test_fetch_folders_success(self, mock_request):
         """Test fetch_folders when successful."""
         mock_request.return_value = (
@@ -46,7 +46,7 @@ class TestFetchFolders(unittest.TestCase):
             ],
         )
 
-    @patch("shared.scopes.request")
+    @patch("gcp_shared.scopes.request")
     def test_fetch_folders_with_pagination(self, mock_request):
         """Test fetch_folders with pagination."""
         # First call returns first page with nextPageToken
@@ -105,7 +105,7 @@ class TestFetchFolders(unittest.TestCase):
             ],
         )
 
-    @patch("shared.scopes.request")
+    @patch("gcp_shared.scopes.request")
     def test_fetch_folders_api_error(self, mock_request):
         """Test fetch_folders when API returns error."""
         mock_request.return_value = ('{"error": "server error"}', 500)
@@ -119,7 +119,7 @@ class TestFetchFolders(unittest.TestCase):
 class TestFetchIamPermissionsFor(unittest.TestCase):
     """Test the fetch_iam_permissions_for function."""
 
-    @patch("shared.scopes.request")
+    @patch("gcp_shared.scopes.request")
     def test_fetch_iam_permissions_for_project(self, mock_request):
         """Test fetch_iam_permissions_for for a project."""
         mock_request.return_value = ('{"permissions": ["test"]}', 200)
@@ -148,7 +148,7 @@ class TestFetchIamPermissionsFor(unittest.TestCase):
         self.assertEqual(result_response, '{"permissions": ["test"]}')
         self.assertEqual(result_status, 200)
 
-    @patch("shared.scopes.request")
+    @patch("gcp_shared.scopes.request")
     def test_fetch_iam_permissions_for_folder(self, mock_request):
         """Test fetch_iam_permissions_for for a folder."""
         mock_request.return_value = ('{"permissions": ["test"]}', 200)
@@ -176,10 +176,10 @@ class TestFetchIamPermissionsFor(unittest.TestCase):
 class TestCollectConfigurationScopes(unittest.TestCase):
     """Test the collect_configuration_scopes function."""
 
-    @patch("shared.scopes.gcloud")
-    @patch("shared.scopes.dd_request")
-    @patch("shared.scopes.request")
-    @patch("shared.scopes.fetch_folders")
+    @patch("gcp_shared.scopes.gcloud")
+    @patch("gcp_shared.scopes.dd_request")
+    @patch("gcp_shared.scopes.request")
+    @patch("gcp_shared.scopes.fetch_folders")
     def test_collect_configuration_scopes_get_service_accounts_404(
         self, mock_fetch_folders, mock_request, mock_dd_request, mock_gcloud
     ):
@@ -253,10 +253,10 @@ class TestCollectConfigurationScopes(unittest.TestCase):
         self.assertIn("folders", metadata)
         self.assertIn("projects", metadata)
 
-    @patch("shared.scopes.gcloud")
-    @patch("shared.scopes.dd_request")
-    @patch("shared.scopes.request")
-    @patch("shared.scopes.fetch_folders")
+    @patch("gcp_shared.scopes.gcloud")
+    @patch("gcp_shared.scopes.dd_request")
+    @patch("gcp_shared.scopes.request")
+    @patch("gcp_shared.scopes.fetch_folders")
     def test_collect_configuration_scopes_get_service_accounts_200(
         self, mock_fetch_folders, mock_request, mock_dd_request, mock_gcloud
     ):
@@ -332,7 +332,7 @@ class TestCollectConfigurationScopes(unittest.TestCase):
         self.assertIn("folders", metadata)
         self.assertIn("projects", metadata)
 
-    @patch("shared.scopes.dd_request")
+    @patch("gcp_shared.scopes.dd_request")
     def test_collect_configuration_scopes_get_service_accounts_error(
         self, mock_dd_request
     ):

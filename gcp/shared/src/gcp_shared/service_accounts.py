@@ -2,8 +2,8 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-from .gcloud import gcloud
-from ..gcp_integration_quickstart.reporter import StepStatusReporter
+from gcp_shared.gcloud import gcloud
+from gcp_shared.reporter import StepStatusReporter
 
 
 def find_or_create_service_account(

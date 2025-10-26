@@ -5,12 +5,12 @@
 import json
 from dataclasses import asdict
 
+from gcp_shared.gcloud import gcloud
+from gcp_shared.models import ConfigurationScope
+from gcp_shared.reporter import StepStatusReporter
+from gcp_shared.requests import dd_request
+
 from .models import IntegrationConfiguration
-from .reporter import StepStatusReporter
-from ..shared.gcloud import gcloud
-from ..shared.models import ConfigurationScope
-from ..shared.requests import dd_request
-from ..shared.service_accounts import find_or_create_service_account
 
 ROLE_TO_REQUIRED_API: dict[str, str] = {
     "roles/cloudasset.viewer": "cloudasset.googleapis.com",

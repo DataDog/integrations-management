@@ -8,15 +8,15 @@ from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from typing import Any
 
-from .gcloud import gcloud
-from .models import (
+from gcp_shared.gcloud import gcloud
+from gcp_shared.models import (
     ConfigurationScope,
     Folder,
     Project,
     ResourceContainer,
 )
-from .reporter import StepStatusReporter
-from .requests import dd_request, request
+from gcp_shared.reporter import StepStatusReporter
+from gcp_shared.requests import dd_request, request
 
 
 def fetch_iam_permissions_for(
