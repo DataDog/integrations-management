@@ -25,7 +25,7 @@ pip install -r 'dev_requirements.txt'
 
 
 #### IDE (Recommended)
-- Install VS Code.
+- [Install VS Code](https://code.visualstudio.com/download).
 - Within VS Code, install the following extensions:
   - Python
   - Ruff
