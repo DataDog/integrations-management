@@ -8,7 +8,9 @@ brew install azure-cli
 az login
 ```
 
-### Dev Env Setup 
+### Dev Setup
+
+#### Environment
 Run from the `azure` folder:
 ```bash
 brew update
@@ -20,3 +22,10 @@ pyenv local azintegrationmanagement
 pyenv shell azintegrationmanagement
 pip install -r 'dev_requirements.txt'
 ```
+
+#### IDE (Recommended)
+- [Install VS Code](https://code.visualstudio.com/download).
+- Within VS Code, install the following extensions:
+  - Python
+  - Ruff
+- VS Code `settings.json` file already exists within this directory.
