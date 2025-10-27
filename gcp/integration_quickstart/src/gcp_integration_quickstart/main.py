@@ -33,7 +33,7 @@ REQUIRED_ENVIRONMENT_VARS: set[str] = {
 WORKFLOW_TYPE: str = "gcp-integration-setup"
 
 
-class GCPIntegrationQuickstartSteps(str, Enum):
+class OnboardingStep(str, Enum):
     SCOPES = "scopes"
     SELECTIONS = "selections"
     CREATE_SERVICE_ACCOUNT = "create_service_account"
@@ -54,7 +54,7 @@ def main():
     workflow_reporter = WorkflowReporter(workflow_id, WORKFLOW_TYPE)
 
     if not workflow_reporter.is_valid_workflow_id(
-        GCPIntegrationQuickstartSteps.CREATE_INTEGRATION_WITH_PERMISSIONS
+        OnboardingStep.CREATE_INTEGRATION_WITH_PERMISSIONS
     ):
         print(
             f"Workflow ID {workflow_id} has already been used. Please start a new workflow."
@@ -63,16 +63,14 @@ def main():
 
     workflow_reporter.handle_login_step()
 
-    with workflow_reporter.report_step(
-        GCPIntegrationQuickstartSteps.SCOPES
-    ) as step_reporter:
+    with workflow_reporter.report_step(OnboardingStep.SCOPES) as step_reporter:
         if not workflow_reporter.is_scopes_step_already_completed():
             collect_configuration_scopes(step_reporter)
 
-    with workflow_reporter.report_step(GCPIntegrationQuickstartSteps.SELECTIONS):
+    with workflow_reporter.report_step(OnboardingStep.SELECTIONS):
         user_selections = workflow_reporter.receive_user_selections()
     with workflow_reporter.report_step(
-        GCPIntegrationQuickstartSteps.CREATE_SERVICE_ACCOUNT
+        OnboardingStep.CREATE_SERVICE_ACCOUNT
     ) as step_reporter:
         service_account_email = find_or_create_service_account(
             step_reporter,
@@ -80,13 +78,13 @@ def main():
             user_selections["default_project_id"],
         )
     with workflow_reporter.report_step(
-        GCPIntegrationQuickstartSteps.ASSIGN_DELEGATE_PERMISSIONS
+        OnboardingStep.ASSIGN_DELEGATE_PERMISSIONS
     ) as step_reporter:
         assign_delegate_permissions(
             step_reporter, user_selections["default_project_id"]
         )
     with workflow_reporter.report_step(
-        GCPIntegrationQuickstartSteps.CREATE_INTEGRATION_WITH_PERMISSIONS
+        OnboardingStep.CREATE_INTEGRATION_WITH_PERMISSIONS
     ) as step_reporter:
         create_integration_with_permissions(
             step_reporter,

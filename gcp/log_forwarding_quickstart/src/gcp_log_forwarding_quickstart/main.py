@@ -36,7 +36,7 @@ REQUIRED_ENVIRONMENT_VARS: set[str] = {
 WORKFLOW_TYPE: str = "gcp-log-forwarding-setup"
 
 
-class GCPLogForwardingQuickstartSteps(str, Enum):
+class OnboardingStep(str, Enum):
     SCOPES = "scopes"
     SELECTIONS = "selections"
     CREATE_TOPIC_WITH_SUBSCRIPTION = "create_topic_with_subscription"
@@ -59,9 +59,7 @@ def main():
 
     workflow_reporter = WorkflowReporter(workflow_id, WORKFLOW_TYPE)
 
-    if not workflow_reporter.is_valid_workflow_id(
-        GCPLogForwardingQuickstartSteps.CREATE_DATAFLOW_JOB
-    ):
+    if not workflow_reporter.is_valid_workflow_id(OnboardingStep.CREATE_DATAFLOW_JOB):
         print(
             f"Workflow ID {workflow_id} has already been used. Please start a new workflow."
         )
@@ -69,25 +67,23 @@ def main():
 
     workflow_reporter.handle_login_step()
 
-    with workflow_reporter.report_step(
-        GCPLogForwardingQuickstartSteps.SCOPES
-    ) as step_reporter:
+    with workflow_reporter.report_step(OnboardingStep.SCOPES) as step_reporter:
         if not workflow_reporter.is_scopes_step_already_completed():
             collect_configuration_scopes(step_reporter)
 
-    with workflow_reporter.report_step(GCPLogForwardingQuickstartSteps.SELECTIONS):
+    with workflow_reporter.report_step(OnboardingStep.SELECTIONS):
         user_selections = workflow_reporter.receive_user_selections()
         default_project_id = user_selections["default_project_id"]
 
     with workflow_reporter.report_step(
-        GCPLogForwardingQuickstartSteps.CREATE_TOPIC_WITH_SUBSCRIPTION
+        OnboardingStep.CREATE_TOPIC_WITH_SUBSCRIPTION
     ) as step_reporter:
         create_topics_with_subscription(
             step_reporter,
             default_project_id,
         )
     with workflow_reporter.report_step(
-        GCPLogForwardingQuickstartSteps.CREATE_SERVICE_ACCOUNT
+        OnboardingStep.CREATE_SERVICE_ACCOUNT
     ) as step_reporter:
         datadog_dataflow_service_account_id = "datadog-dataflow"
         service_account_email = find_or_create_service_account(
@@ -98,14 +94,14 @@ def main():
         )
 
     with workflow_reporter.report_step(
-        GCPLogForwardingQuickstartSteps.ASSIGN_REQUIRED_DATAFLOW_ROLES
+        OnboardingStep.ASSIGN_REQUIRED_DATAFLOW_ROLES
     ) as step_reporter:
         assign_required_dataflow_roles(
             step_reporter, service_account_email, default_project_id
         )
 
     with workflow_reporter.report_step(
-        GCPLogForwardingQuickstartSteps.CREATE_SECRET_MANAGER_ENTRY
+        OnboardingStep.CREATE_SECRET_MANAGER_ENTRY
     ) as step_reporter:
         create_secret_manager_entry(
             step_reporter,
@@ -114,7 +110,7 @@ def main():
         )
 
     with workflow_reporter.report_step(
-        GCPLogForwardingQuickstartSteps.CREATE_LOG_SINKS
+        OnboardingStep.CREATE_LOG_SINKS
     ) as step_reporter:
         create_log_sinks(
             step_reporter,
@@ -137,7 +133,7 @@ def main():
         )
 
     with workflow_reporter.report_step(
-        GCPLogForwardingQuickstartSteps.CREATE_DATAFLOW_JOB
+        OnboardingStep.CREATE_DATAFLOW_JOB
     ) as step_reporter:
         create_dataflow_job(
             step_reporter,

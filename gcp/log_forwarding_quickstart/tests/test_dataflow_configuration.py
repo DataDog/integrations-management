@@ -364,14 +364,13 @@ class TestCreateLogSinks(unittest.TestCase):
             exclusion_filters=[],
         )
 
-        # Verify sink was created with exact command
         mock_gcloud.assert_has_calls(
             [
                 call(
                     f"logging sinks create datadog-log-sink \
-            pubsub.googleapis.com/projects/default-project/topics/{PUBSUB_TOPIC_ID} \
-            --project=test-project \
-            --quiet"
+                pubsub.googleapis.com/projects/default-project/topics/{PUBSUB_TOPIC_ID} \
+                --project=test-project \
+                --quiet"
                 )
             ]
         )
@@ -411,19 +410,25 @@ class TestCreateLogSinks(unittest.TestCase):
             [
                 call(
                     f"logging sinks create datadog-log-sink \
-            pubsub.googleapis.com/projects/default-project/topics/{PUBSUB_TOPIC_ID} \
-            --folder=folder123 \
-            --include-children \
-            --quiet"
+                pubsub.googleapis.com/projects/default-project/topics/{PUBSUB_TOPIC_ID} \
+                --folder=folder123 --include-children \
+                --quiet"
                 )
             ]
         )
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
-    def test_create_log_sinks_uses_existing(self, mock_gcloud):
-        """Test skipping creation when sink already exists."""
+    def test_create_log_sinks_updates_existing_project(self, mock_gcloud):
+        """Test updating sink when it already exists in project."""
 
-        mock_gcloud.return_value = [{"name": "datadog-log-sink"}]
+        mock_gcloud.side_effect = [
+            [{"name": "datadog-log-sink"}],
+            None,
+            {
+                "writerIdentity": "serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com"
+            },
+            None,
+        ]
 
         step_reporter = Mock()
         project = Project(
@@ -442,12 +447,63 @@ class TestCreateLogSinks(unittest.TestCase):
             exclusion_filters=[],
         )
 
-        # Only one call (the check), no create
+        # Verify sink was updated (not created), no --include-children for projects
         mock_gcloud.assert_has_calls(
             [
                 call(
                     "logging sinks list --project=test-project --filter='name:datadog-log-sink'"
-                )
+                ),
+                call(
+                    f"logging sinks update datadog-log-sink \
+                pubsub.googleapis.com/projects/default-project/topics/{PUBSUB_TOPIC_ID} \
+                --project=test-project --clear-exclusions \
+                --quiet"
+                ),
+            ]
+        )
+
+    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
+    def test_create_log_sinks_updates_existing_folder(self, mock_gcloud):
+        """Test updating sink when it already exists in folder."""
+
+        mock_gcloud.side_effect = [
+            [{"name": "datadog-log-sink"}],
+            None,
+            {
+                "writerIdentity": "serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com"
+            },
+            None,
+        ]
+
+        step_reporter = Mock()
+        folder = Folder(
+            id="folder123",
+            name="Test Folder",
+            parent_id="parent456",
+            child_scopes=[],
+        )
+        configuration_scope = ConfigurationScope(projects=[], folders=[folder])
+
+        create_log_sinks(
+            step_reporter,
+            "default-project",
+            configuration_scope,
+            inclusion_filter="",
+            exclusion_filters=[],
+        )
+
+        # Verify sink was updated (not created) with --include-children
+        mock_gcloud.assert_has_calls(
+            [
+                call(
+                    "logging sinks list --folder=folder123 --filter='name:datadog-log-sink'"
+                ),
+                call(
+                    f"logging sinks update datadog-log-sink \
+                pubsub.googleapis.com/projects/default-project/topics/{PUBSUB_TOPIC_ID} \
+                --folder=folder123 --include-children --clear-exclusions \
+                --quiet"
+                ),
             ]
         )
 
@@ -484,14 +540,13 @@ class TestCreateLogSinks(unittest.TestCase):
             exclusion_filters=exclusion_filters,
         )
 
-        # Verify filters were included in the exact call
         mock_gcloud.assert_has_calls(
             [
                 call(
                     f"logging sinks create datadog-log-sink \
-            pubsub.googleapis.com/projects/default-project/topics/{PUBSUB_TOPIC_ID} \
-            --project=test-project --log-filter='severity>=ERROR' --exclusion=name='test-exclusion',filter='resource.type=test' \
-            --quiet"
+                pubsub.googleapis.com/projects/default-project/topics/{PUBSUB_TOPIC_ID} \
+                --project=test-project --log-filter='severity>=ERROR' --exclusion=name='test-exclusion',filter='resource.type=test' \
+                --quiet"
                 )
             ]
         )

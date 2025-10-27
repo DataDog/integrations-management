@@ -224,80 +224,69 @@ def create_log_sinks(
     if inclusion_filter:
         filter_args += f" --log-filter='{inclusion_filter}'"
 
-    exclusion_args = ""
+    create_exclusion_args = ""
     for exclusion in exclusion_filters:
-        exclusion_parts = [f"name='{exclusion.name}'", f"filter='{exclusion.filter}'"]
-        exclusion_args += f" --exclusion={','.join(exclusion_parts)}"
+        create_exclusion_args += (
+            f" --exclusion=name='{exclusion.name}',filter='{exclusion.filter}'"
+        )
 
-    for folder in configuration_scope.folders:
+    update_exclusion_args = " --clear-exclusions"
+    if exclusion_filters:
+        for exclusion in exclusion_filters:
+            update_exclusion_args += (
+                f" --add-exclusion=name='{exclusion.name}',filter='{exclusion.filter}'"
+            )
+
+    for resource_container in [
+        *configuration_scope.folders,
+        *configuration_scope.projects,
+    ]:
+        resource_container_filter = (
+            f"--{resource_container.resource_container_type}={resource_container.id}"
+        )
+        include_children_flag = (
+            " --include-children"
+            if resource_container.resource_container_type == "folder"
+            else ""
+        )
+
         step_reporter.report(
-            message=f"Checking for log sink '{log_sink_name}' in folder '{folder.name}'..."
+            message=f"Checking for log sink '{log_sink_name}' in {resource_container.resource_container_type} '{resource_container.name}'..."
         )
         matched_log_sinks = gcloud(
-            f"logging sinks list --folder={folder.id} --filter='name:{log_sink_name}'"
+            f"logging sinks list {resource_container_filter} --filter='name:{log_sink_name}'"
         )
         if len(matched_log_sinks) == 1:
             step_reporter.report(
-                message=f"Log sink '{log_sink_name}' already exists in folder '{folder.name}'"
-            )
-            continue
-
-        step_reporter.report(
-            message=f"Creating log sink '{log_sink_name}' in folder '{folder.name}'..."
-        )
-        gcloud(
-            f"logging sinks create {log_sink_name} \
-            pubsub.googleapis.com/projects/{default_project_id}/topics/{PUBSUB_TOPIC_ID} \
-            --folder={folder.id} \
-            --include-children{filter_args}{exclusion_args} \
-            --quiet"
-        )
-
-        sink_info = gcloud(
-            f"logging sinks describe {log_sink_name} --folder={folder.id}",
-            *["writerIdentity"],
-        )
-        if writer_identity := sink_info.get("writerIdentity"):
-            step_reporter.report(
-                message=f"Granting publish permissions to writer identity in folder '{folder.name}'..."
+                message=f"Updating log sink '{log_sink_name}' in {resource_container.resource_container_type} '{resource_container.name}'..."
             )
             gcloud(
-                f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} \
-                --project={default_project_id} \
-                --member={writer_identity} \
-                --role=roles/pubsub.publisher"
+                f"logging sinks update {log_sink_name} \
+                pubsub.googleapis.com/projects/{default_project_id}/topics/{PUBSUB_TOPIC_ID} \
+                {resource_container_filter}{include_children_flag}{filter_args}{update_exclusion_args} \
+                --quiet"
             )
-
-    for project in configuration_scope.projects:
-        step_reporter.report(
-            message=f"Checking for log sink '{log_sink_name}' in project '{project.name}'..."
-        )
-        matched_log_sinks = gcloud(
-            f"logging sinks list --project={project.id} --filter='name:{log_sink_name}'"
-        )
-        if len(matched_log_sinks) == 1:
             step_reporter.report(
-                message=f"Log sink '{log_sink_name}' already exists in project '{project.name}'"
+                message=f"Log sink '{log_sink_name}' updated in {resource_container.resource_container_type} '{resource_container.name}'"
             )
-            continue
-
-        step_reporter.report(
-            message=f"Creating log sink '{log_sink_name}' in project '{project.name}'..."
-        )
-        gcloud(
-            f"logging sinks create {log_sink_name} \
-            pubsub.googleapis.com/projects/{default_project_id}/topics/{PUBSUB_TOPIC_ID} \
-            --project={project.id}{filter_args}{exclusion_args} \
-            --quiet"
-        )
+        else:
+            step_reporter.report(
+                message=f"Creating log sink '{log_sink_name}' in {resource_container.resource_container_type} '{resource_container.name}'..."
+            )
+            gcloud(
+                f"logging sinks create {log_sink_name} \
+                pubsub.googleapis.com/projects/{default_project_id}/topics/{PUBSUB_TOPIC_ID} \
+                {resource_container_filter}{include_children_flag}{filter_args}{create_exclusion_args} \
+                --quiet"
+            )
 
         sink_info = gcloud(
-            f"logging sinks describe {log_sink_name} --project={project.id}",
+            f"logging sinks describe {log_sink_name} {resource_container_filter}",
             *["writerIdentity"],
         )
         if writer_identity := sink_info.get("writerIdentity"):
             step_reporter.report(
-                message=f"Granting publish permissions to writer identity in project '{project.name}'..."
+                message=f"Granting publish permissions to writer identity in {resource_container.resource_container_type} '{resource_container.name}'..."
             )
             gcloud(
                 f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} \
