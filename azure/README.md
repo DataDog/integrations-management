@@ -23,7 +23,6 @@ pyenv shell azintegrationmanagement
 pip install -r 'dev_requirements.txt'
 ```
 
-
 #### IDE (Recommended)
 - [Install VS Code](https://code.visualstudio.com/download).
 - Within VS Code, install the following extensions:
