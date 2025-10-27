@@ -158,16 +158,19 @@ def register_missing_resource_providers(sub_id: str, unregistered_providers: lis
             ) from e
 
 
-def poll_resource_provider_registration_status(sub_to_unregistered_provider_list: dict[str, list[str]]):
-    """Poll resource provider registration status from Azure."""
+def poll_resource_provider_registration_status(
+    sub_to_unregistered_provider_list: dict[str, list[str]],
+    timeout: int = RESOURCE_PROVIDER_REGISTRATION_POLLING_TIMEOUT,
+):
+    """Poll resource provider registration status from Azure for a given timeout."""
 
     log.info(
         "Polling resource provider registration status for unregistered providers in each subscription. This may take 5-10 minutes depending on the number of configured subscriptions."
     )
 
-    max_time = time.time() + RESOURCE_PROVIDER_REGISTRATION_POLLING_TIMEOUT
+    max_time = time() + timeout
 
-    while time.time() < max_time:
+    while time() < max_time:
         all_registered = True
         for sub_id, unregistered_providers in sub_to_unregistered_provider_list.items():
             for provider in unregistered_providers[:]:
@@ -182,7 +185,7 @@ def poll_resource_provider_registration_status(sub_to_unregistered_provider_list
                     sleep(10)
         if all_registered:
             break
-        if time.time() > max_time:
+        if time() > max_time:
             raise ResourceProviderRegistrationValidationError(
                 "Resource provider registration timed out. Please try again later."
             )
@@ -210,7 +213,9 @@ def validate_resource_provider_registrations(sub_ids: set[str]):
                 f"Subscription {sub_id}: Attempting to register missing resource providers: {', '.join(unregistered_providers)}"
             )
             register_missing_resource_providers(sub_id, unregistered_providers)
-            poll_resource_provider_registration_status(sub_to_unregistered_provider_list)
+            poll_resource_provider_registration_status(
+                sub_to_unregistered_provider_list, RESOURCE_PROVIDER_REGISTRATION_POLLING_TIMEOUT
+            )
         else:
             log.info(f"Subscription {sub_id}: All required resource providers are registered")
 
