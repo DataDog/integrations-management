@@ -605,6 +605,7 @@ def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
         control_plane_rg=config["resourceGroupName"],
         monitored_subs=",".join([s.id for s in subscriptions]),
         datadog_api_key=os.environ["DD_API_KEY"],
+        datadog_site=os.environ["DD_SITE"],
     )
     if "tagFilters" in config:
         log_forwarder_config.resource_tag_filters = config["tagFilters"]
