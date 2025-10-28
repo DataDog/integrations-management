@@ -549,11 +549,6 @@ def add_ms_graph_app_role_assignments(app_registration: AppRegistration, roles: 
     az(
         f'ad app permission add --id "{app_registration.client_id}" --api {MS_GRAPH_API} --api-permissions {" ".join([f"{role}=Role" for role in roles])}'
     )
-    # TODO:
-    # RuntimeError: Could not execute az command: WARNING: A Cloud Shell credential problem occurred. When you report the issue with the error below, please mention the hostname 'SandboxHost-638863179315458251'
-    # ERROR: Audience 74658136-14ec-4630-ad9b-26e160ff0fc6 is not a supported MSI token audience.
-    # Interactive authentication is needed. Please run:
-    # az login --scope 74658136-14ec-4630-ad9b-26e160ff0fc6/.default
     az(f'ad app permission admin-consent --id "{app_registration.client_id}"')
 
 
