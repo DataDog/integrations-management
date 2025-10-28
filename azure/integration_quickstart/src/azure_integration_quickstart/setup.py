@@ -321,6 +321,8 @@ def loading_spinner(message: str, done: threading.Event):
 
 @dataclass
 class StatusReporter:
+    EXPIRED_TOKEN_ERROR = "Lifetime validation failed, the token is expired"
+
     workflow_id: str
 
     def report(self, step_id: str, status: Status, message: str, metadata: Optional[Json] = None) -> None:
@@ -350,11 +352,14 @@ class StatusReporter:
                 loading_message_thread.start()
             step_metadata = {}
             yield step_metadata
-        except Exception:
+        except Exception as e:
             if step_complete:
                 step_complete.set()
             if loading_message_thread:
                 loading_message_thread.join()
+            if isinstance(e, RuntimeError) and self.EXPIRED_TOKEN_ERROR in repr(e):
+                self.report("connection", Status.ERROR, f"Azure CLI token expired: {e}")
+                raise
             self.report(step_id, Status.ERROR, f"{step_id}: {Status.ERROR}: {traceback.format_exc()}")
             if required:
                 raise
@@ -644,7 +649,7 @@ def main():
     status = StatusReporter(workflow_id)
 
     # give up after 30 minutes
-    timer = threading.Timer(30 * 60, time_out, [status])
+    timer = threading.Timer(120 * 60, time_out, [status])
     timer.daemon = True
     timer.start()
 
