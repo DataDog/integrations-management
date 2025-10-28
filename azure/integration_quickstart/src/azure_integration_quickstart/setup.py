@@ -504,11 +504,20 @@ def receive_user_selections(workflow_id: str) -> UserSelections:
                 raise RuntimeError("Error retrieving user selections from Datadog") from e
         json_response = json.loads(response)
         attributes = json_response["data"]["attributes"]
+        subscriptions = [Subscription(**s) for s in attributes["subscriptions"]["subscriptions"]]
+        management_groups = [
+            ManagementGroup(
+                **{
+                    **mg,
+                    "subscriptions": SubscriptionList(
+                        [Subscription(**s) for s in mg["subscriptions"]["subscriptions"]]
+                    ),
+                }
+            )
+            for mg in attributes["management_groups"]["management_groups"]
+        ]
         return UserSelections(
-            tuple(
-                [Subscription(**s) for s in attributes["subscriptions"]["subscriptions"]]
-                + [ManagementGroup(**mg) for mg in attributes["management_groups"]["management_groups"]]
-            ),
+            tuple(subscriptions + management_groups),
             json.loads(attributes["config_options"]),
             json.loads(attributes["log_forwarding_options"])
             if "log_forwarding_options" in attributes and attributes["log_forwarding_options"]
