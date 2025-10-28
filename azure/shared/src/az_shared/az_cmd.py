@@ -25,19 +25,23 @@ MAX_RETRIES = 7
 class AzCmd:
     """Builder for Azure CLI commands."""
 
+    @staticmethod
+    def normalize_value(value: str) -> str:
+        return f'"{value}"'
+
     def __init__(self, service: str, action: str):
         """Initialize with service and action (e.g., 'functionapp', 'create')."""
         self.cmd = [service] + action.split()
 
     def param(self, key: str, value: str) -> "AzCmd":
         """Adds a key-value pair parameter"""
-        self.cmd.extend([key, value])
+        self.cmd.extend([key, self.normalize_value(value)])
         return self
 
     def param_list(self, key: str, values: list[str]) -> "AzCmd":
         """Adds a list of parameters with the same key"""
         self.cmd.append(key)
-        self.cmd.extend(values)
+        self.cmd.extend(self.normalize_value(v) for v in values)
         return self
 
     def flag(self, flag: str) -> "AzCmd":
