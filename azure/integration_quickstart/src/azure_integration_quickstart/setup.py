@@ -649,7 +649,7 @@ def main():
     status = StatusReporter(workflow_id)
 
     # give up after 30 minutes
-    timer = threading.Timer(120 * 60, time_out, [status])
+    timer = threading.Timer(30 * 60, time_out, [status])
     timer.daemon = True
     timer.start()
 
