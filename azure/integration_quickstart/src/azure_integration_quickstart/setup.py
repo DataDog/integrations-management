@@ -365,7 +365,7 @@ class StatusReporter:
                 self.report(
                     step_id,
                     Status.USER_ACTIONABLE_ERROR,
-                    f"{step_id}: {Status.USER_ACTIONABLE_ERROR}: {traceback.format_exc()}",
+                    f"{str(e)}",  # pass along only the message which should be user-readable
                 )
             else:
                 self.report(step_id, Status.ERROR, f"{step_id}: {Status.ERROR}: {traceback.format_exc()}")
