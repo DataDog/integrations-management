@@ -6,9 +6,9 @@
 import json
 import os
 import tempfile
-from typing import Any
+from typing import Any, Literal, Union
 
-from gcp_shared.gcloud import gcloud
+from gcp_shared.gcloud import GcloudCmd, gcloud
 from gcp_shared.models import ConfigurationScope
 from gcp_shared.reporter import StepStatusReporter
 from gcp_shared.requests import dd_request
@@ -24,9 +24,12 @@ ROLES_TO_ADD: list[str] = [
     "roles/storage.objectAdmin",
 ]
 
-PUBSUB_TOPIC_ID: str = "export-logs-to-datadog"
-PUBSUB_DEAD_LETTER_TOPIC_ID: str = "export-failed-logs-to-datadog"
-SECRET_MANAGER_NAME: str = "gcp-dataflow-logs-api-key"
+RESOURCE_NAME_PREFIX: str = "export-logs-to-datadog"
+PUBSUB_TOPIC_ID: str = f"{RESOURCE_NAME_PREFIX}"
+PUBSUB_DEAD_LETTER_TOPIC_ID: str = f"{RESOURCE_NAME_PREFIX}-dlq"
+SECRET_MANAGER_NAME: str = f"{RESOURCE_NAME_PREFIX}-api-key"
+DATAFLOW_JOB_NAME: str = f"{RESOURCE_NAME_PREFIX}-job"
+LOG_SINK_NAME: str = f"{RESOURCE_NAME_PREFIX}-log-sink"
 
 
 def create_topics_with_subscription(
@@ -43,20 +46,31 @@ def create_topics_with_subscription(
         )
 
         topic_search = gcloud(
-            f"pubsub topics list --project={project_id} --filter='name:{topic_full_name}'",
+            GcloudCmd("pubsub topics", "list")
+            .param("--project", project_id)
+            .param("--filter", f"name={topic_full_name}")
         )
         if len(topic_search) != 1:
             step_reporter.report(
                 message=f"Creating Pub/Sub topic '{topic_id}' in project '{project_id}'..."
             )
-            gcloud(f"pubsub topics create {topic_id} --project={project_id}")
+            gcloud(
+                GcloudCmd("pubsub topics", "create")
+                .arg(topic_id)
+                .param("--project", project_id)
+            )
 
         step_reporter.report(
             message=f"Checking for subscription '{subscription_id}' in project '{project_id}'..."
         )
 
         subscription_search = gcloud(
-            f"pubsub subscriptions list --project={project_id} --filter='name:projects/{project_id}/subscriptions/{subscription_id}'"
+            GcloudCmd("pubsub subscriptions", "list")
+            .param("--project", project_id)
+            .param(
+                "--filter",
+                f"name=projects/{project_id}/subscriptions/{subscription_id}",
+            )
         )
 
         if len(subscription_search) != 1:
@@ -64,7 +78,10 @@ def create_topics_with_subscription(
                 message=f"Creating subscription '{subscription_id}' for topic '{topic_id}'..."
             )
             gcloud(
-                f"pubsub subscriptions create {subscription_id} --topic={topic_id} --project={project_id}"
+                GcloudCmd("pubsub subscriptions", "create")
+                .arg(subscription_id)
+                .param("--topic", topic_id)
+                .param("--project", project_id)
             )
             continue
 
@@ -73,10 +90,15 @@ def create_topics_with_subscription(
                 message=f"Recreating subscription '{subscription_id}' for topic '{topic_id}'..."
             )
             gcloud(
-                f"pubsub subscriptions delete {subscription_id} --project={project_id}"
+                GcloudCmd("pubsub subscriptions", "delete")
+                .arg(subscription_id)
+                .param("--project", project_id)
             )
             gcloud(
-                f"pubsub subscriptions create {subscription_id} --topic={topic_id} --project={project_id}"
+                GcloudCmd("pubsub subscriptions", "create")
+                .arg(subscription_id)
+                .param("--topic", topic_id)
+                .param("--project", project_id)
             )
 
 
@@ -89,22 +111,27 @@ def create_secret_manager_entry(
     )
 
     secrets = gcloud(
-        f"secrets list --project={project_id} --filter='name~{SECRET_MANAGER_NAME}'"
+        GcloudCmd("secrets", "list")
+        .param("--project", project_id)
+        .param("--filter", f"name~{SECRET_MANAGER_NAME}")
     )
     if len(secrets) == 1:
         step_reporter.report(
             message=f"Updating IAM permissions for existing secret '{SECRET_MANAGER_NAME}'..."
         )
         gcloud(
-            f'secrets add-iam-policy-binding {SECRET_MANAGER_NAME} \
-            --project={project_id} \
-            --member="serviceAccount:{service_account_email}" \
-            --role="roles/secretmanager.secretAccessor" \
-            --condition=None \
-            --quiet'
+            GcloudCmd("secrets", "add-iam-policy-binding")
+            .arg(SECRET_MANAGER_NAME)
+            .param("--project", project_id)
+            .param("--member", f"serviceAccount:{service_account_email}")
+            .param("--role", "roles/secretmanager.secretAccessor")
+            .param("--condition", "None")
+            .flag("--quiet")
         )
         secret_versions = gcloud(
-            f"secrets versions list {SECRET_MANAGER_NAME} --project={project_id}"
+            GcloudCmd("secrets versions", "list")
+            .arg(SECRET_MANAGER_NAME)
+            .param("--project", project_id)
         )
         if len(secret_versions) > 0:
             step_reporter.report(
@@ -115,81 +142,84 @@ def create_secret_manager_entry(
     step_reporter.report(
         message=f"Creating Datadog logs API key '{SECRET_MANAGER_NAME}'..."
     )
-    api_key = create_datadog_logs_api_key()
 
     if len(secrets) == 0:
         step_reporter.report(
             message=f"Creating secret '{SECRET_MANAGER_NAME}' in project '{project_id}'..."
         )
-        gcloud(f"secrets create {SECRET_MANAGER_NAME} --project={project_id}")
+        gcloud(
+            GcloudCmd("secrets", "create")
+            .arg(SECRET_MANAGER_NAME)
+            .param("--project", project_id)
+        )
 
     step_reporter.report(
         message=f"Setting IAM permissions for secret '{SECRET_MANAGER_NAME}'..."
     )
     gcloud(
-        f'secrets add-iam-policy-binding {SECRET_MANAGER_NAME} \
-        --project={project_id} \
-        --member="serviceAccount:{service_account_email}" \
-        --role="roles/secretmanager.secretAccessor" \
-        --condition=None \
-        --quiet'
+        GcloudCmd("secrets", "add-iam-policy-binding")
+        .arg(SECRET_MANAGER_NAME)
+        .param("--project", project_id)
+        .param("--member", f"serviceAccount:{service_account_email}")
+        .param("--role", "roles/secretmanager.secretAccessor")
+        .param("--condition", "None")
+        .flag("--quiet")
     )
 
+    api_key = find_or_create_datadog_api_key()
     step_reporter.report(message=f"Adding API key to secret '{SECRET_MANAGER_NAME}'...")
     with tempfile.NamedTemporaryFile(mode="w") as tmp_file:
         tmp_file.write(api_key)
         tmp_file.flush()
         gcloud(
-            f"secrets versions add {SECRET_MANAGER_NAME} --project={project_id} --data-file={tmp_file.name}"
+            GcloudCmd("secrets versions", "add")
+            .arg(SECRET_MANAGER_NAME)
+            .param("--project", project_id)
+            .param("--data-file", tmp_file.name)
         )
 
 
-def create_datadog_logs_api_key() -> str:
-    """Create a Datadog logs API key."""
+def find_or_create_datadog_api_key() -> str:
+    """Find or create a Datadog API key."""
     response, status = dd_request(
         "GET",
         f"/api/v2/api_keys?filter={SECRET_MANAGER_NAME}",
     )
     if status != 200:
-        raise RuntimeError(f"Failed to get API key: {response}")
+        raise RuntimeError(f"Failed to search API keys: {response}")
 
     json_response = json.loads(response)
-    data: list[dict[str, Any]] = list(
+    api_key_info: list[dict[str, Any]] = list(
         filter(
             lambda key: key.get("attributes", {}).get("name") == SECRET_MANAGER_NAME,
             json_response.get("data", []),
         )
     )
 
-    if len(data) > 0:
-        api_key_id = data[0].get("id")
+    if len(api_key_info) > 0:
         response, status = dd_request(
             "GET",
-            f"/api/v2/api_keys/{api_key_id}",
+            f"/api/v2/api_keys/{api_key_info[0].get('id')}",
         )
         if status != 200:
-            raise RuntimeError(f"Failed to get API key: {response}")
-
-        json_response = json.loads(response)
-        return json_response.get("data", {}).get("attributes", {}).get("key")
-
-    response, status = dd_request(
-        "POST",
-        "/api/v2/api_keys",
-        {
-            "data": {
-                "type": "api_keys",
-                "attributes": {
-                    "name": SECRET_MANAGER_NAME,
+            raise RuntimeError("Failed to get API key")
+    else:
+        response, status = dd_request(
+            "POST",
+            "/api/v2/api_keys",
+            {
+                "data": {
+                    "type": "api_keys",
+                    "attributes": {
+                        "name": SECRET_MANAGER_NAME,
+                    },
                 },
             },
-        },
-    )
-    if status != 201:
-        raise RuntimeError(f"Failed to create API key: {response}")
+        )
+        if status != 201:
+            raise RuntimeError(f"Failed to create API key: {response}")
 
-    json_response = json.loads(response)
-    return json_response.get("data", {}).get("attributes", {}).get("key")
+    return json.loads(response).get("data", {}).get("attributes", {}).get("key")
 
 
 def assign_required_dataflow_roles(
@@ -201,13 +231,45 @@ def assign_required_dataflow_roles(
             message=f"Assigning role [{role}] to service account '{service_account_email}' in project '{project_id}'..."
         )
         gcloud(
-            f'projects add-iam-policy-binding "{project_id}" \
-            --member="serviceAccount:{service_account_email}" \
-            --role="{role}" \
-            --condition=None \
-            --quiet \
-            '
+            GcloudCmd("projects", "add-iam-policy-binding")
+            .arg(project_id)
+            .param("--member", f"serviceAccount:{service_account_email}")
+            .param("--role", role)
+            .param("--condition", "None")
+            .flag("--quiet")
         )
+
+
+def _build_log_sink_cmd(
+    action: Union[Literal["create"], Literal["update"]],
+    default_project_id: str,
+    resource_container_type: str,
+    resource_container_id: str,
+    filter_args: list[str],
+    exclusion_args: list[str],
+) -> GcloudCmd:
+    """Helper to build a log sink command with common flags."""
+    build_log_sink_cmd = (
+        GcloudCmd("logging sinks", action)
+        .arg(LOG_SINK_NAME)
+        .arg(
+            f"pubsub.googleapis.com/projects/{default_project_id}/topics/{PUBSUB_TOPIC_ID}"
+        )
+        .param(f"--{resource_container_type}", resource_container_id)
+    )
+
+    if resource_container_type == "folder":
+        build_log_sink_cmd.flag("--include-children")
+
+    for arg in filter_args:
+        build_log_sink_cmd.flag(arg)
+
+    for arg in exclusion_args:
+        build_log_sink_cmd.flag(arg)
+
+    build_log_sink_cmd.flag("--quiet")
+
+    return build_log_sink_cmd
 
 
 def create_log_sinks(
@@ -218,81 +280,80 @@ def create_log_sinks(
     exclusion_filters: list[ExclusionFilter],
 ) -> None:
     """Create log sinks for the given project."""
-    log_sink_name: str = "datadog-log-sink"
 
-    filter_args = ""
-    if inclusion_filter:
-        filter_args += f" --log-filter='{inclusion_filter}'"
+    filter_args = [] if not inclusion_filter else [f"--log-filter={inclusion_filter}"]
+    create_exclusion_args = [
+        f"--exclusion=name={exclusion.name},filter={exclusion.filter}"
+        for exclusion in exclusion_filters
+    ]
 
-    create_exclusion_args = ""
-    for exclusion in exclusion_filters:
-        create_exclusion_args += (
-            f" --exclusion=name='{exclusion.name}',filter='{exclusion.filter}'"
-        )
-
-    update_exclusion_args = " --clear-exclusions"
-    if exclusion_filters:
-        for exclusion in exclusion_filters:
-            update_exclusion_args += (
-                f" --add-exclusion=name='{exclusion.name}',filter='{exclusion.filter}'"
-            )
+    update_exclusion_args = ["--clear-exclusions"] + [
+        f"--add-exclusion=name={exclusion.name},filter={exclusion.filter}"
+        for exclusion in exclusion_filters
+    ]
 
     for resource_container in [
         *configuration_scope.folders,
         *configuration_scope.projects,
     ]:
-        resource_container_filter = (
-            f"--{resource_container.resource_container_type}={resource_container.id}"
-        )
-        include_children_flag = (
-            " --include-children"
-            if resource_container.resource_container_type == "folder"
-            else ""
-        )
-
         step_reporter.report(
-            message=f"Checking for log sink '{log_sink_name}' in {resource_container.resource_container_type} '{resource_container.name}'..."
+            message=f"Checking for log sink '{LOG_SINK_NAME}' in {resource_container.resource_container_type} '{resource_container.name}'..."
         )
         matched_log_sinks = gcloud(
-            f"logging sinks list {resource_container_filter} --filter='name:{log_sink_name}'"
+            GcloudCmd("logging sinks", "list")
+            .param(
+                f"--{resource_container.resource_container_type}", resource_container.id
+            )
+            .param("--filter", f"name={LOG_SINK_NAME}")
         )
         if len(matched_log_sinks) == 1:
             step_reporter.report(
-                message=f"Updating log sink '{log_sink_name}' in {resource_container.resource_container_type} '{resource_container.name}'..."
+                message=f"Updating log sink '{LOG_SINK_NAME}' in {resource_container.resource_container_type} '{resource_container.name}'..."
             )
-            gcloud(
-                f"logging sinks update {log_sink_name} \
-                pubsub.googleapis.com/projects/{default_project_id}/topics/{PUBSUB_TOPIC_ID} \
-                {resource_container_filter}{include_children_flag}{filter_args}{update_exclusion_args} \
-                --quiet"
+            update_log_sink_cmd = _build_log_sink_cmd(
+                action="update",
+                default_project_id=default_project_id,
+                resource_container_type=resource_container.resource_container_type,
+                resource_container_id=resource_container.id,
+                filter_args=filter_args,
+                exclusion_args=update_exclusion_args,
             )
+            gcloud(update_log_sink_cmd)
             step_reporter.report(
-                message=f"Log sink '{log_sink_name}' updated in {resource_container.resource_container_type} '{resource_container.name}'"
+                message=f"Log sink '{LOG_SINK_NAME}' updated in {resource_container.resource_container_type} '{resource_container.name}'"
             )
         else:
             step_reporter.report(
-                message=f"Creating log sink '{log_sink_name}' in {resource_container.resource_container_type} '{resource_container.name}'..."
+                message=f"Creating log sink '{LOG_SINK_NAME}' in {resource_container.resource_container_type} '{resource_container.name}'..."
             )
-            gcloud(
-                f"logging sinks create {log_sink_name} \
-                pubsub.googleapis.com/projects/{default_project_id}/topics/{PUBSUB_TOPIC_ID} \
-                {resource_container_filter}{include_children_flag}{filter_args}{create_exclusion_args} \
-                --quiet"
+            create_log_sink_cmd = _build_log_sink_cmd(
+                action="create",
+                default_project_id=default_project_id,
+                resource_container_type=resource_container.resource_container_type,
+                resource_container_id=resource_container.id,
+                filter_args=filter_args,
+                exclusion_args=create_exclusion_args,
             )
+            gcloud(create_log_sink_cmd)
 
         sink_info = gcloud(
-            f"logging sinks describe {log_sink_name} {resource_container_filter}",
-            *["writerIdentity"],
+            GcloudCmd("logging sinks", "describe")
+            .arg(LOG_SINK_NAME)
+            .param(
+                f"--{resource_container.resource_container_type}", resource_container.id
+            ),
+            "writerIdentity",
         )
         if writer_identity := sink_info.get("writerIdentity"):
             step_reporter.report(
                 message=f"Granting publish permissions to writer identity in {resource_container.resource_container_type} '{resource_container.name}'..."
             )
             gcloud(
-                f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} \
-                --project={default_project_id} \
-                --member={writer_identity} \
-                --role=roles/pubsub.publisher"
+                GcloudCmd("pubsub topics", "add-iam-policy-binding")
+                .arg(PUBSUB_TOPIC_ID)
+                .param("--project", default_project_id)
+                .param("--member", writer_identity)
+                .param("--role", "roles/pubsub.publisher")
             )
 
 
@@ -308,52 +369,61 @@ def create_dataflow_job(
     step_reporter.report(message=f"Enabling Dataflow API for project '{project_id}'")
 
     gcloud(
-        f"services enable dataflow.googleapis.com \
-                    --project={project_id} \
-                    --quiet"
+        GcloudCmd("services", "enable")
+        .arg("dataflow.googleapis.com")
+        .param("--project", project_id)
+        .flag("--quiet")
     )
 
-    dataflow_job_name: str = "pubsub-to-datadog-job"
-
     step_reporter.report(
-        message=f"Checking for existing Dataflow job '{dataflow_job_name}' in project '{project_id}'..."
+        message=f"Checking for existing Dataflow job '{DATAFLOW_JOB_NAME}' in project '{project_id}'..."
     )
 
     matched_dataflow_jobs = gcloud(
-        f"dataflow jobs list --project={project_id} --region={region} "
-        f"--filter='name:{dataflow_job_name} AND NOT (state=DONE OR state=FAILED OR state=CANCELLED OR state=DRAINED OR state=UPDATED)'"
+        GcloudCmd("dataflow jobs", "list")
+        .param("--project", project_id)
+        .param("--region", region)
+        .param(
+            "--filter",
+            f"name={DATAFLOW_JOB_NAME} AND state=RUNNING",
+        )
     )
     if len(matched_dataflow_jobs) >= 1:
         step_reporter.report(
-            message=f"Dataflow job '{dataflow_job_name}' already exists and is running"
+            message=f"Dataflow job '{DATAFLOW_JOB_NAME}' already exists and is running"
         )
         return
 
     step_reporter.report(
-        message=f"Creating Dataflow job '{dataflow_job_name}' in region '{region}'..."
+        message=f"Creating Dataflow job '{DATAFLOW_JOB_NAME}' in region '{region}'..."
     )
 
-    parameters = (
-        f"inputSubscription=projects/{project_id}/subscriptions/{PUBSUB_TOPIC_ID}-subscription,"
-        f"url=https://http-intake.logs.{os.environ.get('DD_SITE')},"
-        f"apiKeySource=SECRET_MANAGER,"
-        f"apiKeySecretId=projects/{project_id}/secrets/{SECRET_MANAGER_NAME}/versions/latest,"
-        f"outputDeadletterTopic=projects/{project_id}/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID}"
+    create_dataflow_job_cmd = (
+        GcloudCmd("dataflow jobs", "run")
+        .arg(DATAFLOW_JOB_NAME)
+        .param(
+            "--gcs-location",
+            f"gs://dataflow-templates-{region}/latest/Cloud_PubSub_to_Datadog",
+        )
+        .param("--region", region)
+        .param("--project", project_id)
+        .param("--service-account-email", service_account_email)
+        .param(
+            "--parameters",
+            f"inputSubscription=projects/{project_id}/subscriptions/{PUBSUB_TOPIC_ID}-subscription,"
+            f"url=https://http-intake.logs.{os.environ.get('DD_SITE')},"
+            f"apiKeySource=SECRET_MANAGER,"
+            f"apiKeySecretId=projects/{project_id}/secrets/{SECRET_MANAGER_NAME}/versions/latest,"
+            f"outputDeadletterTopic=projects/{project_id}/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID}",
+        )
     )
-
-    dataflow_create_job_command = f"dataflow jobs run {dataflow_job_name} \
-        --gcs-location=gs://dataflow-templates-{region}/latest/Cloud_PubSub_to_Datadog \
-        --region={region} \
-        --project={project_id} \
-        --service-account-email={service_account_email} \
-        --parameters {parameters}"
 
     if is_dataflow_prime_enabled:
         step_reporter.report(message="Enabling Dataflow Prime for the job...")
-        dataflow_create_job_command += " --additional-experiments=enable_prime"
+        create_dataflow_job_cmd.param("--additional-experiments", "enable_prime")
 
-    gcloud(dataflow_create_job_command)
+    gcloud(create_dataflow_job_cmd)
 
     step_reporter.report(
-        message=f"Successfully created Dataflow job '{dataflow_job_name}'"
+        message=f"Successfully created Dataflow job '{DATAFLOW_JOB_NAME}'"
     )

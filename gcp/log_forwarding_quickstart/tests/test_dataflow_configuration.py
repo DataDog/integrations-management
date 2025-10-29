@@ -4,19 +4,21 @@
 
 import json
 import unittest
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 from gcp_log_forwarding_quickstart.dataflow_configuration import (
+    DATAFLOW_JOB_NAME,
+    LOG_SINK_NAME,
     PUBSUB_DEAD_LETTER_TOPIC_ID,
     PUBSUB_TOPIC_ID,
     ROLES_TO_ADD,
     SECRET_MANAGER_NAME,
     assign_required_dataflow_roles,
-    create_datadog_logs_api_key,
     create_dataflow_job,
     create_log_sinks,
     create_secret_manager_entry,
     create_topics_with_subscription,
+    find_or_create_datadog_api_key,
 )
 from gcp_log_forwarding_quickstart.models import ExclusionFilter
 from gcp_shared.models import ConfigurationScope, Folder, Project
@@ -43,32 +45,40 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
 
         create_topics_with_subscription(step_reporter, "test-project")
 
-        # Verify all calls were made in sequence (both topics and subscriptions)
-        mock_gcloud.assert_has_calls(
-            [
-                call(
-                    f"pubsub topics list --project=test-project --filter='name:projects/test-project/topics/{PUBSUB_TOPIC_ID}'"
-                ),
-                call(f"pubsub topics create {PUBSUB_TOPIC_ID} --project=test-project"),
-                call(
-                    f"pubsub subscriptions list --project=test-project --filter='name:projects/test-project/subscriptions/{PUBSUB_TOPIC_ID}-subscription'"
-                ),
-                call(
-                    f"pubsub subscriptions create {PUBSUB_TOPIC_ID}-subscription --topic={PUBSUB_TOPIC_ID} --project=test-project"
-                ),
-                call(
-                    f"pubsub topics list --project=test-project --filter='name:projects/test-project/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID}'"
-                ),
-                call(
-                    f"pubsub topics create {PUBSUB_DEAD_LETTER_TOPIC_ID} --project=test-project"
-                ),
-                call(
-                    f"pubsub subscriptions list --project=test-project --filter='name:projects/test-project/subscriptions/{PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription'"
-                ),
-                call(
-                    f"pubsub subscriptions create {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --topic={PUBSUB_DEAD_LETTER_TOPIC_ID} --project=test-project"
-                ),
-            ]
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
+        self.assertEqual(len(actual_commands), 8)
+        self.assertEqual(
+            actual_commands[0],
+            f"pubsub topics list --project test-project --filter name=projects/test-project/topics/{PUBSUB_TOPIC_ID}",
+        )
+        self.assertEqual(
+            actual_commands[1],
+            f"pubsub topics create {PUBSUB_TOPIC_ID} --project test-project",
+        )
+        self.assertEqual(
+            actual_commands[2],
+            f"pubsub subscriptions list --project test-project --filter name=projects/test-project/subscriptions/{PUBSUB_TOPIC_ID}-subscription",
+        )
+        self.assertEqual(
+            actual_commands[3],
+            f"pubsub subscriptions create {PUBSUB_TOPIC_ID}-subscription --topic {PUBSUB_TOPIC_ID} --project test-project",
+        )
+        self.assertEqual(
+            actual_commands[4],
+            f"pubsub topics list --project test-project --filter name=projects/test-project/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID}",
+        )
+        self.assertEqual(
+            actual_commands[5],
+            f"pubsub topics create {PUBSUB_DEAD_LETTER_TOPIC_ID} --project test-project",
+        )
+        self.assertEqual(
+            actual_commands[6],
+            f"pubsub subscriptions list --project test-project --filter name=projects/test-project/subscriptions/{PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription",
+        )
+        self.assertEqual(
+            actual_commands[7],
+            f"pubsub subscriptions create {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --topic {PUBSUB_DEAD_LETTER_TOPIC_ID} --project test-project",
         )
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
@@ -86,22 +96,24 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
 
         create_topics_with_subscription(step_reporter, "test-project")
 
-        # Verify only checks were made, no creation
-        mock_gcloud.assert_has_calls(
-            [
-                call(
-                    f"pubsub topics list --project=test-project --filter='name:projects/test-project/topics/{PUBSUB_TOPIC_ID}'"
-                ),
-                call(
-                    f"pubsub subscriptions list --project=test-project --filter='name:projects/test-project/subscriptions/{PUBSUB_TOPIC_ID}-subscription'"
-                ),
-                call(
-                    f"pubsub topics list --project=test-project --filter='name:projects/test-project/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID}'"
-                ),
-                call(
-                    f"pubsub subscriptions list --project=test-project --filter='name:projects/test-project/subscriptions/{PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription'"
-                ),
-            ]
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
+        self.assertEqual(len(actual_commands), 4)
+        self.assertEqual(
+            actual_commands[0],
+            f"pubsub topics list --project test-project --filter name=projects/test-project/topics/{PUBSUB_TOPIC_ID}",
+        )
+        self.assertEqual(
+            actual_commands[1],
+            f"pubsub subscriptions list --project test-project --filter name=projects/test-project/subscriptions/{PUBSUB_TOPIC_ID}-subscription",
+        )
+        self.assertEqual(
+            actual_commands[2],
+            f"pubsub topics list --project test-project --filter name=projects/test-project/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID}",
+        )
+        self.assertEqual(
+            actual_commands[3],
+            f"pubsub subscriptions list --project test-project --filter name=projects/test-project/subscriptions/{PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription",
         )
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
@@ -126,16 +138,32 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
 
         create_topics_with_subscription(step_reporter, "test-project")
 
-        # Verify subscription was deleted and recreated
-        mock_gcloud.assert_has_calls(
-            [
-                call(
-                    f"pubsub subscriptions delete {PUBSUB_TOPIC_ID}-subscription --project=test-project"
-                ),
-                call(
-                    f"pubsub subscriptions create {PUBSUB_TOPIC_ID}-subscription --topic={PUBSUB_TOPIC_ID} --project=test-project"
-                ),
-            ]
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
+        self.assertEqual(len(actual_commands), 6)
+        self.assertEqual(
+            actual_commands[0],
+            f"pubsub topics list --project test-project --filter name=projects/test-project/topics/{PUBSUB_TOPIC_ID}",
+        )
+        self.assertEqual(
+            actual_commands[1],
+            f"pubsub subscriptions list --project test-project --filter name=projects/test-project/subscriptions/{PUBSUB_TOPIC_ID}-subscription",
+        )
+        self.assertEqual(
+            actual_commands[2],
+            f"pubsub subscriptions delete {PUBSUB_TOPIC_ID}-subscription --project test-project",
+        )
+        self.assertEqual(
+            actual_commands[3],
+            f"pubsub subscriptions create {PUBSUB_TOPIC_ID}-subscription --topic {PUBSUB_TOPIC_ID} --project test-project",
+        )
+        self.assertEqual(
+            actual_commands[4],
+            f"pubsub topics list --project test-project --filter name=projects/test-project/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID}",
+        )
+        self.assertEqual(
+            actual_commands[5],
+            f"pubsub subscriptions list --project test-project --filter name=projects/test-project/subscriptions/{PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription",
         )
 
 
@@ -143,7 +171,7 @@ class TestCreateSecretManagerEntry(unittest.TestCase):
     """Test the create_secret_manager_entry function."""
 
     @patch(
-        "gcp_log_forwarding_quickstart.dataflow_configuration.create_datadog_logs_api_key"
+        "gcp_log_forwarding_quickstart.dataflow_configuration.find_or_create_datadog_api_key"
     )
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
     def test_create_secret_manager_entry_uses_existing_secret(
@@ -163,11 +191,10 @@ class TestCreateSecretManagerEntry(unittest.TestCase):
             step_reporter, "test-project", "test-sa@project.iam.gserviceaccount.com"
         )
 
-        # Verify API key was not created
         mock_create_api_key.assert_not_called()
 
     @patch(
-        "gcp_log_forwarding_quickstart.dataflow_configuration.create_datadog_logs_api_key"
+        "gcp_log_forwarding_quickstart.dataflow_configuration.find_or_create_datadog_api_key"
     )
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
     @patch(
@@ -198,12 +225,29 @@ class TestCreateSecretManagerEntry(unittest.TestCase):
         )
 
         mock_create_api_key.assert_called_once()
-        mock_gcloud.assert_has_calls(
-            [call(f"secrets create {SECRET_MANAGER_NAME} --project=test-project")]
+
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
+        self.assertEqual(len(actual_commands), 4)
+        self.assertEqual(
+            actual_commands[0],
+            f"secrets list --project test-project --filter 'name~{SECRET_MANAGER_NAME}'",
+        )
+        self.assertEqual(
+            actual_commands[1],
+            f"secrets create {SECRET_MANAGER_NAME} --project test-project",
+        )
+        self.assertEqual(
+            actual_commands[2],
+            f"secrets add-iam-policy-binding {SECRET_MANAGER_NAME} --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/secretmanager.secretAccessor --condition None --quiet",
+        )
+        self.assertEqual(
+            actual_commands[3],
+            f"secrets versions add {SECRET_MANAGER_NAME} --project test-project --data-file /tmp/test",
         )
 
     @patch(
-        "gcp_log_forwarding_quickstart.dataflow_configuration.create_datadog_logs_api_key"
+        "gcp_log_forwarding_quickstart.dataflow_configuration.find_or_create_datadog_api_key"
     )
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
     @patch(
@@ -236,21 +280,36 @@ class TestCreateSecretManagerEntry(unittest.TestCase):
 
         mock_create_api_key.assert_called_once()
 
-        # Verify version was added with the temp file
-        mock_gcloud.assert_has_calls(
-            [
-                call(
-                    f"secrets versions add {SECRET_MANAGER_NAME} --project=test-project --data-file=/tmp/test"
-                )
-            ]
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
+        self.assertEqual(len(actual_commands), 5)
+        self.assertEqual(
+            actual_commands[0],
+            f"secrets list --project test-project --filter 'name~{SECRET_MANAGER_NAME}'",
+        )
+        self.assertEqual(
+            actual_commands[1],
+            f"secrets add-iam-policy-binding {SECRET_MANAGER_NAME} --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/secretmanager.secretAccessor --condition None --quiet",
+        )
+        self.assertEqual(
+            actual_commands[2],
+            f"secrets versions list {SECRET_MANAGER_NAME} --project test-project",
+        )
+        self.assertEqual(
+            actual_commands[3],
+            f"secrets add-iam-policy-binding {SECRET_MANAGER_NAME} --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/secretmanager.secretAccessor --condition None --quiet",
+        )
+        self.assertEqual(
+            actual_commands[4],
+            f"secrets versions add {SECRET_MANAGER_NAME} --project test-project --data-file /tmp/test",
         )
 
 
-class TestCreateDatadogLogsApiKey(unittest.TestCase):
-    """Test the create_datadog_logs_api_key function."""
+class TestFindOrCreateDatadogApiKey(unittest.TestCase):
+    """Test the find_or_create_datadog_api_key function."""
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.dd_request")
-    def test_create_datadog_logs_api_key_uses_existing(self, mock_dd_request):
+    def test_find_or_create_datadog_api_key_uses_existing(self, mock_dd_request):
         """Test using an existing API key."""
         mock_dd_request.side_effect = [
             (
@@ -272,12 +331,12 @@ class TestCreateDatadogLogsApiKey(unittest.TestCase):
             ),
         ]
 
-        result = create_datadog_logs_api_key()
+        result = find_or_create_datadog_api_key()
 
         self.assertEqual(result, "existing-api-key-value")
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.dd_request")
-    def test_create_datadog_logs_api_key_creates_new(self, mock_dd_request):
+    def test_find_or_create_datadog_api_key_creates_new(self, mock_dd_request):
         """Test creating a new API key."""
         mock_dd_request.side_effect = [
             (json.dumps({"data": []}), 200),
@@ -287,19 +346,19 @@ class TestCreateDatadogLogsApiKey(unittest.TestCase):
             ),
         ]
 
-        result = create_datadog_logs_api_key()
+        result = find_or_create_datadog_api_key()
 
         self.assertEqual(result, "new-api-key-value")
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.dd_request")
-    def test_create_datadog_logs_api_key_get_error(self, mock_dd_request):
-        """Test error handling when getting keys fails."""
+    def test_find_or_create_datadog_api_key_search_error(self, mock_dd_request):
+        """Test error handling when searching for keys fails."""
         mock_dd_request.return_value = ('{"error": "bad request"}', 400)
 
         with self.assertRaises(RuntimeError) as ctx:
-            create_datadog_logs_api_key()
+            find_or_create_datadog_api_key()
 
-        self.assertIn("Failed to get API key", str(ctx.exception))
+        self.assertIn("Failed to search API keys", str(ctx.exception))
 
 
 class TestAssignRequiredDataflowRoles(unittest.TestCase):
@@ -316,19 +375,14 @@ class TestAssignRequiredDataflowRoles(unittest.TestCase):
             step_reporter, "test-sa@project.iam.gserviceaccount.com", "test-project"
         )
 
-        # Verify all roles were assigned with exact calls
-        expected_calls = [
-            call(
-                f'projects add-iam-policy-binding "test-project" \
-            --member="serviceAccount:test-sa@project.iam.gserviceaccount.com" \
-            --role="{role}" \
-            --condition=None \
-            --quiet \
-            '
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
+        self.assertEqual(len(actual_commands), len(ROLES_TO_ADD))
+        for i, role in enumerate(ROLES_TO_ADD):
+            self.assertEqual(
+                actual_commands[i],
+                f"projects add-iam-policy-binding test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role {role} --condition None --quiet",
             )
-            for role in ROLES_TO_ADD
-        ]
-        mock_gcloud.assert_has_calls(expected_calls)
 
 
 class TestCreateLogSinks(unittest.TestCase):
@@ -364,15 +418,24 @@ class TestCreateLogSinks(unittest.TestCase):
             exclusion_filters=[],
         )
 
-        mock_gcloud.assert_has_calls(
-            [
-                call(
-                    f"logging sinks create datadog-log-sink \
-                pubsub.googleapis.com/projects/default-project/topics/{PUBSUB_TOPIC_ID} \
-                --project=test-project \
-                --quiet"
-                )
-            ]
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
+        self.assertEqual(len(actual_commands), 4)
+        self.assertEqual(
+            actual_commands[0],
+            f"logging sinks list --project test-project --filter name={LOG_SINK_NAME}",
+        )
+        self.assertEqual(
+            actual_commands[1],
+            f"logging sinks create {LOG_SINK_NAME} pubsub.googleapis.com/projects/default-project/topics/{PUBSUB_TOPIC_ID} --project test-project --quiet",
+        )
+        self.assertEqual(
+            actual_commands[2],
+            f"logging sinks describe {LOG_SINK_NAME} --project test-project",
+        )
+        self.assertEqual(
+            actual_commands[3],
+            f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} --project default-project --member serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com --role roles/pubsub.publisher",
         )
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
@@ -405,16 +468,24 @@ class TestCreateLogSinks(unittest.TestCase):
             exclusion_filters=[],
         )
 
-        # Verify sink was created with --include-children flag
-        mock_gcloud.assert_has_calls(
-            [
-                call(
-                    f"logging sinks create datadog-log-sink \
-                pubsub.googleapis.com/projects/default-project/topics/{PUBSUB_TOPIC_ID} \
-                --folder=folder123 --include-children \
-                --quiet"
-                )
-            ]
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
+        self.assertEqual(len(actual_commands), 4)
+        self.assertEqual(
+            actual_commands[0],
+            f"logging sinks list --folder folder123 --filter name={LOG_SINK_NAME}",
+        )
+        self.assertEqual(
+            actual_commands[1],
+            f"logging sinks create {LOG_SINK_NAME} pubsub.googleapis.com/projects/default-project/topics/{PUBSUB_TOPIC_ID} --folder folder123 --include-children --quiet",
+        )
+        self.assertEqual(
+            actual_commands[2],
+            f"logging sinks describe {LOG_SINK_NAME} --folder folder123",
+        )
+        self.assertEqual(
+            actual_commands[3],
+            f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} --project default-project --member serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com --role roles/pubsub.publisher",
         )
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
@@ -447,19 +518,24 @@ class TestCreateLogSinks(unittest.TestCase):
             exclusion_filters=[],
         )
 
-        # Verify sink was updated (not created), no --include-children for projects
-        mock_gcloud.assert_has_calls(
-            [
-                call(
-                    "logging sinks list --project=test-project --filter='name:datadog-log-sink'"
-                ),
-                call(
-                    f"logging sinks update datadog-log-sink \
-                pubsub.googleapis.com/projects/default-project/topics/{PUBSUB_TOPIC_ID} \
-                --project=test-project --clear-exclusions \
-                --quiet"
-                ),
-            ]
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
+        self.assertEqual(len(actual_commands), 4)
+        self.assertEqual(
+            actual_commands[0],
+            f"logging sinks list --project test-project --filter name={LOG_SINK_NAME}",
+        )
+        self.assertEqual(
+            actual_commands[1],
+            f"logging sinks update {LOG_SINK_NAME} pubsub.googleapis.com/projects/default-project/topics/{PUBSUB_TOPIC_ID} --project test-project --clear-exclusions --quiet",
+        )
+        self.assertEqual(
+            actual_commands[2],
+            f"logging sinks describe {LOG_SINK_NAME} --project test-project",
+        )
+        self.assertEqual(
+            actual_commands[3],
+            f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} --project default-project --member serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com --role roles/pubsub.publisher",
         )
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
@@ -492,19 +568,24 @@ class TestCreateLogSinks(unittest.TestCase):
             exclusion_filters=[],
         )
 
-        # Verify sink was updated (not created) with --include-children
-        mock_gcloud.assert_has_calls(
-            [
-                call(
-                    "logging sinks list --folder=folder123 --filter='name:datadog-log-sink'"
-                ),
-                call(
-                    f"logging sinks update datadog-log-sink \
-                pubsub.googleapis.com/projects/default-project/topics/{PUBSUB_TOPIC_ID} \
-                --folder=folder123 --include-children --clear-exclusions \
-                --quiet"
-                ),
-            ]
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
+        self.assertEqual(len(actual_commands), 4)
+        self.assertEqual(
+            actual_commands[0],
+            f"logging sinks list --folder folder123 --filter name={LOG_SINK_NAME}",
+        )
+        self.assertEqual(
+            actual_commands[1],
+            f"logging sinks update {LOG_SINK_NAME} pubsub.googleapis.com/projects/default-project/topics/{PUBSUB_TOPIC_ID} --folder folder123 --include-children --clear-exclusions --quiet",
+        )
+        self.assertEqual(
+            actual_commands[2],
+            f"logging sinks describe {LOG_SINK_NAME} --folder folder123",
+        )
+        self.assertEqual(
+            actual_commands[3],
+            f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} --project default-project --member serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com --role roles/pubsub.publisher",
         )
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
@@ -540,15 +621,24 @@ class TestCreateLogSinks(unittest.TestCase):
             exclusion_filters=exclusion_filters,
         )
 
-        mock_gcloud.assert_has_calls(
-            [
-                call(
-                    f"logging sinks create datadog-log-sink \
-                pubsub.googleapis.com/projects/default-project/topics/{PUBSUB_TOPIC_ID} \
-                --project=test-project --log-filter='severity>=ERROR' --exclusion=name='test-exclusion',filter='resource.type=test' \
-                --quiet"
-                )
-            ]
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
+        self.assertEqual(len(actual_commands), 4)
+        self.assertEqual(
+            actual_commands[0],
+            f"logging sinks list --project test-project --filter name={LOG_SINK_NAME}",
+        )
+        self.assertEqual(
+            actual_commands[1],
+            f"logging sinks create {LOG_SINK_NAME} pubsub.googleapis.com/projects/default-project/topics/{PUBSUB_TOPIC_ID} --project test-project '--log-filter=severity>=ERROR' --exclusion=name=test-exclusion,filter=resource.type=test --quiet",
+        )
+        self.assertEqual(
+            actual_commands[2],
+            f"logging sinks describe {LOG_SINK_NAME} --project test-project",
+        )
+        self.assertEqual(
+            actual_commands[3],
+            f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} --project default-project --member serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com --role roles/pubsub.publisher",
         )
 
 
@@ -577,7 +667,8 @@ class TestCreateDataflowJob(unittest.TestCase):
             False,
         )
 
-        # Verify API was enabled and job was created
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
         expected_params = (
             f"inputSubscription=projects/test-project/subscriptions/{PUBSUB_TOPIC_ID}-subscription,"
             f"url=https://http-intake.logs.datadoghq.com,"
@@ -585,25 +676,19 @@ class TestCreateDataflowJob(unittest.TestCase):
             f"apiKeySecretId=projects/test-project/secrets/{SECRET_MANAGER_NAME}/versions/latest,"
             f"outputDeadletterTopic=projects/test-project/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID}"
         )
-        mock_gcloud.assert_has_calls(
-            [
-                call(
-                    "services enable dataflow.googleapis.com \
-                    --project=test-project \
-                    --quiet"
-                ),
-                call(
-                    "dataflow jobs list --project=test-project --region=us-central1 --filter='name:pubsub-to-datadog-job AND NOT (state=DONE OR state=FAILED OR state=CANCELLED OR state=DRAINED OR state=UPDATED)'"
-                ),
-                call(
-                    f"dataflow jobs run pubsub-to-datadog-job \
-        --gcs-location=gs://dataflow-templates-us-central1/latest/Cloud_PubSub_to_Datadog \
-        --region=us-central1 \
-        --project=test-project \
-        --service-account-email=test-sa@project.iam.gserviceaccount.com \
-        --parameters {expected_params}"
-                ),
-            ]
+
+        self.assertEqual(len(actual_commands), 3)
+        self.assertEqual(
+            actual_commands[0],
+            "services enable dataflow.googleapis.com --project test-project --quiet",
+        )
+        self.assertEqual(
+            actual_commands[1],
+            f"dataflow jobs list --project test-project --region us-central1 --filter 'name={DATAFLOW_JOB_NAME} AND state=RUNNING'",
+        )
+        self.assertEqual(
+            actual_commands[2],
+            f"dataflow jobs run {DATAFLOW_JOB_NAME} --gcs-location gs://dataflow-templates-us-central1/latest/Cloud_PubSub_to_Datadog --region us-central1 --project test-project --service-account-email test-sa@project.iam.gserviceaccount.com --parameters {expected_params}",
         )
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
@@ -625,18 +710,16 @@ class TestCreateDataflowJob(unittest.TestCase):
             False,
         )
 
-        # Verify API was enabled and existing job was checked, no create
-        mock_gcloud.assert_has_calls(
-            [
-                call(
-                    "services enable dataflow.googleapis.com \
-                    --project=test-project \
-                    --quiet"
-                ),
-                call(
-                    "dataflow jobs list --project=test-project --region=us-central1 --filter='name:pubsub-to-datadog-job AND NOT (state=DONE OR state=FAILED OR state=CANCELLED OR state=DRAINED OR state=UPDATED)'"
-                ),
-            ]
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
+        self.assertEqual(len(actual_commands), 2)
+        self.assertEqual(
+            actual_commands[0],
+            "services enable dataflow.googleapis.com --project test-project --quiet",
+        )
+        self.assertEqual(
+            actual_commands[1],
+            f"dataflow jobs list --project test-project --region us-central1 --filter 'name={DATAFLOW_JOB_NAME} AND state=RUNNING'",
         )
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
@@ -661,6 +744,8 @@ class TestCreateDataflowJob(unittest.TestCase):
             True,
         )
 
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
         expected_params = (
             f"inputSubscription=projects/test-project/subscriptions/{PUBSUB_TOPIC_ID}-subscription,"
             f"url=https://http-intake.logs.datadoghq.com,"
@@ -668,25 +753,19 @@ class TestCreateDataflowJob(unittest.TestCase):
             f"apiKeySecretId=projects/test-project/secrets/{SECRET_MANAGER_NAME}/versions/latest,"
             f"outputDeadletterTopic=projects/test-project/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID}"
         )
-        mock_gcloud.assert_has_calls(
-            [
-                call(
-                    "services enable dataflow.googleapis.com \
-                    --project=test-project \
-                    --quiet"
-                ),
-                call(
-                    "dataflow jobs list --project=test-project --region=us-central1 --filter='name:pubsub-to-datadog-job AND NOT (state=DONE OR state=FAILED OR state=CANCELLED OR state=DRAINED OR state=UPDATED)'"
-                ),
-                call(
-                    f"dataflow jobs run pubsub-to-datadog-job \
-        --gcs-location=gs://dataflow-templates-us-central1/latest/Cloud_PubSub_to_Datadog \
-        --region=us-central1 \
-        --project=test-project \
-        --service-account-email=test-sa@project.iam.gserviceaccount.com \
-        --parameters {expected_params} --additional-experiments=enable_prime"
-                ),
-            ]
+
+        self.assertEqual(len(actual_commands), 3)
+        self.assertEqual(
+            actual_commands[0],
+            "services enable dataflow.googleapis.com --project test-project --quiet",
+        )
+        self.assertEqual(
+            actual_commands[1],
+            f"dataflow jobs list --project test-project --region us-central1 --filter 'name={DATAFLOW_JOB_NAME} AND state=RUNNING'",
+        )
+        self.assertEqual(
+            actual_commands[2],
+            f"dataflow jobs run {DATAFLOW_JOB_NAME} --gcs-location gs://dataflow-templates-us-central1/latest/Cloud_PubSub_to_Datadog --region us-central1 --project test-project --service-account-email test-sa@project.iam.gserviceaccount.com --parameters {expected_params} --additional-experiments enable_prime",
         )
 
 

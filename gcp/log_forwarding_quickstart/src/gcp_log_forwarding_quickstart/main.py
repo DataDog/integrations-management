@@ -94,13 +94,6 @@ def main():
         )
 
     with workflow_reporter.report_step(
-        OnboardingStep.ASSIGN_REQUIRED_DATAFLOW_ROLES
-    ) as step_reporter:
-        assign_required_dataflow_roles(
-            step_reporter, service_account_email, default_project_id
-        )
-
-    with workflow_reporter.report_step(
         OnboardingStep.CREATE_SECRET_MANAGER_ENTRY
     ) as step_reporter:
         create_secret_manager_entry(
@@ -130,6 +123,13 @@ def main():
                 ExclusionFilter(**exclusion)
                 for exclusion in user_selections.get("exclusion_filters", [])
             ],
+        )
+
+    with workflow_reporter.report_step(
+        OnboardingStep.ASSIGN_REQUIRED_DATAFLOW_ROLES
+    ) as step_reporter:
+        assign_required_dataflow_roles(
+            step_reporter, service_account_email, default_project_id
         )
 
     with workflow_reporter.report_step(
