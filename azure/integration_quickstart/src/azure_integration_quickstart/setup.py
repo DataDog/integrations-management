@@ -321,6 +321,8 @@ def loading_spinner(message: str, done: threading.Event):
 
 @dataclass
 class StatusReporter:
+    EXPIRED_TOKEN_ERROR = "Lifetime validation failed, the token is expired"
+
     workflow_id: str
 
     def report(self, step_id: str, status: Status, message: str, metadata: Optional[Json] = None) -> None:
@@ -350,11 +352,14 @@ class StatusReporter:
                 loading_message_thread.start()
             step_metadata = {}
             yield step_metadata
-        except Exception:
+        except Exception as e:
             if step_complete:
                 step_complete.set()
             if loading_message_thread:
                 loading_message_thread.join()
+            if isinstance(e, RuntimeError) and self.EXPIRED_TOKEN_ERROR in repr(e):
+                self.report("connection", Status.ERROR, f"Azure CLI token expired: {e}")
+                raise
             self.report(step_id, Status.ERROR, f"{step_id}: {Status.ERROR}: {traceback.format_exc()}")
             if required:
                 raise
@@ -499,11 +504,20 @@ def receive_user_selections(workflow_id: str) -> UserSelections:
                 raise RuntimeError("Error retrieving user selections from Datadog") from e
         json_response = json.loads(response)
         attributes = json_response["data"]["attributes"]
+        subscriptions = [Subscription(**s) for s in attributes["subscriptions"]["subscriptions"]]
+        management_groups = [
+            ManagementGroup(
+                **{
+                    **mg,
+                    "subscriptions": SubscriptionList(
+                        [Subscription(**s) for s in mg["subscriptions"]["subscriptions"]]
+                    ),
+                }
+            )
+            for mg in attributes["management_groups"]["management_groups"]
+        ]
         return UserSelections(
-            tuple(
-                [Subscription(**s) for s in attributes["subscriptions"]["subscriptions"]]
-                + [ManagementGroup(**mg) for mg in attributes["management_groups"]["management_groups"]]
-            ),
+            tuple(subscriptions + management_groups),
             json.loads(attributes["config_options"]),
             json.loads(attributes["log_forwarding_options"])
             if "log_forwarding_options" in attributes and attributes["log_forwarding_options"]
@@ -544,11 +558,6 @@ def add_ms_graph_app_role_assignments(app_registration: AppRegistration, roles: 
     az(
         f'ad app permission add --id "{app_registration.client_id}" --api {MS_GRAPH_API} --api-permissions {" ".join([f"{role}=Role" for role in roles])}'
     )
-    # TODO:
-    # RuntimeError: Could not execute az command: WARNING: A Cloud Shell credential problem occurred. When you report the issue with the error below, please mention the hostname 'SandboxHost-638863179315458251'
-    # ERROR: Audience 74658136-14ec-4630-ad9b-26e160ff0fc6 is not a supported MSI token audience.
-    # Interactive authentication is needed. Please run:
-    # az login --scope 74658136-14ec-4630-ad9b-26e160ff0fc6/.default
     az(f'ad app permission admin-consent --id "{app_registration.client_id}"')
 
 
@@ -596,6 +605,7 @@ def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
         control_plane_rg=config["resourceGroupName"],
         monitored_subs=",".join([s.id for s in subscriptions]),
         datadog_api_key=os.environ["DD_API_KEY"],
+        datadog_site=os.environ["DD_SITE"],
     )
     if "tagFilters" in config:
         log_forwarder_config.resource_tag_filters = config["tagFilters"]
