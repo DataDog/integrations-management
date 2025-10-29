@@ -487,14 +487,7 @@ def build_log_forwarder_payload(metadata: LfoMetadata) -> LogForwarderPayload:
 def report_existing_log_forwarders(subscriptions: list[Scope], step_metadata: dict) -> bool:
     """Send Datadog any existing Log Forwarders in the tenant and return whether we found exactly 1 Forwarder, in which case we will potentially update it."""
     scope_id_to_name = {s.id: s.name for s in subscriptions}
-    try:
-        forwarders = check_existing_lfo(set(scope_id_to_name.keys()), scope_id_to_name)
-    except AccessError as e:
-        raise RuntimeError(
-            f"Insufficient Azure user permissions when checking for existing log forwarder configuration. Please check your Azure permissions and try again: {e}"
-        ) from e
-    except Exception as e:
-        raise RuntimeError(f"Error when checking for existing log forwarders: {e}") from e
+    forwarders = check_existing_lfo(set(scope_id_to_name.keys()), scope_id_to_name)
     step_metadata["log_forwarders"] = [build_log_forwarder_payload(forwarder) for forwarder in forwarders.values()]
     return len(forwarders) == 1
 
