@@ -308,6 +308,7 @@ class Status(Enum):
     STARTED = "STARTED"
     OK = "OK"
     ERROR = "ERROR"
+    USER_ACTIONABLE_ERROR = "USER_ACTIONABLE_ERROR"
 
 
 def loading_spinner(message: str, done: threading.Event):
@@ -357,10 +358,17 @@ class StatusReporter:
                 step_complete.set()
             if loading_message_thread:
                 loading_message_thread.join()
-            if isinstance(e, RuntimeError) and self.EXPIRED_TOKEN_ERROR in repr(e):
+            if self.EXPIRED_TOKEN_ERROR in repr(e):
                 self.report("connection", Status.ERROR, f"Azure CLI token expired: {e}")
                 raise
-            self.report(step_id, Status.ERROR, f"{step_id}: {Status.ERROR}: {traceback.format_exc()}")
+            if isinstance(e, UserActionRequiredError):
+                self.report(
+                    step_id,
+                    Status.USER_ACTIONABLE_ERROR,
+                    f"{step_id}: {Status.USER_ACTIONABLE_ERROR}: {traceback.format_exc()}",
+                )
+            else:
+                self.report(step_id, Status.ERROR, f"{step_id}: {Status.ERROR}: {traceback.format_exc()}")
             if required:
                 raise
         else:
@@ -615,13 +623,9 @@ def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
     try:
         install_log_forwarder(log_forwarder_config)
     except AccessError as e:
-        raise RuntimeError(
+        raise UserActionRequiredError(
             f"Insufficient Azure user permissions when installing log forwarder. Please check your Azure permissions and try again: {e}"
         ) from e
-    except UserActionRequiredError as e:
-        raise RuntimeError(f"Error when installing log forwarder. User action is required to resolve: {e}") from e
-    except Exception as e:
-        raise RuntimeError(f"Error when installing log forwarder: {e}") from e
 
 
 def assign_permissions(client_id: str, scopes: Sequence[Scope]) -> None:
