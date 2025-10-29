@@ -2,6 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 import shlex
@@ -9,11 +10,11 @@ import tempfile
 from time import sleep, time
 
 from az_shared.az_cmd import AzCmd, execute
-from az_shared.errors import ExistenceCheckError, FatalError, ResourceNotFoundError
+from az_shared.errors import ExistenceCheckError, FatalError, ResourceNotFoundError, ResourceProviderRegistrationValidationError
 from az_shared.logs import log
 
 from .configuration import Configuration
-from .constants import CONTROL_PLANE_CACHE, IMAGE_REGISTRY_URL, LFO_PUBLIC_STORAGE_ACCOUNT_URL
+from .constants import CONTROL_PLANE_CACHE, IMAGE_REGISTRY_URL, LFO_PUBLIC_STORAGE_ACCOUNT_URL, MAX_THREAD_POOL_WORKERS
 
 # =============================================================================
 # Subscription, Resource Group, Storage Account
@@ -293,3 +294,59 @@ def create_container_app_job(config: Configuration):
         .param_list("--env-vars", env_vars)
         .param_list("--secrets", secrets)
     )
+
+# =============================================================================
+# Resource Provider Registration
+# =============================================================================
+
+def register_missing_resource_providers(sub_to_unregistered_provider_list: dict[str, list[str]]):
+    """Register missing resource providers in parallel using a thread pool."""
+
+    if not sub_to_unregistered_provider_list:
+        log.info("All resource providers are already registered across all subscriptions")
+        return
+    else:
+        log.info(f"Registering missing resource providers in {len(sub_to_unregistered_provider_list)} subscriptions in parallel. This may take a few minutes...")
+
+    def register_provider(sub_id: str, provider: str) -> tuple[str, str, bool, Exception | None]:
+        """Register a single resource provider. Returns (sub_id, provider, success, error)."""
+        
+        log.debug(f"Registering resource provider {provider} in subscription {sub_id}")
+        try:
+            execute(
+                AzCmd("provider", "register")
+                .param("--subscription", sub_id)
+                .param("--namespace", provider)
+                .flag("--wait")
+            )
+            log.info(f"Successfully registered {provider} in subscription {sub_id}")
+            return (sub_id, provider, True, None)
+        except Exception as e:
+            log.error(f"Failed to register resource provider {provider} in subscription {sub_id}: {e}")
+            return (sub_id, provider, False, e)
+
+    registration_tasks = [
+        (sub_id, provider)
+        for sub_id, unregistered_providers in sub_to_unregistered_provider_list.items()
+        for provider in unregistered_providers
+    ]
+
+    failures = []
+    with ThreadPoolExecutor(max_workers=MAX_THREAD_POOL_WORKERS) as executor:
+        future_to_task = {
+            executor.submit(register_provider, sub_id, provider): (sub_id, provider)
+            for sub_id, provider in registration_tasks
+        }
+
+        for future in as_completed(future_to_task):
+            sub_id, provider, success, error = future.result()
+            if not success:
+                failures.append((sub_id, provider, error))
+
+    if failures:
+        error_msg = "Error occurred while registering resource providers:\n"
+        for sub_id, provider, error in failures:
+            error_msg += f"  - {provider} in subscription {sub_id}: {error}\n"
+        raise ResourceProviderRegistrationValidationError(error_msg.strip())
+    
+    log.info("Successfully registered missing resource providers")

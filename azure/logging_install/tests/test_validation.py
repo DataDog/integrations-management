@@ -19,6 +19,7 @@ from azure_logging_install import validation
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.constants import REQUIRED_RESOURCE_PROVIDERS
 from azure_logging_install.existing_lfo import LfoControlPlane
+
 from tests.test_data import (
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_RESOURCE_GROUP,
@@ -167,17 +168,6 @@ class TestValidation(TestCase):
         validation.validate_resource_provider_registrations({SUB_1_ID, SUB_2_ID})
 
         self.assertEqual(self.execute_mock.call_count, 2)
-
-    def test_validate_resource_provider_registrations_not_registered(self):
-        """Test resource provider registration validation failure"""
-        mock_providers = [
-            {"namespace": "Microsoft.Web", "registrationState": "NotRegistered"},
-            {"namespace": "Microsoft.App", "registrationState": "Registered"},
-        ]
-        self.execute_mock.return_value = json.dumps(mock_providers)
-
-        with self.assertRaises(ResourceProviderRegistrationValidationError):
-            validation.validate_resource_provider_registrations({SUB_1_ID})
 
     def test_validate_resource_provider_registrations_multiple_subs(self):
         """Test resource provider registration validation for multiple subscriptions"""

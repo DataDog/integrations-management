@@ -9,11 +9,14 @@ CONTROL_PLANE_CACHE = "control-plane-cache"
 INITIAL_DEPLOY_IDENTITY_NAME = "runInitialDeployIdentity"
 STORAGE_ACCOUNT_KEY_FULL_PERMISSIONS = "FULL"
 REQUIRED_RESOURCE_PROVIDERS = [
+    "Microsoft.CloudShell",  # Cloud Shell
     "Microsoft.Web",  # Function Apps
-    "Microsoft.App",  # Container Apps
+    "Microsoft.App",  # Container Apps + Envs
     "Microsoft.Storage",  # Storage Accounts
     "Microsoft.Authorization",  # Role Assignments
 ]
+RESOURCE_PROVIDER_REGISTERED_STATUS = "Registered"
+MAX_THREAD_POOL_WORKERS = 100
 
 NIL_UUID = "00000000-0000-0000-0000-000000000000"
 MONITORING_READER_ID = "43d0d8ad-25c7-4714-9337-8ba259a9fe05"

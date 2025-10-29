@@ -21,8 +21,12 @@ from az_shared.errors import (
 from az_shared.logs import log
 
 from .configuration import Configuration
-from .constants import REQUIRED_RESOURCE_PROVIDERS
+from .constants import (
+    REQUIRED_RESOURCE_PROVIDERS,
+    RESOURCE_PROVIDER_REGISTERED_STATUS,
+)
 from .existing_lfo import LfoMetadata, check_existing_lfo
+from .resource_setup import register_missing_resource_providers
 
 
 def is_empty_or_whitespace(s: str) -> bool:
@@ -126,9 +130,9 @@ def check_providers_per_subscription(sub_ids: set[str]) -> dict[str, list[str]]:
             unregistered_providers = []
             for provider in REQUIRED_RESOURCE_PROVIDERS:
                 state = provider_states.get(provider, "NotFound")
-                if state != "Registered":
+                if state != RESOURCE_PROVIDER_REGISTERED_STATUS:
                     unregistered_providers.append(provider)
-                    log.debug(f"Subscription {sub_id}: Resource provider {provider} is {state}")
+                    log.info(f"Subscription {sub_id}: Resource provider {provider} is {state}")
 
             sub_to_unregistered_provider_list[sub_id] = unregistered_providers
         except Exception as e:
@@ -139,31 +143,19 @@ def check_providers_per_subscription(sub_ids: set[str]) -> dict[str, list[str]]:
 
     return sub_to_unregistered_provider_list
 
-
 def validate_resource_provider_registrations(sub_ids: set[str]):
     """Ensure the required Azure resource providers are registered across all subscriptions."""
 
     log.info(f"Checking required resource providers across {len(sub_ids)} subscription(s)...")
     sub_to_unregistered_provider_list = check_providers_per_subscription(sub_ids)
 
-    success = True
     for sub_id, unregistered_providers in sub_to_unregistered_provider_list.items():
         if unregistered_providers:
-            success = False
-            log.error(
+            log.info(
                 f"Subscription {sub_id}: Detected unregistered resource providers: {', '.join(unregistered_providers)}"
             )
-            log.error("Please run the following commands to register the missing resource providers:")
-            log.error(f"az account set --subscription {sub_id}")
-            for provider in unregistered_providers:
-                log.error(f"az provider register --namespace {provider}")
-        else:
-            log.debug(f"Subscription {sub_id}: All required resource providers are registered")
 
-    if not success:
-        raise ResourceProviderRegistrationValidationError(
-            "Resource provider validation failed. Check logs for more details."
-        )
+    register_missing_resource_providers(sub_to_unregistered_provider_list)
 
     log.info("Resource provider validation successful across all subscriptions")
 

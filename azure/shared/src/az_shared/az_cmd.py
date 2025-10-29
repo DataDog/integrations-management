@@ -99,7 +99,7 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
         except subprocess.CalledProcessError as e:
             stderr = str(e.stderr)
             if RESOURCE_NOT_FOUND_ERROR in stderr:
-                raise ResourceNotFoundError(f"Resource not found when executing '{az_cmd}'") from e
+                raise ResourceNotFoundError(f"Resource not found when executing '{az_cmd.str()}'") from e
             if AZURE_THROTTLING_ERROR in stderr or RESOURCE_COLLECTION_THROTTLING_ERROR in stderr:
                 if attempt < MAX_RETRIES - 1:
                     log.warning(f"Azure throttling ongoing. Retrying in {delay} seconds...")
@@ -108,9 +108,9 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
                     continue
                 raise RateLimitExceededError("Rate limit exceeded. Please wait a few minutes and try again.") from e
             if REFRESH_TOKEN_EXPIRED_ERROR in stderr:
-                raise RefreshTokenError(f"Auth token is expired. Refresh token before running '{az_cmd}'") from e
+                raise RefreshTokenError(f"Auth token is expired. Refresh token before running '{az_cmd.str()}'") from e
             if AUTH_FAILED_ERROR in stderr:
-                error_message = f"Insufficient permissions to access resource when executing '{az_cmd}'"
+                error_message = f"Insufficient permissions to access resource when executing '{az_cmd.str()}'"
                 error_details = check_access_error(stderr)
                 if error_details:
                     raise AccessError(f"{error_message}: {error_details}") from e
