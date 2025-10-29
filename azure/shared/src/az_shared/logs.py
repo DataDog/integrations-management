@@ -4,7 +4,7 @@
 
 from logging import getLogger
 
-log = getLogger("installer")
+log = getLogger("logging_installer")
 
 
 def log_header(message: str):
