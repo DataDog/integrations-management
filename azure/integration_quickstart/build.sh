@@ -10,6 +10,6 @@ cp -r shared/src/. integration_quickstart/dist/tmp
 python -m zipapp integration_quickstart/dist/tmp \
   -o integration_quickstart/dist/azure_integration_quickstart.pyz \
   -p "/usr/bin/env python3" \
-  -m "azure_integration_quickstart.setup:main"
+  -m "azure_integration_quickstart.main:main"
 chmod +x integration_quickstart/dist/azure_integration_quickstart.pyz
 rm -r integration_quickstart/dist/tmp
