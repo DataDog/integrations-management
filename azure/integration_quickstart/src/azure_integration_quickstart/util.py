@@ -8,14 +8,32 @@ import os
 import re
 import ssl
 import time
+from collections.abc import Container, Iterable
+from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Optional
+from typing import Any, Optional, TypeVar, Union
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from azure_integration_quickstart.types import Json
-
 MAX_WORKERS = 50
+
+T = TypeVar("T")
+
+
+@dataclass
+class UnionContainer(Container[T]):
+    """A container comprised of other containers."""
+
+    containers: Iterable[Container[T]]
+
+    def __contains__(self, item: T) -> bool:
+        return any(item in container for container in self.containers)
+
+
+JsonAtom = Union[str, int, bool, None]
+JsonDict = dict[str, "Json"]
+JsonList = list["Json"]
+Json = Union[JsonDict, JsonList, JsonAtom]
 
 
 @lru_cache(maxsize=256)

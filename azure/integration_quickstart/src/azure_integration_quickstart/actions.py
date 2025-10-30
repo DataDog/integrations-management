@@ -6,22 +6,9 @@
 from collections.abc import Container, Iterable
 from dataclasses import dataclass
 
-from azure_integration_quickstart.utils import compile_wildcard
+from azure_integration_quickstart.util import compile_wildcard
 
 Action = str
-
-
-@dataclass
-class ActionContainer(Container[Action]):
-    """A container of actions."""
-
-    actions: Iterable[Action]
-    not_actions: Iterable[Action]
-
-    def __contains__(self, action: Action) -> bool:
-        return (any(is_action_lte(action, a) for a in self.actions)) and not (
-            any(is_action_overlapping(a, action) for a in self.not_actions)
-        )
 
 
 def is_action_lte(a1: Action, a2: Action) -> bool:
@@ -41,3 +28,16 @@ def is_action_lte(a1: Action, a2: Action) -> bool:
 def is_action_overlapping(a1: Action, a2: Action) -> bool:
     """Determine whether an action has any overlap with another action."""
     return is_action_lte(a1, a2) or is_action_lte(a2, a1)
+
+
+@dataclass
+class ActionContainer(Container[Action]):
+    """A container of actions."""
+
+    actions: Iterable[Action]
+    not_actions: Iterable[Action]
+
+    def __contains__(self, action: Action) -> bool:
+        return (any(is_action_lte(action, a) for a in self.actions)) and not (
+            any(is_action_overlapping(a, action) for a in self.not_actions)
+        )

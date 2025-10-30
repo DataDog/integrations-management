@@ -12,7 +12,7 @@ from urllib.error import URLError
 
 from az_shared.az_cmd import AzCmd, execute_json
 from azure_integration_quickstart.permissions import FlatPermission, get_flat_permission
-from azure_integration_quickstart.utils import MAX_WORKERS, dd_request
+from azure_integration_quickstart.util import MAX_WORKERS, dd_request
 
 ScopeType = Literal["subscription", "management_group"]
 

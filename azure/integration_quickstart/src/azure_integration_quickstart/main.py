@@ -20,7 +20,7 @@ from az_shared.errors import AccessError, AzCliNotAuthenticatedError, UserAction
 from azure_integration_quickstart.scopes import Scope, Subscription, flatten_scopes, report_available_scopes
 from azure_integration_quickstart.script_status import Status, StatusReporter
 from azure_integration_quickstart.user_selections import receive_user_selections
-from azure_integration_quickstart.utils import MAX_WORKERS, dd_request
+from azure_integration_quickstart.util import MAX_WORKERS, dd_request
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
 from azure_logging_install.main import install_log_forwarder

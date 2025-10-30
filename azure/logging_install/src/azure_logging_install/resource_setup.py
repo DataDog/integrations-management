@@ -142,7 +142,7 @@ def create_function_app(config: Configuration, name: str):
             AzCmd("functionapp", "config set")
             .param("--name", name)
             .param("--resource-group", config.control_plane_rg)
-            .param("--linux-fx-version", shlex.quote("Python;3.11"))
+            .param("--linux-fx-version", shlex.quote("Python|3.11"))
         )
 
 

@@ -4,13 +4,12 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 import json
-from collections.abc import Iterable
+from collections.abc import Container, Iterable
 from dataclasses import dataclass
 from typing import TypedDict
 
 from azure_integration_quickstart.actions import Action, ActionContainer
-from azure_integration_quickstart.types import Container, UnionContainer
-from azure_integration_quickstart.utils import request
+from azure_integration_quickstart.util import UnionContainer, request
 
 
 class Permission(TypedDict, total=False):

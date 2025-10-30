@@ -11,7 +11,7 @@ from typing import Optional
 from urllib.error import HTTPError
 
 from azure_integration_quickstart.scopes import ManagementGroup, Scope, Subscription, SubscriptionList
-from azure_integration_quickstart.utils import dd_request
+from azure_integration_quickstart.util import dd_request
 
 
 @dataclass

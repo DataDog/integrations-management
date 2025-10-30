@@ -12,8 +12,7 @@ from enum import Enum
 from typing import Generator, Optional
 
 from az_shared.errors import UserActionRequiredError
-from azure_integration_quickstart.types import Json
-from azure_integration_quickstart.utils import dd_request
+from azure_integration_quickstart.util import Json, dd_request
 
 
 class Status(Enum):
