@@ -6,7 +6,7 @@ import json
 import subprocess
 from re import search
 from time import sleep
-from typing import Union
+from typing import Any, Union
 
 from .errors import AccessError, RateLimitExceededError, RefreshTokenError, ResourceNotFoundError
 from .logs import log
@@ -122,3 +122,17 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
             raise RuntimeError(f"Command failed: {full_command}") from e
 
     raise SystemExit(1)  # unreachable
+
+
+def execute_json(az_cmd: AzCmd) -> Any:
+    az_response = execute(az_cmd)
+    if not az_response:
+        raise RuntimeError(f"Azure command {az_cmd} unexpectedly returned empty result")
+    return json.loads(az_response)
+
+
+def execute_json_nullable(az_cmd: AzCmd) -> Any:
+    az_response = execute(az_cmd, can_fail=True)
+    if not az_response:
+        return None
+    return json.loads(az_response)
