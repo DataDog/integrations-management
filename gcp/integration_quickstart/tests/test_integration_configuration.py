@@ -11,25 +11,24 @@ from gcp_integration_quickstart.integration_configuration import (
     ROLES_TO_ADD,
     assign_delegate_permissions,
     create_integration_with_permissions,
-    find_or_create_service_account,
 )
-from gcp_integration_quickstart.models import (
+from gcp_integration_quickstart.models import IntegrationConfiguration
+from gcp_shared.models import (
     ConfigurationScope,
     Folder,
-    IntegrationConfiguration,
     Project,
 )
+from gcp_shared.service_accounts import find_or_create_service_account
 
 
 class TestFindOrCreateServiceAccount(unittest.TestCase):
     """Test the find_or_create_service_account function."""
 
-    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    @patch("gcp_shared.service_accounts.gcloud")
     def test_find_or_create_service_account_existing(self, mock_gcloud):
         """Test find_or_create_service_account when service account already exists."""
         mock_gcloud.return_value = [{"email": "test@project.iam.gserviceaccount.com"}]
 
-        # Create a mock step reporter
         step_reporter = Mock()
 
         result = find_or_create_service_account(
@@ -42,17 +41,14 @@ class TestFindOrCreateServiceAccount(unittest.TestCase):
         )
         self.assertEqual(result, "test@project.iam.gserviceaccount.com")
 
-    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    @patch("gcp_shared.service_accounts.gcloud")
     def test_find_or_create_service_account_new(self, mock_gcloud):
         """Test find_or_create_service_account when creating new service account."""
-        # First call returns empty list (no existing account)
-        # Second call returns the created account
         mock_gcloud.side_effect = [
             [],
             {"email": "test-account@test-project.iam.gserviceaccount.com"},
         ]
 
-        # Create a mock step reporter
         step_reporter = Mock()
 
         result = find_or_create_service_account(
@@ -82,7 +78,6 @@ class TestAssignDelegatePermissions(unittest.TestCase):
     def test_assign_delegate_permissions_success(self, mock_dd_request, mock_gcloud):
         """Test assign_delegate_permissions when successful."""
 
-        # Mock dd_request response for STS delegate
         mock_dd_request.return_value = (
             json.dumps(
                 {
@@ -96,7 +91,6 @@ class TestAssignDelegatePermissions(unittest.TestCase):
 
         mock_gcloud.return_value = None
 
-        # Create a mock step reporter
         step_reporter = Mock()
 
         assign_delegate_permissions(step_reporter, "test-project")
@@ -115,10 +109,8 @@ class TestAssignDelegatePermissions(unittest.TestCase):
     def test_assign_delegate_permissions_sts_failure(self, mock_dd_request):
         """Test assign_delegate_permissions when STS delegate request fails."""
 
-        # Mock dd_request response for STS delegate failure
         mock_dd_request.return_value = ('{"error": "not found"}', 404)
 
-        # Create a mock step reporter
         step_reporter = Mock()
 
         with self.assertRaises(RuntimeError) as context:
@@ -150,15 +142,12 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
     ):
         """Test create_integration_with_permissions when successful."""
 
-        # Mock dd_request response for integration creation
         mock_dd_request.return_value = ('{"status": "ok"}', 201)
 
         mock_gcloud.return_value = None
 
-        # Create a mock step reporter
         step_reporter = Mock()
 
-        # Create test configuration scope
         child_project = Project(
             parent_id="folder123",
             id="child-project123",
@@ -265,12 +254,9 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
     ):
         """Test create_integration_with_permissions when integration creation fails."""
 
-        # Mock dd_request response for integration creation failure
         mock_dd_request.return_value = ('{"error": "bad request"}', 400)
 
         mock_gcloud.return_value = None
-
-        # Create a mock step reporter
         step_reporter = Mock()
 
         configuration_scope = ConfigurationScope(projects=[], folders=[])
