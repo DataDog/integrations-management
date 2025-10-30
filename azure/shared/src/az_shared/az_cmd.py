@@ -127,7 +127,7 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
 def execute_json(az_cmd: AzCmd) -> Any:
     az_response = execute(az_cmd)
     if not az_response:
-        raise RuntimeError(f"Azure command {az_cmd} unexpectedly returned empty result")
+        return None
     return json.loads(az_response)
 
 

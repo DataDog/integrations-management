@@ -2,15 +2,21 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 import shlex
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from time import sleep, time
+from typing import Optional
 
 from az_shared.az_cmd import AzCmd, execute
-from az_shared.errors import ExistenceCheckError, FatalError, ResourceNotFoundError, ResourceProviderRegistrationValidationError
+from az_shared.errors import (
+    ExistenceCheckError,
+    FatalError,
+    ResourceNotFoundError,
+    ResourceProviderRegistrationValidationError,
+)
 from az_shared.logs import log
 
 from .configuration import Configuration
@@ -136,7 +142,7 @@ def create_function_app(config: Configuration, name: str):
             AzCmd("functionapp", "config set")
             .param("--name", name)
             .param("--resource-group", config.control_plane_rg)
-            .param("--linux-fx-version", shlex.quote("Python|3.11"))
+            .param("--linux-fx-version", shlex.quote("Python;3.11"))
         )
 
 
@@ -295,9 +301,11 @@ def create_container_app_job(config: Configuration):
         .param_list("--secrets", secrets)
     )
 
+
 # =============================================================================
 # Resource Provider Registration
 # =============================================================================
+
 
 def register_missing_resource_providers(sub_to_unregistered_provider_list: dict[str, list[str]]):
     """Register missing resource providers in parallel using a thread pool."""
@@ -306,11 +314,13 @@ def register_missing_resource_providers(sub_to_unregistered_provider_list: dict[
         log.info("All resource providers are already registered across all subscriptions")
         return
     else:
-        log.info(f"Registering missing resource providers in {len(sub_to_unregistered_provider_list)} subscriptions in parallel. This may take a few minutes...")
+        log.info(
+            f"Registering missing resource providers in {len(sub_to_unregistered_provider_list)} subscriptions in parallel. This may take a few minutes..."
+        )
 
-    def register_provider(sub_id: str, provider: str) -> tuple[str, str, bool, Exception | None]:
+    def register_provider(sub_id: str, provider: str) -> tuple[str, str, bool, Optional[Exception]]:
         """Register a single resource provider. Returns (sub_id, provider, success, error)."""
-        
+
         log.debug(f"Registering resource provider {provider} in subscription {sub_id}")
         try:
             execute(
@@ -348,5 +358,5 @@ def register_missing_resource_providers(sub_to_unregistered_provider_list: dict[
         for sub_id, provider, error in failures:
             error_msg += f"  - {provider} in subscription {sub_id}: {error}\n"
         raise ResourceProviderRegistrationValidationError(error_msg.strip())
-    
+
     log.info("Successfully registered missing resource providers")

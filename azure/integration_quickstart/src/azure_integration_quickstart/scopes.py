@@ -84,7 +84,7 @@ def filter_scopes_by_permission(scopes: Sequence[Scope]) -> list[Scope]:
     """Filter scopes based on whether the user can assign roles to them.
 
     Return a list of bools representing whether the scope at each corresponding index should be included."""
-    access_token_json = execute_json(AzCmd("account", "get-access-token"))["json"]
+    access_token_json = execute_json(AzCmd("account", "get-access-token"))
     if (
         not isinstance(access_token_json, dict)
         or "accessToken" not in access_token_json
@@ -120,7 +120,7 @@ def get_management_group_from_list_result(list_result: ManagementGroupListResult
         .param("--name", f'"{list_result.az_name}"')
         .flag("-e")
         .flag("-r")
-        .param("--query", '"children[].{{id:id, name:name}}"')
+        .param("--query", '"children[].{id:id, name:name}"')
         .param("-o", "json")
     )
 
