@@ -81,6 +81,9 @@ def get_app_registration_name() -> str:
     return f"{APP_REGISTRATION_NAME_PREFIX}-{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}"
 
 
+APP_REGISTRATION_PERMISSIONS_INSTRUCTIONS = "Please ensure that you have the permissions necessary to create an App Registration, as described here: https://docs.datadoghq.com/getting_started/integrations/azure/?tab=createanappregistration#permission-to-create-an-app-registration. If you have recently been granted these permissions, please allow up to an hour for them to propagate."
+
+
 def create_app_registration_with_permissions(scopes: Sequence[Scope]) -> AppRegistration:
     """Create an app registration with the necessary permissions for Datadog to function over the given scopes."""
     cmd = (
@@ -94,7 +97,10 @@ def create_app_registration_with_permissions(scopes: Sequence[Scope]) -> AppRegi
         result = execute_json(cmd.param("--years", f"{APP_REGISTRATION_CLIENT_SECRET_TTL_YEARS}"))
         # If it fails, just use the default TTL.
     except Exception:
-        result = execute_json(cmd)
+        try:
+            result = execute_json(cmd)
+        except AccessError as e:
+            raise AccessError(f"{str(e)}. {APP_REGISTRATION_PERMISSIONS_INSTRUCTIONS}") from e
 
     return AppRegistration(result["tenant"], result["appId"], result["password"])
 
