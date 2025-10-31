@@ -537,13 +537,19 @@ def flatten_scopes(scopes: Sequence[Scope]) -> set[Subscription]:
     )
 
 
-DATADOG_ROLE = "Monitoring Reader"
+APP_REGISTRATION_NAME_PREFIX = "datadog-azure-integration"
+APP_REGISTRATION_CLIENT_SECRET_TTL_YEARS = 2
+APP_REGISTRATION_ROLE = "Monitoring Reader"
+
+
+def get_app_registration_name() -> str:
+    return f"{APP_REGISTRATION_NAME_PREFIX}-{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}"
 
 
 def create_app_registration_with_permissions(scopes: Sequence[Scope]) -> AppRegistration:
     """Create an app registration with the necessary permissions for Datadog to function over the given scopes."""
     result = az_json(
-        f'ad sp create-for-rbac --name "datadog-azure-integration-{datetime.now().strftime("%Y-%m-%d-%H-%M-%S")}" --role "{DATADOG_ROLE}" --scopes {" ".join([s.scope for s in scopes])}'
+        f'ad sp create-for-rbac --name "{get_app_registration_name()}" --years {APP_REGISTRATION_CLIENT_SECRET_TTL_YEARS} --role "{APP_REGISTRATION_ROLE}" --scopes {" ".join([s.scope for s in scopes])}'
     )
     return AppRegistration(result["tenant"], result["appId"], result["password"])
 
@@ -629,7 +635,8 @@ def assign_permissions(client_id: str, scopes: Sequence[Scope]) -> None:
     with ThreadPoolExecutor(MAX_WORKERS) as executor:
         for scope in scopes:
             executor.submit(
-                az, f'role assignment create --assignee "{client_id}" --role "{DATADOG_ROLE}" --scope "{scope.scope}"'
+                az,
+                f'role assignment create --assignee "{client_id}" --role "{APP_REGISTRATION_ROLE}" --scope "{scope.scope}"',
             )
 
 
