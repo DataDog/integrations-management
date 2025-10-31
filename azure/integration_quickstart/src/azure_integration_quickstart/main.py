@@ -73,17 +73,30 @@ def report_existing_log_forwarders(subscriptions: list[Scope], step_metadata: di
     return len(forwarders) == 1
 
 
-DATADOG_ROLE = "Monitoring Reader"
+APP_REGISTRATION_NAME_PREFIX = "datadog-azure-integration"
+APP_REGISTRATION_CLIENT_SECRET_TTL_YEARS = 2
+APP_REGISTRATION_ROLE = "Monitoring Reader"
+
+
+def get_app_registration_name() -> str:
+    return f"{APP_REGISTRATION_NAME_PREFIX}-{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}"
 
 
 def create_app_registration_with_permissions(scopes: Sequence[Scope]) -> AppRegistration:
     """Create an app registration with the necessary permissions for Datadog to function over the given scopes."""
-    result = execute_json(
+    cmd = (
         AzCmd("ad sp", "create-for-rbac")
-        .param("--name", f'"datadog-azure-integration-{datetime.now().strftime("%Y-%m-%d-%H-%M-%S")}"')
-        .param("--role", f'"{DATADOG_ROLE}"')
+        .param("--name", f'"{get_app_registration_name()}"')
+        .param("--role", f'"{APP_REGISTRATION_ROLE}"')
         .param("--scopes", " ".join([s.scope for s in scopes]))
     )
+    try:
+        # Try setting the TTL to the max of 2 years.
+        result = execute_json(cmd.param("--years", f"{APP_REGISTRATION_CLIENT_SECRET_TTL_YEARS}"))
+        # If it fails, just use the default TTL.
+    except Exception:
+        result = execute_json(cmd)
+
     return AppRegistration(result["tenant"], result["appId"], result["password"])
 
 
@@ -170,7 +183,7 @@ def assign_permissions(client_id: str, scopes: Sequence[Scope]) -> None:
                 execute,
                 AzCmd("role assignment", "create")
                 .param("--assignee", f'"{client_id}"')
-                .param("--role", f'"{DATADOG_ROLE}')
+                .param("--role", f'"{APP_REGISTRATION_ROLE}')
                 .param("--scope", f'"{scope.scope}"'),
             )
 
