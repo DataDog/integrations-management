@@ -10,6 +10,7 @@ import threading
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional, TypedDict
 from urllib.error import URLError
 
@@ -79,7 +80,7 @@ def create_app_registration_with_permissions(scopes: Sequence[Scope]) -> AppRegi
     """Create an app registration with the necessary permissions for Datadog to function over the given scopes."""
     result = execute_json(
         AzCmd("ad sp", "create-for-rbac")
-        .param("--name", '"datadog-azure-integration-{datetime.now().strftime("%Y-%m-%d-%H-%M-%S")}"')
+        .param("--name", f'"datadog-azure-integration-{datetime.now().strftime("%Y-%m-%d-%H-%M-%S")}"')
         .param("--role", f'"{DATADOG_ROLE}"')
         .param("--scopes", " ".join([s.scope for s in scopes]))
     )
