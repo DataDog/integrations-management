@@ -3,8 +3,6 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-check_3_9 = {} | {}  # This script must be run with python >= 3.9
-
 # ruff: noqa: E402
 import os
 import sys
