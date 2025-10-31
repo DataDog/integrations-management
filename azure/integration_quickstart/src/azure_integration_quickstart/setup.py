@@ -308,6 +308,7 @@ class Status(Enum):
     STARTED = "STARTED"
     OK = "OK"
     ERROR = "ERROR"
+    USER_ACTIONABLE_ERROR = "USER_ACTIONABLE_ERROR"
 
 
 def loading_spinner(message: str, done: threading.Event):
@@ -357,10 +358,17 @@ class StatusReporter:
                 step_complete.set()
             if loading_message_thread:
                 loading_message_thread.join()
-            if isinstance(e, RuntimeError) and self.EXPIRED_TOKEN_ERROR in repr(e):
+            if self.EXPIRED_TOKEN_ERROR in repr(e):
                 self.report("connection", Status.ERROR, f"Azure CLI token expired: {e}")
                 raise
-            self.report(step_id, Status.ERROR, f"{step_id}: {Status.ERROR}: {traceback.format_exc()}")
+            if isinstance(e, UserActionRequiredError):
+                self.report(
+                    step_id,
+                    Status.USER_ACTIONABLE_ERROR,
+                    f"{str(e)}",  # pass along only the message which should be user-readable
+                )
+            else:
+                self.report(step_id, Status.ERROR, f"{step_id}: {Status.ERROR}: {traceback.format_exc()}")
             if required:
                 raise
         else:
@@ -479,14 +487,7 @@ def build_log_forwarder_payload(metadata: LfoMetadata) -> LogForwarderPayload:
 def report_existing_log_forwarders(subscriptions: list[Scope], step_metadata: dict) -> bool:
     """Send Datadog any existing Log Forwarders in the tenant and return whether we found exactly 1 Forwarder, in which case we will potentially update it."""
     scope_id_to_name = {s.id: s.name for s in subscriptions}
-    try:
-        forwarders = check_existing_lfo(set(scope_id_to_name.keys()), scope_id_to_name)
-    except AccessError as e:
-        raise RuntimeError(
-            f"Insufficient Azure user permissions when checking for existing log forwarder configuration. Please check your Azure permissions and try again: {e}"
-        ) from e
-    except Exception as e:
-        raise RuntimeError(f"Error when checking for existing log forwarders: {e}") from e
+    forwarders = check_existing_lfo(set(scope_id_to_name.keys()), scope_id_to_name)
     step_metadata["log_forwarders"] = [build_log_forwarder_payload(forwarder) for forwarder in forwarders.values()]
     return len(forwarders) == 1
 
@@ -615,13 +616,9 @@ def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
     try:
         install_log_forwarder(log_forwarder_config)
     except AccessError as e:
-        raise RuntimeError(
+        raise UserActionRequiredError(
             f"Insufficient Azure user permissions when installing log forwarder. Please check your Azure permissions and try again: {e}"
         ) from e
-    except UserActionRequiredError as e:
-        raise RuntimeError(f"Error when installing log forwarder. User action is required to resolve: {e}") from e
-    except Exception as e:
-        raise RuntimeError(f"Error when installing log forwarder: {e}") from e
 
 
 def assign_permissions(client_id: str, scopes: Sequence[Scope]) -> None:
