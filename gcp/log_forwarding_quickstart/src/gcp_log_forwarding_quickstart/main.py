@@ -19,11 +19,12 @@ from gcp_shared.service_accounts import find_or_create_service_account
 from .dataflow_configuration import (
     assign_required_dataflow_roles,
     create_dataflow_job,
+    create_dataflow_staging_bucket,
     create_log_sinks,
     create_secret_manager_entry,
     create_topics_with_subscription,
 )
-from .models import ExclusionFilter
+from .models import DataflowConfiguration, ExclusionFilter
 
 REQUIRED_ENVIRONMENT_VARS: set[str] = {
     "DD_API_KEY",
@@ -40,6 +41,7 @@ class OnboardingStep(str, Enum):
     SELECTIONS = "selections"
     CREATE_TOPIC_WITH_SUBSCRIPTION = "create_topic_with_subscription"
     CREATE_SERVICE_ACCOUNT = "create_service_account"
+    CREATE_DATAFLOW_STAGING_BUCKET = "create_dataflow_staging_bucket"
     ASSIGN_REQUIRED_DATAFLOW_ROLES = "assign_required_dataflow_roles"
     CREATE_SECRET_MANAGER_ENTRY = "create_secret_manager_entry"
     CREATE_LOG_SINKS = "create_log_sinks"
@@ -75,13 +77,6 @@ def main():
         default_project_id = user_selections["default_project_id"]
 
     with workflow_reporter.report_step(
-        OnboardingStep.CREATE_TOPIC_WITH_SUBSCRIPTION
-    ) as step_reporter:
-        create_topics_with_subscription(
-            step_reporter,
-            default_project_id,
-        )
-    with workflow_reporter.report_step(
         OnboardingStep.CREATE_SERVICE_ACCOUNT
     ) as step_reporter:
         datadog_dataflow_service_account_id = "datadog-dataflow"
@@ -90,6 +85,25 @@ def main():
             datadog_dataflow_service_account_id,
             default_project_id,
             display_name="Datadog Dataflow Service Account",
+        )
+
+    with workflow_reporter.report_step(
+        OnboardingStep.CREATE_TOPIC_WITH_SUBSCRIPTION
+    ) as step_reporter:
+        create_topics_with_subscription(
+            step_reporter,
+            default_project_id,
+            service_account_email,
+        )
+
+    with workflow_reporter.report_step(
+        OnboardingStep.CREATE_DATAFLOW_STAGING_BUCKET
+    ) as step_reporter:
+        create_dataflow_staging_bucket(
+            step_reporter,
+            default_project_id,
+            service_account_email,
+            user_selections["region"],
         )
 
     with workflow_reporter.report_step(
@@ -139,7 +153,7 @@ def main():
             default_project_id,
             service_account_email,
             user_selections["region"],
-            user_selections["is_dataflow_prime_enabled"],
+            DataflowConfiguration(**user_selections["dataflow_configuration"]),
         )
 
     print("Script succeeded. You may exit this shell.")
