@@ -3,6 +3,7 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 import os
+import signal
 import sys
 import threading
 from collections.abc import Iterable
@@ -168,7 +169,7 @@ REQUIRED_ENVIRONMENT_VARS = {"DD_API_KEY", "DD_APP_KEY", "DD_SITE", "WORKFLOW_ID
 
 
 def time_out(status: StatusReporter):
-    status.report("connection", Status.ERROR, "session expired")
+    status.report("connection", Status.DISCONNECTED, "session expired")
     print(
         "\nSession expired. If you still wish to create a new Datadog configuration, please reload the onboarding page in Datadog and reconnect using the provided command."
     )
@@ -188,6 +189,13 @@ def main():
     workflow_id = os.environ["WORKFLOW_ID"]
 
     status = StatusReporter(workflow_id)
+
+    # report if the user manually disconnects the script
+    def interrupt_handler(*_args):
+        status.report("connection", Status.DISCONNECTED, "disconnected by user")
+        exit(1)
+
+    signal.signal(signal.SIGINT, interrupt_handler)
 
     # give up after 30 minutes
     timer = threading.Timer(30 * 60, time_out, [status])
