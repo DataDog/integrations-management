@@ -171,8 +171,15 @@ def time_out(status: StatusReporter):
 
 
 def main():
-    if missing_environment_vars := REQUIRED_ENVIRONMENT_VARS - os.environ.keys():
+    missing_environment_vars = [
+        var for var in REQUIRED_ENVIRONMENT_VARS if var not in os.environ.keys() or not os.environ[var]
+    ]
+    if missing_environment_vars:
         print(f"Missing required environment variables: {', '.join(missing_environment_vars)}")
+        if "DD_API_KEY" in missing_environment_vars and "DD_APP_KEY" in missing_environment_vars:
+            print(
+                "Looks like you may have attempted to copy the command from the quickstart UI manually. This will not pick up the masked API and Application keys, so please use the copy button instead."
+            )
         sys.exit(1)
 
     workflow_id = os.environ["WORKFLOW_ID"]
