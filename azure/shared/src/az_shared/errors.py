@@ -24,10 +24,6 @@ class UserActionRequiredError(Exception):
     """An error that requires user action to resolve."""
 
 
-class AzCliNotAuthenticatedError(UserActionRequiredError):
-    """Azure CLI is not authenticated. User needs to run 'az login'."""
-
-
 class AccessError(UserActionRequiredError):
     """Not authorized to access the resource."""
 
@@ -46,6 +42,18 @@ class ResourceNameAvailabilityError(UserActionRequiredError):
 
 class DatadogAccessValidationError(UserActionRequiredError):
     """Not authorized to access Datadog - API key and site need to be configured correctly."""
+
+
+class UserRetriableError(UserActionRequiredError):
+    """An error that requires user action to resolve, after which the user can simply retry the script rather than reloading the page."""
+
+
+class AzCliNotInstalledError(UserRetriableError):
+    """Azure CLI is not installed. User needs to install az cli."""
+
+
+class AzCliNotAuthenticatedError(UserRetriableError):
+    """Azure CLI is not authenticated. User needs to run 'az login'."""
 
 
 # Expected Errors
