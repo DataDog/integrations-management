@@ -15,10 +15,6 @@ class ExistenceCheckError(FatalError):
     """Error occurred when checking if a resource exists."""
 
 
-class RefreshTokenError(FatalError):
-    """Auth token has expired."""
-
-
 # Errors users can resolve through manual action
 class UserActionRequiredError(Exception):
     """An error that requires user action to resolve."""
@@ -54,6 +50,10 @@ class AzCliNotInstalledError(UserRetriableError):
 
 class AzCliNotAuthenticatedError(UserRetriableError):
     """Azure CLI is not authenticated. User needs to run 'az login'."""
+
+
+class RefreshTokenError(UserActionRequiredError):
+    """Auth token has expired."""
 
 
 # Expected Errors
