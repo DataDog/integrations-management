@@ -6,7 +6,7 @@
 import os
 import sys
 import threading
-from collections.abc- import Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, TypedDict
