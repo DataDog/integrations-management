@@ -98,6 +98,7 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
             return result.stdout
         except subprocess.CalledProcessError as e:
             stderr = str(e.stderr)
+            stdout = str(e.stdout)
             if RESOURCE_NOT_FOUND_ERROR in stderr:
                 raise ResourceNotFoundError(f"Resource not found when executing '{az_cmd.str()}'") from e
             if AZURE_THROTTLING_ERROR in stderr or RESOURCE_COLLECTION_THROTTLING_ERROR in stderr:
@@ -118,8 +119,8 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
             if can_fail:
                 return ""
             log.error(f"Command failed: {full_command}")
-            log.error(e.stderr)
-            raise RuntimeError(f"Command failed: {full_command}") from e
+            log.error(stderr)
+            raise RuntimeError(f"Command failed: {full_command}\nstdout: {stdout}\nstderr: {stderr}") from e
 
     raise SystemExit(1)  # unreachable
 
