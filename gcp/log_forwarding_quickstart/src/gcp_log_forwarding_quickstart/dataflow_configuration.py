@@ -493,6 +493,9 @@ def create_dataflow_job(
         step_reporter.report(message="Enabling Dataflow Prime for the job...")
         create_dataflow_job_cmd.param("--additional-experiments", "enable_prime")
     elif dataflow_configuration.machine_type:
+        step_reporter.report(
+            message=f"Setting worker machine type to '{dataflow_configuration.machine_type}'..."
+        )
         create_dataflow_job_cmd.param(
             "--worker-machine-type", dataflow_configuration.machine_type
         )
