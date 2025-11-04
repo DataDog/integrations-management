@@ -12,7 +12,12 @@ from typing import Optional, TypedDict
 from urllib.error import URLError
 
 from az_shared.az_cmd import AzCmd, execute, execute_json
-from az_shared.errors import AccessError, AzCliNotAuthenticatedError, UserActionRequiredError
+from az_shared.errors import (
+    AccessError,
+    AzCliNotAuthenticatedError,
+    AzCliNotInstalledError,
+    UserActionRequiredError,
+)
 from azure_integration_quickstart.scopes import Scope, Subscription, flatten_scopes, report_available_scopes
 from azure_integration_quickstart.script_status import Status, StatusReporter
 from azure_integration_quickstart.user_selections import receive_user_selections
@@ -171,8 +176,13 @@ def time_out(status: StatusReporter):
 
 
 def main():
-    if missing_environment_vars := REQUIRED_ENVIRONMENT_VARS - os.environ.keys():
+    missing_environment_vars = [var for var in REQUIRED_ENVIRONMENT_VARS if not os.environ.get(var)]
+    if missing_environment_vars:
         print(f"Missing required environment variables: {', '.join(missing_environment_vars)}")
+        if "DD_API_KEY" in missing_environment_vars and "DD_APP_KEY" in missing_environment_vars:
+            print(
+                "Looks like you may have attempted to copy the command from the quickstart UI manually. This will not pick up the masked API and Application keys, so please use the copy button instead."
+            )
         sys.exit(1)
 
     workflow_id = os.environ["WORKFLOW_ID"]
@@ -184,17 +194,18 @@ def main():
     timer.daemon = True
     timer.start()
 
-    try:
-        with status.report_step("login"):
+    with status.report_step("login"):
+        try:
             ensure_login()
-    except Exception as e:
-        if "az: command not found" in str(e):
-            print("You must install and log in to Azure CLI to run this script.")
+        except Exception as e:
+            if "az: command not found" in str(e):
+                print("You must install and log in to Azure CLI to run this script.")
+                raise AzCliNotInstalledError(str(e)) from e
+            else:
+                print("You must be logged in to Azure CLI to run this script. Run `az login` and try again.")
+                raise AzCliNotAuthenticatedError(str(e)) from e
         else:
-            print("You must be logged in to Azure CLI to run this script. Run `az login` and try again.")
-        sys.exit(1)
-    else:
-        print("Connected! Leave this shell running and go back to the Datadog UI to continue.")
+            print("Connected! Leave this shell running and go back to the Datadog UI to continue.")
 
     with status.report_step("scopes", "Collecting scopes"):
         subscriptions, _ = report_available_scopes(workflow_id)
