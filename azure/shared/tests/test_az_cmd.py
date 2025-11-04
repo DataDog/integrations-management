@@ -8,7 +8,13 @@ from unittest.mock import Mock
 from unittest.mock import patch as mock_patch
 
 from az_shared import az_cmd
-from az_shared.errors import AccessError, RateLimitExceededError, RefreshTokenError, ResourceNotFoundError
+from az_shared.errors import (
+    AccessError,
+    RateLimitExceededError,
+    RefreshTokenError,
+    ResourceNotFoundError,
+    UserActionRequiredError,
+)
 
 from shared.tests.test_data import CONTROL_PLANE_REGION, CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_SUBSCRIPTION_ID
 
@@ -126,8 +132,9 @@ class TestAzCmd(TestCase):
         error.stderr = f"{az_cmd.AUTH_FAILED_ERROR}: Access denied"
         self.subprocess_mock.side_effect = error
 
-        with self.assertRaises(AccessError):
+        with self.assertRaises(AccessError) as e:
             az_cmd.execute(cmd)
+            self.assertIsInstance(e, UserActionRequiredError)
 
     def test_execute_refresh_token_error(self):
         """Test execute handles refresh token errors"""
@@ -137,8 +144,9 @@ class TestAzCmd(TestCase):
         error.stderr = f"{az_cmd.REFRESH_TOKEN_EXPIRED_ERROR}: Token expired"
         self.subprocess_mock.side_effect = error
 
-        with self.assertRaises(RefreshTokenError):
+        with self.assertRaises(RefreshTokenError) as e:
             az_cmd.execute(cmd)
+            self.assertIsInstance(e, UserActionRequiredError)
 
     def test_execute_resource_not_found_error(self):
         """Test execute handles resource not found errors"""
