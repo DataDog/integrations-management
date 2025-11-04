@@ -11,17 +11,75 @@ from gcp_log_forwarding_quickstart.dataflow_configuration import (
     LOG_SINK_NAME,
     PUBSUB_DEAD_LETTER_TOPIC_ID,
     PUBSUB_TOPIC_ID,
-    ROLES_TO_ADD,
     SECRET_MANAGER_NAME,
     assign_required_dataflow_roles,
     create_dataflow_job,
+    create_dataflow_staging_bucket,
     create_log_sinks,
     create_secret_manager_entry,
     create_topics_with_subscription,
     find_or_create_datadog_api_key,
 )
-from gcp_log_forwarding_quickstart.models import ExclusionFilter
+from gcp_log_forwarding_quickstart.models import DataflowConfiguration, ExclusionFilter
 from gcp_shared.models import ConfigurationScope, Folder, Project
+
+
+class TestCreateDataflowStagingBucket(unittest.TestCase):
+    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
+    def test_create_dataflow_staging_bucket_creates_new(self, mock_gcloud):
+        mock_gcloud.side_effect = [
+            [],
+            None,
+            None,
+        ]
+
+        step_reporter = Mock()
+
+        create_dataflow_staging_bucket(
+            step_reporter,
+            "test-project",
+            "test-sa@project.iam.gserviceaccount.com",
+            "us-central1",
+        )
+
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
+        self.assertEqual(len(actual_commands), 3)
+        self.assertEqual(
+            actual_commands[0],
+            "storage buckets list --project test-project --filter name=dataflow-temp-test-project",
+        )
+        self.assertEqual(
+            actual_commands[1],
+            "storage buckets create gs://dataflow-temp-test-project --project test-project --location us-central1 --uniform-bucket-level-access --soft-delete-duration 0s",
+        )
+        self.assertEqual(
+            actual_commands[2],
+            "storage buckets add-iam-policy-binding gs://dataflow-temp-test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/storage.objectAdmin",
+        )
+
+    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
+    def test_create_dataflow_staging_bucket_uses_existing(self, mock_gcloud):
+        mock_gcloud.side_effect = [
+            [{"name": "dataflow-temp-test-project"}],
+        ]
+
+        step_reporter = Mock()
+
+        create_dataflow_staging_bucket(
+            step_reporter,
+            "test-project",
+            "test-sa@project.iam.gserviceaccount.com",
+            "us-central1",
+        )
+
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
+        self.assertEqual(len(actual_commands), 1)
+        self.assertEqual(
+            actual_commands[0],
+            "storage buckets list --project test-project --filter name=dataflow-temp-test-project",
+        )
 
 
 class TestCreateTopicsWithSubscription(unittest.TestCase):
@@ -35,19 +93,26 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
             None,
             [],
             None,
-            [],
+            None,
             None,
             [],
+            None,
+            None,
+            [],
+            None,
+            None,
             None,
         ]
 
         step_reporter = Mock()
 
-        create_topics_with_subscription(step_reporter, "test-project")
+        create_topics_with_subscription(
+            step_reporter, "test-project", "test-sa@project.iam.gserviceaccount.com"
+        )
 
         actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
 
-        self.assertEqual(len(actual_commands), 8)
+        self.assertEqual(len(actual_commands), 13)
         self.assertEqual(
             actual_commands[0],
             f"pubsub topics list --project test-project --filter name=projects/test-project/topics/{PUBSUB_TOPIC_ID}",
@@ -66,19 +131,39 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[4],
-            f"pubsub topics list --project test-project --filter name=projects/test-project/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID}",
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.subscriber",
         )
         self.assertEqual(
             actual_commands[5],
-            f"pubsub topics create {PUBSUB_DEAD_LETTER_TOPIC_ID} --project test-project",
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.viewer",
         )
         self.assertEqual(
             actual_commands[6],
-            f"pubsub subscriptions list --project test-project --filter name=projects/test-project/subscriptions/{PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription",
+            f"pubsub topics list --project test-project --filter name=projects/test-project/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID}",
         )
         self.assertEqual(
             actual_commands[7],
+            f"pubsub topics create {PUBSUB_DEAD_LETTER_TOPIC_ID} --project test-project",
+        )
+        self.assertEqual(
+            actual_commands[8],
+            f"pubsub topics add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID} --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.publisher",
+        )
+        self.assertEqual(
+            actual_commands[9],
+            f"pubsub subscriptions list --project test-project --filter name=projects/test-project/subscriptions/{PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription",
+        )
+        self.assertEqual(
+            actual_commands[10],
             f"pubsub subscriptions create {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --topic {PUBSUB_DEAD_LETTER_TOPIC_ID} --project test-project",
+        )
+        self.assertEqual(
+            actual_commands[11],
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.subscriber",
+        )
+        self.assertEqual(
+            actual_commands[12],
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.viewer",
         )
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
@@ -88,17 +173,24 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
         mock_gcloud.side_effect = [
             [{"name": f"projects/test-project/topics/{PUBSUB_TOPIC_ID}"}],
             [{"topic": f"projects/test-project/topics/{PUBSUB_TOPIC_ID}"}],
+            None,
+            None,
             [{"name": f"projects/test-project/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID}"}],
+            None,
             [{"topic": f"projects/test-project/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID}"}],
+            None,
+            None,
         ]
 
         step_reporter = Mock()
 
-        create_topics_with_subscription(step_reporter, "test-project")
+        create_topics_with_subscription(
+            step_reporter, "test-project", "test-sa@project.iam.gserviceaccount.com"
+        )
 
         actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
 
-        self.assertEqual(len(actual_commands), 4)
+        self.assertEqual(len(actual_commands), 9)
         self.assertEqual(
             actual_commands[0],
             f"pubsub topics list --project test-project --filter name=projects/test-project/topics/{PUBSUB_TOPIC_ID}",
@@ -109,11 +201,31 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[2],
-            f"pubsub topics list --project test-project --filter name=projects/test-project/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID}",
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.subscriber",
         )
         self.assertEqual(
             actual_commands[3],
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.viewer",
+        )
+        self.assertEqual(
+            actual_commands[4],
+            f"pubsub topics list --project test-project --filter name=projects/test-project/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID}",
+        )
+        self.assertEqual(
+            actual_commands[5],
+            f"pubsub topics add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID} --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.publisher",
+        )
+        self.assertEqual(
+            actual_commands[6],
             f"pubsub subscriptions list --project test-project --filter name=projects/test-project/subscriptions/{PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription",
+        )
+        self.assertEqual(
+            actual_commands[7],
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.subscriber",
+        )
+        self.assertEqual(
+            actual_commands[8],
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.viewer",
         )
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
@@ -130,17 +242,24 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
             [{"topic": wrong_topic}],
             None,
             None,
+            None,
+            None,
             [{"name": correct_dead_letter_topic}],
+            None,
             [{"topic": correct_dead_letter_topic}],
+            None,
+            None,
         ]
 
         step_reporter = Mock()
 
-        create_topics_with_subscription(step_reporter, "test-project")
+        create_topics_with_subscription(
+            step_reporter, "test-project", "test-sa@project.iam.gserviceaccount.com"
+        )
 
         actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
 
-        self.assertEqual(len(actual_commands), 6)
+        self.assertEqual(len(actual_commands), 11)
         self.assertEqual(
             actual_commands[0],
             f"pubsub topics list --project test-project --filter name=projects/test-project/topics/{PUBSUB_TOPIC_ID}",
@@ -159,11 +278,31 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[4],
-            f"pubsub topics list --project test-project --filter name=projects/test-project/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID}",
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.subscriber",
         )
         self.assertEqual(
             actual_commands[5],
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.viewer",
+        )
+        self.assertEqual(
+            actual_commands[6],
+            f"pubsub topics list --project test-project --filter name=projects/test-project/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID}",
+        )
+        self.assertEqual(
+            actual_commands[7],
+            f"pubsub topics add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID} --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.publisher",
+        )
+        self.assertEqual(
+            actual_commands[8],
             f"pubsub subscriptions list --project test-project --filter name=projects/test-project/subscriptions/{PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription",
+        )
+        self.assertEqual(
+            actual_commands[9],
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.subscriber",
+        )
+        self.assertEqual(
+            actual_commands[10],
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.viewer",
         )
 
 
@@ -377,12 +516,11 @@ class TestAssignRequiredDataflowRoles(unittest.TestCase):
 
         actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
 
-        self.assertEqual(len(actual_commands), len(ROLES_TO_ADD))
-        for i, role in enumerate(ROLES_TO_ADD):
-            self.assertEqual(
-                actual_commands[i],
-                f"projects add-iam-policy-binding test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role {role} --condition None --quiet",
-            )
+        self.assertEqual(len(actual_commands), 1)
+        self.assertEqual(
+            actual_commands[0],
+            "projects add-iam-policy-binding test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/dataflow.worker --condition None --quiet",
+        )
 
 
 class TestCreateLogSinks(unittest.TestCase):
@@ -659,12 +797,22 @@ class TestCreateDataflowJob(unittest.TestCase):
 
         step_reporter = Mock()
 
+        dataflow_config = DataflowConfiguration(
+            is_dataflow_prime_enabled=False,
+            is_streaming_engine_enabled=False,
+            max_workers=5,
+            num_workers=1,
+            machine_type="n1-standard-1",
+            parallelism=1,
+            batch_size=100,
+        )
+
         create_dataflow_job(
             step_reporter,
             "test-project",
             "test-sa@project.iam.gserviceaccount.com",
             "us-central1",
-            False,
+            dataflow_config,
         )
 
         actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
@@ -674,7 +822,9 @@ class TestCreateDataflowJob(unittest.TestCase):
             f"url=https://http-intake.logs.datadoghq.com,"
             f"apiKeySource=SECRET_MANAGER,"
             f"apiKeySecretId=projects/test-project/secrets/{SECRET_MANAGER_NAME}/versions/latest,"
-            f"outputDeadletterTopic=projects/test-project/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID}"
+            f"outputDeadletterTopic=projects/test-project/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID},"
+            f"batchCount=100,"
+            f"parallelism=1"
         )
 
         self.assertEqual(len(actual_commands), 3)
@@ -688,7 +838,7 @@ class TestCreateDataflowJob(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[2],
-            f"dataflow jobs run {DATAFLOW_JOB_NAME} --gcs-location gs://dataflow-templates-us-central1/latest/Cloud_PubSub_to_Datadog --region us-central1 --project test-project --service-account-email test-sa@project.iam.gserviceaccount.com --parameters {expected_params}",
+            f"dataflow jobs run {DATAFLOW_JOB_NAME} --gcs-location gs://dataflow-templates-us-central1/latest/Cloud_PubSub_to_Datadog --region us-central1 --project test-project --service-account-email test-sa@project.iam.gserviceaccount.com --staging-location gs://dataflow-temp-test-project --max-workers 5 --num-workers 1 --parameters {expected_params} --worker-machine-type n1-standard-1",
         )
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
@@ -702,12 +852,14 @@ class TestCreateDataflowJob(unittest.TestCase):
 
         step_reporter = Mock()
 
+        dataflow_config = DataflowConfiguration(is_dataflow_prime_enabled=False)
+
         create_dataflow_job(
             step_reporter,
             "test-project",
             "test-sa@project.iam.gserviceaccount.com",
             "us-central1",
-            False,
+            dataflow_config,
         )
 
         actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
@@ -736,12 +888,22 @@ class TestCreateDataflowJob(unittest.TestCase):
 
         step_reporter = Mock()
 
+        dataflow_config = DataflowConfiguration(
+            is_dataflow_prime_enabled=True,
+            is_streaming_engine_enabled=False,
+            max_workers=5,
+            num_workers=1,
+            machine_type="n1-standard-1",
+            parallelism=1,
+            batch_size=100,
+        )
+
         create_dataflow_job(
             step_reporter,
             "test-project",
             "test-sa@project.iam.gserviceaccount.com",
             "us-central1",
-            True,
+            dataflow_config,
         )
 
         actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
@@ -751,7 +913,9 @@ class TestCreateDataflowJob(unittest.TestCase):
             f"url=https://http-intake.logs.datadoghq.com,"
             f"apiKeySource=SECRET_MANAGER,"
             f"apiKeySecretId=projects/test-project/secrets/{SECRET_MANAGER_NAME}/versions/latest,"
-            f"outputDeadletterTopic=projects/test-project/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID}"
+            f"outputDeadletterTopic=projects/test-project/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID},"
+            f"batchCount=100,"
+            f"parallelism=1"
         )
 
         self.assertEqual(len(actual_commands), 3)
@@ -765,7 +929,7 @@ class TestCreateDataflowJob(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[2],
-            f"dataflow jobs run {DATAFLOW_JOB_NAME} --gcs-location gs://dataflow-templates-us-central1/latest/Cloud_PubSub_to_Datadog --region us-central1 --project test-project --service-account-email test-sa@project.iam.gserviceaccount.com --parameters {expected_params} --additional-experiments enable_prime",
+            f"dataflow jobs run {DATAFLOW_JOB_NAME} --gcs-location gs://dataflow-templates-us-central1/latest/Cloud_PubSub_to_Datadog --region us-central1 --project test-project --service-account-email test-sa@project.iam.gserviceaccount.com --staging-location gs://dataflow-temp-test-project --max-workers 5 --num-workers 1 --parameters {expected_params} --additional-experiments enable_prime",
         )
 
 

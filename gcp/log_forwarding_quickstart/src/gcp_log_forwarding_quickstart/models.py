@@ -4,6 +4,8 @@
 
 from dataclasses import dataclass
 
+from typing import Optional
+
 
 # https://cloud.google.com/sdk/gcloud/reference/logging/sinks/create#--exclusion
 @dataclass
@@ -17,3 +19,16 @@ class ExclusionFilter:
 
     filter: str
     name: str
+
+
+@dataclass
+class DataflowConfiguration:
+    """Holds configuration details for a Dataflow job."""
+
+    is_dataflow_prime_enabled: bool = False
+    is_streaming_engine_enabled: bool = True
+    machine_type: Optional[str] = None
+    max_workers: int = 5
+    num_workers: int = 1
+    parallelism: int = 1
+    batch_size: int = 100
