@@ -6,8 +6,7 @@
 import os
 import sys
 import threading
-from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc- import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, TypedDict
@@ -18,19 +17,16 @@ from az_shared.errors import AccessError, AzCliNotAuthenticatedError, UserAction
 from azure_integration_quickstart.scopes import Scope, Subscription, flatten_scopes, report_available_scopes
 from azure_integration_quickstart.script_status import Status, StatusReporter
 from azure_integration_quickstart.user_selections import receive_user_selections
-from azure_integration_quickstart.util import MAX_WORKERS, dd_request
+from azure_integration_quickstart.util import dd_request
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
 from azure_logging_install.main import install_log_forwarder
 
 
-@dataclass
-class AppRegistration:
-    """An Azure app registration."""
-
-    tenant_id: str
-    client_id: str
-    client_secret: str
+def ensure_login() -> None:
+    """Ensure that the user is logged into the Azure CLI. If not, raise an exception."""
+    if not execute(AzCmd("account", "show"), can_fail=True):
+        raise AzCliNotAuthenticatedError("Azure CLI is not authenticated. Please run 'az login' first and retry")
 
 
 class LogForwarderPayload(TypedDict):
@@ -42,15 +38,6 @@ class LogForwarderPayload(TypedDict):
     controlPlaneRegion: str
     tagFilters: Optional[str]
     piiFilters: Optional[str]
-
-
-# Main
-
-
-def ensure_login() -> None:
-    """Ensure that the user is logged into the Azure CLI. If not, raise an exception."""
-    if not execute(AzCmd("account", "show"), can_fail=True):
-        raise AzCliNotAuthenticatedError("Azure CLI is not authenticated. Please run 'az login' first and retry")
 
 
 def build_log_forwarder_payload(metadata: LfoMetadata) -> LogForwarderPayload:
@@ -72,6 +59,15 @@ def report_existing_log_forwarders(subscriptions: list[Scope], step_metadata: di
     return len(forwarders) == 1
 
 
+@dataclass
+class AppRegistration:
+    """An Azure app registration."""
+
+    tenant_id: str
+    client_id: str
+    client_secret: str
+
+
 APP_REGISTRATION_NAME_PREFIX = "datadog-azure-integration"
 APP_REGISTRATION_CLIENT_SECRET_TTL_YEARS = 2
 APP_REGISTRATION_ROLE = "Monitoring Reader"
@@ -84,7 +80,7 @@ def get_app_registration_name() -> str:
 APP_REGISTRATION_PERMISSIONS_INSTRUCTIONS = "Please ensure that you have the permissions necessary to create an App Registration, as described here: https://docs.datadoghq.com/getting_started/integrations/azure/?tab=createanappregistration#permission-to-create-an-app-registration. If you have recently been granted these permissions, please allow up to an hour for them to propagate."
 
 
-def create_app_registration_with_permissions(scopes: Sequence[Scope]) -> AppRegistration:
+def create_app_registration_with_permissions(scopes: Iterable[Scope]) -> AppRegistration:
     """Create an app registration with the necessary permissions for Datadog to function over the given scopes."""
     cmd = (
         AzCmd("ad sp", "create-for-rbac")
@@ -103,22 +99,6 @@ def create_app_registration_with_permissions(scopes: Sequence[Scope]) -> AppRegi
             raise AccessError(f"{str(e)}. {APP_REGISTRATION_PERMISSIONS_INSTRUCTIONS}") from e
 
     return AppRegistration(result["tenant"], result["appId"], result["password"])
-
-
-MS_GRAPH_API = "00000003-0000-0000-c000-000000000000"
-
-
-def add_ms_graph_app_role_assignments(app_registration: AppRegistration, roles: list[str]) -> None:
-    """Assign an app registration the necessary app roles for Datadog to function.
-
-    See https://learn.microsoft.com/en-us/graph/permissions-reference for more information."""
-    execute(
-        AzCmd("ad app permission", "add")
-        .param("--id", f'"{app_registration.client_id}"')
-        .param("--api", MS_GRAPH_API)
-        .param("--api-permissions", " ".join([f"{role}=Role" for role in roles]))
-    )
-    execute(AzCmd("ad app permission", "admin-consent").param("--id", f'"{app_registration.client_id}"'))
 
 
 def submit_integration_config(app_registration: AppRegistration, config: dict) -> None:
@@ -180,19 +160,6 @@ def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
         ) from e
 
 
-def assign_permissions(client_id: str, scopes: Sequence[Scope]) -> None:
-    """Assign an app registration the necessary permissions for Datadog to function over the given scopes."""
-    with ThreadPoolExecutor(MAX_WORKERS) as executor:
-        for scope in scopes:
-            executor.submit(
-                execute,
-                AzCmd("role assignment", "create")
-                .param("--assignee", f'"{client_id}"')
-                .param("--role", f'"{APP_REGISTRATION_ROLE}')
-                .param("--scope", f'"{scope.scope}"'),
-            )
-
-
 REQUIRED_ENVIRONMENT_VARS = {"DD_API_KEY", "DD_APP_KEY", "DD_SITE", "WORKFLOW_ID"}
 
 
@@ -234,9 +201,7 @@ def main():
         subscriptions, _ = report_available_scopes(workflow_id)
     exactly_one_log_forwarder = False
     with status.report_step(
-        "log_forwarders",
-        loading_message="Collecting existing Log Forwarders",
-        required=False,
+        "log_forwarders", loading_message="Collecting existing Log Forwarders", required=False
     ) as step_metadata:
         exactly_one_log_forwarder = report_existing_log_forwarders(subscriptions, step_metadata)
     with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
