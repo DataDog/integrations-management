@@ -19,6 +19,7 @@ class Status(Enum):
     OK = "OK"
     ERROR = "ERROR"
     USER_ACTIONABLE_ERROR = "USER_ACTIONABLE_ERROR"
+    DISCONNECTED = "DISCONNECTED"
     WARN = "WARN"
 
 
