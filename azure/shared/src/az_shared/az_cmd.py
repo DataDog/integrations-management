@@ -6,12 +6,13 @@ import json
 import subprocess
 from re import search
 from time import sleep
-from typing import Any, Union
+from typing import Any, Optional
 
 from .errors import AccessError, RateLimitExceededError, RefreshTokenError, ResourceNotFoundError
 from .logs import log
 
 AUTH_FAILED_ERROR = "AuthorizationFailed"
+PERMISSION_REQUIRED_ERROR = "permission is needed"
 AZURE_THROTTLING_ERROR = "TooManyRequests"
 REFRESH_TOKEN_EXPIRED_ERROR = "AADSTS700082"
 RESOURCE_COLLECTION_THROTTLING_ERROR = "ResourceCollectionRequestsThrottled"
@@ -49,7 +50,7 @@ class AzCmd:
         return "az " + " ".join(self.cmd)
 
 
-def check_access_error(stderr: str) -> Union[str, None]:
+def check_access_error(stderr: str) -> Optional[str]:
     # Sample:
     # (AuthorizationFailed) The client 'user@example.com' with object id '00000000-0000-0000-0000-000000000000'
     # does not have authorization to perform action 'Microsoft.Storage/storageAccounts/read'
@@ -118,6 +119,8 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
                 if error_details:
                     raise AccessError(f"{error_message}: {error_details}") from e
                 raise AccessError(error_message) from e
+            if PERMISSION_REQUIRED_ERROR in stderr:
+                raise AccessError(f"Insufficient permissions to execute '{az_cmd.str()}'")
             if can_fail:
                 return ""
             log.error(f"Command failed: {full_command}")
