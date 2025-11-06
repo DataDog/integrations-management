@@ -144,21 +144,19 @@ def submit_config_identifier(workflow_id: str, app_registration: AppRegistration
 
 
 def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
-    log_forwarder_config = Configuration(
-        control_plane_region=config["controlPlaneRegion"],
-        control_plane_sub_id=config["controlPlaneSubscriptionId"],
-        control_plane_rg=config["resourceGroupName"],
-        monitored_subs=",".join([s.id for s in subscriptions]),
-        datadog_api_key=os.environ["DD_API_KEY"],
-        datadog_site=os.environ["DD_SITE"],
-    )
-    if "tagFilters" in config:
-        log_forwarder_config.resource_tag_filters = config["tagFilters"]
-    if "piiFilters" in config:
-        log_forwarder_config.pii_scrubber_rules = config["piiFilters"]
-
     try:
-        install_log_forwarder(log_forwarder_config)
+        install_log_forwarder(
+            Configuration(
+                control_plane_region=config["controlPlaneRegion"],
+                control_plane_sub_id=config["controlPlaneSubscriptionId"],
+                control_plane_rg=config["resourceGroupName"],
+                monitored_subs=",".join([s.id for s in subscriptions]),
+                datadog_api_key=os.environ["DD_API_KEY"],
+                datadog_site=os.environ["DD_SITE"],
+                resource_tag_filters=config.get("tagFilters", ""),
+                pii_scrubber_rules=config.get("piiFilters", ""),
+            )
+        )
     except AccessError as e:
         raise UserActionRequiredError(
             f"Insufficient Azure user permissions when installing log forwarder. Please check your Azure permissions and try again: {e}"
@@ -177,13 +175,11 @@ def time_out(status: StatusReporter):
 
 
 def main():
-    missing_environment_vars = [var for var in REQUIRED_ENVIRONMENT_VARS if not os.environ.get(var)]
-    if missing_environment_vars:
+    if missing_environment_vars := {var for var in REQUIRED_ENVIRONMENT_VARS if not os.environ.get(var)}:
         print(f"Missing required environment variables: {', '.join(missing_environment_vars)}")
-        if "DD_API_KEY" in missing_environment_vars and "DD_APP_KEY" in missing_environment_vars:
-            print(
-                "Looks like you may have attempted to copy the command from the quickstart UI manually. This will not pick up the masked API and Application keys, so please use the copy button instead."
-            )
+        print('Use the "copy" button from the quickstart UI to grab the complete command.')
+        if missing_environment_vars == {"DD_API_KEY", "DD_APP_KEY"}:
+            print("\nNOTE: Manually selecting and copying the command won't include the masked keys.")
         sys.exit(1)
 
     workflow_id = os.environ["WORKFLOW_ID"]
