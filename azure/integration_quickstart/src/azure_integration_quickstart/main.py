@@ -166,14 +166,6 @@ def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
 REQUIRED_ENVIRONMENT_VARS = {"DD_API_KEY", "DD_APP_KEY", "DD_SITE", "WORKFLOW_ID"}
 
 
-def time_out(status: StatusReporter):
-    status.report("connection", Status.DISCONNECTED, "session expired")
-    print(
-        "\nSession expired. If you still wish to create a new Datadog configuration, please reload the onboarding page in Datadog and reconnect using the provided command."
-    )
-    os._exit(1)
-
-
 def main():
     if missing_environment_vars := {var for var in REQUIRED_ENVIRONMENT_VARS if not os.environ.get(var)}:
         print(f"Missing required environment variables: {', '.join(missing_environment_vars)}")
@@ -194,7 +186,14 @@ def main():
     signal.signal(signal.SIGINT, interrupt_handler)
 
     # give up after 30 minutes
-    timer = threading.Timer(30 * 60, time_out, [status])
+    def time_out():
+        status.report("connection", Status.DISCONNECTED, "session expired")
+        print(
+            "\nSession expired. If you still wish to create a new Datadog configuration, please reload the onboarding page in Datadog and reconnect using the provided command."
+        )
+        os._exit(1)
+
+    timer = threading.Timer(30 * 60, time_out)
     timer.daemon = True
     timer.start()
 
@@ -213,7 +212,6 @@ def main():
 
     with status.report_step("scopes", "Collecting scopes"):
         subscriptions, _ = report_available_scopes(workflow_id)
-    exactly_one_log_forwarder = False
     with status.report_step(
         "log_forwarders", loading_message="Collecting existing Log Forwarders", required=False
     ) as step_metadata:
