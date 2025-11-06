@@ -52,6 +52,14 @@ class AzCliNotAuthenticatedError(UserRetriableError):
     """Azure CLI is not authenticated. User needs to run 'az login'."""
 
 
+class InteractiveAuthenticationRequiredError(UserActionRequiredError):
+    """Must authenticate interactively to request additional scopes."""
+
+    def __init__(self, commands: list[str], *args: object) -> None:
+        self.commands = commands
+        super().__init__(*args)
+
+
 class RefreshTokenError(UserActionRequiredError):
     """Auth token has expired."""
 

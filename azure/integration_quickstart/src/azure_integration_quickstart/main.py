@@ -17,6 +17,7 @@ from az_shared.errors import (
     AccessError,
     AzCliNotAuthenticatedError,
     AzCliNotInstalledError,
+    InteractiveAuthenticationRequiredError,
     UserActionRequiredError,
 )
 from azure_integration_quickstart.scopes import Scope, Subscription, flatten_scopes, report_available_scopes
@@ -102,6 +103,12 @@ def create_app_registration_with_permissions(scopes: Iterable[Scope]) -> AppRegi
             result = execute_json(cmd)
         except AccessError as e:
             raise AccessError(f"{str(e)}. {APP_REGISTRATION_PERMISSIONS_INSTRUCTIONS}") from e
+        except InteractiveAuthenticationRequiredError as e:
+            # TODO: Run the auth commands in the background and prompt the user in the setup UI.
+            raise InteractiveAuthenticationRequiredError(
+                e.commands,
+                '{}. Run the following Azure CLI commands and then try again: "{}"'.format(e, " && ".join(e.commands)),
+            )
 
     return AppRegistration(result["tenant"], result["appId"], result["password"])
 
