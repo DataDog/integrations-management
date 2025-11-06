@@ -52,7 +52,7 @@ class AzCliNotAuthenticatedError(UserRetriableError):
     """Azure CLI is not authenticated. User needs to run 'az login'."""
 
 
-class InteractiveAuthenticationRequiredError(UserRetriableError):
+class InteractiveAuthenticationRequiredError(UserActionRequiredError):
     """Must authenticate interactively to request additional scopes."""
 
     def __init__(self, commands: list[str], *args: object) -> None:
