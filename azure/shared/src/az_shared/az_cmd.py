@@ -3,12 +3,19 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 import json
+import re
 import subprocess
 from re import search
 from time import sleep
 from typing import Any, Optional
 
-from .errors import AccessError, RateLimitExceededError, RefreshTokenError, ResourceNotFoundError
+from .errors import (
+    AccessError,
+    InteractiveAuthenticationRequiredError,
+    RateLimitExceededError,
+    RefreshTokenError,
+    ResourceNotFoundError,
+)
 from .logs import log
 
 AUTH_FAILED_ERROR = "AuthorizationFailed"
@@ -119,6 +126,15 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
                 if error_details:
                     raise AccessError(f"{error_message}: {error_details}") from e
                 raise AccessError(error_message) from e
+            if interactive_authn_command_matches := re.findall(
+                r"Run the command below to authenticate interactively.*?:\s*((?:az [^\n]+\n?)+)",
+                stderr,
+                flags=re.MULTILINE,
+            ):
+                raise InteractiveAuthenticationRequiredError(
+                    [line.strip() for line in interactive_authn_command_matches[0].splitlines() if line.strip()],
+                    "Interactive authentication required",
+                ) from e
             if PERMISSION_REQUIRED_ERROR in stderr:
                 raise AccessError(f"Insufficient permissions to execute '{az_cmd.str()}'")
             if can_fail:
