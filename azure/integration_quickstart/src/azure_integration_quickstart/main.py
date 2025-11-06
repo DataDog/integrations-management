@@ -9,7 +9,7 @@ import threading
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, TypedDict
+from typing import TypedDict
 from urllib.error import URLError
 
 from az_shared.az_cmd import AzCmd, execute, execute_json
@@ -41,8 +41,8 @@ class LogForwarderPayload(TypedDict):
     controlPlaneSubscriptionId: str
     controlPlaneSubscriptionName: str
     controlPlaneRegion: str
-    tagFilters: Optional[str]
-    piiFilters: Optional[str]
+    tagFilters: str
+    piiFilters: str
 
 
 def build_log_forwarder_payload(metadata: LfoMetadata) -> LogForwarderPayload:
