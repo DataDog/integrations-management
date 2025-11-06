@@ -3,14 +3,12 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 import os
-import shlex
 import signal
 import sys
 import threading
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
-from functools import reduce
 from typing import TypedDict
 from urllib.error import URLError
 
