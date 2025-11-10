@@ -189,7 +189,7 @@ def main():
         )
     except Exception as e:
         log.error(f"Failed to parse arguments: {e}")
-        raise InputParamValidationError(f"Failed to initialize: {e}")
+        raise InputParamValidationError(f"Failed to parse arguments: {e}")
 
     install_log_forwarder(config)
 
