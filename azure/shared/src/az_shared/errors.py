@@ -15,29 +15,66 @@ class ExistenceCheckError(FatalError):
     """Error occurred when checking if a resource exists."""
 
 
+def format_error_details(message: str) -> str:
+    return f"\n\nError Details:\n{message}"
+
 # Errors users can resolve through manual action
 class UserActionRequiredError(Exception):
     """An error that requires user action to resolve."""
+    def __init__(self, message: str, user_action_message: str | None = None):
+        super().__init__(message)
+        self.user_action_message = user_action_message or message
 
 
 class AccessError(UserActionRequiredError):
     """Not authorized to access the resource."""
+    def __init__(self, message: str):
+        user_action_message = "You don't have the necessary Azure permissions to access, create, or perform an action on a required resource."
+        user_action_message += "\nPlease review the Datadog documentation at https://docs.datadoghq.com/getting_started/integrations/azure/ and contact your Azure administrator if necessary."
+        user_action_message += format_error_details(message)
+        super().__init__(message, user_action_message)
 
 
 class InputParamValidationError(UserActionRequiredError):
     """Validation error in user input parameters."""
+    def __init__(self, message: str):
+        user_action_message = "Invalid input parameter. Please check your input(s) and try again."
+        user_action_message += format_error_details(message)
+        super().__init__(message, user_action_message)
 
 
 class ResourceProviderRegistrationValidationError(UserActionRequiredError):
     """Resource provider is not registered."""
-
-
-class ResourceNameAvailabilityError(UserActionRequiredError):
-    """Resource name is not available."""
+    def __init__(self, message: str):    
+        user_action_message = "Log Forwarding requires all monitored subscriptions to register all of the following Azure resource providers: Microsoft.CloudShell, Microsoft.Web, Microsoft.App, Microsoft.Storage, and Microsoft.Authorization."
+        user_action_message += "\nOne of your Azure subscriptions does not have all of the required registrations."
+        user_action_message += "\nPlease register the missing resource providers in the Azure Portal or contact your Azure administrator."
+        user_action_message += format_error_details(message)
+        super().__init__(message, user_action_message)
 
 
 class DatadogAccessValidationError(UserActionRequiredError):
     """Not authorized to access Datadog - API key and site need to be configured correctly."""
+    def __init__(self, message: str):
+        user_action_message = "Unable to authenticate with Datadog. Please verify the Datadog API key and Datadog site are configured correctly."
+        user_action_message += format_error_details(message)
+        super().__init__(message, user_action_message)
+
+class InteractiveAuthenticationRequiredError(UserActionRequiredError):
+    """Must authenticate interactively to request additional scopes."""
+
+    def __init__(self, commands: list[str], message: str) -> None:
+        user_action_message = '{}. Run the following Azure CLI commands and then try again: "{}"'.format(message, " && ".join(commands))
+        super().__init__(message, user_action_message)
+
+
+class RefreshTokenError(UserActionRequiredError):
+    """Auth token has expired."""
+
+    def __init__(self, message: str):
+        user_action_message = "Azure auth token is expired. Reauthenticate with `az login` or restart your cloud shell and try again."
+        user_action_message += format_error_details(message)
+        super().__init__(message, user_action_message)
 
 
 class UserRetriableError(UserActionRequiredError):
@@ -46,22 +83,19 @@ class UserRetriableError(UserActionRequiredError):
 
 class AzCliNotInstalledError(UserRetriableError):
     """Azure CLI is not installed. User needs to install az cli."""
+    def __init__(self, message: str):
+        user_action_message = "You must install and log in to Azure CLI to run this script"
+        user_action_message += format_error_details(message)
+        super().__init__(message, user_action_message)
 
 
 class AzCliNotAuthenticatedError(UserRetriableError):
     """Azure CLI is not authenticated. User needs to run 'az login'."""
+    def __init__(self, message: str):
+        user_action_message = "Azure CLI is not authenticated. Please run 'az login' first and retry"
+        user_action_message += format_error_details(message)
+        super().__init__(message, user_action_message)
 
-
-class InteractiveAuthenticationRequiredError(UserActionRequiredError):
-    """Must authenticate interactively to request additional scopes."""
-
-    def __init__(self, commands: list[str], *args: object) -> None:
-        self.commands = commands
-        super().__init__(*args)
-
-
-class RefreshTokenError(UserActionRequiredError):
-    """Auth token has expired."""
 
 
 # Expected Errors

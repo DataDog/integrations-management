@@ -32,7 +32,7 @@ from azure_logging_install.main import install_log_forwarder
 def ensure_login() -> None:
     """Ensure that the user is logged into the Azure CLI. If not, raise an exception."""
     if not execute(AzCmd("account", "show"), can_fail=True):
-        raise AzCliNotAuthenticatedError("Azure CLI is not authenticated. Please run 'az login' first and retry")
+        raise AzCliNotAuthenticatedError()
 
 
 class LogForwarderPayload(TypedDict):
@@ -105,10 +105,7 @@ def create_app_registration_with_permissions(scopes: Iterable[Scope]) -> AppRegi
             raise AccessError(f"{str(e)}. {APP_REGISTRATION_PERMISSIONS_INSTRUCTIONS}") from e
         except InteractiveAuthenticationRequiredError as e:
             # TODO: Run the auth commands in the background and prompt the user in the setup UI.
-            raise InteractiveAuthenticationRequiredError(
-                e.commands,
-                '{}. Run the following Azure CLI commands and then try again: "{}"'.format(e, " && ".join(e.commands)),
-            )
+            raise InteractiveAuthenticationRequiredError(e.commands, str(e))
 
     return AppRegistration(result["tenant"], result["appId"], result["password"])
 

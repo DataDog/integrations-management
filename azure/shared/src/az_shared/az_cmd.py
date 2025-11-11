@@ -117,9 +117,7 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
                     continue
                 raise RateLimitExceededError("Rate limit exceeded. Please wait a few minutes and try again.") from e
             if REFRESH_TOKEN_EXPIRED_ERROR in stderr:
-                raise RefreshTokenError(
-                    "Azure auth token is expired. Reauthenticate with `az login` or restart your cloud shell and try again.'"
-                ) from e
+                raise RefreshTokenError(stderr) from e
             if AUTH_FAILED_ERROR in stderr:
                 error_message = f"Insufficient permissions to access resource when executing '{az_cmd.str()}'"
                 error_details = check_access_error(stderr)
