@@ -143,6 +143,7 @@ def check_providers_per_subscription(sub_ids: set[str]) -> dict[str, list[str]]:
 
     return sub_to_unregistered_provider_list
 
+
 def validate_resource_provider_registrations(sub_ids: set[str]):
     """Ensure the required Azure resource providers are registered across all subscriptions."""
 

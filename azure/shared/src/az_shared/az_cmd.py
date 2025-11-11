@@ -102,13 +102,15 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
             if result.returncode != 0 and not can_fail:
                 log.error(f"Command failed: {full_command}")
                 log.error(result.stderr)
-                raise RuntimeError(f"Command failed: {full_command}")
+                raise RuntimeError(f"Command failed: {full_command}\nstdout: {result.stdout}\nstderr: {result.stderr}")
             return result.stdout
         except subprocess.CalledProcessError as e:
             stderr = str(e.stderr)
             stdout = str(e.stdout)
             if RESOURCE_NOT_FOUND_ERROR in stderr:
-                raise ResourceNotFoundError(f"Resource not found when executing '{az_cmd.str()}'") from e
+                raise ResourceNotFoundError(
+                    f"Resource not found when executing '{full_command}'\nstdout: {stdout}\nstderr: {stderr}"
+                ) from e
             if AZURE_THROTTLING_ERROR in stderr or RESOURCE_COLLECTION_THROTTLING_ERROR in stderr:
                 if attempt < MAX_RETRIES - 1:
                     log.warning(f"Azure throttling ongoing. Retrying in {delay} seconds...")
