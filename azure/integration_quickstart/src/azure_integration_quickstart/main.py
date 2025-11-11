@@ -18,7 +18,6 @@ from az_shared.errors import (
     AzCliNotAuthenticatedError,
     AzCliNotInstalledError,
     InteractiveAuthenticationRequiredError,
-    UserActionRequiredError,
 )
 from azure_integration_quickstart.scopes import Scope, Subscription, flatten_scopes, report_available_scopes
 from azure_integration_quickstart.script_status import Status, StatusReporter
@@ -32,7 +31,7 @@ from azure_logging_install.main import install_log_forwarder
 def ensure_login() -> None:
     """Ensure that the user is logged into the Azure CLI. If not, raise an exception."""
     if not execute(AzCmd("account", "show"), can_fail=True):
-        raise AzCliNotAuthenticatedError()
+        raise AzCliNotAuthenticatedError("Azure CLI is not authenticated. Please run 'az login' first and retry")
 
 
 class LogForwarderPayload(TypedDict):
@@ -148,23 +147,18 @@ def submit_config_identifier(workflow_id: str, app_registration: AppRegistration
 
 
 def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
-    try:
-        install_log_forwarder(
-            Configuration(
-                control_plane_region=config["controlPlaneRegion"],
-                control_plane_sub_id=config["controlPlaneSubscriptionId"],
-                control_plane_rg=config["resourceGroupName"],
-                monitored_subs=",".join([s.id for s in subscriptions]),
-                datadog_api_key=os.environ["DD_API_KEY"],
-                datadog_site=os.environ["DD_SITE"],
-                resource_tag_filters=config.get("tagFilters", ""),
-                pii_scrubber_rules=config.get("piiFilters", ""),
-            )
+    install_log_forwarder(
+        Configuration(
+            control_plane_region=config["controlPlaneRegion"],
+            control_plane_sub_id=config["controlPlaneSubscriptionId"],
+            control_plane_rg=config["resourceGroupName"],
+            monitored_subs=",".join([s.id for s in subscriptions]),
+            datadog_api_key=os.environ["DD_API_KEY"],
+            datadog_site=os.environ["DD_SITE"],
+            resource_tag_filters=config.get("tagFilters", ""),
+            pii_scrubber_rules=config.get("piiFilters", ""),
         )
-    except AccessError as e:
-        raise UserActionRequiredError(
-            f"Insufficient Azure user permissions when installing log forwarder. Please check your Azure permissions and try again: {e}"
-        ) from e
+    )
 
 
 REQUIRED_ENVIRONMENT_VARS = {"DD_API_KEY", "DD_APP_KEY", "DD_SITE", "WORKFLOW_ID"}
