@@ -13,18 +13,10 @@ from gcp_shared.models import ConfigurationScope
 from gcp_shared.reporter import StepStatusReporter
 from gcp_shared.requests import dd_request
 
-from .models import ExclusionFilter
-
-ROLES_TO_ADD: list[str] = [
-    "roles/dataflow.admin",
-    "roles/dataflow.worker",
-    "roles/pubsub.viewer",
-    "roles/pubsub.publisher",
-    "roles/pubsub.subscriber",
-    "roles/storage.objectAdmin",
-]
+from .models import DataflowConfiguration, ExclusionFilter
 
 RESOURCE_NAME_PREFIX: str = "export-logs-to-datadog"
+BUCKET_PREFIX: str = "dataflow-temp"
 PUBSUB_TOPIC_ID: str = f"{RESOURCE_NAME_PREFIX}"
 PUBSUB_DEAD_LETTER_TOPIC_ID: str = f"{RESOURCE_NAME_PREFIX}-dlq"
 SECRET_MANAGER_NAME: str = f"{RESOURCE_NAME_PREFIX}-api-key"
@@ -32,9 +24,57 @@ DATAFLOW_JOB_NAME: str = f"{RESOURCE_NAME_PREFIX}-job"
 LOG_SINK_NAME: str = f"{RESOURCE_NAME_PREFIX}-log-sink"
 
 
+def create_dataflow_staging_bucket(
+    step_reporter: StepStatusReporter,
+    project_id: str,
+    service_account_email: str,
+    region: str,
+) -> None:
+    """Create a Dataflow staging bucket."""
+    # Bucket names must be globally unique, so we append project_id for uniqueness.
+    # This differs from other resources since we don't use the resource name prefix.
+    # This is intentional to ensure we stay within the maximum length of 63 characters for a bucket name.
+    FULL_BUCKET_NAME = f"{BUCKET_PREFIX}-{project_id}"
+
+    bucket_search = gcloud(
+        GcloudCmd("storage buckets", "list")
+        .param("--project", project_id)
+        .param("--filter", f"name={FULL_BUCKET_NAME}")
+    )
+    if len(bucket_search) == 1:
+        step_reporter.report(
+            message=f"Dataflow staging bucket '{FULL_BUCKET_NAME}' already exists"
+        )
+        return
+
+    step_reporter.report(
+        message=f"Creating Dataflow staging bucket '{FULL_BUCKET_NAME}' in region '{region}'..."
+    )
+
+    gcloud(
+        GcloudCmd("storage buckets", "create")
+        .arg(f"gs://{FULL_BUCKET_NAME}")
+        .param("--project", project_id)
+        .param("--location", region)
+        .flag("--uniform-bucket-level-access")
+        .param("--soft-delete-duration", "0s")
+    )
+
+    step_reporter.report(
+        message=f"Granting storage permissions to service account '{service_account_email}' for bucket '{FULL_BUCKET_NAME}'..."
+    )
+    gcloud(
+        GcloudCmd("storage buckets", "add-iam-policy-binding")
+        .arg(f"gs://{FULL_BUCKET_NAME}")
+        .param("--member", f"serviceAccount:{service_account_email}")
+        .param("--role", "roles/storage.objectAdmin")
+    )
+
+
 def create_topics_with_subscription(
     step_reporter: StepStatusReporter,
     project_id: str,
+    service_account_email: str,
 ) -> None:
     """Create a Pub/Sub topic with a subscription."""
     for topic_id in [PUBSUB_TOPIC_ID, PUBSUB_DEAD_LETTER_TOPIC_ID]:
@@ -60,6 +100,18 @@ def create_topics_with_subscription(
                 .param("--project", project_id)
             )
 
+        if topic_id == PUBSUB_DEAD_LETTER_TOPIC_ID:
+            step_reporter.report(
+                message=f"Granting publish permissions to service account '{service_account_email}' for dead letter topic '{topic_id}'..."
+            )
+            gcloud(
+                GcloudCmd("pubsub topics", "add-iam-policy-binding")
+                .arg(topic_id)
+                .param("--project", project_id)
+                .param("--member", f"serviceAccount:{service_account_email}")
+                .param("--role", "roles/pubsub.publisher")
+            )
+
         step_reporter.report(
             message=f"Checking for subscription '{subscription_id}' in project '{project_id}'..."
         )
@@ -83,9 +135,7 @@ def create_topics_with_subscription(
                 .param("--topic", topic_id)
                 .param("--project", project_id)
             )
-            continue
-
-        if subscription_search[0].get("topic") != topic_full_name:
+        elif subscription_search[0].get("topic") != topic_full_name:
             step_reporter.report(
                 message=f"Recreating subscription '{subscription_id}' for topic '{topic_id}'..."
             )
@@ -99,6 +149,19 @@ def create_topics_with_subscription(
                 .arg(subscription_id)
                 .param("--topic", topic_id)
                 .param("--project", project_id)
+            )
+
+        step_reporter.report(
+            message=f"Granting subscriber and viewer permissions to service account '{service_account_email}' for subscription '{subscription_id}'..."
+        )
+
+        for role in ["roles/pubsub.subscriber", "roles/pubsub.viewer"]:
+            gcloud(
+                GcloudCmd("pubsub subscriptions", "add-iam-policy-binding")
+                .arg(subscription_id)
+                .param("--project", project_id)
+                .param("--member", f"serviceAccount:{service_account_email}")
+                .param("--role", role)
             )
 
 
@@ -226,18 +289,19 @@ def assign_required_dataflow_roles(
     step_reporter: StepStatusReporter, service_account_email: str, project_id: str
 ) -> None:
     """Assign the required roles to the service account."""
-    for role in ROLES_TO_ADD:
-        step_reporter.report(
-            message=f"Assigning role [{role}] to service account '{service_account_email}' in project '{project_id}'..."
-        )
-        gcloud(
-            GcloudCmd("projects", "add-iam-policy-binding")
-            .arg(project_id)
-            .param("--member", f"serviceAccount:{service_account_email}")
-            .param("--role", role)
-            .param("--condition", "None")
-            .flag("--quiet")
-        )
+    dataflow_worker_role = "roles/dataflow.worker"
+
+    step_reporter.report(
+        message=f"Assigning role [{dataflow_worker_role}] to service account '{service_account_email}' in project '{project_id}'..."
+    )
+    gcloud(
+        GcloudCmd("projects", "add-iam-policy-binding")
+        .arg(project_id)
+        .param("--member", f"serviceAccount:{service_account_email}")
+        .param("--role", dataflow_worker_role)
+        .param("--condition", "None")
+        .flag("--quiet")
+    )
 
 
 def _build_log_sink_cmd(
@@ -362,7 +426,7 @@ def create_dataflow_job(
     project_id: str,
     service_account_email: str,
     region: str,
-    is_dataflow_prime_enabled: bool,
+    dataflow_configuration: DataflowConfiguration,
 ) -> None:
     """Create a Dataflow job."""
 
@@ -408,19 +472,39 @@ def create_dataflow_job(
         .param("--region", region)
         .param("--project", project_id)
         .param("--service-account-email", service_account_email)
+        .param("--staging-location", f"gs://{BUCKET_PREFIX}-{project_id}")
+        .param("--max-workers", str(dataflow_configuration.max_workers))
+        .param("--num-workers", str(dataflow_configuration.num_workers))
         .param(
             "--parameters",
-            f"inputSubscription=projects/{project_id}/subscriptions/{PUBSUB_TOPIC_ID}-subscription,"
-            f"url=https://http-intake.logs.{os.environ.get('DD_SITE')},"
-            f"apiKeySource=SECRET_MANAGER,"
-            f"apiKeySecretId=projects/{project_id}/secrets/{SECRET_MANAGER_NAME}/versions/latest,"
-            f"outputDeadletterTopic=projects/{project_id}/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID}",
+            (
+                f"inputSubscription=projects/{project_id}/subscriptions/{PUBSUB_TOPIC_ID}-subscription,"
+                f"url=https://http-intake.logs.{os.environ.get('DD_SITE')},"
+                f"apiKeySource=SECRET_MANAGER,"
+                f"apiKeySecretId=projects/{project_id}/secrets/{SECRET_MANAGER_NAME}/versions/latest,"
+                f"outputDeadletterTopic=projects/{project_id}/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID},"
+                f"batchCount={dataflow_configuration.batch_size},"
+                f"parallelism={dataflow_configuration.parallelism}"
+            ),
         )
     )
 
-    if is_dataflow_prime_enabled:
+    if dataflow_configuration.is_dataflow_prime_enabled:
         step_reporter.report(message="Enabling Dataflow Prime for the job...")
         create_dataflow_job_cmd.param("--additional-experiments", "enable_prime")
+    elif dataflow_configuration.machine_type:
+        step_reporter.report(
+            message=f"Setting worker machine type to '{dataflow_configuration.machine_type}'..."
+        )
+        create_dataflow_job_cmd.param(
+            "--worker-machine-type", dataflow_configuration.machine_type
+        )
+
+    if dataflow_configuration.is_streaming_engine_enabled:
+        step_reporter.report(message="Enabling Streaming Engine for the job...")
+        create_dataflow_job_cmd.param(
+            "--additional-experiments", "enable_streaming_engine"
+        )
 
     gcloud(create_dataflow_job_cmd)
 

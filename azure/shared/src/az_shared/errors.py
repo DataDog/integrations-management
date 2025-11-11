@@ -21,7 +21,6 @@ class ExistenceCheckError(FatalError):
 class RefreshTokenError(FatalError):
     """Auth token has expired."""
 
-
 # Expected Errors
 class RateLimitExceededError(Exception):
     """We have exceeded the rate limit for the Azure API. Script will retry until MAX_RETRIES are reached."""
@@ -39,8 +38,13 @@ class UserActionRequiredError(Exception):
         super().__init__(message)
         self.user_action_message = user_action_message or message
 
+class UserRetriableError(UserActionRequiredError):
+    """An error that requires user action to resolve, after which the user can simply retry the script rather than reloading the page."""
 
-class AzCliNotAuthenticatedError(UserActionRequiredError):
+class AzCliNotInstalledError(UserRetriableError):
+    """Azure CLI is not installed. User needs to install az cli."""
+
+class AzCliNotAuthenticatedError(UserRetriableError):
     """Azure CLI is not authenticated. User needs to run 'az login'."""
 
     def __init__(self, message: str = "Azure CLI is not authenticated"):
@@ -49,6 +53,12 @@ class AzCliNotAuthenticatedError(UserActionRequiredError):
             user_action_message="Azure CLI is not authenticated. Please run 'az login' first and retry"
         )
 
+class InteractiveAuthenticationRequiredError(UserActionRequiredError):
+    """Must authenticate interactively to request additional scopes."""
+
+    def __init__(self, commands: list[str], message: str) -> None:
+        self.commands = commands
+        super().__init__(message)
 
 class AccessError(UserActionRequiredError):
     """Not authorized to access the resource."""

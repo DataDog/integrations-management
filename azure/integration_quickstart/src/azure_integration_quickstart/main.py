@@ -3,16 +3,23 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 import os
+import signal
 import sys
 import threading
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, TypedDict
+from typing import TypedDict
 from urllib.error import URLError
 
 from az_shared.az_cmd import AzCmd, execute, execute_json
-from az_shared.errors import AccessError, AzCliNotAuthenticatedError, UserActionRequiredError
+from az_shared.errors import (
+    AccessError,
+    AzCliNotAuthenticatedError,
+    AzCliNotInstalledError,
+    InteractiveAuthenticationRequiredError,
+    UserActionRequiredError,
+)
 from azure_integration_quickstart.scopes import Scope, Subscription, flatten_scopes, report_available_scopes
 from azure_integration_quickstart.script_status import Status, StatusReporter
 from azure_integration_quickstart.user_selections import receive_user_selections
@@ -35,8 +42,8 @@ class LogForwarderPayload(TypedDict):
     controlPlaneSubscriptionId: str
     controlPlaneSubscriptionName: str
     controlPlaneRegion: str
-    tagFilters: Optional[str]
-    piiFilters: Optional[str]
+    tagFilters: str
+    piiFilters: str
 
 
 def build_log_forwarder_payload(metadata: LfoMetadata) -> LogForwarderPayload:
@@ -96,6 +103,12 @@ def create_app_registration_with_permissions(scopes: Iterable[Scope]) -> AppRegi
             result = execute_json(cmd)
         except AccessError as e:
             raise AccessError(f"{str(e)}. {APP_REGISTRATION_PERMISSIONS_INSTRUCTIONS}") from e
+        except InteractiveAuthenticationRequiredError as e:
+            # TODO: Run the auth commands in the background and prompt the user in the setup UI.
+            raise InteractiveAuthenticationRequiredError(
+                e.commands,
+                '{}. Run the following Azure CLI commands and then try again: "{}"'.format(e, " && ".join(e.commands)),
+            )
 
     return AppRegistration(result["tenant"], result["appId"], result["password"])
 
@@ -138,21 +151,19 @@ def submit_config_identifier(workflow_id: str, app_registration: AppRegistration
 
 
 def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
-    log_forwarder_config = Configuration(
-        control_plane_region=config["controlPlaneRegion"],
-        control_plane_sub_id=config["controlPlaneSubscriptionId"],
-        control_plane_rg=config["resourceGroupName"],
-        monitored_subs=",".join([s.id for s in subscriptions]),
-        datadog_api_key=os.environ["DD_API_KEY"],
-        datadog_site=os.environ["DD_SITE"],
-    )
-    if "tagFilters" in config:
-        log_forwarder_config.resource_tag_filters = config["tagFilters"]
-    if "piiFilters" in config:
-        log_forwarder_config.pii_scrubber_rules = config["piiFilters"]
-
     try:
-        install_log_forwarder(log_forwarder_config)
+        install_log_forwarder(
+            Configuration(
+                control_plane_region=config["controlPlaneRegion"],
+                control_plane_sub_id=config["controlPlaneSubscriptionId"],
+                control_plane_rg=config["resourceGroupName"],
+                monitored_subs=",".join([s.id for s in subscriptions]),
+                datadog_api_key=os.environ["DD_API_KEY"],
+                datadog_site=os.environ["DD_SITE"],
+                resource_tag_filters=config.get("tagFilters", ""),
+                pii_scrubber_rules=config.get("piiFilters", ""),
+            )
+        )
     except AccessError as e:
         raise UserActionRequiredError(
             f"Insufficient Azure user permissions when installing log forwarder. Please check your Azure permissions and try again: {e}"
@@ -162,43 +173,52 @@ def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
 REQUIRED_ENVIRONMENT_VARS = {"DD_API_KEY", "DD_APP_KEY", "DD_SITE", "WORKFLOW_ID"}
 
 
-def time_out(status: StatusReporter):
-    status.report("connection", Status.ERROR, "session expired")
-    print(
-        "\nSession expired. If you still wish to create a new Datadog configuration, please reload the onboarding page in Datadog and reconnect using the provided command."
-    )
-    os._exit(1)
-
-
 def main():
-    if missing_environment_vars := REQUIRED_ENVIRONMENT_VARS - os.environ.keys():
+    if missing_environment_vars := {var for var in REQUIRED_ENVIRONMENT_VARS if not os.environ.get(var)}:
         print(f"Missing required environment variables: {', '.join(missing_environment_vars)}")
+        print('Use the "copy" button from the quickstart UI to grab the complete command.')
+        if missing_environment_vars == {"DD_API_KEY", "DD_APP_KEY"}:
+            print("\nNOTE: Manually selecting and copying the command won't include the masked keys.")
         sys.exit(1)
 
     workflow_id = os.environ["WORKFLOW_ID"]
 
     status = StatusReporter(workflow_id)
 
+    # report if the user manually disconnects the script
+    def interrupt_handler(*_args):
+        status.report("connection", Status.DISCONNECTED, "disconnected by user")
+        exit(1)
+
+    signal.signal(signal.SIGINT, interrupt_handler)
+
     # give up after 30 minutes
-    timer = threading.Timer(30 * 60, time_out, [status])
+    def time_out():
+        status.report("connection", Status.DISCONNECTED, "session expired")
+        print(
+            "\nSession expired. If you still wish to create a new Datadog configuration, please reload the onboarding page in Datadog and reconnect using the provided command."
+        )
+        os._exit(1)
+
+    timer = threading.Timer(30 * 60, time_out)
     timer.daemon = True
     timer.start()
 
-    try:
-        with status.report_step("login"):
+    with status.report_step("login"):
+        try:
             ensure_login()
-    except Exception as e:
-        if "az: command not found" in str(e):
-            print("You must install and log in to Azure CLI to run this script.")
+        except Exception as e:
+            if "az: command not found" in str(e):
+                print("You must install and log in to Azure CLI to run this script.")
+                raise AzCliNotInstalledError(str(e)) from e
+            else:
+                print("You must be logged in to Azure CLI to run this script. Run `az login` and try again.")
+                raise AzCliNotAuthenticatedError(str(e)) from e
         else:
-            print("You must be logged in to Azure CLI to run this script. Run `az login` and try again.")
-        sys.exit(1)
-    else:
-        print("Connected! Leave this shell running and go back to the Datadog UI to continue.")
+            print("Connected! Leave this shell running and go back to the Datadog UI to continue.")
 
     with status.report_step("scopes", "Collecting scopes"):
         subscriptions, _ = report_available_scopes(workflow_id)
-    exactly_one_log_forwarder = False
     with status.report_step(
         "log_forwarders", loading_message="Collecting existing Log Forwarders", required=False
     ) as step_metadata:

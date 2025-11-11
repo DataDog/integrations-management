@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Generator, Optional
 
-from az_shared.errors import UserActionRequiredError
+from az_shared.errors import UserActionRequiredError, UserRetriableError
 from azure_integration_quickstart.util import Json, dd_request
 
 
@@ -19,6 +19,8 @@ class Status(Enum):
     OK = "OK"
     ERROR = "ERROR"
     USER_ACTIONABLE_ERROR = "USER_ACTIONABLE_ERROR"
+    DISCONNECTED = "DISCONNECTED"
+    WARN = "WARN"
 
 
 @dataclass
@@ -62,14 +64,20 @@ class StatusReporter:
             if self.EXPIRED_TOKEN_ERROR in repr(e):
                 self.report("connection", Status.ERROR, f"Azure CLI token expired: {e}")
                 raise
-            if isinstance(e, UserActionRequiredError):
+            if isinstance(e, UserRetriableError):
+                self.report(
+                    step_id,
+                    Status.WARN,
+                    f"{Status.WARN}: {traceback.format_exc()}",
+                )
+            elif isinstance(e, UserActionRequiredError):
                 self.report(
                     step_id,
                     Status.USER_ACTIONABLE_ERROR,
                     e.user_action_message,
                 )
             else:
-                self.report(step_id, Status.ERROR, f"{step_id}: {Status.ERROR}: {traceback.format_exc()}")
+                self.report(step_id, Status.ERROR, f"{Status.ERROR}: {traceback.format_exc()}")
             if required:
                 raise
         else:

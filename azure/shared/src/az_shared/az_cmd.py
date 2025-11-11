@@ -3,15 +3,23 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 import json
+import re
 import subprocess
 from re import search
 from time import sleep
-from typing import Any, Union
+from typing import Any, Optional
 
-from .errors import AccessError, RateLimitExceededError, RefreshTokenError, ResourceNotFoundError
+from .errors import (
+    AccessError,
+    InteractiveAuthenticationRequiredError,
+    RateLimitExceededError,
+    RefreshTokenError,
+    ResourceNotFoundError,
+)
 from .logs import log
 
 AUTH_FAILED_ERROR = "AuthorizationFailed"
+PERMISSION_REQUIRED_ERROR = "permission is needed"
 AZURE_THROTTLING_ERROR = "TooManyRequests"
 REFRESH_TOKEN_EXPIRED_ERROR = "AADSTS700082"
 RESOURCE_COLLECTION_THROTTLING_ERROR = "ResourceCollectionRequestsThrottled"
@@ -49,7 +57,7 @@ class AzCmd:
         return "az " + " ".join(self.cmd)
 
 
-def check_access_error(stderr: str) -> Union[str, None]:
+def check_access_error(stderr: str) -> Optional[str]:
     # Sample:
     # (AuthorizationFailed) The client 'user@example.com' with object id '00000000-0000-0000-0000-000000000000'
     # does not have authorization to perform action 'Microsoft.Storage/storageAccounts/read'
@@ -98,6 +106,7 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
             return result.stdout
         except subprocess.CalledProcessError as e:
             stderr = str(e.stderr)
+            stdout = str(e.stdout)
             if RESOURCE_NOT_FOUND_ERROR in stderr:
                 raise ResourceNotFoundError(f"Resource not found when executing '{az_cmd.str()}'") from e
             if AZURE_THROTTLING_ERROR in stderr or RESOURCE_COLLECTION_THROTTLING_ERROR in stderr:
@@ -108,18 +117,31 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
                     continue
                 raise RateLimitExceededError("Rate limit exceeded. Please wait a few minutes and try again.") from e
             if REFRESH_TOKEN_EXPIRED_ERROR in stderr:
-                raise RefreshTokenError(f"Auth token is expired. Refresh token before running '{az_cmd.str()}'") from e
+                raise RefreshTokenError(
+                    "Azure auth token is expired. Reauthenticate with `az login` or restart your cloud shell and try again.'"
+                ) from e
             if AUTH_FAILED_ERROR in stderr:
                 error_message = f"Insufficient permissions to access resource when executing '{az_cmd.str()}'"
                 error_details = check_access_error(stderr)
                 if error_details:
                     raise AccessError(f"{error_message}: {error_details}") from e
                 raise AccessError(error_message) from e
+            if interactive_authn_command_matches := re.findall(
+                r"Run the command below to authenticate interactively.*?:\s*((?:az [^\n]+\n?)+)",
+                stderr,
+                flags=re.MULTILINE,
+            ):
+                raise InteractiveAuthenticationRequiredError(
+                    [line.strip() for line in interactive_authn_command_matches[0].splitlines() if line.strip()],
+                    "Interactive authentication required",
+                ) from e
+            if PERMISSION_REQUIRED_ERROR in stderr:
+                raise AccessError(f"Insufficient permissions to execute '{az_cmd.str()}'")
             if can_fail:
                 return ""
             log.error(f"Command failed: {full_command}")
-            log.error(e.stderr)
-            raise RuntimeError(f"Command failed: {full_command}") from e
+            log.error(stderr)
+            raise RuntimeError(f"Command failed: {full_command}\nstdout: {stdout}\nstderr: {stderr}") from e
 
     raise SystemExit(1)  # unreachable
 

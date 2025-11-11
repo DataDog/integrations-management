@@ -10,6 +10,7 @@ from typing import Literal
 from urllib.error import URLError
 
 from az_shared.az_cmd import AzCmd, execute_json
+from az_shared.errors import AccessError
 from azure_integration_quickstart.permissions import FlatPermission, get_flat_permission
 from azure_integration_quickstart.util import MAX_WORKERS, dd_request
 
@@ -140,7 +141,7 @@ def get_management_group_scopes(tenant_id: str) -> list[ManagementGroup]:
                 .param("-o", "json")
             )
         ]
-    except RuntimeError:
+    except AccessError:
         # Expected, this means the user doesn't have permissions for any management groups but not necessarily blocking
         return []
 
