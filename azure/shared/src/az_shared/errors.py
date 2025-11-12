@@ -2,6 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
+from re import search
 from typing import Optional
 
 
@@ -26,7 +27,7 @@ def format_error_details(error_message: str) -> str:
 class UserActionRequiredError(Exception):
     """An error that requires user action to resolve."""
 
-    def __init__(self, error_message: str, user_action_message: str | None = None):
+    def __init__(self, error_message: str, user_action_message: Optional[str] = None):
         super().__init__(error_message)
         self.user_action_message = user_action_message
 
@@ -99,6 +100,18 @@ class RefreshTokenError(UserActionRequiredError):
         user_action_message = (
             "Azure auth token is expired. Reauthenticate with `az login` or restart your cloud shell and try again."
         )
+        user_action_message += format_error_details(error_message)
+        super().__init__(error_message, user_action_message)
+
+
+class PolicyError(UserActionRequiredError):
+    """User has set a policy incompatible with some piece of the Datadog integration."""
+
+    def __init__(self, error_message: str):
+        user_action_message = "Unable to create Datadog integration due to your policy"
+        policy_name_match = search(r'"policyDefinition":{"name":"([^"]*)"', error_message)
+        if policy_name_match:
+            user_action_message += f" {policy_name_match.group(1)}"
         user_action_message += format_error_details(error_message)
         super().__init__(error_message, user_action_message)
 

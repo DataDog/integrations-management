@@ -12,6 +12,7 @@ from typing import Any, Optional
 from .errors import (
     AccessError,
     InteractiveAuthenticationRequiredError,
+    PolicyError,
     RateLimitExceededError,
     RefreshTokenError,
     ResourceNotFoundError,
@@ -24,6 +25,7 @@ AZURE_THROTTLING_ERROR = "TooManyRequests"
 REFRESH_TOKEN_EXPIRED_ERROR = "AADSTS700082"
 RESOURCE_COLLECTION_THROTTLING_ERROR = "ResourceCollectionRequestsThrottled"
 RESOURCE_NOT_FOUND_ERROR = "ResourceNotFound"
+POLICY_ERROR = "RequestDisallowedByPolicy"
 
 INITIAL_RETRY_DELAY = 2  # seconds
 RETRY_DELAY_MULTIPLIER = 2
@@ -126,6 +128,12 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
                 if error_details:
                     raise AccessError(f"{error_message}: {error_details}") from e
                 raise AccessError(error_message) from e
+            if POLICY_ERROR in stderr:
+                error_before_and_after_code = stderr.split(f"({POLICY_ERROR}) ")
+                policy_error_message = (
+                    "\n".join(error_before_and_after_code[1:]) if len(error_before_and_after_code) > 1 else stderr
+                )
+                raise PolicyError(policy_error_message)
             if interactive_authn_command_matches := re.findall(
                 r"Run the command below to authenticate interactively.*?:\s*((?:az [^\n]+\n?)+)",
                 stderr,
