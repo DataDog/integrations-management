@@ -3,7 +3,6 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 from re import search
-from typing import Optional
 
 
 # Errors that prevent script from completing successfully
@@ -27,7 +26,7 @@ def format_error_details(error_message: str) -> str:
 class UserActionRequiredError(Exception):
     """An error that requires user action to resolve."""
 
-    def __init__(self, error_message: str, user_action_message: Optional[str] = None):
+    def __init__(self, error_message: str, user_action_message: str):
         super().__init__(error_message)
         self.user_action_message = user_action_message
 
@@ -133,7 +132,7 @@ class AzCliNotAuthenticatedError(UserRetriableError):
     """Azure CLI is not authenticated. User needs to run 'az login'."""
 
     def __init__(self, error_message: str):
-        super().__init__(error_message)
+        super().__init__(error_message, error_message)
 
 
 # Expected Errors
