@@ -234,7 +234,7 @@ ERROR: (RequestDisallowedByPolicy) {EXAMPLE_POLICY_ERROR}"""
             az_cmd.execute(cmd)
         self.assertEqual(
             ctx.exception.user_action_message,
-            f"Unable to create Datadog integration due to your policy {EXAMPLE_POLICY_NAME}\n\nError Details:\n{EXAMPLE_POLICY_ERROR}",
+            f"Unable to create Datadog integration due to your policy {EXAMPLE_POLICY_NAME}. In order to install the Datadog integration you will have to modify this policy or select scopes where it does not apply.\n\nError Details:\n{EXAMPLE_POLICY_ERROR}",
         )
 
     def test_execute_subprocess_exception(self):

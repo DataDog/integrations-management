@@ -107,10 +107,9 @@ class PolicyError(UserActionRequiredError):
     """User has set a policy incompatible with some piece of the Datadog integration."""
 
     def __init__(self, error_message: str):
-        user_action_message = "Unable to create Datadog integration due to your policy"
         policy_name_match = search(r'"policyDefinition":{"name":"([^"]*)"', error_message)
-        if policy_name_match:
-            user_action_message += f" {policy_name_match.group(1)}"
+        policy_name = policy_name_match.group(1) if policy_name_match else ""
+        user_action_message = f"Unable to create Datadog integration due to your policy {policy_name}. In order to install the Datadog integration you will have to modify this policy or select scopes where it does not apply."
         user_action_message += format_error_details(error_message)
         super().__init__(error_message, user_action_message)
 
