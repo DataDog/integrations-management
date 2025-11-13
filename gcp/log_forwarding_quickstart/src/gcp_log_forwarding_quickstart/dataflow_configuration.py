@@ -48,7 +48,7 @@ def create_dataflow_staging_bucket(
 
         gcloud(
             GcloudCmd("storage buckets", "add-iam-policy-binding")
-            .arg(FULL_BUCKET_NAME)
+            .arg(f"gs://{FULL_BUCKET_NAME}")
             .param("--member", f"serviceAccount:{service_account_email}")
             .param("--role", "roles/storage.objectAdmin")
         )
