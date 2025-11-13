@@ -62,7 +62,7 @@ class StatusReporter:
             if loading_message_thread:
                 loading_message_thread.join()
             if self.EXPIRED_TOKEN_ERROR in repr(e):
-                self.report("connection", Status.ERROR, f"Azure CLI token expired: {e}")
+                self.report("connection", Status.DISCONNECTED, f"Azure CLI token expired: {e}")
                 raise
             if isinstance(e, UserRetriableError):
                 self.report(

@@ -62,6 +62,7 @@ class TestCreateDataflowStagingBucket(unittest.TestCase):
     def test_create_dataflow_staging_bucket_uses_existing(self, mock_gcloud):
         mock_gcloud.side_effect = [
             [{"name": "dataflow-temp-test-project"}],
+            None,
         ]
 
         step_reporter = Mock()
@@ -75,10 +76,14 @@ class TestCreateDataflowStagingBucket(unittest.TestCase):
 
         actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
 
-        self.assertEqual(len(actual_commands), 1)
+        self.assertEqual(len(actual_commands), 2)
         self.assertEqual(
             actual_commands[0],
             "storage buckets list --project test-project --filter name=dataflow-temp-test-project",
+        )
+        self.assertEqual(
+            actual_commands[1],
+            "storage buckets add-iam-policy-binding gs://dataflow-temp-test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/storage.objectAdmin",
         )
 
 

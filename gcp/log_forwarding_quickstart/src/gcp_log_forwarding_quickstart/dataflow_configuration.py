@@ -43,7 +43,14 @@ def create_dataflow_staging_bucket(
     )
     if len(bucket_search) == 1:
         step_reporter.report(
-            message=f"Dataflow staging bucket '{FULL_BUCKET_NAME}' already exists"
+            message=f"Dataflow staging bucket '{FULL_BUCKET_NAME}' already exists, granting storage permissions to service account '{service_account_email}'..."
+        )
+
+        gcloud(
+            GcloudCmd("storage buckets", "add-iam-policy-binding")
+            .arg(f"gs://{FULL_BUCKET_NAME}")
+            .param("--member", f"serviceAccount:{service_account_email}")
+            .param("--role", "roles/storage.objectAdmin")
         )
         return
 

@@ -171,6 +171,7 @@ def collect_configuration_scopes(step_reporter: StepStatusReporter) -> None:
             is_already_monitored=p["projectId"] in monitored_projects,
         )
         for p in list_project_output
+        if "name" in p
     ]
 
     token = gcloud("auth print-access-token")["token"]
@@ -178,11 +179,15 @@ def collect_configuration_scopes(step_reporter: StepStatusReporter) -> None:
 
     folders = []
     for f in list_folder_output:
-        parent = f["parent"]
-        folder = Folder(name=f["displayName"], id=f["name"].split("/")[1], parent_id="")
+        if "displayName" not in f:
+            continue
+
+        parent, folder_id = f["parent"], f["name"].split("/")[1]
+        folder = Folder(name=f["displayName"], id=folder_id, parent_id="")
 
         if "folders" in parent:
-            folder.parent_id = parent.split("/")[1]
+            parent_folder_id = parent.split("/")[1]
+            folder.parent_id = parent_folder_id
 
         folders.append(folder)
 
