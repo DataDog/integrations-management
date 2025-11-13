@@ -15,10 +15,10 @@ from urllib.error import URLError
 from az_shared.az_cmd import AzCmd, execute, execute_json
 from az_shared.errors import (
     AccessError,
+    AppRegistrationCreationPermissionsError,
     AzCliNotAuthenticatedError,
     AzCliNotInstalledError,
     InteractiveAuthenticationRequiredError,
-    UserActionRequiredError,
 )
 from azure_integration_quickstart.scopes import Scope, Subscription, flatten_scopes, report_available_scopes
 from azure_integration_quickstart.script_status import Status, StatusReporter
@@ -83,9 +83,6 @@ def get_app_registration_name() -> str:
     return f"{APP_REGISTRATION_NAME_PREFIX}-{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}"
 
 
-APP_REGISTRATION_PERMISSIONS_INSTRUCTIONS = "Please ensure that you have the permissions necessary to create an App Registration, as described here: https://docs.datadoghq.com/getting_started/integrations/azure/?tab=createanappregistration#permission-to-create-an-app-registration. If you have recently been granted these permissions, please allow up to an hour for them to propagate."
-
-
 def create_app_registration_with_permissions(scopes: Iterable[Scope]) -> AppRegistration:
     """Create an app registration with the necessary permissions for Datadog to function over the given scopes."""
     cmd = (
@@ -102,13 +99,10 @@ def create_app_registration_with_permissions(scopes: Iterable[Scope]) -> AppRegi
         try:
             result = execute_json(cmd)
         except AccessError as e:
-            raise AccessError(f"{str(e)}. {APP_REGISTRATION_PERMISSIONS_INSTRUCTIONS}") from e
+            raise AppRegistrationCreationPermissionsError(str(e)) from e
         except InteractiveAuthenticationRequiredError as e:
             # TODO: Run the auth commands in the background and prompt the user in the setup UI.
-            raise InteractiveAuthenticationRequiredError(
-                e.commands,
-                '{}. Run the following Azure CLI commands and then try again: "{}"'.format(e, " && ".join(e.commands)),
-            )
+            raise InteractiveAuthenticationRequiredError(e.commands, str(e))
 
     return AppRegistration(result["tenant"], result["appId"], result["password"])
 
@@ -151,23 +145,18 @@ def submit_config_identifier(workflow_id: str, app_registration: AppRegistration
 
 
 def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
-    try:
-        install_log_forwarder(
-            Configuration(
-                control_plane_region=config["controlPlaneRegion"],
-                control_plane_sub_id=config["controlPlaneSubscriptionId"],
-                control_plane_rg=config["resourceGroupName"],
-                monitored_subs=",".join([s.id for s in subscriptions]),
-                datadog_api_key=os.environ["DD_API_KEY"],
-                datadog_site=os.environ["DD_SITE"],
-                resource_tag_filters=config.get("tagFilters", ""),
-                pii_scrubber_rules=config.get("piiFilters", ""),
-            )
+    install_log_forwarder(
+        Configuration(
+            control_plane_region=config["controlPlaneRegion"],
+            control_plane_sub_id=config["controlPlaneSubscriptionId"],
+            control_plane_rg=config["resourceGroupName"],
+            monitored_subs=",".join([s.id for s in subscriptions]),
+            datadog_api_key=os.environ["DD_API_KEY"],
+            datadog_site=os.environ["DD_SITE"],
+            resource_tag_filters=config.get("tagFilters", ""),
+            pii_scrubber_rules=config.get("piiFilters", ""),
         )
-    except AccessError as e:
-        raise UserActionRequiredError(
-            f"Insufficient Azure user permissions when installing log forwarder. Please check your Azure permissions and try again: {e}"
-        ) from e
+    )
 
 
 REQUIRED_ENVIRONMENT_VARS = {"DD_API_KEY", "DD_APP_KEY", "DD_SITE", "WORKFLOW_ID"}
