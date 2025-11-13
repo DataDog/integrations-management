@@ -83,7 +83,7 @@ class TestCreateDataflowStagingBucket(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[1],
-            "storage buckets add-iam-policy-binding dataflow-temp-test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/storage.objectAdmin",
+            "storage buckets add-iam-policy-binding gs://dataflow-temp-test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/storage.objectAdmin",
         )
 
 
