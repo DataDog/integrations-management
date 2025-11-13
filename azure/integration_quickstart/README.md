@@ -15,10 +15,14 @@ During final testing, you should upload the executable into Azure Cloud Shell an
 
 See instructions in main `azure` folder
 
+### Testing
+Run all tests from the `azure` folder:
+```bash python -m pytest integration_quickstart/tests/ --tb=short```
+
 ### Build/Ship
 
 Run from the `azure` folder:
-`bash integration_quickstart/build.sh`
+```bash integration_quickstart/build.sh```
 
 # Execution
 
