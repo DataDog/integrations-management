@@ -31,8 +31,17 @@ class UserActionRequiredError(Exception):
         self.user_action_message = user_action_message
 
 
+class AppRegistrationCreationPermissionsError(UserActionRequiredError):
+    """Not authorized to create an app registration."""
+
+    def __init__(self, error_message: str):
+        user_action_message = "Please ensure that you have the permissions necessary to create an App Registration, as described here: https://docs.datadoghq.com/getting_started/integrations/azure/?tab=createanappregistration#permission-to-create-an-app-registration. If you have recently been granted these permissions, please allow up to an hour for them to propagate."
+        user_action_message += format_error_details(error_message)
+        super().__init__(error_message, user_action_message)
+
+
 class AccessError(UserActionRequiredError):
-    """Not authorized to access the resource."""
+    """Not authorized to access an Azure resource."""
 
     def __init__(self, error_message: str):
         user_action_message = "You don't have the necessary Azure permissions to access, create, or perform an action on a required resource."

@@ -15,6 +15,7 @@ from urllib.error import URLError
 from az_shared.az_cmd import AzCmd, execute, execute_json
 from az_shared.errors import (
     AccessError,
+    AppRegistrationCreationPermissionsError,
     AzCliNotAuthenticatedError,
     AzCliNotInstalledError,
     InteractiveAuthenticationRequiredError,
@@ -82,9 +83,6 @@ def get_app_registration_name() -> str:
     return f"{APP_REGISTRATION_NAME_PREFIX}-{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}"
 
 
-APP_REGISTRATION_PERMISSIONS_INSTRUCTIONS = "Please ensure that you have the permissions necessary to create an App Registration, as described here: https://docs.datadoghq.com/getting_started/integrations/azure/?tab=createanappregistration#permission-to-create-an-app-registration. If you have recently been granted these permissions, please allow up to an hour for them to propagate."
-
-
 def create_app_registration_with_permissions(scopes: Iterable[Scope]) -> AppRegistration:
     """Create an app registration with the necessary permissions for Datadog to function over the given scopes."""
     cmd = (
@@ -101,7 +99,7 @@ def create_app_registration_with_permissions(scopes: Iterable[Scope]) -> AppRegi
         try:
             result = execute_json(cmd)
         except AccessError as e:
-            raise AccessError(f"{str(e)}. {APP_REGISTRATION_PERMISSIONS_INSTRUCTIONS}") from e
+            raise AppRegistrationCreationPermissionsError(str(e)) from e
         except InteractiveAuthenticationRequiredError as e:
             # TODO: Run the auth commands in the background and prompt the user in the setup UI.
             raise InteractiveAuthenticationRequiredError(e.commands, str(e))
