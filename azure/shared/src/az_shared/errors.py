@@ -85,6 +85,7 @@ class InteractiveAuthenticationRequiredError(UserActionRequiredError):
     """Must authenticate interactively to request additional scopes."""
 
     def __init__(self, commands: list[str], error_message: str) -> None:
+        self.commands = commands
         user_action_message = '{}. Run the following Azure CLI commands and then try again: "{}"'.format(
             error_message, " && ".join(commands)
         )
