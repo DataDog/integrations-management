@@ -14,6 +14,7 @@ ERROR_403 = HTTPError(url="", code=403, msg="you don't have permission", hdrs=Me
 
 
 EXAMPLE_WORKFLOW_ID = "Example quickstart workflow"
+EXAMPLE_STEP_ID = "example_workflow_step"
 
 EXAMPLE_SUBSCRIPTIONS = [{"id": f"example-subscription-id-{i}", "name": f"Example Subscription {i}"} for i in range(4)]
 EXAMPLE_MANAGEMENT_GROUP = {
