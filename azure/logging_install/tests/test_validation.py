@@ -13,7 +13,6 @@ from az_shared.errors import (
     DatadogAccessValidationError,
     ExistenceCheckError,
     InputParamValidationError,
-    ResourceProviderRegistrationValidationError,
 )
 from azure_logging_install import validation
 from azure_logging_install.configuration import Configuration

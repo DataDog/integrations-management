@@ -10,13 +10,20 @@ from unittest.mock import patch as mock_patch
 from az_shared import az_cmd
 from az_shared.errors import (
     AccessError,
+    PolicyError,
     RateLimitExceededError,
     RefreshTokenError,
     ResourceNotFoundError,
     UserActionRequiredError,
 )
 
-from shared.tests.test_data import CONTROL_PLANE_REGION, CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_SUBSCRIPTION_ID
+from shared.tests.test_data import (
+    CONTROL_PLANE_REGION,
+    CONTROL_PLANE_RESOURCE_GROUP,
+    CONTROL_PLANE_SUBSCRIPTION_ID,
+    EXAMPLE_POLICY_ERROR,
+    EXAMPLE_POLICY_NAME,
+)
 
 FUNCTION_APP = "functionapp"
 CREATE = "create"
@@ -212,6 +219,23 @@ class TestAzCmd(TestCase):
         self.assertEqual(result, "success after throttling")
         self.assertEqual(self.subprocess_mock.call_count, 2)
         self.sleep_mock.assert_called_once()
+
+    def test_execute_policy_error(self):
+        """Test execute handles policy errors"""
+        cmd = az_cmd.AzCmd(FUNCTION_APP, CREATE)
+
+        # Mock CalledProcessError
+        error = subprocess.CalledProcessError(1, "az")
+        error.stderr = f"""Warning: something unrelated
+ERROR: (RequestDisallowedByPolicy) {EXAMPLE_POLICY_ERROR}"""
+        self.subprocess_mock.side_effect = error
+
+        with self.assertRaises(PolicyError) as ctx:
+            az_cmd.execute(cmd)
+        self.assertEqual(
+            ctx.exception.user_action_message,
+            f"Unable to create Datadog integration due to your policy {EXAMPLE_POLICY_NAME}. In order to install the Datadog integration you will have to modify this policy or select scopes where it does not apply.\n\nError Details:\n{EXAMPLE_POLICY_ERROR}",
+        )
 
     def test_execute_subprocess_exception(self):
         """Test execute handles subprocess exceptions"""

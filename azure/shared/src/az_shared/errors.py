@@ -2,7 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-from typing import Optional
+from re import search
 
 
 # Errors that prevent script from completing successfully
@@ -26,7 +26,7 @@ def format_error_details(error_message: str) -> str:
 class UserActionRequiredError(Exception):
     """An error that requires user action to resolve."""
 
-    def __init__(self, error_message: str, user_action_message: str | None = None):
+    def __init__(self, error_message: str, user_action_message: str):
         super().__init__(error_message)
         self.user_action_message = user_action_message
 
@@ -103,6 +103,17 @@ class RefreshTokenError(UserActionRequiredError):
         super().__init__(error_message, user_action_message)
 
 
+class PolicyError(UserActionRequiredError):
+    """User has set a policy incompatible with some piece of the Datadog integration."""
+
+    def __init__(self, error_message: str):
+        policy_name_match = search(r'"policyDefinition":{"name":"([^"]*)"', error_message)
+        policy_name = policy_name_match.group(1) if policy_name_match else ""
+        user_action_message = f"Unable to create Datadog integration due to your policy {policy_name}. In order to install the Datadog integration you will have to modify this policy or select scopes where it does not apply."
+        user_action_message += format_error_details(error_message)
+        super().__init__(error_message, user_action_message)
+
+
 class UserRetriableError(UserActionRequiredError):
     """An error that requires user action to resolve, after which the user can simply retry the script rather than reloading the page."""
 
@@ -120,7 +131,7 @@ class AzCliNotAuthenticatedError(UserRetriableError):
     """Azure CLI is not authenticated. User needs to run 'az login'."""
 
     def __init__(self, error_message: str):
-        super().__init__(error_message)
+        super().__init__(error_message, error_message)
 
 
 # Expected Errors
