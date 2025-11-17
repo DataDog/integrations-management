@@ -287,7 +287,7 @@ def find_or_create_datadog_api_key() -> str:
             },
         )
         if status != 201:
-            raise RuntimeError(f"Failed to create API key: {response}")
+            raise RuntimeError(f"Failed to create Datadog API key: {response}")
 
     return json.loads(response).get("data", {}).get("attributes", {}).get("key")
 
