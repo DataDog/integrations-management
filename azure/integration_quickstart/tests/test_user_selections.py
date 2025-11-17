@@ -3,13 +3,13 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 from collections.abc import Sequence
-from unittest import TestCase
 from unittest.mock import MagicMock
 from unittest.mock import patch as mock_patch
 
 from azure_integration_quickstart.scopes import Scope
 from azure_integration_quickstart.user_selections import UserSelections, receive_user_selections
 
+from integration_quickstart.tests.dd_test_case import DDTestCase
 from integration_quickstart.tests.test_data import (
     ERROR_403,
     ERROR_404,
@@ -25,21 +25,9 @@ from integration_quickstart.tests.test_data import (
 )
 
 
-def scopes_equal(scope1: Scope, scope2: Scope):
-    return scope1.id == scope2.id and scope1.name == scope2.name
-
-
-class TestReceiveUserSelections(TestCase):
+class TestReceiveUserSelections(DDTestCase):
     def setUp(self) -> None:
         self.dd_request_mock: MagicMock = self.patch("azure_integration_quickstart.user_selections.dd_request")
-
-    def patch(self, path: str, **kwargs):
-        patcher = mock_patch(path, **kwargs)
-        self.addCleanup(patcher.stop)
-        return patcher.start()
-
-    def assert_same_scopes(self, scopes1: Sequence[Scope], scopes2: Sequence[Scope]):
-        return all([any([scopes_equal(scope1, scope2) for scope2 in scopes2]) for scope1 in scopes1])
 
     def assert_selections_equal(self, selections1: UserSelections, selections2: UserSelections):
         self.assertEqual(selections1.app_registration_config, selections2.app_registration_config)
