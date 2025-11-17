@@ -6,7 +6,8 @@ import json
 from email.message import Message
 from urllib.error import HTTPError
 
-from azure_integration_quickstart.scopes import ManagementGroup, Subscription
+from azure_integration_quickstart.permissions import FlatPermission
+from azure_integration_quickstart.scopes import ASSIGN_ROLES_ACTION, ManagementGroup, Subscription
 from azure_integration_quickstart.user_selections import UserSelections
 
 ERROR_404 = HTTPError(url="", code=404, msg="resource does not exist", hdrs=Message(), fp=None)
@@ -22,9 +23,21 @@ EXAMPLE_MANAGEMENT_GROUP = {
     "name": "Azure Integrations group of subscriptions",
     "subscriptions": {"subscriptions": [EXAMPLE_SUBSCRIPTIONS[0], EXAMPLE_SUBSCRIPTIONS[1]]},
 }
+EXAMPLE_MANAGEMENT_GROUP_EMPTY = {
+    "id": "/providers/Microsoft.Management/managementGroups/Azure-Integrations-Mg2",
+    "name": "Empty management group",
+    "subscriptions": {"subscriptions": []},
+}
+EXAMPLE_MANAGEMENT_GROUP_OVERLAP = {
+    "id": "/providers/Microsoft.Management/managementGroups/Azure-Integrations-Mg3",
+    "name": "Empty management group",
+    "subscriptions": {"subscriptions": [EXAMPLE_SUBSCRIPTIONS[2], EXAMPLE_SUBSCRIPTIONS[1]]},
+}
 
 EXAMPLE_SUBSCRIPTION_SCOPES = [Subscription(**sub) for sub in EXAMPLE_SUBSCRIPTIONS]
-EXAMPLE_MANAGEMENT_GROUP_SCOPE = ManagementGroup(**EXAMPLE_MANAGEMENT_GROUP)
+EXAMPLE_MANAGEMENT_GROUP_SCOPE = ManagementGroup.from_dict(EXAMPLE_MANAGEMENT_GROUP)
+EXAMPLE_MANAGEMENT_GROUP_EMPTY_SCOPE = ManagementGroup.from_dict(EXAMPLE_MANAGEMENT_GROUP_EMPTY)
+EXAMPLE_MANAGEMENT_GROUP_OVERLAP_SCOPE = ManagementGroup.from_dict(EXAMPLE_MANAGEMENT_GROUP_OVERLAP)
 
 
 DEFAULT_CONFIG_OPTIONS_JSON = '{"automute":false,"metrics_enabled":false,"metrics_enabled_default":true,"custom_metrics_enabled":false,"usage_metrics_enabled":true,"resource_provider_configs":[],"cspm_enabled":false,"resource_collection_enabled":false,"source":"datadog_web_ui","validate":true}'
@@ -105,3 +118,9 @@ MGROUP_SELECTIONS = UserSelections(
 SELECTIONS_WITH_LOG_FORWARDING = UserSelections(
     app_registration_config=DEFAULT_CONFIG_OPTIONS, log_forwarding_config=EXAMPLE_LOG_FORWARDER, scopes=[]
 )
+
+FLAT_PERMISSION_EMPTY = FlatPermission([], [])
+FLAT_PERMISSION_NO_ASSIGN_ROLES = FlatPermission(
+    ["Microsoft.Authorization/roleAssignments/read", "Microsoft.something/else"], []
+)
+FLAT_PERMISSION_ASSIGN_ROLES = FlatPermission([ASSIGN_ROLES_ACTION, "Microsoft.something/else"], [])

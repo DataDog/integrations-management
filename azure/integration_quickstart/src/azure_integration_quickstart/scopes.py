@@ -69,6 +69,12 @@ class ManagementGroup(Scope):
     def scope(self) -> str:
         return self.id
 
+    @staticmethod
+    def from_dict(d: dict) -> "ManagementGroup":
+        return ManagementGroup(
+            d["id"], d["name"], SubscriptionList([Subscription(**s) for s in d["subscriptions"]["subscriptions"]])
+        )
+
 
 @dataclass
 class ManagementGroupListResult:
