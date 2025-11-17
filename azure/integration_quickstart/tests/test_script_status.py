@@ -3,28 +3,23 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 import threading
-from unittest import TestCase
 from unittest.mock import ANY, MagicMock
 from unittest.mock import patch as mock_patch
 
 from az_shared.errors import AccessError, AzCliNotInstalledError
 from azure_integration_quickstart.script_status import Status, StatusReporter
 
+from integration_quickstart.tests.dd_test_case import DDTestCase
 from integration_quickstart.tests.test_data import EXAMPLE_STEP_ID, EXAMPLE_WORKFLOW_ID
 
 
-class TestStatusReporter(TestCase):
+class TestStatusReporter(DDTestCase):
     def setUp(self) -> None:
         self.loading_spinner_mock: MagicMock = self.patch("azure_integration_quickstart.script_status.loading_spinner")
 
         self.status_reporter = StatusReporter(EXAMPLE_WORKFLOW_ID)
         self.report_mock = MagicMock()
         self.status_reporter.report = self.report_mock
-
-    def patch(self, path: str, **kwargs):
-        patcher = mock_patch(path, **kwargs)
-        self.addCleanup(patcher.stop)
-        return patcher.start()
 
     def test_step_pass_no_message(self):
         with self.status_reporter.report_step(EXAMPLE_STEP_ID):

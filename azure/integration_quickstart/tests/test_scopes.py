@@ -3,7 +3,6 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 from collections.abc import Sequence
-from unittest import TestCase
 from unittest.mock import MagicMock
 from unittest.mock import patch as mock_patch
 

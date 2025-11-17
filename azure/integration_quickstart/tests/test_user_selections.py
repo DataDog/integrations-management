@@ -2,11 +2,8 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-from collections.abc import Sequence
 from unittest.mock import MagicMock
-from unittest.mock import patch as mock_patch
 
-from azure_integration_quickstart.scopes import Scope
 from azure_integration_quickstart.user_selections import UserSelections, receive_user_selections
 
 from integration_quickstart.tests.dd_test_case import DDTestCase
