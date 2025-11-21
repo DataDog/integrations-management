@@ -475,8 +475,7 @@
               "type": "Microsoft.App/managedEnvironments",
               "apiVersion": "2024-03-01",
               "name": "[format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation'))]",
-              "location": "[parameters('controlPlaneLocation')]",
-              "properties": {}
+              "location": "[parameters('controlPlaneLocation')]"
             },
             {
               "type": "Microsoft.App/jobs",
