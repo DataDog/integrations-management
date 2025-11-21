@@ -45,13 +45,13 @@ class TestAzCmd(TestCase):
         """Test AzCmd builder initialization"""
         cmd = az_cmd.AzCmd(FUNCTION_APP, CREATE)
 
-        self.assertEqual(cmd.cmd, [FUNCTION_APP, CREATE])
+        self.assertEqual(list(cmd), [FUNCTION_APP, CREATE])
 
     def test_az_cmd_initialization_with_multi_word_action(self):
         """Test AzCmd builder with multi-word action"""
         cmd = az_cmd.AzCmd("storage", "account create")
 
-        self.assertEqual(cmd.cmd, ["storage", "account", "create"])
+        self.assertEqual(list(cmd), ["storage", "account", "create"])
 
     def test_az_cmd_param(self):
         """Test adding key-value parameters"""
@@ -60,7 +60,7 @@ class TestAzCmd(TestCase):
 
         self.assertIs(result, cmd)
         self.assertEqual(
-            cmd.cmd,
+            list(cmd),
             [FUNCTION_APP, CREATE, "--resource-group", CONTROL_PLANE_RESOURCE_GROUP],
         )
 
@@ -79,7 +79,7 @@ class TestAzCmd(TestCase):
             "value2",
             "value3",
         ]
-        self.assertEqual(cmd.cmd, expected)
+        self.assertEqual(list(cmd), expected)
 
     def test_az_cmd_flag(self):
         """Test adding flags"""
@@ -87,7 +87,7 @@ class TestAzCmd(TestCase):
         result = cmd.flag("--yes")
 
         self.assertIs(result, cmd)
-        self.assertEqual(cmd.cmd, [FUNCTION_APP, CREATE, "--yes"])
+        self.assertEqual(list(cmd), [FUNCTION_APP, CREATE, "--yes"])
 
     def test_az_cmd_chaining(self):
         """Test method chaining"""
@@ -107,14 +107,14 @@ class TestAzCmd(TestCase):
             CONTROL_PLANE_REGION,
             "--yes",
         ]
-        self.assertEqual(cmd.cmd, expected)
+        self.assertEqual(list(cmd), expected)
 
     def test_az_cmd_str(self):
         """Test string representation of command"""
         cmd = az_cmd.AzCmd(FUNCTION_APP, CREATE).param("--resource-group", CONTROL_PLANE_RESOURCE_GROUP).flag("--yes")
 
         expected = f"az {FUNCTION_APP} create --resource-group {CONTROL_PLANE_RESOURCE_GROUP} --yes"
-        self.assertEqual(cmd.str(), expected)
+        self.assertEqual(str(cmd), expected)
 
     # ===== Execute Function Tests ===== #
 

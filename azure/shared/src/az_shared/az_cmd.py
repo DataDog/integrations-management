@@ -32,31 +32,42 @@ RETRY_DELAY_MULTIPLIER = 2
 MAX_RETRIES = 7
 
 
-class AzCmd:
+class Cmd(list[str]):
+    """Builder for shell commands."""
+
+    def append(self, *args) -> "Cmd":
+        super().append(*args)
+        return self
+
+    def extend(self, *args) -> "Cmd":
+        super().extend(*args)
+        return self
+
+    def param(self, key: str, value: str) -> "Cmd":
+        """Adds a key-value pair parameter"""
+        return self.extend([key, value])
+
+    def param_list(self, key: str, values: list[str]) -> "Cmd":
+        """Adds a list of parameters with the same key"""
+        return self.extend([key, *values])
+
+    def flag(self, flag: str) -> "Cmd":
+        """Adds a flag to the command"""
+        return self.append(flag)
+
+    def __str__(self) -> str:
+        return " ".join(self)
+
+
+class AzCmd(Cmd):
     """Builder for Azure CLI commands."""
 
     def __init__(self, service: str, action: str):
         """Initialize with service and action (e.g., 'functionapp', 'create')."""
-        self.cmd = [service] + action.split()
+        super().__init__([service] + action.split())
 
-    def param(self, key: str, value: str) -> "AzCmd":
-        """Adds a key-value pair parameter"""
-        self.cmd.extend([key, value])
-        return self
-
-    def param_list(self, key: str, values: list[str]) -> "AzCmd":
-        """Adds a list of parameters with the same key"""
-        self.cmd.append(key)
-        self.cmd.extend(values)
-        return self
-
-    def flag(self, flag: str) -> "AzCmd":
-        """Adds a flag to the command"""
-        self.cmd.append(flag)
-        return self
-
-    def str(self) -> str:
-        return "az " + " ".join(self.cmd)
+    def __str__(self) -> str:
+        return "az " + super().__str__()
 
 
 def check_access_error(stderr: str) -> Optional[str]:
@@ -91,10 +102,10 @@ def list_users_subscriptions() -> dict[str, str]:
     return {sub["id"]: sub["name"] for sub in subs_json}
 
 
-def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
+def execute(cmd: Cmd, can_fail: bool = False) -> str:
     """Run an Azure CLI command and return output or raise error."""
 
-    full_command = az_cmd.str()
+    full_command = str(cmd)
     log.debug(f"Running: {full_command}")
     delay = INITIAL_RETRY_DELAY
 
@@ -123,7 +134,7 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
             if REFRESH_TOKEN_EXPIRED_ERROR in stderr:
                 raise RefreshTokenError(stderr) from e
             if AUTH_FAILED_ERROR in stderr:
-                error_message = f"Insufficient permissions to access resource when executing '{az_cmd.str()}'"
+                error_message = f"Insufficient permissions to access resource when executing '{str(cmd)}'"
                 error_details = check_access_error(stderr)
                 if error_details:
                     raise AccessError(f"{error_message}: {error_details}") from e
@@ -144,7 +155,7 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
                     "Interactive authentication required",
                 ) from e
             if PERMISSION_REQUIRED_ERROR in stderr:
-                raise AccessError(f"Insufficient permissions to execute '{az_cmd.str()}'")
+                raise AccessError(f"Insufficient permissions to execute '{str(cmd)}'")
             if can_fail:
                 return ""
             log.error(f"Command failed: {full_command}")
@@ -154,15 +165,6 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
     raise SystemExit(1)  # unreachable
 
 
-def execute_json(az_cmd: AzCmd) -> Any:
-    az_response = execute(az_cmd)
-    if not az_response:
-        return None
-    return json.loads(az_response)
-
-
-def execute_json_nullable(az_cmd: AzCmd) -> Any:
-    az_response = execute(az_cmd, can_fail=True)
-    if not az_response:
-        return None
-    return json.loads(az_response)
+def execute_json(cmd: Cmd) -> Any:
+    if result := execute(cmd):
+        return json.loads(result)
