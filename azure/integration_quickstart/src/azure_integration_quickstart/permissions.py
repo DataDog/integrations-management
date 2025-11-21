@@ -5,7 +5,7 @@
 import json
 from collections.abc import Container, Iterable
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import Optional, TypedDict
 
 from azure_integration_quickstart.actions import Action, ActionContainer
 from azure_integration_quickstart.util import UnionContainer, request
@@ -56,3 +56,8 @@ def flatten_permissions(permissions: Iterable[Permission]) -> FlatPermission:
 def get_flat_permission(auth_token: str, scope: str) -> FlatPermission:
     """Fetch the consolidated permission granted over a given scope."""
     return flatten_permissions(get_permissions(auth_token, scope))
+
+
+class EntraIdPermission(TypedDict):
+    allowedResourceActions: list[str]
+    condition: Optional[str]

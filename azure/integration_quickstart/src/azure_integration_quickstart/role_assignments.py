@@ -5,8 +5,10 @@
 import shlex
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
+from itertools import chain
 
 from az_shared.az_cmd import AzCmd, Cmd, execute, execute_json
+from azure_integration_quickstart.permissions import EntraIdPermission
 from azure_integration_quickstart.util import MAX_WORKERS
 
 
@@ -58,31 +60,22 @@ def get_assigned_entra_role_ids(user_id: str) -> set[str]:
     )
 
 
-APPLICATION_CREATE_ACTION = "microsoft.directory/applications/create"
-
-
-def get_role_ids_allowing_application_create() -> set[str]:
-    """Fetch roles and filter to ones that include the `microsoft.directory/applications/create` action.
-
-    This is based on a query made by the Azure Portal here: https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Roles/appId/{appId}"""
-    return set(
-        execute_json(
-            Cmd(["az", "rest"])
-            .param(
-                "-u",
-                shlex.quote(
-                    "https://graph.microsoft.com/v1.0/roleManagement/directory/roleDefinitions"
-                    # Must use `startswith` here instead of `eq` since graph does not support `eq` when filtering arrays of primitives.
-                    "?$filter=rolePermissions/any(p:p/allowedResourceActions/any(a:startswith(a,%27microsoft.directory/applications/create%27)))"
-                    "&$select=id"
-                    # TODO: We also can't specify `$top` in conjunction with the above filter. We may need to paginate.
-                ),
-            )
-            .param("--query", shlex.quote("value[].id"))
+def get_role_permissions(role_id: Iterable[str]) -> Iterable[EntraIdPermission]:
+    return execute_json(
+        Cmd(["az", "rest"])
+        .param(
+            "-u",
+            shlex.quote(
+                "https://graph.microsoft.com/v1.0/roleManagement/directory/roleDefinitions"
+                f"?$filter=id eq ('{role_id}')"
+                "&$select=rolePermissions"
+            ),
         )
-    )
+        .param("--query", shlex.quote("value[].rolePermissions"))
+    )[0]
 
 
+APPLICATION_CREATE_ACTION = "microsoft.directory/applications/create"
 BUILTIN_ROLE_IDS_ALLOWING_APPLICATION_CREATE = {
     "62e90394-69f5-4237-9190-012177145e10",  # Global Administrator
     "9b895d92-2cd3-44c7-9d02-a6ac2d5ea5c3",  # Application Administrator
@@ -95,12 +88,17 @@ BUILTIN_ROLE_IDS_ALLOWING_APPLICATION_CREATE = {
 def can_create_applications_due_to_role(user_id: str) -> bool:
     assigned_role_ids = get_assigned_entra_role_ids(user_id)
     return bool(
-        assigned_role_ids  # The & operator used below does not short-circuit.
+        assigned_role_ids
         and (
             # Short circuit to "true" if we see any of these built-in roles that allow creation of applications.
             assigned_role_ids & BUILTIN_ROLE_IDS_ALLOWING_APPLICATION_CREATE
             # Otherwise check against all roles including custom roles.
-            or assigned_role_ids & get_role_ids_allowing_application_create()
+            or any(
+                p
+                # TODO: Consisder parallelizing if slow. But, note that this short-circuits.
+                for p in chain.from_iterable(get_role_permissions(role_id) for role_id in assigned_role_ids)
+                if APPLICATION_CREATE_ACTION.lower() in (a.lower() for a in p["allowedResourceActions"])
+            )
         )
     )
 
