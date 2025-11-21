@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "16084720753454664452"
+      "templateHash": "17607446298462590284"
     }
   },
   "functions": [
@@ -274,7 +274,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "16700468893370891168"
+              "templateHash": "7332260903925708894"
             }
           },
           "parameters": {
@@ -477,12 +477,7 @@
               "name": "[format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation'))]",
               "location": "[parameters('controlPlaneLocation')]",
               "properties": {
-                "workloadProfiles": [
-                  {
-                    "name": "consumption-default",
-                    "workloadProfileType": "Consumption"
-                  }
-                ]
+                "workloadProfiles": []
               }
             },
             {
@@ -566,8 +561,7 @@
                       ]
                     }
                   ]
-                },
-                "workloadProfileName": "consumption-default"
+                }
               },
               "dependsOn": [
                 "[resourceId('Microsoft.App/managedEnvironments', format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation')))]",

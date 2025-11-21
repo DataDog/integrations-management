@@ -177,12 +177,7 @@ resource deployerTaskEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: 'dd-log-forwarder-env-${controlPlaneId}-${controlPlaneLocation}'
   location: controlPlaneLocation
   properties: {
-    workloadProfiles: [
-      {
-        name: 'consumption-default'
-        workloadProfileType: 'Consumption'
-      }
-    ]
+    workloadProfiles: []
   }
 }
 
@@ -232,7 +227,6 @@ resource deployerTask 'Microsoft.App/jobs@2024-03-01' = {
         }
       ]
     }
-    workloadProfileName: 'consumption-default'
   }
 }
 
