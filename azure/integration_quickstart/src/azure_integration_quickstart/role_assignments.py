@@ -67,7 +67,7 @@ def get_role_permissions(role_id: Iterable[str]) -> Iterable[EntraIdPermission]:
             "-u",
             shlex.quote(
                 "https://graph.microsoft.com/v1.0/roleManagement/directory/roleDefinitions"
-                f"?$filter=id eq ('{role_id}')"
+                f"?$filter=id eq '{role_id}'"
                 "&$select=rolePermissions"
             ),
         )
