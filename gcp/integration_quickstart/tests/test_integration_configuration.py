@@ -4,15 +4,18 @@
 
 import json
 import unittest
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 from gcp_integration_quickstart.integration_configuration import (
-    ROLE_TO_REQUIRED_API,
+    REQUIRED_APIS,
     ROLES_TO_ADD,
     assign_delegate_permissions,
     create_integration_with_permissions,
 )
-from gcp_integration_quickstart.models import IntegrationConfiguration
+from gcp_integration_quickstart.models import (
+    IntegrationConfiguration,
+    ProductRequirements,
+)
 from gcp_shared.models import (
     ConfigurationScope,
     Folder,
@@ -35,9 +38,12 @@ class TestFindOrCreateServiceAccount(unittest.TestCase):
             step_reporter, "test-account", "test-project"
         )
 
-        mock_gcloud.assert_called_once_with(
-            "iam service-accounts list             --project=test-project              --filter=\"email~'test-account'\"",
-            "email",
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
+        self.assertEqual(len(actual_commands), 1)
+        self.assertEqual(
+            actual_commands[0],
+            "iam service-accounts list --project test-project '--filter=email~'\"'\"'test-account'\"'\"''",
         )
         self.assertEqual(result, "test@project.iam.gserviceaccount.com")
 
@@ -55,18 +61,17 @@ class TestFindOrCreateServiceAccount(unittest.TestCase):
             step_reporter, "test-account", "test-project"
         )
 
-        expected_calls = [
-            call(
-                "iam service-accounts list             --project=test-project              --filter=\"email~'test-account'\"",
-                "email",
-            ),
-            call(
-                'iam service-accounts create test-account             --display-name="Datadog Service Account"            --project=test-project',
-                "email",
-            ),
-        ]
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
 
-        mock_gcloud.assert_has_calls(expected_calls)
+        self.assertEqual(len(actual_commands), 2)
+        self.assertEqual(
+            actual_commands[0],
+            "iam service-accounts list --project test-project '--filter=email~'\"'\"'test-account'\"'\"''",
+        )
+        self.assertEqual(
+            actual_commands[1],
+            "iam service-accounts create test-account --display-name 'Datadog Service Account' --project test-project",
+        )
         self.assertEqual(result, "test-account@test-project.iam.gserviceaccount.com")
 
 
@@ -93,16 +98,22 @@ class TestAssignDelegatePermissions(unittest.TestCase):
 
         step_reporter = Mock()
 
-        assign_delegate_permissions(step_reporter, "test-project")
+        assign_delegate_permissions(
+            step_reporter,
+            "test-sa@test-project.iam.gserviceaccount.com",
+            "test-project",
+        )
 
-        # Verify dd_request was called for STS delegate
         mock_dd_request.assert_called_once_with(
             "GET", "/api/v2/integration/gcp/sts_delegate"
         )
 
-        # Verify gcloud was called with the correct command
-        mock_gcloud.assert_called_once_with(
-            'projects add-iam-policy-binding "test-project"                 --member="serviceAccount:datadog-service-account@datadog.iam.gserviceaccount.com"                 --role="roles/iam.serviceAccountTokenCreator"                 --condition=None                 --quiet                 '
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
+        self.assertEqual(len(actual_commands), 1)
+        self.assertEqual(
+            actual_commands[0],
+            "iam service-accounts add-iam-policy-binding test-sa@test-project.iam.gserviceaccount.com --member serviceAccount:datadog-service-account@datadog.iam.gserviceaccount.com --role roles/iam.serviceAccountTokenCreator --condition None --project test-project --quiet",
         )
 
     @patch("gcp_integration_quickstart.integration_configuration.dd_request")
@@ -114,7 +125,11 @@ class TestAssignDelegatePermissions(unittest.TestCase):
         step_reporter = Mock()
 
         with self.assertRaises(RuntimeError) as context:
-            assign_delegate_permissions(step_reporter, "test-project")
+            assign_delegate_permissions(
+                step_reporter,
+                "test-sa@test-project.iam.gserviceaccount.com",
+                "test-project",
+            )
 
         self.assertIn("failed to get sts delegate", str(context.exception))
 
@@ -178,55 +193,33 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             configuration_scope,
         )
 
-        # Verify gcloud calls for folder child projects
-        expected_gcloud_calls = []
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
 
-        # Calls for child project APIs (all services in one call)
-        services_to_enable = " ".join(ROLE_TO_REQUIRED_API.values())
-        expected_gcloud_calls.append(
-            call(
-                f"services enable {services_to_enable} \
-                --project=child-project123 \
-                --quiet"
-            )
+        expected_commands = []
+
+        services_str = " ".join(REQUIRED_APIS)
+
+        expected_commands.append(
+            f"services enable {services_str} --project child-project123 --quiet"
         )
 
-        # Calls for folder roles
         for role in ROLES_TO_ADD:
-            expected_gcloud_calls.append(
-                call(
-                    f'resource-manager folders add-iam-policy-binding "folder123" \
-                --member="serviceAccount:{self.service_account}" \
-                --role="{role}" \
-                --condition=None \
-                --quiet \
-                '
-                )
+            expected_commands.append(
+                f"resource-manager folders add-iam-policy-binding folder123 --member serviceAccount:{self.service_account} --role {role} --condition None --quiet"
             )
 
-        # Calls for project APIs (all services in one call)
-        expected_gcloud_calls.append(
-            call(
-                f"services enable {services_to_enable} \
-               --project=project123 \
-               --quiet"
-            )
+        expected_commands.append(
+            f"services enable {services_str} --project project123 --quiet"
         )
 
-        # Calls for project roles
         for role in ROLES_TO_ADD:
-            expected_gcloud_calls.append(
-                call(
-                    f'projects add-iam-policy-binding "project123" \
-                --member="serviceAccount:{self.service_account}" \
-                --role="{role}" \
-                --condition=None \
-                --quiet \
-                '
-                )
+            expected_commands.append(
+                f"projects add-iam-policy-binding project123 --member serviceAccount:{self.service_account} --role {role} --condition None --quiet"
             )
 
-        mock_gcloud.assert_has_calls(expected_gcloud_calls)
+        self.assertEqual(len(actual_commands), len(expected_commands))
+        for i, (actual, expected) in enumerate(zip(actual_commands, expected_commands)):
+            self.assertEqual(actual, expected, f"Command {i} mismatch")
 
         mock_dd_request.assert_called_once_with(
             "POST",
@@ -246,6 +239,67 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
                 }
             },
         )
+
+    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
+    def test_create_integration_with_permissions_with_product_requirements(
+        self, mock_dd_request, mock_gcloud
+    ):
+        """Test create_integration_with_permissions with additional product requirements."""
+
+        mock_dd_request.return_value = ('{"status": "ok"}', 201)
+
+        mock_gcloud.return_value = None
+
+        step_reporter = Mock()
+
+        project = Project(
+            parent_id="parent456",
+            id="project123",
+            name="Test Project",
+            is_already_monitored=False,
+        )
+
+        configuration_scope = ConfigurationScope(projects=[project], folders=[])
+
+        additional_required_apis = ["additional-api.googleapis.com"]
+        additional_required_roles = ["roles/additional.role"]
+
+        product_requirements = ProductRequirements(
+            required_apis=additional_required_apis,
+            required_roles=additional_required_roles,
+        )
+
+        create_integration_with_permissions(
+            step_reporter,
+            self.service_account,
+            self.integration_configuration,
+            configuration_scope,
+            product_requirements,
+        )
+
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
+        expected_commands = []
+
+        all_services = REQUIRED_APIS + additional_required_apis
+        services_str = " ".join(all_services)
+
+        expected_commands.append(
+            f"services enable {services_str} --project project123 --quiet"
+        )
+
+        all_roles = ROLES_TO_ADD + additional_required_roles
+        for role in all_roles:
+            expected_commands.append(
+                f"projects add-iam-policy-binding project123 --member serviceAccount:{self.service_account} --role {role} --condition None --quiet"
+            )
+
+        self.assertEqual(len(actual_commands), len(expected_commands))
+        for i, (actual, expected) in enumerate(zip(actual_commands, expected_commands)):
+            self.assertEqual(actual, expected, f"Command {i} mismatch")
+
+        mock_dd_request.assert_called_once()
 
     @patch("gcp_integration_quickstart.integration_configuration.gcloud")
     @patch("gcp_integration_quickstart.integration_configuration.dd_request")

@@ -34,12 +34,6 @@ class GcloudCmd:
         self.cmd.append(f"{key}={value}")
         return self
 
-    def param_list(self, key: str, values: list[str]) -> "GcloudCmd":
-        """Adds a list of parameters with the same key."""
-        self.cmd.append(key)
-        self.cmd.extend(values)
-        return self
-
     def flag(self, flag: str) -> "GcloudCmd":
         """Adds a flag to the command (e.g., '--quiet')."""
         self.cmd.append(flag)

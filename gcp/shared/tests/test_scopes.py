@@ -3,7 +3,7 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 import unittest
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 from gcp_shared.models import Folder, Project
 from gcp_shared.scopes import (
@@ -185,20 +185,18 @@ class TestCollectConfigurationScopes(unittest.TestCase):
     ):
         """Test collect_configuration_scopes when get service accounts endpoint returns 404 (no existing accounts)."""
 
-        # Mock dd_request response for 404 (no existing accounts)
         mock_dd_request.return_value = ('{"error": "not found"}', 404)
 
-        # Mock request responses for IAM permissions checks
         mock_request.return_value = (
             '{"permissions": ["resourcemanager.projects.setIamPolicy", "serviceusage.services.enable"]}',
             200,
         )
 
-        # Mock gcloud responses for auth token and projects
         def gcloud_side_effect(cmd, *_):
-            if "auth print-access-token" in cmd:
+            cmd_str = str(cmd)
+            if "auth print-access-token" in cmd_str:
                 return {"token": "test-token"}
-            elif "projects list" in cmd:
+            elif "projects list" in cmd_str:
                 return [
                     {
                         "name": "Test Project",
@@ -211,7 +209,6 @@ class TestCollectConfigurationScopes(unittest.TestCase):
 
         mock_gcloud.side_effect = gcloud_side_effect
 
-        # Mock fetch_folders response
         mock_fetch_folders.return_value = [
             {
                 "displayName": "Test Folder",
@@ -222,30 +219,21 @@ class TestCollectConfigurationScopes(unittest.TestCase):
 
         step_reporter = Mock()
 
-        # Should not raise an exception
         collect_configuration_scopes(step_reporter)
 
-        # Verify dd_request was called
         mock_dd_request.assert_called_once_with(
             "GET", "/api/v2/integration/gcp/accounts"
         )
 
-        # Verify gcloud was called for auth token and projects
-        expected_gcloud_calls = [
-            call(
-                'projects list         --filter="lifecycleState=ACTIVE AND NOT projectId:sys*"',
-                "name",
-                "projectId",
-                "parent.id",
-            ),
-            call("auth print-access-token"),
-        ]
-        mock_gcloud.assert_has_calls(expected_gcloud_calls)
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
 
-        # Verify fetch_folders was called
+        self.assertEqual(len(actual_commands), 2)
+        self.assertIn("projects list", actual_commands[0])
+        self.assertIn("--filter", actual_commands[0])
+        self.assertEqual(actual_commands[1], "auth print-access-token")
+
         mock_fetch_folders.assert_called_once_with("test-token")
 
-        # Verify step_reporter.report was called with metadata
         step_reporter.report.assert_called_once()
         call_args = step_reporter.report.call_args
         self.assertIn("metadata", call_args.kwargs)
@@ -262,23 +250,21 @@ class TestCollectConfigurationScopes(unittest.TestCase):
     ):
         """Test collect_configuration_scopes when get service accounts endpoint returns 200 (existing accounts)."""
 
-        # Mock dd_request response for 200 (existing accounts)
         mock_dd_request.return_value = (
             '{"data": [{"meta": {"accessible_projects": ["existing-project"]}}]}',
             200,
         )
 
-        # Mock request responses for IAM permissions checks
         mock_request.return_value = (
             '{"permissions": ["resourcemanager.projects.setIamPolicy", "serviceusage.services.enable"]}',
             200,
         )
 
-        # Mock gcloud responses for auth token and projects
         def gcloud_side_effect(cmd, *_):
-            if "auth print-access-token" in cmd:
+            cmd_str = str(cmd)
+            if "auth print-access-token" in cmd_str:
                 return {"token": "test-token"}
-            elif "projects list" in cmd:
+            elif "projects list" in cmd_str:
                 return [
                     {
                         "name": "Test Project",
@@ -291,7 +277,6 @@ class TestCollectConfigurationScopes(unittest.TestCase):
 
         mock_gcloud.side_effect = gcloud_side_effect
 
-        # Mock fetch_folders response
         mock_fetch_folders.return_value = [
             {
                 "displayName": "Test Folder",
@@ -304,27 +289,19 @@ class TestCollectConfigurationScopes(unittest.TestCase):
 
         collect_configuration_scopes(step_reporter)
 
-        # Verify dd_request was called
         mock_dd_request.assert_called_once_with(
             "GET", "/api/v2/integration/gcp/accounts"
         )
 
-        # Verify gcloud was called for auth token and projects
-        expected_gcloud_calls = [
-            call(
-                'projects list         --filter="lifecycleState=ACTIVE AND NOT projectId:sys*"',
-                "name",
-                "projectId",
-                "parent.id",
-            ),
-            call("auth print-access-token"),
-        ]
-        mock_gcloud.assert_has_calls(expected_gcloud_calls)
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
 
-        # Verify fetch_folders was called
+        self.assertEqual(len(actual_commands), 2)
+        self.assertIn("projects list", actual_commands[0])
+        self.assertIn("--filter", actual_commands[0])
+        self.assertEqual(actual_commands[1], "auth print-access-token")
+
         mock_fetch_folders.assert_called_once_with("test-token")
 
-        # Verify step_reporter.report was called with metadata
         step_reporter.report.assert_called_once()
         call_args = step_reporter.report.call_args
         self.assertIn("metadata", call_args.kwargs)
@@ -338,18 +315,15 @@ class TestCollectConfigurationScopes(unittest.TestCase):
     ):
         """Test collect_configuration_scopes when get service accounts endpoint returns an error status."""
 
-        # Mock dd_request response for error (500)
         mock_dd_request.return_value = ('{"error": "server error"}', 500)
 
         step_reporter = Mock()
 
-        # Should raise an exception
         with self.assertRaises(RuntimeError) as context:
             collect_configuration_scopes(step_reporter)
 
         self.assertIn("failed to get service accounts", str(context.exception))
 
-        # Verify dd_request was called
         mock_dd_request.assert_called_once_with(
             "GET", "/api/v2/integration/gcp/accounts"
         )

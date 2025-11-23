@@ -4,20 +4,20 @@
 
 import json
 from dataclasses import asdict
-
-from gcp_shared.gcloud import gcloud
+from typing import Optional
+from gcp_shared.gcloud import GcloudCmd, gcloud
 from gcp_shared.models import ConfigurationScope
 from gcp_shared.reporter import StepStatusReporter
 from gcp_shared.requests import dd_request
 
-from .models import IntegrationConfiguration
+from .models import IntegrationConfiguration, ProductRequirements
 
-ROLE_TO_REQUIRED_API: dict[str, str] = {
-    "roles/cloudasset.viewer": "cloudasset.googleapis.com",
-    "roles/compute.viewer": "compute.googleapis.com",
-    "roles/monitoring.viewer": "monitoring.googleapis.com",
-    "roles/browser": "cloudresourcemanager.googleapis.com",
-}
+REQUIRED_APIS: list[str] = [
+    "cloudasset.googleapis.com",
+    "compute.googleapis.com",
+    "monitoring.googleapis.com",
+    "cloudresourcemanager.googleapis.com",
+]
 
 ROLES_TO_ADD: list[str] = [
     "roles/cloudasset.viewer",
@@ -29,12 +29,12 @@ ROLES_TO_ADD: list[str] = [
 
 
 def assign_delegate_permissions(
-    step_reporter: StepStatusReporter, project_id: str
+    step_reporter: StepStatusReporter, service_account_email: str, project_id: str
 ) -> None:
-    """Assign the roles/iam.serviceAccountTokenCreator role to the Datadog service account in the specified project."""
+    """Assign the roles/iam.serviceAccountTokenCreator role to the Datadog Principal on the specified service account."""
 
     step_reporter.report(
-        message=f"Fetching Datadog STS delegate for project '{project_id}'..."
+        message=f"Fetching Datadog STS delegate for service account '{service_account_email}'..."
     )
 
     response, status = dd_request("GET", "/api/v2/integration/gcp/sts_delegate")
@@ -45,16 +45,17 @@ def assign_delegate_permissions(
     datadog_principal = json_response["data"]["id"]
 
     step_reporter.report(
-        message=f"Assigning role [roles/iam.serviceAccountTokenCreator] to principal '{datadog_principal}' in project '{project_id}'"
+        message=f"Assigning role [roles/iam.serviceAccountTokenCreator] to principal '{datadog_principal}' on service account '{service_account_email}'"
     )
 
     gcloud(
-        f'projects add-iam-policy-binding "{project_id}" \
-                --member="serviceAccount:{datadog_principal}" \
-                --role="roles/iam.serviceAccountTokenCreator" \
-                --condition=None \
-                --quiet \
-                '
+        GcloudCmd("iam service-accounts", "add-iam-policy-binding")
+        .arg(service_account_email)
+        .param("--member", f"serviceAccount:{datadog_principal}")
+        .param("--role", "roles/iam.serviceAccountTokenCreator")
+        .param("--condition", "None")
+        .param("--project", project_id)
+        .flag("--quiet")
     )
 
 
@@ -63,61 +64,81 @@ def create_integration_with_permissions(
     service_account_email: str,
     integration_configuration: IntegrationConfiguration,
     configuration_scope: ConfigurationScope,
+    product_requirements: Optional[ProductRequirements] = None,
 ):
     """Create the GCP integration in Datadog with the specified permissions."""
 
-    services_to_enable = " ".join(ROLE_TO_REQUIRED_API.values())
+    required_services = REQUIRED_APIS.copy()
+    if product_requirements:
+        required_services.extend(
+            [
+                api
+                for api in product_requirements.required_apis
+                if api not in REQUIRED_APIS
+            ]
+        )
+
+    required_roles = ROLES_TO_ADD.copy()
+    if product_requirements:
+        required_roles.extend(
+            [
+                role
+                for role in product_requirements.required_roles
+                if role not in ROLES_TO_ADD
+            ]
+        )
+
     for folder in configuration_scope.folders:
         for child_project in filter(
             lambda c: c.resource_container_type == "project", folder.child_scopes
         ):
             step_reporter.report(
-                message=f"Enabling required APIs [{', '.join(ROLE_TO_REQUIRED_API.values())}] for project '{child_project.name}'"
+                message=f"Enabling required APIs [{', '.join(required_services)}] for project '{child_project.name}'"
             )
 
-            gcloud(
-                f"services enable {services_to_enable} \
-                --project={child_project.id} \
-                --quiet"
-            )
+            enable_api_cmd = GcloudCmd("services", "enable")
+            for service in required_services:
+                enable_api_cmd.arg(service)
+            enable_api_cmd.param("--project", child_project.id).flag("--quiet")
+            gcloud(enable_api_cmd)
 
-        for role in ROLES_TO_ADD:
+        for role in required_roles:
             step_reporter.report(
                 message=f"Assigning role [{role}] to service account '{service_account_email}' in folder '{folder.name}'"
             )
 
             gcloud(
-                f'resource-manager folders add-iam-policy-binding "{folder.id}" \
-                --member="serviceAccount:{service_account_email}" \
-                --role="{role}" \
-                --condition=None \
-                --quiet \
-                '
+                GcloudCmd("resource-manager folders", "add-iam-policy-binding")
+                .arg(folder.id)
+                .param("--member", f"serviceAccount:{service_account_email}")
+                .param("--role", role)
+                .param("--condition", "None")
+                .flag("--quiet")
             )
 
     for project in configuration_scope.projects:
         step_reporter.report(
-            message=f"Enabling required APIs [{', '.join(ROLE_TO_REQUIRED_API.values())}] for project '{project.name}'"
+            message=f"Enabling required APIs [{', '.join(required_services)}] for project '{project.name}'"
         )
 
-        gcloud(
-            f"services enable {services_to_enable} \
-               --project={project.id} \
-               --quiet"
-        )
+        enable_api_cmd = GcloudCmd("services", "enable")
+        for service in required_services:
+            enable_api_cmd.arg(service)
+        enable_api_cmd.param("--project", project.id).flag("--quiet")
+        gcloud(enable_api_cmd)
 
-        for role in ROLES_TO_ADD:
+        for role in required_roles:
             step_reporter.report(
                 message=f"Assigning role [{role}] to service account '{service_account_email}' in project '{project.name}'"
             )
 
             gcloud(
-                f'projects add-iam-policy-binding "{project.id}" \
-                --member="serviceAccount:{service_account_email}" \
-                --role="{role}" \
-                --condition=None \
-                --quiet \
-                '
+                GcloudCmd("projects", "add-iam-policy-binding")
+                .arg(project.id)
+                .param("--member", f"serviceAccount:{service_account_email}")
+                .param("--role", role)
+                .param("--condition", "None")
+                .flag("--quiet")
             )
 
     step_reporter.report(message="Creating GCP integration in Datadog...")
