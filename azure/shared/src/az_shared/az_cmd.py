@@ -4,9 +4,11 @@
 
 import json
 import re
+import shlex
 import subprocess
+from collections.abc import Iterable
+from functools import reduce
 from re import search
-from shlex import quote
 from time import sleep
 from typing import Any, Optional
 
@@ -40,21 +42,21 @@ class Cmd(list[str]):
         super().append(*args)
         return self
 
-    def extend(self, *args) -> "Cmd":
-        super().extend(*args)
-        return self
-
-    def param(self, key: str, value: str) -> "Cmd":
-        """Adds a key-value pair parameter"""
-        return self.extend([key, quote(value)])
-
-    def param_list(self, key: str, values: list[str]) -> "Cmd":
-        """Adds a list of parameters with the same key"""
-        return self.extend([key, *(quote(value) for value in values)])
-
-    def flag(self, flag: str) -> "Cmd":
+    def flag(self, key: str) -> "Cmd":
         """Adds a flag to the command"""
-        return self.append(flag)
+        return self.append(key)
+
+    def arg(self, value: str, quote: bool = True) -> "Cmd":
+        """Adds an argument value to the command"""
+        return self.append(shlex.quote(value) if quote else value)
+
+    def param(self, key: str, value: str, quote: bool = True) -> "Cmd":
+        """Adds a key-value pair parameter"""
+        return self.flag(key).arg(value, quote=quote)
+
+    def param_list(self, key: str, values: Iterable[str], quote: bool = True) -> "Cmd":
+        """Adds a list of parameters with the same key"""
+        return reduce(lambda c, v: c.arg(v, quote=quote), values, self.flag(key))
 
     def __str__(self) -> str:
         return " ".join(self)
@@ -69,6 +71,14 @@ class AzCmd(Cmd):
 
     def __str__(self) -> str:
         return "az " + super().__str__()
+
+    def param(self, key: str, value: str, quote: bool = False) -> "Cmd":
+        """Adds a key-value pair parameter"""
+        return super().param(key, value, quote=quote)
+
+    def param_list(self, key: str, values: Iterable[str], quote: bool = False) -> "Cmd":
+        """Adds a list of parameters with the same key"""
+        return super().param_list(key, values, quote=quote)
 
 
 def check_access_error(stderr: str) -> Optional[str]:
