@@ -38,8 +38,8 @@ MAX_RETRIES = 7
 class Cmd(list[str]):
     """Builder for shell commands."""
 
-    def append(self, *args) -> "Cmd":
-        super().append(*args)
+    def append(self, token: str) -> "Cmd":
+        super().append(token)
         return self
 
     def flag(self, key: str) -> "Cmd":
