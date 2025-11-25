@@ -39,6 +39,7 @@ class Cmd(list[str]):
     """Builder for shell commands."""
 
     def append(self, token: str) -> "Cmd":
+        "Adds a token to the command"
         super().append(token)
         return self
 
