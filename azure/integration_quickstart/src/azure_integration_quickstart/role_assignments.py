@@ -2,7 +2,6 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-import shlex
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from itertools import chain
@@ -48,14 +47,12 @@ def get_assigned_entra_role_ids(user_id: str) -> set[str]:
             Cmd(["az", "rest"])
             .param(
                 "-u",
-                shlex.quote(
-                    "https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments"
-                    f"?$filter=principalId eq '{user_id}'"
-                    "&$select=roleDefinitionId"
-                    "&$top=999"
-                ),
+                "https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments"
+                f"?$filter=principalId eq '{user_id}'"
+                "&$select=roleDefinitionId"
+                "&$top=999",
             )
-            .param("--query", shlex.quote("value[].roleDefinitionId"))
+            .param("--query", "value[].roleDefinitionId")
         )
     )
 
@@ -65,13 +62,11 @@ def get_role_permissions(role_id: Iterable[str]) -> Iterable[EntraIdPermission]:
         Cmd(["az", "rest"])
         .param(
             "-u",
-            shlex.quote(
-                "https://graph.microsoft.com/v1.0/roleManagement/directory/roleDefinitions"
-                f"?$filter=id eq '{role_id}'"
-                "&$select=rolePermissions"
-            ),
+            "https://graph.microsoft.com/v1.0/roleManagement/directory/roleDefinitions"
+            f"?$filter=id eq '{role_id}'"
+            "&$select=rolePermissions",
         )
-        .param("--query", shlex.quote("value[].rolePermissions"))
+        .param("--query", "value[].rolePermissions")
     )[0]
 
 
@@ -106,8 +101,8 @@ def can_create_applications_due_to_role(user_id: str) -> bool:
 def can_default_user_create_applications() -> bool:
     return execute_json(
         Cmd(["az", "rest"])
-        .param("-u", shlex.quote("https://graph.microsoft.com/v1.0/policies/authorizationPolicy"))
-        .param("--query", shlex.quote("defaultUserRolePermissions.allowedToCreateApps"))
+        .param("-u", "https://graph.microsoft.com/v1.0/policies/authorizationPolicy")
+        .param("--query", "defaultUserRolePermissions.allowedToCreateApps")
     )
 
 
@@ -116,7 +111,7 @@ def can_create_applications(user_id: str) -> bool:
 
 
 def get_current_user_id() -> str:
-    return execute_json(Cmd(["az", "ad", "signed-in-user", "show"]).param("--query", shlex.quote("id")))
+    return execute_json(Cmd(["az", "ad", "signed-in-user", "show"]).param("--query", "id"))
 
 
 def can_current_user_create_applications() -> bool:

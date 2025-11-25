@@ -6,6 +6,7 @@ import json
 import re
 import subprocess
 from re import search
+from shlex import quote
 from time import sleep
 from typing import Any, Optional
 
@@ -45,11 +46,11 @@ class Cmd(list[str]):
 
     def param(self, key: str, value: str) -> "Cmd":
         """Adds a key-value pair parameter"""
-        return self.extend([key, value])
+        return self.extend([key, quote(value)])
 
     def param_list(self, key: str, values: list[str]) -> "Cmd":
         """Adds a list of parameters with the same key"""
-        return self.extend([key, *values])
+        return self.extend([key, *(quote(value) for value in values)])
 
     def flag(self, flag: str) -> "Cmd":
         """Adds a flag to the command"""
