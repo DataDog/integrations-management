@@ -6,9 +6,10 @@ from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from itertools import chain
 
-from az_shared.az_cmd import AzCmd, Cmd, execute, execute_json
+from az_shared.az_cmd import AzCmd, execute, execute_json
 from azure_integration_quickstart.permissions import EntraIdPermission
 from azure_integration_quickstart.util import MAX_WORKERS
+from common.shell import Cmd
 
 
 def add_role_assignments(client_id: str, roles: Iterable[str], scopes: Iterable[str]) -> None:
