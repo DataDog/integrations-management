@@ -7,6 +7,7 @@ import signal
 import sys
 import threading
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TypedDict
@@ -20,10 +21,11 @@ from az_shared.errors import (
     AzCliNotInstalledError,
     InteractiveAuthenticationRequiredError,
 )
+from azure_integration_quickstart.role_assignments import can_current_user_create_applications
 from azure_integration_quickstart.scopes import Scope, Subscription, flatten_scopes, report_available_scopes
 from azure_integration_quickstart.script_status import Status, StatusReporter
 from azure_integration_quickstart.user_selections import receive_user_selections
-from azure_integration_quickstart.util import dd_request
+from azure_integration_quickstart.util import MAX_WORKERS, dd_request
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
 from azure_logging_install.main import install_log_forwarder
@@ -212,6 +214,10 @@ def main():
         "log_forwarders", loading_message="Collecting existing Log Forwarders", required=False
     ) as step_metadata:
         exactly_one_log_forwarder = report_existing_log_forwarders(subscriptions, step_metadata)
+    with status.report_step(
+        "app_registration_permissions", "Determining whether the user can create app registrations"
+    ):
+        assert can_current_user_create_applications()
     with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
         selections = receive_user_selections(workflow_id)
     with status.report_step("app_registration", "Creating app registration in Azure"):
