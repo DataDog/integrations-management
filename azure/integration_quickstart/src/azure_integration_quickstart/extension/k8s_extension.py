@@ -8,9 +8,9 @@ def list_extension_versions(subscription: str, resource_group: str, cluster_name
     return execute_json(
         Cmd(["az", "k8s-extension", "extension-types", "list-by-cluster"])
         .param("--subscription", subscription)
-        .param("--resource-group", resource_group)
-        .param("--cluster-name", cluster_name)
-        .param("--cluster-type", "managedClusters")
+        .param("-g", resource_group)
+        .param("-c", cluster_name)
+        .param("-t", "managedClusters")
         # TODO: Determine exact output format and add --query param.
     )
 
@@ -19,9 +19,9 @@ def create_extension(subscription: str, resource_group: str, cluster_name: str, 
     execute(
         Cmd(["az", "k8s-extension", "create"])
         .param("--subscription", subscription)
-        .param("--resource-group", resource_group)
-        .param("--cluster-name", cluster_name)
-        .param("--name", name)
+        .param("-g", resource_group)
+        .param("-c", cluster_name)
+        .param("-n", name)
         .param("--version", version)
         .param("--config", f"site={environ['DD_SITE']}")
         .param("--config-protected", f"dd.apikey={environ['DD_API_KEY']}")
@@ -29,6 +29,6 @@ def create_extension(subscription: str, resource_group: str, cluster_name: str, 
         .param("--plan-product", "dd_aks_extension")
         .param("--plan-name", "datadog_aks_cluster_extension")
         .param("--extension-type", "Microsoft.AzureMonitor.Containers")
-        .param("--cluster-type", "managedClusters")
+        .param("-t", "managedClusters")
         .param("--auto-upgrade-minor-version", "false")
     )
