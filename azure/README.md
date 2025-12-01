@@ -26,6 +26,7 @@ pip install -r 'dev_requirements.txt'
 #### IDE (Recommended)
 - [Install VS Code](https://code.visualstudio.com/download).
 - Within VS Code, install the following extensions:
-  - Python
-  - Ruff
+  - Python (Microsoft)
+  - Ruff (Astral Software)
+  - Run on Save (emeralwalk)
 - VS Code `settings.json` file already exists within this directory.

@@ -15,5 +15,21 @@
             "source.organizeImports": "explicit"
         }
     },
-    "ruff.lineLength": 120
+    "ruff.lineLength": 120,
+    "emeraldwalk.runonsave": {
+        "commands": [
+            {
+                "match": "integration_quickstart/src/",
+                "cmd": "./integration_quickstart/build.sh"
+            },
+            {
+                "match": "logging_install/src/",
+                "cmd": "./logging_install/build.sh"
+            },
+            {
+                "match": "logging_install/bicep/",
+                "cmd": "./logging_install/build.sh"
+            }
+        ]
+    }
 }
