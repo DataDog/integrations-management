@@ -48,6 +48,7 @@ def receive_user_selections(workflow_id: str) -> UserSelections:
             )
             for mg in attributes["management_groups"]["management_groups"]
         ]
+        print(attributes)
         return UserSelections(
             tuple(subscriptions + management_groups),
             json.loads(attributes["config_options"]),
