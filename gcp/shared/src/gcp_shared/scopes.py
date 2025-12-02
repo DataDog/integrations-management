@@ -8,7 +8,7 @@ from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from typing import Any
 
-from gcp_shared.gcloud import gcloud
+from gcp_shared.gcloud import GcloudCmd, gcloud
 from gcp_shared.models import (
     ConfigurationScope,
     Folder,
@@ -158,8 +158,9 @@ def collect_configuration_scopes(step_reporter: StepStatusReporter) -> None:
         )
 
     list_project_output = gcloud(
-        'projects list \
-        --filter="lifecycleState=ACTIVE AND NOT projectId:sys*"',
+        GcloudCmd("projects", "list").param_equals(
+            "--filter", "lifecycleState=ACTIVE AND NOT projectId:sys*"
+        ),
         *["name", "projectId", "parent.id"],
     )
 
@@ -174,7 +175,7 @@ def collect_configuration_scopes(step_reporter: StepStatusReporter) -> None:
         if "name" in p
     ]
 
-    token = gcloud("auth print-access-token")["token"]
+    token = gcloud(GcloudCmd("auth", "print-access-token"))["token"]
     list_folder_output = fetch_folders(token)
 
     folders = []

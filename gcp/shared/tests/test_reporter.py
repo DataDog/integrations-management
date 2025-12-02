@@ -207,10 +207,11 @@ class TestWorkflowReporter(unittest.TestCase):
         mock_gcloud.return_value = [{"token": "dummy-token"}]
         mock_dd_request.return_value = ('{"status": "ok"}', 201)
 
-        # Should not raise an exception
         self.workflow_reporter.handle_login_step()
 
-        mock_gcloud.assert_called_once_with("auth print-access-token")
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+        self.assertEqual(len(actual_commands), 1)
+        self.assertEqual(actual_commands[0], "auth print-access-token")
 
     @patch("gcp_shared.reporter.dd_request")
     @patch("gcp_shared.reporter.gcloud")

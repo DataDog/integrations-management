@@ -2,7 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-from gcp_shared.gcloud import gcloud
+from gcp_shared.gcloud import GcloudCmd, gcloud
 from gcp_shared.reporter import StepStatusReporter
 
 
@@ -18,9 +18,9 @@ def find_or_create_service_account(
     )
 
     service_account_search = gcloud(
-        f"iam service-accounts list \
-            --project={project_id}  \
-            --filter=\"email~'{name}'\"",
+        GcloudCmd("iam service-accounts", "list")
+        .param("--project", project_id)
+        .param_equals("--filter", f"email~'{name}'"),
         "email",
     )
     if service_account_search and len(service_account_search) > 0:
@@ -33,9 +33,10 @@ def find_or_create_service_account(
     )
 
     resp = gcloud(
-        f'iam service-accounts create {name}  \
-           --display-name="{display_name}" \
-           --project={project_id}',
+        GcloudCmd("iam service-accounts", "create")
+        .arg(name)
+        .param("--display-name", display_name)
+        .param("--project", project_id),
         "email",
     )
 
