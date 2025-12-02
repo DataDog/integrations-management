@@ -20,6 +20,7 @@ class UserSelections:
     scopes: Sequence[Scope]
     app_registration_config: dict
     log_forwarding_config: Optional[dict] = None
+    agent_extension_config: Optional[dict] = None
 
 
 def receive_user_selections(workflow_id: str) -> UserSelections:
@@ -50,7 +51,6 @@ def receive_user_selections(workflow_id: str) -> UserSelections:
         return UserSelections(
             tuple(subscriptions + management_groups),
             json.loads(attributes["config_options"]),
-            json.loads(attributes["log_forwarding_options"])
-            if "log_forwarding_options" in attributes and attributes["log_forwarding_options"]
-            else None,
+            json.loads(v) if (v := attributes.get("log_forwarding_options")) else None,
+            json.loads(v) if (v := attributes.get("agent_extension_options")) else None,
         )

@@ -20,6 +20,7 @@ from az_shared.errors import (
     AzCliNotInstalledError,
     InteractiveAuthenticationRequiredError,
 )
+from azure_integration_quickstart.extension.vm_extension import list_vms_for_subscriptions, set_extension_latest
 from azure_integration_quickstart.scopes import Scope, Subscription, flatten_scopes, report_available_scopes
 from azure_integration_quickstart.script_status import Status, StatusReporter
 from azure_integration_quickstart.user_selections import receive_user_selections
@@ -220,6 +221,9 @@ def main():
         submit_integration_config(app_registration, selections.app_registration_config)
     with status.report_step("config_identifier", "Submitting new configuration identifier to Datadog"):
         submit_config_identifier(workflow_id, app_registration)
+    with status.report_step("vm_extension", "Setting up VM extensions", required=False):
+        if selections.agent_extension_config:
+            set_extension_latest(list_vms_for_subscriptions([s.id for s in flatten_scopes(selections.scopes)]))
     if selections.log_forwarding_config:
         with status.report_step(
             "upsert_log_forwarder", f"{'Updating' if exactly_one_log_forwarder else 'Creating'} Log Forwarder"
