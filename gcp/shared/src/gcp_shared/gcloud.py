@@ -13,7 +13,7 @@ class GcloudCmd:
 
     def __init__(self, service: str, action: str):
         """Initialize with service and action (e.g., 'pubsub topics', 'create')."""
-        self.cmd = service.split() + action.split()
+        self.cmd: list[str] = service.split() + action.split()
 
     def __str__(self) -> str:
         """Overload string representation to return the full command string with proper shell quoting."""
