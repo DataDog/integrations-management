@@ -57,5 +57,5 @@ def set_extension_latest(vms: list[Vm]) -> None:
     set_dynamic_install_without_prompt()
     get_location = itemgetter("location")
     for location, vms_in_location in groupby(sorted(vms, key=get_location), key=get_location):
-        if extension_versions := sorted(list_extension_versions(location)):
-            set_extension([vm["id"] for vm in vms_in_location], extension_versions[-1])
+        if extension_versions := list_extension_versions(location):
+            set_extension([vm["id"] for vm in vms_in_location], sorted(extension_versions)[-1])
