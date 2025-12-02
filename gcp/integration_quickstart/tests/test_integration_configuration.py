@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 from gcp_integration_quickstart.integration_configuration import (
     REQUIRED_APIS,
-    ROLES_TO_ADD,
+    REQUIRED_ROLES,
     assign_delegate_permissions,
     create_integration_with_permissions,
 )
@@ -203,7 +203,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             f"services enable {services_str} --project child-project123 --quiet"
         )
 
-        for role in ROLES_TO_ADD:
+        for role in REQUIRED_ROLES:
             expected_commands.append(
                 f"resource-manager folders add-iam-policy-binding folder123 --member serviceAccount:{self.service_account} --role {role} --condition None --quiet"
             )
@@ -212,7 +212,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             f"services enable {services_str} --project project123 --quiet"
         )
 
-        for role in ROLES_TO_ADD:
+        for role in REQUIRED_ROLES:
             expected_commands.append(
                 f"projects add-iam-policy-binding project123 --member serviceAccount:{self.service_account} --role {role} --condition None --quiet"
             )
@@ -289,7 +289,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             f"services enable {services_str} --project project123 --quiet"
         )
 
-        all_roles = ROLES_TO_ADD + additional_required_roles
+        all_roles = REQUIRED_ROLES + additional_required_roles
         for role in all_roles:
             expected_commands.append(
                 f"projects add-iam-policy-binding project123 --member serviceAccount:{self.service_account} --role {role} --condition None --quiet"

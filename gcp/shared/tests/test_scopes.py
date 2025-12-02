@@ -228,8 +228,10 @@ class TestCollectConfigurationScopes(unittest.TestCase):
         actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
 
         self.assertEqual(len(actual_commands), 2)
-        self.assertIn("projects list", actual_commands[0])
-        self.assertIn("--filter", actual_commands[0])
+        self.assertEqual(
+            actual_commands[0],
+            "projects list '--filter=lifecycleState=ACTIVE AND NOT projectId:sys*'",
+        )
         self.assertEqual(actual_commands[1], "auth print-access-token")
 
         mock_fetch_folders.assert_called_once_with("test-token")
@@ -296,8 +298,10 @@ class TestCollectConfigurationScopes(unittest.TestCase):
         actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
 
         self.assertEqual(len(actual_commands), 2)
-        self.assertIn("projects list", actual_commands[0])
-        self.assertIn("--filter", actual_commands[0])
+        self.assertEqual(
+            actual_commands[0],
+            "projects list '--filter=lifecycleState=ACTIVE AND NOT projectId:sys*'",
+        )
         self.assertEqual(actual_commands[1], "auth print-access-token")
 
         mock_fetch_folders.assert_called_once_with("test-token")

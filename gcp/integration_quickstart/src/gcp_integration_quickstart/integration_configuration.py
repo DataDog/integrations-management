@@ -19,7 +19,7 @@ REQUIRED_APIS: list[str] = [
     "cloudresourcemanager.googleapis.com",
 ]
 
-ROLES_TO_ADD: list[str] = [
+REQUIRED_ROLES: list[str] = [
     "roles/cloudasset.viewer",
     "roles/browser",
     "roles/compute.viewer",
@@ -78,13 +78,13 @@ def create_integration_with_permissions(
             ]
         )
 
-    required_roles = ROLES_TO_ADD.copy()
+    required_roles = REQUIRED_ROLES.copy()
     if product_requirements:
         required_roles.extend(
             [
                 role
                 for role in product_requirements.required_roles
-                if role not in ROLES_TO_ADD
+                if role not in REQUIRED_ROLES
             ]
         )
 
