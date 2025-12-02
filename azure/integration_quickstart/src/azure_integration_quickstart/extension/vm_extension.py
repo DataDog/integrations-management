@@ -24,7 +24,7 @@ def list_vms_for_subscription(subscription: str) -> list[Vm]:
             .param("--query", "[].{id:id, location:location}")
         )
     ]
-
+"""az vm list --subscription '0b62a232-b8db-4380-9da6-640f7272ed6d' --query '[].id' -o tsv"""
 
 def list_vms_for_subscriptions(subscriptions: list[str]) -> list[Vm]:
     return [vm for s in subscriptions for vm in list_vms_for_subscription(s)]
