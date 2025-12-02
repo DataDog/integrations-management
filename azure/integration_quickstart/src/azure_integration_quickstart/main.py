@@ -223,7 +223,7 @@ def main():
         submit_config_identifier(workflow_id, app_registration)
     if selections.app_registration_config.get("is_agent_enabled"):
         with status.report_step("agent", "Setting up the Datadog Agent"):
-            set_extension_latest(list_vms_for_subgcriptions([s.id for s in flatten_scopes(selections.scopes)]))
+            set_extension_latest(list_vms_for_subscriptions([s.id for s in flatten_scopes(selections.scopes)]))
     if selections.log_forwarding_config:
         with status.report_step(
             "upsert_log_forwarder", f"{'Updating' if exactly_one_log_forwarder else 'Creating'} Log Forwarder"
