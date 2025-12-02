@@ -164,9 +164,6 @@ REQUIRED_ENVIRONMENT_VARS = {"DD_API_KEY", "DD_APP_KEY", "DD_SITE", "WORKFLOW_ID
 
 
 def main():
-    set_extension_latest(list_vms_for_subscriptions(["0b62a232-b8db-4380-9da6-640f7272ed6d"]))
-    exit()
-
     if missing_environment_vars := {var for var in REQUIRED_ENVIRONMENT_VARS if not os.environ.get(var)}:
         print(f"Missing required environment variables: {', '.join(missing_environment_vars)}")
         print('Use the "copy" button from the quickstart UI to grab the complete command.')
