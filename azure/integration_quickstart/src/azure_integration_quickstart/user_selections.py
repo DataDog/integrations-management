@@ -52,6 +52,6 @@ def receive_user_selections(workflow_id: str) -> UserSelections:
         return UserSelections(
             tuple(subscriptions + management_groups),
             json.loads(attributes["config_options"]),
-            json.loads(v) if (v := attributes.get("log_forwarding_options")) else None,
-            json.loads(v) if (v := attributes.get("agent_extension_options")) else None,
+            log_forwarding_config=json.loads(v) if (v := attributes.get("log_forwarding_options")) else None,
+            agent_extension_config=json.loads(v) if (v := attributes.get("agent_extension_options")) else None,
         )
