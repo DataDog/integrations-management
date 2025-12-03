@@ -51,7 +51,7 @@ def set_extension(extension_name: str, vm_ids: list[str], version: str) -> None:
         .param("--settings", json.dumps({"site": environ["DD_SITE"], "agentVersion": "latest"}))
         .param("--protected-settings", json.dumps({"api_key": environ["DD_API_KEY"]}))
         .param("--no-auto-upgrade-minor-version", "true")
-        .param("--no-wait", "true")
+        .flag("--no-wait")
     )
 
 
