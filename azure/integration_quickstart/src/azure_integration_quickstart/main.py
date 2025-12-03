@@ -222,7 +222,7 @@ def main():
     with status.report_step("config_identifier", "Submitting new configuration identifier to Datadog"):
         submit_config_identifier(workflow_id, app_registration)
     if selections.app_registration_config.get("is_agent_enabled"):
-        with status.report_step("agent", "Setting up the Datadog Agent"):
+        with status.report_step("agent", "Installing the Datadog Agent"):
             set_extension_latest(list_vms_for_subscriptions([s.id for s in flatten_scopes(selections.scopes)]))
     if selections.log_forwarding_config:
         with status.report_step(
