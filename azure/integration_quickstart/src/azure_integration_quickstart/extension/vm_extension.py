@@ -1,7 +1,6 @@
 import json
 from collections.abc import Iterable
 from itertools import groupby
-from operator import itemgetter
 from os import environ
 from typing import Optional, TypedDict, cast
 
@@ -66,9 +65,16 @@ def get_extension_name_for_os_type(os_type: str) -> Optional[str]:
 
 
 def set_extension_latest(vms: Iterable[Vm]) -> None:
+    vms = list(vms)
+    print(vms)
     set_dynamic_install_without_prompt()
-    get_os_type = itemgetter("os_type")
-    get_location = itemgetter("location")
+
+    def get_os_type(vm: Vm) -> str:
+        return vm["os_type"]
+
+    def get_location(vm: Vm) -> str:
+        return vm["location"]
+
     for os_type, vms in groupby(sorted(vms, key=get_os_type), key=get_os_type):
         if extension_name := get_extension_name_for_os_type(os_type):
             for location, vms_in_location in groupby(sorted(vms, key=get_location), key=get_location):
