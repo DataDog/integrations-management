@@ -56,7 +56,7 @@ def set_extension(extension_name: str, vm_ids: list[str], version: str) -> None:
 
 def get_extension_name_for_os_type(os_type: str) -> Optional[str]:
     return (
-        "DatadogAgent"
+        "DatadogLinuxAgent"
         if os_type.lower() == "linux"
         else "DatadogWindowsAgent"
         if os_type.lower() == "windows"
@@ -65,8 +65,6 @@ def get_extension_name_for_os_type(os_type: str) -> Optional[str]:
 
 
 def set_extension_latest(vms: Iterable[Vm]) -> None:
-    vms = list(vms)
-    print(vms)
     set_dynamic_install_without_prompt()
 
     def get_os_type(vm: Vm) -> str:
