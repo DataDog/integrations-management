@@ -23,7 +23,7 @@ def list_vms_for_subscription(subscription: str) -> list[Vm]:
         for vm in execute_json(
             Cmd(["az", "vm", "list"])
             .param("--subscription", subscription)
-            .param("--query", "[].{id:id,location:location,osType:storageProfile.osDisk.osType}")
+            .param("--query", "[].{id:id,location:location,os_type:storageProfile.osDisk.osType}")
         )
     ]
 
