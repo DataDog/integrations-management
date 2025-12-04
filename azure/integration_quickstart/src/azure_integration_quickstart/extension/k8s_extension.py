@@ -5,7 +5,7 @@ from common.shell import Cmd
 
 
 def list_extension_image_versions(subscription: str, resource_group: str, cluster_name: str) -> list:
-    """List the extension image versions published by Datadog in the given location."""
+    """List the available extension image versions published by Datadog in the given location."""
     return execute_json(
         Cmd(["az", "k8s-extension", "extension-types", "list-by-cluster"])
         .param("--subscription", subscription)

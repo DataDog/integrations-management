@@ -32,7 +32,7 @@ def list_vms_for_subscriptions(subscriptions: Iterable[str]) -> list[Vm]:
 
 
 def list_extension_image_versions(extension_name: str, location: str) -> list[str]:
-    """List the extension image versions published by Datadog in the given location."""
+    """List the available extension image versions published by Datadog in the given location."""
     return execute_json(
         Cmd(["az", "vm", "extension", "image", "list-versions"])
         .param("-p", "Datadog.Agent")
