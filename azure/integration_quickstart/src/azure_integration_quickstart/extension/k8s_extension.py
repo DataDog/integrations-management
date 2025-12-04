@@ -4,7 +4,8 @@ from az_shared.az_cmd import execute, execute_json
 from common.shell import Cmd
 
 
-def list_extension_versions(subscription: str, resource_group: str, cluster_name: str) -> list:
+def list_extension_image_versions(subscription: str, resource_group: str, cluster_name: str) -> list:
+    """List the extension image versions published by Datadog in the given location."""
     return execute_json(
         Cmd(["az", "k8s-extension", "extension-types", "list-by-cluster"])
         .param("--subscription", subscription)

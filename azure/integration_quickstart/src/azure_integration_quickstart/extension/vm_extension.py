@@ -31,7 +31,8 @@ def list_vms_for_subscriptions(subscriptions: Iterable[str]) -> list[Vm]:
     return [vm for s in subscriptions for vm in list_vms_for_subscription(s)]
 
 
-def list_extension_versions(extension_name: str, location: str) -> list[str]:
+def list_extension_image_versions(extension_name: str, location: str) -> list[str]:
+    """List the extension image versions published by Datadog in the given location."""
     return execute_json(
         Cmd(["az", "vm", "extension", "image", "list-versions"])
         .param("-p", "Datadog.Agent")
@@ -74,8 +75,8 @@ def set_extension_latest(vms: Iterable[Vm]) -> None:
     def get_location(vm: Vm) -> str:
         return vm["location"]
 
-    for os_type, vms in groupby(sorted(vms, key=get_os_type), key=get_os_type):
+    for os_type, vms_with_os_type in groupby(sorted(vms, key=get_os_type), key=get_os_type):
         if extension_name := get_extension_name_for_os_type(os_type):
-            for location, vms_in_location in groupby(sorted(vms, key=get_location), key=get_location):
-                if extension_versions := list_extension_versions(extension_name, location):
+            for location, vms_in_location in groupby(sorted(vms_with_os_type, key=get_location), key=get_location):
+                if extension_versions := list_extension_image_versions(extension_name, location):
                     set_extension(extension_name, [vm["id"] for vm in vms_in_location], sorted(extension_versions)[-1])
