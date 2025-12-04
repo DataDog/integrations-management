@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from enum import Enum
 from typing import Any, Generator, Optional
 
-from gcp_shared.gcloud import GcloudCmd, gcloud
+from gcp_shared.gcloud import GcloudCmd, is_logged_in
 from gcp_shared.requests import dd_request
 
 
@@ -150,24 +150,12 @@ class WorkflowReporter:
         """
         Ensure that the user is logged into the GCloud Shell.
         """
-
-        try:
-            with self.report_step("login"):
-                if not gcloud(GcloudCmd("auth", "print-access-token")):
-                    raise RuntimeError("not logged in to GCloud Shell")
-        except Exception as e:
-            if "gcloud: command not found" in str(e):
-                print(
-                    "You must install the GCloud CLI and log in to run this script.\n"
-                    "https://cloud.google.com/sdk/docs/install"
-                )
-            else:
-                print("You must be logged in to GCloud CLI to run this script.")
-            exit(1)
-        else:
-            print(
-                "Connected! Leave this shell running and go back to the Datadog UI to continue."
-            )
+        with self.report_step("login"):
+            if not is_logged_in():
+                raise RuntimeError("not logged in to GCloud Shell")
+        print(
+            "Connected! Leave this shell running and go back to the Datadog UI to continue."
+        )
 
     def is_scopes_step_already_completed(self) -> bool:
         """

@@ -6,6 +6,22 @@ from gcp_shared.gcloud import GcloudCmd, gcloud
 from gcp_shared.reporter import StepStatusReporter
 
 
+def find_service_account(
+    name: str,
+    project_id: str,
+) -> str:
+    """Find a service account with the given name in the specified project."""
+    service_account_search = gcloud(
+        GcloudCmd("iam service-accounts", "list")
+        .param("--project", project_id)
+        .param_equals("--filter", f"email~'{name}'"),
+        "email",
+    )
+    if service_account_search and len(service_account_search) > 0:
+        return service_account_search[0]["email"]
+    return None
+
+
 def find_or_create_service_account(
     step_reporter: StepStatusReporter,
     name: str,
@@ -16,15 +32,8 @@ def find_or_create_service_account(
     step_reporter.report(
         message=f"Looking for service account '{name}' in project '{project_id}'..."
     )
-
-    service_account_search = gcloud(
-        GcloudCmd("iam service-accounts", "list")
-        .param("--project", project_id)
-        .param_equals("--filter", f"email~'{name}'"),
-        "email",
-    )
-    if service_account_search and len(service_account_search) > 0:
-        email = service_account_search[0]["email"]
+    email = find_service_account(name, project_id)
+    if email:
         step_reporter.report(message=f"Found existing service account '{email}'")
         return email
 

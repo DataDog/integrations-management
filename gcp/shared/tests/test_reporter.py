@@ -201,39 +201,45 @@ class TestWorkflowReporter(unittest.TestCase):
         )
 
     @patch("gcp_shared.reporter.dd_request")
-    @patch("gcp_shared.reporter.gcloud")
-    def test_handle_login_step_success(self, mock_gcloud, mock_dd_request):
+    @patch("gcp_shared.reporter.is_logged_in")
+    def test_handle_login_step_success(self, mock_is_logged_in, mock_dd_request):
         """Test handle_login_step when user is logged in."""
-        mock_gcloud.return_value = [{"token": "dummy-token"}]
+        mock_is_logged_in.return_value = True
         mock_dd_request.return_value = ('{"status": "ok"}', 201)
 
         self.workflow_reporter.handle_login_step()
 
-        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
-        self.assertEqual(len(actual_commands), 1)
-        self.assertEqual(actual_commands[0], "auth print-access-token")
+        mock_is_logged_in.assert_called_once()
 
     @patch("gcp_shared.reporter.dd_request")
-    @patch("gcp_shared.reporter.gcloud")
-    def test_handle_login_step_failure(self, mock_gcloud, mock_dd_request):
+    @patch("gcp_shared.reporter.is_logged_in")
+    def test_handle_login_step_failure(
+        self, mock_is_logged_in, mock_dd_request
+    ):
         """Test handle_login_step when user is not logged in."""
-        mock_gcloud.return_value = []
+        mock_is_logged_in.return_value = False
         mock_dd_request.return_value = ('{"status": "ok"}', 201)
 
-        with self.assertRaises(SystemExit) as context:
+        with self.assertRaises(RuntimeError) as context:
             self.workflow_reporter.handle_login_step()
 
-        self.assertEqual(context.exception.code, 1)
+        self.assertEqual(
+            str(context.exception), "not logged in to GCloud Shell"
+        )
 
-    @patch("gcp_shared.reporter.gcloud")
-    def test_handle_login_step_gcloud_not_found(self, mock_gcloud):
+    @patch("gcp_shared.reporter.dd_request")
+    @patch("gcp_shared.reporter.is_logged_in")
+    def test_handle_login_step_gcloud_not_found(
+        self, mock_is_logged_in, mock_dd_request
+    ):
         """Test handle_login_step when gcloud command is not found."""
-        mock_gcloud.side_effect = Exception("gcloud: command not found")
+        mock_is_logged_in.side_effect = Exception("gcloud: command not found")
+        mock_dd_request.return_value = ('{"status": "ok"}', 201)
 
-        with self.assertRaises(SystemExit) as context:
+        with self.assertRaises(Exception) as context:
             self.workflow_reporter.handle_login_step()
 
-        self.assertEqual(context.exception.code, 1)
+        self.assertEqual(str(context.exception), "gcloud: command not found")
 
     @patch("gcp_shared.reporter.dd_request")
     def test_is_scopes_step_already_completed_success(self, mock_dd_request):
