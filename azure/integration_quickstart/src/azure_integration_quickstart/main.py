@@ -7,7 +7,6 @@ import signal
 import sys
 import threading
 from collections.abc import Iterable
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TypedDict
@@ -21,11 +20,12 @@ from az_shared.errors import (
     AzCliNotInstalledError,
     InteractiveAuthenticationRequiredError,
 )
+from azure_integration_quickstart.extension.vm_extension import list_vms_for_subscriptions, set_extension_latest
 from azure_integration_quickstart.role_assignments import can_current_user_create_applications
 from azure_integration_quickstart.scopes import Scope, Subscription, flatten_scopes, report_available_scopes
 from azure_integration_quickstart.script_status import Status, StatusReporter
 from azure_integration_quickstart.user_selections import receive_user_selections
-from azure_integration_quickstart.util import MAX_WORKERS, dd_request
+from azure_integration_quickstart.util import dd_request
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
 from azure_logging_install.main import install_log_forwarder
@@ -226,6 +226,9 @@ def main():
         submit_integration_config(app_registration, selections.app_registration_config)
     with status.report_step("config_identifier", "Submitting new configuration identifier to Datadog"):
         submit_config_identifier(workflow_id, app_registration)
+    if selections.app_registration_config.get("is_agent_enabled"):
+        with status.report_step("agent", "Installing the Datadog Agent"):
+            set_extension_latest(list_vms_for_subscriptions([s.id for s in flatten_scopes(selections.scopes)]))
     if selections.log_forwarding_config:
         with status.report_step(
             "upsert_log_forwarder", f"{'Updating' if exactly_one_log_forwarder else 'Creating'} Log Forwarder"
