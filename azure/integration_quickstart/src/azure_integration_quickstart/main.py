@@ -220,7 +220,7 @@ def main():
         with StatusReporter(workflow_id).report_step("scopes", "Collecting scopes"):
             return report_available_scopes(workflow_id)
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    with ThreadPoolExecutor() as executor:
         futures = [executor.submit(_collect_scopes), executor.submit(_check_app_registration_permissions)]
     subscriptions, _ = futures[0].result()
     # NOTE: For now, we do not evaluate the `result` of the `_check_app_registration_permissions` future.
