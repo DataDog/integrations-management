@@ -7,6 +7,7 @@ import signal
 import sys
 import threading
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TypedDict
@@ -208,16 +209,25 @@ def main():
         else:
             print("Connected! Leave this shell running and go back to the Datadog UI to continue.")
 
-    with status.report_step("scopes", "Collecting scopes"):
-        subscriptions, _ = report_available_scopes(workflow_id)
+    def _check_app_registration_permissions() -> None:
+        with status.report_step(
+            "app_registration_permissions", "Verifying that the current user can create app registrations"
+        ):
+            if not can_current_user_create_applications():
+                raise AppRegistrationCreationPermissionsError("The current user cannot create app registrations")
+
+    def _collect_scopes() -> tuple[list[Scope], list[Scope]]:
+        with status.report_step("scopes", "Collecting scopes"):
+            return report_available_scopes(workflow_id)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(_collect_scopes), executor.submit(_check_app_registration_permissions)]
+    subscriptions, _ = futures[0].result()
+
     with status.report_step(
         "log_forwarders", loading_message="Collecting existing Log Forwarders", required=False
     ) as step_metadata:
         exactly_one_log_forwarder = report_existing_log_forwarders(subscriptions, step_metadata)
-    with status.report_step(
-        "app_registration_permissions", "Determining whether the user can create app registrations"
-    ):
-        assert can_current_user_create_applications()
     with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
         selections = receive_user_selections(workflow_id)
     with status.report_step("app_registration", "Creating app registration in Azure"):
