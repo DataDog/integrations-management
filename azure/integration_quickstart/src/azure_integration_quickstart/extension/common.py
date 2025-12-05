@@ -7,4 +7,5 @@ from common.shell import Cmd
 
 
 def set_dynamic_install_without_prompt() -> None:
+    """Configure the Azure CLI to install CLI extensions without prompting the user."""
     execute(Cmd(["az", "config", "set"]).arg("extension.use_dynamic_install=yes_without_prompt"))
