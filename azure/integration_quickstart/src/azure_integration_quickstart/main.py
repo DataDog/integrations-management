@@ -210,14 +210,15 @@ def main():
             print("Connected! Leave this shell running and go back to the Datadog UI to continue.")
 
     def _check_app_registration_permissions() -> None:
-        with StatusReporter(workflow_id).report_step(
-            "app_registration_permissions", "Verifying that the current user can create app registrations"
-        ):
-            if not can_current_user_create_applications():
-                raise AppRegistrationCreationPermissionsError("The current user cannot create app registrations")
+        if not can_current_user_create_applications():
+            error = AppRegistrationCreationPermissionsError("The current user cannot create app registrations")
+            StatusReporter(workflow_id).report(
+                "app_registration_permissions", Status.USER_ACTIONABLE_ERROR, error.user_action_message
+            )
+            raise error
 
     def _collect_scopes() -> tuple[list[Scope], list[Scope]]:
-        with StatusReporter(workflow_id).report_step("scopes", "Collecting scopes"):
+        with status.report_step("scopes", "Collecting scopes"):
             return report_available_scopes(workflow_id)
 
     with ThreadPoolExecutor() as executor:
