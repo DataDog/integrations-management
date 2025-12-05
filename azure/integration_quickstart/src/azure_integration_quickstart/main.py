@@ -223,11 +223,10 @@ def main():
 
     with ThreadPoolExecutor() as executor:
         scopes_future = executor.submit(_collect_scopes)
+        # NOTE: For now, we do not bubble up any exceptions from `_check_app_registration_permissions`.
+        # We're just reporting the status to verify correctness. Later, this will be used to early exit.
         executor.submit(_check_app_registration_permissions)
     subscriptions, _ = scopes_future.result()
-    # NOTE: For now, we do not evaluate the `result` of the `_check_app_registration_permissions` future.
-    # We initially just want to report the status of this operation rather than bubbling up the exception.
-    # Once correctness is verified, this will be used to early exit.
 
     with status.report_step(
         "log_forwarders", loading_message="Collecting existing Log Forwarders", required=False
