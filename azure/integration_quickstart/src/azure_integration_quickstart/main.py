@@ -223,6 +223,9 @@ def main():
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = [executor.submit(_collect_scopes), executor.submit(_check_app_registration_permissions)]
     subscriptions, _ = futures[0].result()
+    # NOTE: For now, we do not evaluate the `result` of the `_check_app_registration_permissions` future.
+    # We initially just want to report the status of this operation rather than bubbling up the exception.
+    # Once correctness is verified, this will be used to early exit.
 
     with status.report_step(
         "log_forwarders", loading_message="Collecting existing Log Forwarders", required=False
