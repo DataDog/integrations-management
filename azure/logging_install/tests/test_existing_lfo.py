@@ -70,7 +70,7 @@ class TestExistingLfo(TestCase):
         func_apps_settings: dict[str, dict[str, str]] = {},
     ):
         def _router(az_cmd, can_fail=False):
-            cmd = az_cmd.str()
+            cmd = str(az_cmd)
             if "extension show" in cmd:
                 return "installed"
             if "graph query" in cmd:

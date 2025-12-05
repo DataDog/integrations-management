@@ -4,9 +4,12 @@
 
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
+from itertools import chain
 
-from az_shared.az_cmd import AzCmd, execute
+from az_shared.az_cmd import AzCmd, execute, execute_json
+from azure_integration_quickstart.permissions import EntraIdPermission
 from azure_integration_quickstart.util import MAX_WORKERS
+from common.shell import Cmd
 
 
 def add_role_assignments(client_id: str, roles: Iterable[str], scopes: Iterable[str]) -> None:
@@ -37,3 +40,80 @@ def add_ms_graph_app_role_assignments(client_id: str, roles: Iterable[str]) -> N
         .param("--api-permissions", " ".join([f"{role}=Role" for role in roles]))
     )
     execute(AzCmd("ad app permission", "admin-consent").param("--id", f'"{client_id}"'))
+
+
+def get_assigned_entra_role_ids(user_id: str) -> set[str]:
+    return set(
+        execute_json(
+            Cmd(["az", "rest"])
+            .param(
+                "-u",
+                "https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments"
+                f"?$filter=principalId eq '{user_id}'"
+                "&$select=roleDefinitionId"
+                "&$top=999",
+            )
+            .param("--query", "value[].roleDefinitionId")
+        )
+    )
+
+
+def get_role_permissions(role_id: Iterable[str]) -> Iterable[EntraIdPermission]:
+    return execute_json(
+        Cmd(["az", "rest"])
+        .param(
+            "-u",
+            "https://graph.microsoft.com/v1.0/roleManagement/directory/roleDefinitions"
+            f"?$filter=id eq '{role_id}'"
+            "&$select=rolePermissions",
+        )
+        .param("--query", "value[].rolePermissions")
+    )[0]
+
+
+APPLICATION_CREATE_ACTION = "microsoft.directory/applications/create"
+BUILTIN_ROLE_IDS_ALLOWING_APPLICATION_CREATE = {
+    "62e90394-69f5-4237-9190-012177145e10",  # Global Administrator
+    "9b895d92-2cd3-44c7-9d02-a6ac2d5ea5c3",  # Application Administrator
+    "158c047a-c907-4556-b7ef-446551a6b5f7",  # Cloud Application Administrator
+    "e8611ab8-c189-46e8-94e1-60213ab1f814",  # Privileged Role Administrator
+    "8ac3fc64-6eca-42ea-9e69-59f4c7b60eb2",  # Hybrid Identity Administrator
+}
+
+
+def can_create_applications_due_to_role(user_id: str) -> bool:
+    assigned_role_ids = get_assigned_entra_role_ids(user_id)
+    return bool(
+        assigned_role_ids
+        and (
+            # Short circuit to "true" if we see any of these built-in roles that allow creation of applications.
+            assigned_role_ids & BUILTIN_ROLE_IDS_ALLOWING_APPLICATION_CREATE
+            # Otherwise check against all roles including custom roles.
+            or any(
+                p
+                # TODO: Consisder parallelizing if slow. But, note that this short-circuits.
+                for p in chain.from_iterable(get_role_permissions(role_id) for role_id in assigned_role_ids)
+                if APPLICATION_CREATE_ACTION.lower() in (a.lower() for a in p["allowedResourceActions"])
+            )
+        )
+    )
+
+
+def can_default_user_create_applications() -> bool:
+    return execute_json(
+        Cmd(["az", "rest"])
+        .param("-u", "https://graph.microsoft.com/v1.0/policies/authorizationPolicy")
+        .param("--query", "defaultUserRolePermissions.allowedToCreateApps")
+    )
+
+
+def can_create_applications(user_id: str) -> bool:
+    return can_default_user_create_applications() or can_create_applications_due_to_role(user_id)
+
+
+def get_current_user_id() -> str:
+    return execute_json(Cmd(["az", "ad", "signed-in-user", "show"]).param("--query", "id"))
+
+
+def can_current_user_create_applications() -> bool:
+    return can_create_applications(get_current_user_id())

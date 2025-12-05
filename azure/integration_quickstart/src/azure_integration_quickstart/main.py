@@ -7,6 +7,7 @@ import signal
 import sys
 import threading
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TypedDict
@@ -20,6 +21,8 @@ from az_shared.errors import (
     AzCliNotInstalledError,
     InteractiveAuthenticationRequiredError,
 )
+from azure_integration_quickstart.extension.vm_extension import list_vms_for_subscriptions, set_extension_latest
+from azure_integration_quickstart.role_assignments import can_current_user_create_applications
 from azure_integration_quickstart.scopes import Scope, Subscription, flatten_scopes, report_available_scopes
 from azure_integration_quickstart.script_status import Status, StatusReporter
 from azure_integration_quickstart.user_selections import receive_user_selections
@@ -206,8 +209,25 @@ def main():
         else:
             print("Connected! Leave this shell running and go back to the Datadog UI to continue.")
 
-    with status.report_step("scopes", "Collecting scopes"):
-        subscriptions, _ = report_available_scopes(workflow_id)
+    def _check_app_registration_permissions() -> None:
+        if not can_current_user_create_applications():
+            error = AppRegistrationCreationPermissionsError("The current user cannot create app registrations")
+            StatusReporter(workflow_id).report(
+                "app_registration_permissions", Status.USER_ACTIONABLE_ERROR, error.user_action_message
+            )
+            raise error
+
+    def _collect_scopes() -> tuple[list[Scope], list[Scope]]:
+        with status.report_step("scopes", "Collecting scopes"):
+            return report_available_scopes(workflow_id)
+
+    with ThreadPoolExecutor() as executor:
+        scopes_future = executor.submit(_collect_scopes)
+        # NOTE: For now, we do not bubble up any exceptions from `_check_app_registration_permissions`.
+        # We're just reporting the status to verify correctness. Later, this will be used to early exit.
+        executor.submit(_check_app_registration_permissions)
+    subscriptions, _ = scopes_future.result()
+
     with status.report_step(
         "log_forwarders", loading_message="Collecting existing Log Forwarders", required=False
     ) as step_metadata:
@@ -220,6 +240,9 @@ def main():
         submit_integration_config(app_registration, selections.app_registration_config)
     with status.report_step("config_identifier", "Submitting new configuration identifier to Datadog"):
         submit_config_identifier(workflow_id, app_registration)
+    if selections.app_registration_config.get("is_agent_enabled"):
+        with status.report_step("agent", "Installing the Datadog Agent"):
+            set_extension_latest(list_vms_for_subscriptions([s.id for s in flatten_scopes(selections.scopes)]))
     if selections.log_forwarding_config:
         with status.report_step(
             "upsert_log_forwarder", f"{'Updating' if exactly_one_log_forwarder else 'Creating'} Log Forwarder"

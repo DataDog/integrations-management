@@ -90,18 +90,8 @@ def filter_scopes_by_permission(scopes: Sequence[Scope]) -> list[Scope]:
     """Filter scopes based on whether the user can assign roles to them.
 
     Return a list of bools representing whether the scope at each corresponding index should be included."""
-    access_token_json = execute_json(AzCmd("account", "get-access-token"))
-    if (
-        not isinstance(access_token_json, dict)
-        or "accessToken" not in access_token_json
-        or not isinstance(access_token_json["accessToken"], str)
-    ):
-        raise RuntimeError(f"Received malformed JSON for azure access token: {access_token_json}")
-    access_token = access_token_json["accessToken"]
     with ThreadPoolExecutor(MAX_WORKERS) as executor:
-        futures: list[Future[FlatPermission]] = [
-            executor.submit(get_flat_permission, access_token, scope.scope) for scope in scopes
-        ]
+        futures: list[Future[FlatPermission]] = [executor.submit(get_flat_permission, scope.scope) for scope in scopes]
     return [
         scope
         for i, scope in enumerate(scopes)

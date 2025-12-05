@@ -5,9 +5,12 @@
 import json
 import re
 import subprocess
+from collections.abc import Iterable
 from re import search
 from time import sleep
 from typing import Any, Optional
+
+from common.shell import Cmd
 
 from .errors import (
     AccessError,
@@ -21,9 +24,8 @@ from .logs import log
 
 AUTH_FAILED_ERROR = "AuthorizationFailed"
 PERMISSION_REQUIRED_ERROR = "permission is needed"
-AZURE_THROTTLING_ERROR = "TooManyRequests"
+AZURE_THROTTLING_ERRORS = ["TooManyRequests", "Too Many Requests", "ResourceCollectionRequestsThrottled"]
 REFRESH_TOKEN_EXPIRED_ERROR = "AADSTS700082"
-RESOURCE_COLLECTION_THROTTLING_ERROR = "ResourceCollectionRequestsThrottled"
 RESOURCE_NOT_FOUND_ERROR = "ResourceNotFound"
 POLICY_ERROR = "RequestDisallowedByPolicy"
 
@@ -32,31 +34,23 @@ RETRY_DELAY_MULTIPLIER = 2
 MAX_RETRIES = 7
 
 
-class AzCmd:
+class AzCmd(Cmd):
     """Builder for Azure CLI commands."""
 
     def __init__(self, service: str, action: str):
         """Initialize with service and action (e.g., 'functionapp', 'create')."""
-        self.cmd = [service] + action.split()
+        super().__init__([service] + action.split())
 
-    def param(self, key: str, value: str) -> "AzCmd":
+    def __str__(self) -> str:
+        return "az " + super().__str__()
+
+    def param(self, key: str, value: str, quote: bool = False) -> "Cmd":
         """Adds a key-value pair parameter"""
-        self.cmd.extend([key, value])
-        return self
+        return super().param(key, value, quote=quote)
 
-    def param_list(self, key: str, values: list[str]) -> "AzCmd":
+    def param_list(self, key: str, values: Iterable[str], quote: bool = False) -> "Cmd":
         """Adds a list of parameters with the same key"""
-        self.cmd.append(key)
-        self.cmd.extend(values)
-        return self
-
-    def flag(self, flag: str) -> "AzCmd":
-        """Adds a flag to the command"""
-        self.cmd.append(flag)
-        return self
-
-    def str(self) -> str:
-        return "az " + " ".join(self.cmd)
+        return super().param_list(key, values, quote=quote)
 
 
 def check_access_error(stderr: str) -> Optional[str]:
@@ -91,10 +85,10 @@ def list_users_subscriptions() -> dict[str, str]:
     return {sub["id"]: sub["name"] for sub in subs_json}
 
 
-def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
+def execute(cmd: Cmd, can_fail: bool = False) -> str:
     """Run an Azure CLI command and return output or raise error."""
 
-    full_command = az_cmd.str()
+    full_command = str(cmd)
     log.debug(f"Running: {full_command}")
     delay = INITIAL_RETRY_DELAY
 
@@ -113,7 +107,7 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
                 raise ResourceNotFoundError(
                     f"Resource not found when executing '{full_command}'\nstdout: {stdout}\nstderr: {stderr}"
                 ) from e
-            if AZURE_THROTTLING_ERROR in stderr or RESOURCE_COLLECTION_THROTTLING_ERROR in stderr:
+            if any(text in stderr for text in AZURE_THROTTLING_ERRORS):
                 if attempt < MAX_RETRIES - 1:
                     log.warning(f"Azure throttling ongoing. Retrying in {delay} seconds...")
                     sleep(delay)
@@ -123,7 +117,7 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
             if REFRESH_TOKEN_EXPIRED_ERROR in stderr:
                 raise RefreshTokenError(stderr) from e
             if AUTH_FAILED_ERROR in stderr:
-                error_message = f"Insufficient permissions to access resource when executing '{az_cmd.str()}'"
+                error_message = f"Insufficient permissions to access resource when executing '{str(cmd)}'"
                 error_details = check_access_error(stderr)
                 if error_details:
                     raise AccessError(f"{error_message}: {error_details}") from e
@@ -144,7 +138,7 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
                     "Interactive authentication required",
                 ) from e
             if PERMISSION_REQUIRED_ERROR in stderr:
-                raise AccessError(f"Insufficient permissions to execute '{az_cmd.str()}'")
+                raise AccessError(f"Insufficient permissions to execute '{str(cmd)}'")
             if can_fail:
                 return ""
             log.error(f"Command failed: {full_command}")
@@ -154,15 +148,6 @@ def execute(az_cmd: AzCmd, can_fail: bool = False) -> str:
     raise SystemExit(1)  # unreachable
 
 
-def execute_json(az_cmd: AzCmd) -> Any:
-    az_response = execute(az_cmd)
-    if not az_response:
-        return None
-    return json.loads(az_response)
-
-
-def execute_json_nullable(az_cmd: AzCmd) -> Any:
-    az_response = execute(az_cmd, can_fail=True)
-    if not az_response:
-        return None
-    return json.loads(az_response)
+def execute_json(cmd: Cmd) -> Any:
+    if result := execute(cmd):
+        return json.loads(result)
