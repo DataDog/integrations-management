@@ -24,9 +24,8 @@ from .logs import log
 
 AUTH_FAILED_ERROR = "AuthorizationFailed"
 PERMISSION_REQUIRED_ERROR = "permission is needed"
-AZURE_THROTTLING_ERROR = "TooManyRequests"
+AZURE_THROTTLING_ERRORS = ["TooManyRequests", "Too Many Requests", "ResourceCollectionRequestsThrottled"]
 REFRESH_TOKEN_EXPIRED_ERROR = "AADSTS700082"
-RESOURCE_COLLECTION_THROTTLING_ERROR = "ResourceCollectionRequestsThrottled"
 RESOURCE_NOT_FOUND_ERROR = "ResourceNotFound"
 POLICY_ERROR = "RequestDisallowedByPolicy"
 
@@ -108,7 +107,7 @@ def execute(cmd: Cmd, can_fail: bool = False) -> str:
                 raise ResourceNotFoundError(
                     f"Resource not found when executing '{full_command}'\nstdout: {stdout}\nstderr: {stderr}"
                 ) from e
-            if AZURE_THROTTLING_ERROR in stderr or RESOURCE_COLLECTION_THROTTLING_ERROR in stderr:
+            if any(text in stderr for text in AZURE_THROTTLING_ERRORS):
                 if attempt < MAX_RETRIES - 1:
                     log.warning(f"Azure throttling ongoing. Retrying in {delay} seconds...")
                     sleep(delay)

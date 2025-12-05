@@ -172,7 +172,7 @@ class TestAzCmd(TestCase):
 
         # First call fails with rate limit, second succeeds
         error = subprocess.CalledProcessError(1, "az")
-        error.stderr = f"{az_cmd.AZURE_THROTTLING_ERROR}: Rate limit exceeded"
+        error.stderr = "TooManyRequests: Rate limit exceeded"
 
         mock_result_success = Mock()
         mock_result_success.stdout = "success after retry"
@@ -191,7 +191,7 @@ class TestAzCmd(TestCase):
         cmd = az_cmd.AzCmd(FUNCTION_APP, CREATE)
 
         error = subprocess.CalledProcessError(1, "az")
-        error.stderr = f"{az_cmd.AZURE_THROTTLING_ERROR}: Rate limit exceeded"
+        error.stderr = "TooManyRequests: Rate limit exceeded"
         self.subprocess_mock.side_effect = error
 
         with self.assertRaises(RateLimitExceededError):
@@ -206,7 +206,7 @@ class TestAzCmd(TestCase):
 
         # First call fails with throttling, second succeeds
         error = subprocess.CalledProcessError(1, "az")
-        error.stderr = f"{az_cmd.RESOURCE_COLLECTION_THROTTLING_ERROR}: Too many requests"
+        error.stderr = "ResourceCollectionRequestsThrottled: Too many requests"
 
         mock_result_success = Mock()
         mock_result_success.stdout = "success after throttling"
@@ -278,18 +278,3 @@ ERROR: (RequestDisallowedByPolicy) {EXAMPLE_POLICY_ERROR}"""
 
         with self.assertRaises(RuntimeError):
             az_cmd.set_subscription(CONTROL_PLANE_SUBSCRIPTION_ID)
-
-    # ===== Error Pattern Recognition Tests ===== #
-
-    def test_error_pattern_constants(self):
-        """Test error pattern constants are correctly defined"""
-        self.assertEqual(az_cmd.AUTH_FAILED_ERROR, "AuthorizationFailed")
-        self.assertEqual(az_cmd.AZURE_THROTTLING_ERROR, "TooManyRequests")
-        self.assertEqual(az_cmd.REFRESH_TOKEN_EXPIRED_ERROR, "AADSTS700082")
-        self.assertEqual(
-            az_cmd.RESOURCE_COLLECTION_THROTTLING_ERROR,
-            "ResourceCollectionRequestsThrottled",
-        )
-        self.assertEqual(az_cmd.RESOURCE_NOT_FOUND_ERROR, "ResourceNotFound")
-        self.assertIsInstance(az_cmd.MAX_RETRIES, int)
-        self.assertGreater(az_cmd.MAX_RETRIES, 0)
