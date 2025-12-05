@@ -222,8 +222,8 @@ def main():
             return report_available_scopes(workflow_id)
 
     with ThreadPoolExecutor() as executor:
-        executor.submit(_collect_scopes)
-        scopes_future = executor.submit(_check_app_registration_permissions)
+        scopes_future = executor.submit(_collect_scopes)
+        executor.submit(_check_app_registration_permissions)
     subscriptions, _ = scopes_future.result()
     # NOTE: For now, we do not evaluate the `result` of the `_check_app_registration_permissions` future.
     # We initially just want to report the status of this operation rather than bubbling up the exception.
