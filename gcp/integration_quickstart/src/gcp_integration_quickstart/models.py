@@ -15,3 +15,11 @@ class IntegrationConfiguration:
     account_tags: list[str]
     resource_collection_enabled: bool
     automute: bool
+
+
+@dataclass
+class ProductRequirements:
+    """Holds product requirements for a downstream Datadog product."""
+
+    required_roles: list[str]
+    required_apis: list[str]

@@ -6,7 +6,7 @@ import os
 import signal
 import sys
 from enum import Enum
-
+from typing import Optional
 from gcp_shared.models import (
     ConfigurationScope,
     Project,
@@ -20,7 +20,7 @@ from .integration_configuration import (
     assign_delegate_permissions,
     create_integration_with_permissions,
 )
-from .models import IntegrationConfiguration
+from .models import IntegrationConfiguration, ProductRequirements
 
 REQUIRED_ENVIRONMENT_VARS: set[str] = {
     "DD_API_KEY",
@@ -80,11 +80,19 @@ def main():
         OnboardingStep.ASSIGN_DELEGATE_PERMISSIONS
     ) as step_reporter:
         assign_delegate_permissions(
-            step_reporter, user_selections["default_project_id"]
+            step_reporter,
+            service_account_email,
+            user_selections["default_project_id"],
         )
     with workflow_reporter.report_step(
         OnboardingStep.CREATE_INTEGRATION_WITH_PERMISSIONS
     ) as step_reporter:
+        product_requirements: Optional[ProductRequirements] = (
+            ProductRequirements(**user_selections["product_requirements"])
+            if "product_requirements" in user_selections
+            else None
+        )
+
         create_integration_with_permissions(
             step_reporter,
             service_account_email,
@@ -99,6 +107,7 @@ def main():
                     for folder in user_selections.get("folders", [])
                 ],
             ),
+            product_requirements,
         )
 
     print("Script succeeded. You may exit this shell.")

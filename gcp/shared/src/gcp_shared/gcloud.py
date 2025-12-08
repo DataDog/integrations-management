@@ -13,7 +13,7 @@ class GcloudCmd:
 
     def __init__(self, service: str, action: str):
         """Initialize with service and action (e.g., 'pubsub topics', 'create')."""
-        self.cmd = service.split() + action.split()
+        self.cmd: list[str] = service.split() + action.split()
 
     def __str__(self) -> str:
         """Overload string representation to return the full command string with proper shell quoting."""
@@ -32,12 +32,6 @@ class GcloudCmd:
     def param_equals(self, key: str, value: str) -> "GcloudCmd":
         """Adds a key=value parameter (e.g., '--filter=name:foo')."""
         self.cmd.append(f"{key}={value}")
-        return self
-
-    def param_list(self, key: str, values: list[str]) -> "GcloudCmd":
-        """Adds a list of parameters with the same key."""
-        self.cmd.append(key)
-        self.cmd.extend(values)
         return self
 
     def flag(self, flag: str) -> "GcloudCmd":
