@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from enum import Enum
 from typing import Any, Generator, Optional
 
-from gcp_shared.gcloud import gcloud
+from gcp_shared.gcloud import GcloudCmd, gcloud
 from gcp_shared.requests import dd_request
 
 
@@ -153,7 +153,7 @@ class WorkflowReporter:
 
         try:
             with self.report_step("login"):
-                if not gcloud("auth print-access-token"):
+                if not gcloud(GcloudCmd("auth", "print-access-token")):
                     raise RuntimeError("not logged in to GCloud Shell")
         except Exception as e:
             if "gcloud: command not found" in str(e):
