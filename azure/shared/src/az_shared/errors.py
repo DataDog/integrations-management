@@ -114,6 +114,16 @@ class PolicyError(UserActionRequiredError):
         super().__init__(error_message, user_action_message)
 
 
+class DisabledSubscriptionError(UserActionRequiredError):
+    """The current Azure subscription is disabled."""
+
+    def __init__(self, error_message: str):
+        super().__init__(
+            error_message,
+            'The Azure subscription you are currently logged into is disabled. Select a different subscription with "az account set --subscription <subscription_id>" before trying again.',
+        )
+
+
 class UserRetriableError(UserActionRequiredError):
     """An error that requires user action to resolve, after which the user can simply retry the script rather than reloading the page."""
 
