@@ -46,7 +46,7 @@ def main():
         print(
             f"Missing required environment variables: {', '.join(missing_environment_vars)}"
         )
-        exit(1)
+        sys.exit(1)
 
     workflow_id = os.environ["WORKFLOW_ID"]
 
@@ -58,7 +58,7 @@ def main():
         print(
             f"Workflow ID {workflow_id} has already been used. Please start a new workflow."
         )
-        exit(1)
+        sys.exit(1)
 
     workflow_reporter.handle_login_step()
 

@@ -3,6 +3,7 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 import json
+import sys
 import shlex
 import subprocess
 from typing import Any, Union
@@ -38,6 +39,22 @@ class GcloudCmd:
         """Adds a flag to the command (e.g., '--quiet')."""
         self.cmd.append(flag)
         return self
+
+
+def is_logged_in() -> bool:
+    """Check if the user is logged in to GCloud CLI."""
+    try:
+        return gcloud("auth print-access-token") is not None
+    except Exception as e:
+        if "gcloud: command not found" in str(e):
+            print(
+                "You must install the GCloud CLI and log in to run this script.\n"
+                "https://cloud.google.com/sdk/docs/install"
+            )
+        else:
+            print("You must be logged in to GCloud CLI to run this script.")
+        sys.exit(1)
+    return False
 
 
 def gcloud(cmd: Union[str, GcloudCmd], *keys: str) -> Any:
