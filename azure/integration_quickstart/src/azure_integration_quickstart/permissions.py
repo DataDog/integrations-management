@@ -2,13 +2,14 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-import json
 from collections.abc import Container, Iterable
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import Optional, TypedDict
 
+from az_shared.az_cmd import execute_json
 from azure_integration_quickstart.actions import Action, ActionContainer
-from azure_integration_quickstart.util import UnionContainer, request
+from azure_integration_quickstart.util import UnionContainer
+from common.shell import Cmd
 
 
 class Permission(TypedDict, total=False):
@@ -22,14 +23,16 @@ class Permission(TypedDict, total=False):
     notDataActions: list[Action]
 
 
-def get_permissions(auth_token: str, scope: str) -> list[Permission]:
+def get_permissions(scope: str) -> list[Permission]:
     """Fetch the permissions granted over a given scope."""
-    response, _ = request(
-        "GET",
-        f"https://management.azure.com{scope}/providers/Microsoft.Authorization/permissions?api-version=2022-04-01",
-        headers={"Authorization": f"Bearer {auth_token}", "Content-Type": "application/json"},
+    return execute_json(
+        Cmd(["az", "rest"])
+        .param(
+            "-u",
+            f"https://management.azure.com{scope}/providers/Microsoft.Authorization/permissions?api-version=2022-04-01",
+        )
+        .param("--query", "value")
     )
-    return json.loads(response)["value"]
 
 
 @dataclass
@@ -53,6 +56,11 @@ def flatten_permissions(permissions: Iterable[Permission]) -> FlatPermission:
     )
 
 
-def get_flat_permission(auth_token: str, scope: str) -> FlatPermission:
+def get_flat_permission(scope: str) -> FlatPermission:
     """Fetch the consolidated permission granted over a given scope."""
-    return flatten_permissions(get_permissions(auth_token, scope))
+    return flatten_permissions(get_permissions(scope))
+
+
+class EntraIdPermission(TypedDict):
+    allowedResourceActions: list[str]
+    condition: Optional[str]
