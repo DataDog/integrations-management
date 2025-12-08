@@ -5,6 +5,7 @@
 import json
 from dataclasses import asdict
 from typing import Optional
+
 from gcp_shared.gcloud import GcloudCmd, gcloud
 from gcp_shared.models import ConfigurationScope
 from gcp_shared.reporter import StepStatusReporter

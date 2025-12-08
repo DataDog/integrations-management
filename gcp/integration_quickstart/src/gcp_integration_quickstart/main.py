@@ -7,6 +7,7 @@ import signal
 import sys
 from enum import Enum
 from typing import Optional
+
 from gcp_shared.models import (
     ConfigurationScope,
     Project,

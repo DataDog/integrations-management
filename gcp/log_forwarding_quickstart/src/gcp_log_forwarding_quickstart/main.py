@@ -17,6 +17,7 @@ from gcp_shared.scopes import collect_configuration_scopes
 from gcp_shared.service_accounts import find_or_create_service_account
 
 from .dataflow_configuration import (
+    SERVICE_ACCOUNT_ID,
     assign_required_dataflow_roles,
     create_dataflow_job,
     create_dataflow_staging_bucket,
@@ -79,10 +80,9 @@ def main():
     with workflow_reporter.report_step(
         OnboardingStep.CREATE_SERVICE_ACCOUNT
     ) as step_reporter:
-        datadog_dataflow_service_account_id = "datadog-dataflow"
         service_account_email = find_or_create_service_account(
             step_reporter,
-            datadog_dataflow_service_account_id,
+            SERVICE_ACCOUNT_ID,
             default_project_id,
             display_name="Datadog Dataflow Service Account",
         )

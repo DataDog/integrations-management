@@ -15,9 +15,10 @@ from gcp_shared.requests import dd_request
 
 from .models import DataflowConfiguration, ExclusionFilter
 
-RESOURCE_NAME_PREFIX: str = "export-logs-to-datadog"
 BUCKET_PREFIX: str = "dataflow-temp"
-PUBSUB_TOPIC_ID: str = f"{RESOURCE_NAME_PREFIX}"
+RESOURCE_NAME_PREFIX: str = "export-logs-to-datadog"
+SERVICE_ACCOUNT_ID: str = f"{RESOURCE_NAME_PREFIX}-sa"
+PUBSUB_TOPIC_ID: str = f"{RESOURCE_NAME_PREFIX}-topic"
 PUBSUB_DEAD_LETTER_TOPIC_ID: str = f"{RESOURCE_NAME_PREFIX}-dlq"
 SECRET_MANAGER_NAME: str = f"{RESOURCE_NAME_PREFIX}-api-key"
 DATAFLOW_JOB_NAME: str = f"{RESOURCE_NAME_PREFIX}-job"
