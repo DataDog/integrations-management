@@ -14,6 +14,7 @@ from common.shell import Cmd
 
 from .errors import (
     AccessError,
+    DisabledSubscriptionError,
     InteractiveAuthenticationRequiredError,
     PolicyError,
     RateLimitExceededError,
@@ -28,6 +29,7 @@ AZURE_THROTTLING_ERRORS = ["TooManyRequests", "Too Many Requests", "ResourceColl
 REFRESH_TOKEN_EXPIRED_ERROR = "AADSTS700082"
 RESOURCE_NOT_FOUND_ERROR = "ResourceNotFound"
 POLICY_ERROR = "RequestDisallowedByPolicy"
+DISABLED_SUBSCRIPTION_ERROR = "DisabledSubscription"
 
 INITIAL_RETRY_DELAY = 2  # seconds
 RETRY_DELAY_MULTIPLIER = 2
@@ -139,6 +141,8 @@ def execute(cmd: Cmd, can_fail: bool = False) -> str:
                 ) from e
             if PERMISSION_REQUIRED_ERROR in stderr:
                 raise AccessError(f"Insufficient permissions to execute '{str(cmd)}'")
+            if DISABLED_SUBSCRIPTION_ERROR in stderr:
+                raise DisabledSubscriptionError(stderr) from e
             if can_fail:
                 return ""
             log.error(f"Command failed: {full_command}")
