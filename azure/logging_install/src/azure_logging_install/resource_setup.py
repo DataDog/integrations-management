@@ -241,6 +241,7 @@ def create_container_app_environment(
     log.info(f"Creating Container App environment {control_plane_env}")
     execute(
         AzCmd("containerapp", "env create")
+        .flag("--enable-workload-profiles")
         .param("--name", control_plane_env)
         .param("--resource-group", control_plane_resource_group)
         .param("--location", control_plane_location)
