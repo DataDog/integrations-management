@@ -9,7 +9,8 @@ from re import search
 from time import sleep
 from typing import Any, Optional
 
-from ..common.shell import Cmd
+from common.shell import Cmd
+
 from .errors import (
     AccessError,
     DisabledSubscriptionError,
