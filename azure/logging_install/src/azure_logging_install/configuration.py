@@ -6,10 +6,11 @@ import json
 import uuid
 from dataclasses import dataclass
 
-from az_shared.az_cmd import AzCmd, execute
 from az_shared.errors import FatalError
+from az_shared.execute_cmd import execute
 from az_shared.logs import log
 
+from .az_cmd import AzCmd
 from .constants import IMAGE_REGISTRY_URL, NIL_UUID, STORAGE_ACCOUNT_KEY_FULL_PERMISSIONS
 
 

@@ -9,10 +9,11 @@ from dataclasses import asdict, dataclass
 from typing import Literal
 from urllib.error import URLError
 
-from az_shared.az_cmd import AzCmd, execute_json
+from az_shared.execute_cmd import execute_json
 from az_shared.errors import AccessError
 from azure_integration_quickstart.permissions import FlatPermission, get_flat_permission
 from azure_integration_quickstart.util import MAX_WORKERS, dd_request
+from common.shell import Cmd
 
 ScopeType = Literal["subscription", "management_group"]
 
@@ -103,8 +104,8 @@ def get_subscription_scopes(tenant_id: str) -> list[Subscription]:
     return [
         Subscription(**s)
         for s in execute_json(
-            AzCmd("account", "list")
-            .param("--query", "\"[?tenantId=='%s'].{id:id, name:name}\"" % tenant_id)
+            Cmd(["az", "account", "list"])
+            .param("--query", "[?tenantId=='%s'].{id:id, name:name}" % tenant_id)
             .param("-o", "json")
         )
     ]
@@ -112,11 +113,11 @@ def get_subscription_scopes(tenant_id: str) -> list[Subscription]:
 
 def get_management_group_from_list_result(list_result: ManagementGroupListResult) -> ManagementGroup:
     subscriptions_az_response = execute_json(
-        AzCmd("account management-group", "show")
-        .param("--name", f'"{list_result.az_name}"')
+        Cmd(["az", "account", "management-group", "show"])
+        .param("--name", list_result.az_name)
         .flag("-e")
         .flag("-r")
-        .param("--query", '"children[].{id:id, name:name}"')
+        .param("--query", "children[].{id:id, name:name}")
         .param("-o", "json")
     )
 
@@ -132,8 +133,8 @@ def get_management_group_scopes(tenant_id: str) -> list[ManagementGroup]:
         mgroup_list_results = [
             ManagementGroupListResult(**lr)
             for lr in execute_json(
-                AzCmd("account", "management-group list")
-                .param("--query", "\"[?tenantId=='%s'].{id:id, az_name:name, name:displayName}\"" % tenant_id)
+                Cmd(["az", "account", "management-group", "list"])
+                .param("--query", "[?tenantId=='%s'].{id:id, az_name:name, name:displayName}" % tenant_id)
                 .param("-o", "json")
             )
         ]
@@ -161,7 +162,7 @@ def flatten_scopes(scopes: Sequence[Scope]) -> set[Subscription]:
 
 def report_available_scopes(workflow_id: str) -> tuple[list[Scope], list[Scope]]:
     """Send Datadog the subscriptions and management groups that the user has permission to grant access to."""
-    tenant_id = execute_json(AzCmd("account", "show").param("--query", "tenantId"))
+    tenant_id = execute_json(Cmd(["az", "account", "show"]).param("--query", "tenantId"))
     subscriptions = filter_scopes_by_permission(get_subscription_scopes(tenant_id))
     management_groups = filter_scopes_by_permission(get_management_group_scopes(tenant_id))
     try:

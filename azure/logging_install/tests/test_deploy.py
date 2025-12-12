@@ -167,7 +167,7 @@ class TestDeploy(TestCase):
         # Verify job execution command is called
         self.execute_mock.assert_called_once()
         call_args = self.execute_mock.call_args[0][0]
-        cmd_str = call_args.str()
+        cmd_str = str(call_args)
 
         self.assertIn("containerapp", cmd_str)
         self.assertIn("job", cmd_str)

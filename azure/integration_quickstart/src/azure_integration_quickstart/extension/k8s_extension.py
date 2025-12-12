@@ -4,7 +4,7 @@
 
 from os import environ
 
-from az_shared.az_cmd import execute, execute_json
+from az_shared.execute_cmd import execute, execute_json
 from common.shell import Cmd
 
 

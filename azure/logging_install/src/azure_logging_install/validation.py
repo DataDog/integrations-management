@@ -9,7 +9,6 @@ import urllib.request
 import uuid
 from dataclasses import asdict
 
-from az_shared.az_cmd import AzCmd, execute, set_subscription
 from az_shared.errors import (
     AccessError,
     AzCliNotAuthenticatedError,
@@ -18,8 +17,10 @@ from az_shared.errors import (
     InputParamValidationError,
     ResourceProviderRegistrationValidationError,
 )
+from az_shared.execute_cmd import execute
 from az_shared.logs import log
 
+from .az_cmd import AzCmd, set_subscription
 from .configuration import Configuration
 from .constants import (
     REQUIRED_RESOURCE_PROVIDERS,

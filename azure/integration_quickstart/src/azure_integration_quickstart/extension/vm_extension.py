@@ -8,7 +8,7 @@ from itertools import groupby
 from os import environ
 from typing import Optional, TypedDict, cast
 
-from az_shared.az_cmd import execute, execute_json
+from az_shared.execute_cmd import execute, execute_json
 from azure_integration_quickstart.extension.common import set_dynamic_install_without_prompt
 from common.shell import Cmd
 

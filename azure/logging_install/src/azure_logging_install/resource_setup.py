@@ -10,15 +10,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from time import sleep, time
 from typing import Optional
 
-from az_shared.az_cmd import AzCmd, execute
 from az_shared.errors import (
     ExistenceCheckError,
     FatalError,
     ResourceNotFoundError,
     ResourceProviderRegistrationValidationError,
 )
+from az_shared.execute_cmd import execute
 from az_shared.logs import log
 
+from .az_cmd import AzCmd
 from .configuration import Configuration
 from .constants import CONTROL_PLANE_CACHE, IMAGE_REGISTRY_URL, LFO_PUBLIC_STORAGE_ACCOUNT_URL, MAX_THREAD_POOL_WORKERS
 

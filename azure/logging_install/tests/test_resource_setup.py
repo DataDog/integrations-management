@@ -50,7 +50,7 @@ class TestResourceSetup(TestCase):
 
         self.execute_mock.assert_called_once()
         call_args = self.execute_mock.call_args[0][0]
-        cmd_str = call_args.str()
+        cmd_str = str(call_args)
 
         self.assertIn("group", cmd_str)
         self.assertIn("create", cmd_str)
@@ -76,7 +76,7 @@ class TestResourceSetup(TestCase):
 
         self.execute_mock.assert_called_once()
         call_args = self.execute_mock.call_args[0][0]
-        cmd_str = call_args.str()
+        cmd_str = str(call_args)
 
         self.assertIn("storage", cmd_str)
         self.assertIn("account", cmd_str)
@@ -138,7 +138,7 @@ class TestResourceSetup(TestCase):
 
         # Check the second call (create command)
         second_call_args = self.execute_mock.call_args_list[1][0][0]
-        cmd_str = second_call_args.str()
+        cmd_str = str(second_call_args)
 
         self.assertIn("containerapp", cmd_str)
         self.assertIn("env", cmd_str)
@@ -156,7 +156,7 @@ class TestResourceSetup(TestCase):
 
         self.execute_mock.assert_called_once()
         call_args = self.execute_mock.call_args[0][0]
-        cmd_str = call_args.str()
+        cmd_str = str(call_args)
 
         self.assertIn("storage", cmd_str)
         self.assertIn("container", cmd_str)
@@ -174,7 +174,7 @@ class TestResourceSetup(TestCase):
 
         self.execute_mock.assert_called_once()
         call_args = self.execute_mock.call_args[0][0]
-        cmd_str = call_args.str()
+        cmd_str = str(call_args)
 
         self.assertIn("storage", cmd_str)
         self.assertIn("share-rm", cmd_str)  # Actual command used
@@ -209,7 +209,7 @@ class TestResourceSetup(TestCase):
 
         # Check the second call (create command)
         second_call_args = self.execute_mock.call_args_list[1][0][0]
-        cmd_str = second_call_args.str()
+        cmd_str = str(second_call_args)
 
         self.assertIn("containerapp", cmd_str)
         self.assertIn("job", cmd_str)
@@ -286,7 +286,7 @@ class TestResourceSetup(TestCase):
         )
 
         call_args = self.execute_mock.call_args[0][0]
-        cmd_str = call_args.str()
+        cmd_str = str(call_args)
 
         self.assertIn("test-storage", cmd_str)
         self.assertIn("test-rg", cmd_str)

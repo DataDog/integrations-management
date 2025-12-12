@@ -6,7 +6,7 @@ from collections.abc import Container, Iterable
 from dataclasses import dataclass
 from typing import Optional, TypedDict
 
-from az_shared.az_cmd import execute_json
+from az_shared.execute_cmd import execute_json
 from azure_integration_quickstart.actions import Action, ActionContainer
 from azure_integration_quickstart.util import UnionContainer
 from common.shell import Cmd
