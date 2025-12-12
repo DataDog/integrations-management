@@ -54,7 +54,7 @@ def get_assigned_entra_role_ids(user_id: str) -> set[str]:
                 + urlencode(
                     {
                         "$select": "roleDefinitionId",
-                        "$filter": f"subject/id eq '{user_id}' and assignmentState eq 'Active'",
+                        "$filter": f"subjectId eq '{user_id}' and assignmentState eq 'Active'",
                         "$top": 999,
                     }
                 ),
