@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from json import JSONDecodeError, loads
 from typing import Final, Optional
 
-from az_shared.az_cmd import AzCmd, execute
+from az_shared.execute_cmd import execute
 from az_shared.logs import log, log_header
 
+from .az_cmd import AzCmd
 from .configuration import Configuration
 from .resource_setup import set_function_app_env_vars
 from .role_setup import grant_subscriptions_permissions

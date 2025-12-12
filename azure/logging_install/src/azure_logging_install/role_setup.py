@@ -6,10 +6,11 @@ import json
 import time
 from typing import Iterable
 
-from az_shared.az_cmd import AzCmd, execute, set_subscription
 from az_shared.errors import ExistenceCheckError, ResourceNotFoundError, TimeoutError
+from az_shared.execute_cmd import execute
 from az_shared.logs import log
 
+from .az_cmd import AzCmd, set_subscription
 from .configuration import Configuration
 from .constants import (
     INITIAL_DEPLOY_IDENTITY_NAME,

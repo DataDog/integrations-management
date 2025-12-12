@@ -5,7 +5,6 @@
 import json
 import re
 import subprocess
-from collections.abc import Iterable
 from re import search
 from time import sleep
 from typing import Any, Optional
@@ -36,25 +35,6 @@ RETRY_DELAY_MULTIPLIER = 2
 MAX_RETRIES = 7
 
 
-class AzCmd(Cmd):
-    """Builder for Azure CLI commands."""
-
-    def __init__(self, service: str, action: str):
-        """Initialize with service and action (e.g., 'functionapp', 'create')."""
-        super().__init__([service] + action.split())
-
-    def __str__(self) -> str:
-        return "az " + super().__str__()
-
-    def param(self, key: str, value: str, quote: bool = False) -> "Cmd":
-        """Adds a key-value pair parameter"""
-        return super().param(key, value, quote=quote)
-
-    def param_list(self, key: str, values: Iterable[str], quote: bool = False) -> "Cmd":
-        """Adds a list of parameters with the same key"""
-        return super().param_list(key, values, quote=quote)
-
-
 def check_access_error(stderr: str) -> Optional[str]:
     # Sample:
     # (AuthorizationFailed) The client 'user@example.com' with object id '00000000-0000-0000-0000-000000000000'
@@ -73,18 +53,6 @@ def check_access_error(stderr: str) -> Optional[str]:
     action = action_match.group(1)
     scope = scope_match.group(1)
     return f"Insufficient permissions for {client} to perform {action} on {scope}"
-
-
-def set_subscription(sub_id: str):
-    """Set the active Azure subscription."""
-    log.debug(f"Setting active subscription to {sub_id}")
-    execute(AzCmd("account", "set").param("--subscription", sub_id))
-
-
-def list_users_subscriptions() -> dict[str, str]:
-    user_subs = execute(AzCmd("account", "list").param("--output", "json"))
-    subs_json = json.loads(user_subs)
-    return {sub["id"]: sub["name"] for sub in subs_json}
 
 
 def execute(cmd: Cmd, can_fail: bool = False) -> str:

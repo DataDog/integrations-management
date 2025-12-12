@@ -2,7 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-from az_shared.az_cmd import execute
+from az_shared.execute_cmd import execute
 from common.shell import Cmd
 
 

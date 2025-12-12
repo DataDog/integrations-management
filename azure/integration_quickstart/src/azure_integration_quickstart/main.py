@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import TypedDict
 from urllib.error import URLError
 
-from az_shared.az_cmd import AzCmd, execute, execute_json
+from az_shared.execute_cmd import execute, execute_json
 from az_shared.errors import (
     AccessError,
     AppRegistrationCreationPermissionsError,
@@ -30,11 +30,12 @@ from azure_integration_quickstart.util import dd_request
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
 from azure_logging_install.main import install_log_forwarder
+from common.shell import Cmd
 
 
 def ensure_login() -> None:
     """Ensure that the user is logged into the Azure CLI. If not, raise an exception."""
-    if not execute(AzCmd("account", "show"), can_fail=True):
+    if not execute(Cmd(["az", "account", "show"]), can_fail=True):
         raise AzCliNotAuthenticatedError("Azure CLI is not authenticated. Please run 'az login' first and retry")
 
 
@@ -89,10 +90,10 @@ def get_app_registration_name() -> str:
 def create_app_registration_with_permissions(scopes: Iterable[Scope]) -> AppRegistration:
     """Create an app registration with the necessary permissions for Datadog to function over the given scopes."""
     cmd = (
-        AzCmd("ad sp", "create-for-rbac")
-        .param("--name", f'"{get_app_registration_name()}"')
-        .param("--role", f'"{APP_REGISTRATION_ROLE}"')
-        .param("--scopes", " ".join([s.scope for s in scopes]))
+        Cmd(["az", "ad", "sp", "create-for-rbac"])
+        .param("--name", get_app_registration_name())
+        .param("--role", APP_REGISTRATION_ROLE)
+        .param_list("--scopes", [s.scope for s in scopes])
     )
     try:
         # Try setting the TTL to the max of 2 years.

@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from itertools import chain
 from urllib.parse import urlencode
 
-from az_shared.az_cmd import AzCmd, execute, execute_json
+from az_shared.execute_cmd import execute, execute_json
 from azure_integration_quickstart.permissions import EntraIdPermission
 from azure_integration_quickstart.util import MAX_WORKERS
 from common.shell import Cmd
@@ -20,10 +20,10 @@ def add_role_assignments(client_id: str, roles: Iterable[str], scopes: Iterable[
             for scope in scopes:
                 executor.submit(
                     execute,
-                    AzCmd("role assignment", "create")
-                    .param("--assignee", f'"{client_id}"')
-                    .param("--role", f'"{role}')
-                    .param("--scope", f'"{scope}"'),
+                    Cmd(["az", "role", "assignment", "create"])
+                    .param("--role", role)
+                    .param("--assignee", client_id)
+                    .param("--scope", scope),
                 )
 
 
@@ -35,12 +35,12 @@ def add_ms_graph_app_role_assignments(client_id: str, roles: Iterable[str]) -> N
 
     See https://learn.microsoft.com/en-us/graph/permissions-reference for more information."""
     execute(
-        AzCmd("ad app permission", "add")
-        .param("--id", f'"{client_id}"')
+        Cmd(["az", "ad", "app", "permission", "add"])
+        .param("--id", client_id)
         .param("--api", MS_GRAPH_API)
-        .param("--api-permissions", " ".join([f"{role}=Role" for role in roles]))
+        .param_list("--api-permissions", [f"{role}=Role" for role in roles])
     )
-    execute(AzCmd("ad app permission", "admin-consent").param("--id", f'"{client_id}"'))
+    execute(Cmd(["az", "ad", "app", "permission", "admin-consent"]).param("--id", client_id))
 
 
 def get_assigned_entra_role_ids(user_id: str) -> set[str]:
