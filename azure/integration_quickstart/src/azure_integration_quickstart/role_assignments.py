@@ -5,11 +5,11 @@
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from itertools import chain
-from urllib.parse import urlencode
 
 from az_shared.execute_cmd import execute, execute_json
 from azure_integration_quickstart.permissions import EntraIdPermission
 from azure_integration_quickstart.util import MAX_WORKERS
+from common.odata import odata_query
 from common.shell import Cmd
 
 
@@ -51,12 +51,10 @@ def get_assigned_entra_role_ids(user_id: str) -> set[str]:
             .param(
                 "-u",
                 "https://api.azrbac.mspim.azure.com/api/v2/privilegedAccess/aadroles/roleAssignments?"
-                + urlencode(
-                    {
-                        "$select": "roleDefinitionId",
-                        "$filter": f"subjectId eq '{user_id}' and assignmentState eq 'Active'",
-                        "$top": 999,
-                    }
+                + odata_query(
+                    select="roleDefinitionId",
+                    filter=f"subjectId eq '{user_id}' and assignmentState eq 'Active'",
+                    top=999,
                 ),
             )
             .param("--query", "value[].roleDefinitionId")
@@ -70,7 +68,7 @@ def get_role_permissions(role_id: Iterable[str]) -> Iterable[EntraIdPermission]:
         .param(
             "-u",
             "https://graph.microsoft.com/v1.0/roleManagement/directory/roleDefinitions?"
-            + urlencode({"$select": "rolePermissions", "$filter": f"id eq '{role_id}'"}),
+            + odata_query(select="rolePermissions", filter=f"id eq '{role_id}'"),
         )
         .param("--query", "value[].rolePermissions")
     )[0]
