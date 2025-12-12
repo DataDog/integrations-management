@@ -103,7 +103,6 @@ def can_create_applications_due_to_role(user_id: str) -> bool:
 
 
 def can_default_user_create_applications() -> bool:
-    return False
     return execute_json(
         Cmd(["az", "rest"])
         .param("-u", "https://graph.microsoft.com/v1.0/policies/authorizationPolicy")
