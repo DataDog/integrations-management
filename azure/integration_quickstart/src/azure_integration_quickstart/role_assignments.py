@@ -5,6 +5,7 @@
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from itertools import chain
+from urllib.parse import urlencode
 
 from az_shared.az_cmd import AzCmd, execute, execute_json
 from azure_integration_quickstart.permissions import EntraIdPermission
@@ -46,12 +47,17 @@ def get_assigned_entra_role_ids(user_id: str) -> set[str]:
     return set(
         execute_json(
             Cmd(["az", "rest"])
+            .param("--resource", "https://management.core.windows.net/")
             .param(
                 "-u",
-                "https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments"
-                f"?$filter=principalId eq '{user_id}'"
-                "&$select=roleDefinitionId"
-                "&$top=999",
+                "https://api.azrbac.mspim.azure.com/api/v2/privilegedAccess/aadroles/roleAssignments?"
+                + urlencode(
+                    {
+                        "$select": "roleDefinitionId",
+                        "$filter": f"subject/id eq '{user_id}' and assignmentState eq 'Active'",
+                        "$top": 999,
+                    }
+                ),
             )
             .param("--query", "value[].roleDefinitionId")
         )
@@ -63,9 +69,8 @@ def get_role_permissions(role_id: Iterable[str]) -> Iterable[EntraIdPermission]:
         Cmd(["az", "rest"])
         .param(
             "-u",
-            "https://graph.microsoft.com/v1.0/roleManagement/directory/roleDefinitions"
-            f"?$filter=id eq '{role_id}'"
-            "&$select=rolePermissions",
+            "https://graph.microsoft.com/v1.0/roleManagement/directory/roleDefinitions?"
+            + urlencode({"$select": "rolePermissions", "$filter": f"id eq '{role_id}'"}),
         )
         .param("--query", "value[].rolePermissions")
     )[0]
