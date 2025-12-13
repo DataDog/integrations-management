@@ -52,6 +52,7 @@ def create_dataflow_staging_bucket(
             .arg(f"gs://{FULL_BUCKET_NAME}")
             .param("--member", f"serviceAccount:{service_account_email}")
             .param("--role", "roles/storage.objectAdmin")
+            .flag("--quiet")
         )
         return
 
@@ -66,6 +67,7 @@ def create_dataflow_staging_bucket(
         .param("--location", region)
         .flag("--uniform-bucket-level-access")
         .param("--soft-delete-duration", "0s")
+        .flag("--quiet")
     )
 
     step_reporter.report(
@@ -76,6 +78,7 @@ def create_dataflow_staging_bucket(
         .arg(f"gs://{FULL_BUCKET_NAME}")
         .param("--member", f"serviceAccount:{service_account_email}")
         .param("--role", "roles/storage.objectAdmin")
+        .flag("--quiet")
     )
 
 
@@ -106,6 +109,7 @@ def create_topics_with_subscription(
                 GcloudCmd("pubsub topics", "create")
                 .arg(topic_id)
                 .param("--project", project_id)
+                .flag("--quiet")
             )
 
         if topic_id == PUBSUB_DEAD_LETTER_TOPIC_ID:
@@ -118,6 +122,7 @@ def create_topics_with_subscription(
                 .param("--project", project_id)
                 .param("--member", f"serviceAccount:{service_account_email}")
                 .param("--role", "roles/pubsub.publisher")
+                .flag("--quiet")
             )
 
         step_reporter.report(
@@ -142,6 +147,7 @@ def create_topics_with_subscription(
                 .arg(subscription_id)
                 .param("--topic", topic_id)
                 .param("--project", project_id)
+                .flag("--quiet")
             )
         elif subscription_search[0].get("topic") != topic_full_name:
             step_reporter.report(
@@ -151,12 +157,14 @@ def create_topics_with_subscription(
                 GcloudCmd("pubsub subscriptions", "delete")
                 .arg(subscription_id)
                 .param("--project", project_id)
+                .flag("--quiet")
             )
             gcloud(
                 GcloudCmd("pubsub subscriptions", "create")
                 .arg(subscription_id)
                 .param("--topic", topic_id)
                 .param("--project", project_id)
+                .flag("--quiet")
             )
 
         step_reporter.report(
@@ -170,6 +178,7 @@ def create_topics_with_subscription(
                 .param("--project", project_id)
                 .param("--member", f"serviceAccount:{service_account_email}")
                 .param("--role", role)
+                .flag("--quiet")
             )
 
 
@@ -222,6 +231,7 @@ def create_secret_manager_entry(
             GcloudCmd("secrets", "create")
             .arg(SECRET_MANAGER_NAME)
             .param("--project", project_id)
+            .flag("--quiet")
         )
 
     step_reporter.report(
@@ -247,6 +257,7 @@ def create_secret_manager_entry(
             .arg(SECRET_MANAGER_NAME)
             .param("--project", project_id)
             .param("--data-file", tmp_file.name)
+            .flag("--quiet")
         )
 
 
@@ -413,7 +424,8 @@ def create_log_sinks(
             .arg(LOG_SINK_NAME)
             .param(
                 f"--{resource_container.resource_container_type}", resource_container.id
-            ),
+            )
+            .flag("--quiet"),
             "writerIdentity",
         )
         if writer_identity := sink_info.get("writerIdentity"):
@@ -426,6 +438,7 @@ def create_log_sinks(
                 .param("--project", default_project_id)
                 .param("--member", writer_identity)
                 .param("--role", "roles/pubsub.publisher")
+                .flag("--quiet")
             )
 
 
@@ -495,6 +508,7 @@ def create_dataflow_job(
                 f"parallelism={dataflow_configuration.parallelism}"
             ),
         )
+        .flag("--quiet")
     )
 
     if dataflow_configuration.is_dataflow_prime_enabled:

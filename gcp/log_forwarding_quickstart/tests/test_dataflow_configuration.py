@@ -51,11 +51,11 @@ class TestCreateDataflowStagingBucket(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[1],
-            "storage buckets create gs://dataflow-temp-test-project --project test-project --location us-central1 --uniform-bucket-level-access --soft-delete-duration 0s",
+            "storage buckets create gs://dataflow-temp-test-project --project test-project --location us-central1 --uniform-bucket-level-access --soft-delete-duration 0s --quiet",
         )
         self.assertEqual(
             actual_commands[2],
-            "storage buckets add-iam-policy-binding gs://dataflow-temp-test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/storage.objectAdmin",
+            "storage buckets add-iam-policy-binding gs://dataflow-temp-test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/storage.objectAdmin --quiet",
         )
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
@@ -83,7 +83,7 @@ class TestCreateDataflowStagingBucket(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[1],
-            "storage buckets add-iam-policy-binding gs://dataflow-temp-test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/storage.objectAdmin",
+            "storage buckets add-iam-policy-binding gs://dataflow-temp-test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/storage.objectAdmin --quiet",
         )
 
 
@@ -124,7 +124,7 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[1],
-            f"pubsub topics create {PUBSUB_TOPIC_ID} --project test-project",
+            f"pubsub topics create {PUBSUB_TOPIC_ID} --project test-project --quiet",
         )
         self.assertEqual(
             actual_commands[2],
@@ -132,15 +132,15 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[3],
-            f"pubsub subscriptions create {PUBSUB_TOPIC_ID}-subscription --topic {PUBSUB_TOPIC_ID} --project test-project",
+            f"pubsub subscriptions create {PUBSUB_TOPIC_ID}-subscription --topic {PUBSUB_TOPIC_ID} --project test-project --quiet",
         )
         self.assertEqual(
             actual_commands[4],
-            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.subscriber",
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.subscriber --quiet",
         )
         self.assertEqual(
             actual_commands[5],
-            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.viewer",
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.viewer --quiet",
         )
         self.assertEqual(
             actual_commands[6],
@@ -148,11 +148,11 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[7],
-            f"pubsub topics create {PUBSUB_DEAD_LETTER_TOPIC_ID} --project test-project",
+            f"pubsub topics create {PUBSUB_DEAD_LETTER_TOPIC_ID} --project test-project --quiet",
         )
         self.assertEqual(
             actual_commands[8],
-            f"pubsub topics add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID} --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.publisher",
+            f"pubsub topics add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID} --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.publisher --quiet",
         )
         self.assertEqual(
             actual_commands[9],
@@ -160,15 +160,15 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[10],
-            f"pubsub subscriptions create {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --topic {PUBSUB_DEAD_LETTER_TOPIC_ID} --project test-project",
+            f"pubsub subscriptions create {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --topic {PUBSUB_DEAD_LETTER_TOPIC_ID} --project test-project --quiet",
         )
         self.assertEqual(
             actual_commands[11],
-            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.subscriber",
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.subscriber --quiet",
         )
         self.assertEqual(
             actual_commands[12],
-            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.viewer",
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.viewer --quiet",
         )
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
@@ -206,11 +206,11 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[2],
-            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.subscriber",
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.subscriber --quiet",
         )
         self.assertEqual(
             actual_commands[3],
-            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.viewer",
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.viewer --quiet",
         )
         self.assertEqual(
             actual_commands[4],
@@ -218,7 +218,7 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[5],
-            f"pubsub topics add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID} --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.publisher",
+            f"pubsub topics add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID} --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.publisher --quiet",
         )
         self.assertEqual(
             actual_commands[6],
@@ -226,11 +226,11 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[7],
-            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.subscriber",
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.subscriber --quiet",
         )
         self.assertEqual(
             actual_commands[8],
-            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.viewer",
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.viewer --quiet",
         )
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
@@ -275,19 +275,19 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[2],
-            f"pubsub subscriptions delete {PUBSUB_TOPIC_ID}-subscription --project test-project",
+            f"pubsub subscriptions delete {PUBSUB_TOPIC_ID}-subscription --project test-project --quiet",
         )
         self.assertEqual(
             actual_commands[3],
-            f"pubsub subscriptions create {PUBSUB_TOPIC_ID}-subscription --topic {PUBSUB_TOPIC_ID} --project test-project",
+            f"pubsub subscriptions create {PUBSUB_TOPIC_ID}-subscription --topic {PUBSUB_TOPIC_ID} --project test-project --quiet",
         )
         self.assertEqual(
             actual_commands[4],
-            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.subscriber",
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.subscriber --quiet",
         )
         self.assertEqual(
             actual_commands[5],
-            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.viewer",
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.viewer --quiet",
         )
         self.assertEqual(
             actual_commands[6],
@@ -295,7 +295,7 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[7],
-            f"pubsub topics add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID} --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.publisher",
+            f"pubsub topics add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID} --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.publisher --quiet",
         )
         self.assertEqual(
             actual_commands[8],
@@ -303,11 +303,11 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[9],
-            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.subscriber",
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.subscriber --quiet",
         )
         self.assertEqual(
             actual_commands[10],
-            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.viewer",
+            f"pubsub subscriptions add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.viewer --quiet",
         )
 
 
@@ -379,7 +379,7 @@ class TestCreateSecretManagerEntry(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[1],
-            f"secrets create {SECRET_MANAGER_NAME} --project test-project",
+            f"secrets create {SECRET_MANAGER_NAME} --project test-project --quiet",
         )
         self.assertEqual(
             actual_commands[2],
@@ -387,7 +387,7 @@ class TestCreateSecretManagerEntry(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[3],
-            f"secrets versions add {SECRET_MANAGER_NAME} --project test-project --data-file /tmp/test",
+            f"secrets versions add {SECRET_MANAGER_NAME} --project test-project --data-file /tmp/test --quiet",
         )
 
     @patch(
@@ -445,7 +445,7 @@ class TestCreateSecretManagerEntry(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[4],
-            f"secrets versions add {SECRET_MANAGER_NAME} --project test-project --data-file /tmp/test",
+            f"secrets versions add {SECRET_MANAGER_NAME} --project test-project --data-file /tmp/test --quiet",
         )
 
 
@@ -574,11 +574,11 @@ class TestCreateLogSinks(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[2],
-            f"logging sinks describe {LOG_SINK_NAME} --project test-project",
+            f"logging sinks describe {LOG_SINK_NAME} --project test-project --quiet",
         )
         self.assertEqual(
             actual_commands[3],
-            f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} --project default-project --member serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com --role roles/pubsub.publisher",
+            f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} --project default-project --member serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com --role roles/pubsub.publisher --quiet",
         )
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
@@ -624,11 +624,11 @@ class TestCreateLogSinks(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[2],
-            f"logging sinks describe {LOG_SINK_NAME} --folder folder123",
+            f"logging sinks describe {LOG_SINK_NAME} --folder folder123 --quiet",
         )
         self.assertEqual(
             actual_commands[3],
-            f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} --project default-project --member serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com --role roles/pubsub.publisher",
+            f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} --project default-project --member serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com --role roles/pubsub.publisher --quiet",
         )
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
@@ -674,11 +674,11 @@ class TestCreateLogSinks(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[2],
-            f"logging sinks describe {LOG_SINK_NAME} --project test-project",
+            f"logging sinks describe {LOG_SINK_NAME} --project test-project --quiet",
         )
         self.assertEqual(
             actual_commands[3],
-            f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} --project default-project --member serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com --role roles/pubsub.publisher",
+            f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} --project default-project --member serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com --role roles/pubsub.publisher --quiet",
         )
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
@@ -724,11 +724,11 @@ class TestCreateLogSinks(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[2],
-            f"logging sinks describe {LOG_SINK_NAME} --folder folder123",
+            f"logging sinks describe {LOG_SINK_NAME} --folder folder123 --quiet",
         )
         self.assertEqual(
             actual_commands[3],
-            f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} --project default-project --member serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com --role roles/pubsub.publisher",
+            f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} --project default-project --member serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com --role roles/pubsub.publisher --quiet",
         )
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
@@ -777,11 +777,11 @@ class TestCreateLogSinks(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[2],
-            f"logging sinks describe {LOG_SINK_NAME} --project test-project",
+            f"logging sinks describe {LOG_SINK_NAME} --project test-project --quiet",
         )
         self.assertEqual(
             actual_commands[3],
-            f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} --project default-project --member serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com --role roles/pubsub.publisher",
+            f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} --project default-project --member serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com --role roles/pubsub.publisher --quiet",
         )
 
 
@@ -843,7 +843,7 @@ class TestCreateDataflowJob(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[2],
-            f"dataflow jobs run {DATAFLOW_JOB_NAME} --gcs-location gs://dataflow-templates-us-central1/latest/Cloud_PubSub_to_Datadog --region us-central1 --project test-project --service-account-email test-sa@project.iam.gserviceaccount.com --staging-location gs://dataflow-temp-test-project --max-workers 5 --num-workers 1 --parameters {expected_params} --worker-machine-type n1-standard-1",
+            f"dataflow jobs run {DATAFLOW_JOB_NAME} --gcs-location gs://dataflow-templates-us-central1/latest/Cloud_PubSub_to_Datadog --region us-central1 --project test-project --service-account-email test-sa@project.iam.gserviceaccount.com --staging-location gs://dataflow-temp-test-project --max-workers 5 --num-workers 1 --parameters {expected_params} --quiet --worker-machine-type n1-standard-1",
         )
 
     @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
@@ -934,7 +934,7 @@ class TestCreateDataflowJob(unittest.TestCase):
         )
         self.assertEqual(
             actual_commands[2],
-            f"dataflow jobs run {DATAFLOW_JOB_NAME} --gcs-location gs://dataflow-templates-us-central1/latest/Cloud_PubSub_to_Datadog --region us-central1 --project test-project --service-account-email test-sa@project.iam.gserviceaccount.com --staging-location gs://dataflow-temp-test-project --max-workers 5 --num-workers 1 --parameters {expected_params} --additional-experiments enable_prime",
+            f"dataflow jobs run {DATAFLOW_JOB_NAME} --gcs-location gs://dataflow-templates-us-central1/latest/Cloud_PubSub_to_Datadog --region us-central1 --project test-project --service-account-email test-sa@project.iam.gserviceaccount.com --staging-location gs://dataflow-temp-test-project --max-workers 5 --num-workers 1 --parameters {expected_params} --quiet --additional-experiments enable_prime",
         )
 
 
