@@ -14,7 +14,6 @@ from common.shell import Cmd
 
 
 def add_role_assignments(client_id: str, roles: Iterable[str], scopes: Iterable[str]) -> None:
-    """Assign an app registration the necessary permissions for Datadog to function over the given scopes."""
     with ThreadPoolExecutor(MAX_WORKERS) as executor:
         for role in roles:
             for scope in scopes:
