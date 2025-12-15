@@ -27,23 +27,21 @@ def add_role_assignments(client_id: str, roles: Iterable[str], scopes: Iterable[
                 )
 
 
+# See https://learn.microsoft.com/en-us/graph/permissions-reference for more information.
 MS_GRAPH_API = "00000003-0000-0000-c000-000000000000"
 
 
-def add_ms_graph_app_role_assignments(client_id: str, roles: Iterable[str]) -> None:
-    """Assign an app registration the necessary app roles for Datadog to function.
-
-    See https://learn.microsoft.com/en-us/graph/permissions-reference for more information."""
+def add_app_role_assignments(client_id: str, api_id: str, roles: Iterable[str]) -> None:
     execute(
         Cmd(["az", "ad", "app", "permission", "add"])
         .param("--id", client_id)
-        .param("--api", MS_GRAPH_API)
+        .param("--api", api_id)
         .param_list("--api-permissions", [f"{role}=Role" for role in roles])
     )
     execute(Cmd(["az", "ad", "app", "permission", "admin-consent"]).param("--id", client_id))
 
 
-def get_assigned_entra_role_ids(user_id: str) -> set[str]:
+def get_active_entra_role_ids(user_id: str) -> set[str]:
     return set(
         execute_json(
             Cmd(["az", "rest"])
@@ -62,7 +60,7 @@ def get_assigned_entra_role_ids(user_id: str) -> set[str]:
     )
 
 
-def get_role_permissions(role_id: Iterable[str]) -> Iterable[EntraIdPermission]:
+def get_entra_role_permissions(role_id: str) -> Iterable[EntraIdPermission]:
     return execute_json(
         Cmd(["az", "rest"])
         .param(
@@ -85,17 +83,17 @@ BUILTIN_ROLE_IDS_ALLOWING_APPLICATION_CREATE = {
 
 
 def can_create_applications_due_to_role(user_id: str) -> bool:
-    assigned_role_ids = get_assigned_entra_role_ids(user_id)
+    role_ids = get_active_entra_role_ids(user_id)
     return bool(
-        assigned_role_ids
+        role_ids
         and (
             # Short circuit to "true" if we see any of these built-in roles that allow creation of applications.
-            assigned_role_ids & BUILTIN_ROLE_IDS_ALLOWING_APPLICATION_CREATE
+            role_ids & BUILTIN_ROLE_IDS_ALLOWING_APPLICATION_CREATE
             # Otherwise check against all roles including custom roles.
             or any(
                 p
                 # TODO: Consisder parallelizing if slow. But, note that this short-circuits.
-                for p in chain.from_iterable(get_role_permissions(role_id) for role_id in assigned_role_ids)
+                for p in chain.from_iterable(get_entra_role_permissions(role_id) for role_id in role_ids)
                 if APPLICATION_CREATE_ACTION.lower() in (a.lower() for a in p["allowedResourceActions"])
             )
         )
