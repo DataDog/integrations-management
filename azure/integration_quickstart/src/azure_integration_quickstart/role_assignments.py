@@ -83,9 +83,8 @@ BUILTIN_ROLE_IDS_ALLOWING_APPLICATION_CREATE = {
 
 
 def can_create_applications_due_to_role(user_id: str) -> bool:
-    role_ids = get_active_entra_role_ids(user_id)
     return bool(
-        role_ids
+        (role_ids := get_active_entra_role_ids(user_id))
         and (
             # Short circuit to "true" if we see any of these built-in roles that allow creation of applications.
             role_ids & BUILTIN_ROLE_IDS_ALLOWING_APPLICATION_CREATE
