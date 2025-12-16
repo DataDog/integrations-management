@@ -148,6 +148,8 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             account_tags=["tag1", "tag2"],
             resource_collection_enabled=True,
             automute=False,
+            region_filter_configs=["lushy", "boo_boi"],
+            is_global_location_enabled=True,
         )
 
     @patch("gcp_integration_quickstart.integration_configuration.gcloud")
@@ -235,6 +237,8 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
                         "account_tags": ["tag1", "tag2"],
                         "resource_collection_enabled": True,
                         "automute": False,
+                        "region_filter_configs": ["lushy", "boo_boi"],
+                        "is_global_location_enabled": True,
                     },
                 }
             },
