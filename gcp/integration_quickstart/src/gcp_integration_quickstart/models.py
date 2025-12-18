@@ -2,7 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -15,6 +15,9 @@ class IntegrationConfiguration:
     account_tags: list[str]
     resource_collection_enabled: bool
     automute: bool
+
+    region_filter_configs: list[str] = field(default_factory=list)
+    is_global_location_enabled: bool = True
 
 
 @dataclass
