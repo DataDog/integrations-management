@@ -4,8 +4,9 @@
 """Configuration parsing from environment variables."""
 
 import os
-import sys
 from dataclasses import dataclass
+
+from .errors import ConfigurationError
 
 
 @dataclass
@@ -36,7 +37,11 @@ class Config:
 
 
 def parse_config() -> Config:
-    """Parse configuration from environment variables."""
+    """Parse configuration from environment variables.
+
+    Raises:
+        ConfigurationError: If required environment variables are missing.
+    """
     errors = []
 
     # Required: Datadog configuration
@@ -66,23 +71,26 @@ def parse_config() -> Config:
         errors.append("GCP_PROJECTS_TO_SCAN is required (comma-separated list)")
 
     if errors:
-        print("❌ Configuration errors:")
-        for error in errors:
-            print(f"   - {error}")
-        print()
-        print("Usage:")
-        print("  DD_API_KEY=xxx DD_APP_KEY=xxx DD_SITE=datadoghq.com \\")
-        print("  GCP_SCANNER_PROJECT=my-project GCP_REGION=us-central1 \\")
-        print("  GCP_PROJECTS_TO_SCAN=proj1,proj2,proj3 \\")
-        print("  python gcp_agentless_setup.pyz")
-        sys.exit(1)
+        usage = """
+Usage:
+  DD_API_KEY=xxx DD_APP_KEY=xxx DD_SITE=datadoghq.com \\
+  GCP_SCANNER_PROJECT=my-project GCP_REGION=us-central1 \\
+  GCP_PROJECTS_TO_SCAN=proj1,proj2,proj3 \\
+  python gcp_agentless_setup.pyz"""
+
+        raise ConfigurationError(
+            "Missing required configuration",
+            "\n".join(f"  - {e}" for e in errors) + "\n" + usage,
+        )
 
     # Parse projects list
     projects_to_scan = [p.strip() for p in projects_to_scan_str.split(",") if p.strip()]
 
     if not projects_to_scan:
-        print("❌ GCP_PROJECTS_TO_SCAN must contain at least one project")
-        sys.exit(1)
+        raise ConfigurationError(
+            "Invalid configuration",
+            "GCP_PROJECTS_TO_SCAN must contain at least one project",
+        )
 
     return Config(
         api_key=api_key,
@@ -92,4 +100,3 @@ def parse_config() -> Config:
         region=region,
         projects_to_scan=projects_to_scan,
     )
-

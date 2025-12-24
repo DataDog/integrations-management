@@ -4,6 +4,7 @@
 """Preflight checks before running Terraform."""
 
 from .config import Config
+from .errors import APIEnablementError, GCPAccessError, GCPAuthenticationError
 from .gcloud import GcloudCmd, gcloud, check_gcloud_auth
 from .reporter import Reporter
 
@@ -26,72 +27,71 @@ SCANNED_PROJECT_APIS = [
 
 
 def check_gcp_authentication(reporter: Reporter) -> None:
-    """Verify GCP authentication."""
+    """Verify GCP authentication.
+
+    Raises:
+        GCPAuthenticationError: If not authenticated with GCP.
+    """
     if not check_gcloud_auth():
-        reporter.fatal(
-            "Not authenticated with GCP",
-            "Run: gcloud auth login",
-        )
+        raise GCPAuthenticationError()
     reporter.success("GCP authentication verified")
 
 
 def check_project_access(reporter: Reporter, project: str) -> bool:
     """Check if we have access to a project."""
-    result = gcloud(
-        GcloudCmd("projects", "describe")
-        .arg(project)
-    )
-
-    if not result.success:
-        reporter.error(
-            f"Cannot access project: {project}",
-            result.stderr,
-        )
+    try:
+        gcloud(GcloudCmd("projects", "describe").arg(project))
+        return True
+    except RuntimeError as e:
+        reporter.error(f"Cannot access project: {project}", str(e))
         return False
 
-    return True
 
+def enable_api(reporter: Reporter, project: str, api: str) -> None:
+    """Enable an API in a project.
 
-def enable_api(reporter: Reporter, project: str, api: str) -> bool:
-    """Enable an API in a project."""
-    result = gcloud(
-        GcloudCmd("services", "enable")
-        .arg(api)
-        .with_project(project)
-    )
-
-    if not result.success:
-        reporter.error(
+    Raises:
+        APIEnablementError: If the API cannot be enabled.
+    """
+    try:
+        gcloud(
+            GcloudCmd("services", "enable")
+            .arg(api)
+            .param("--project", project)
+        )
+    except RuntimeError as e:
+        raise APIEnablementError(
             f"Failed to enable {api} in {project}",
-            result.stderr,
+            str(e),
         )
-        return False
-
-    return True
 
 
 def check_and_enable_apis(
     reporter: Reporter,
     project: str,
     required_apis: list[str],
-) -> bool:
-    """Check and enable required APIs in a project."""
-    # Get currently enabled APIs
-    result = gcloud(
-        GcloudCmd("services", "list")
-        .flag("--enabled")
-        .with_project(project)
-    )
+) -> None:
+    """Check and enable required APIs in a project.
 
-    if not result.success:
-        reporter.error(
-            f"Cannot list APIs for project: {project}",
-            result.stderr,
+    Raises:
+        GCPAccessError: If APIs cannot be listed.
+        APIEnablementError: If an API cannot be enabled.
+    """
+    # Get currently enabled APIs
+    try:
+        services = gcloud(
+            GcloudCmd("services", "list")
+            .flag("--enabled")
+            .param("--project", project)
         )
-        return False
+    except RuntimeError as e:
+        raise GCPAccessError(
+            f"Cannot list APIs for project: {project}",
+            str(e),
+        )
 
     enabled_apis = set()
-    for service in (result.json() or []):
+    for service in (services or []):
         # API names in list are like "compute.googleapis.com"
         name = service.get("config", {}).get("name", "")
         if name:
@@ -102,15 +102,18 @@ def check_and_enable_apis(
 
     for api in missing_apis:
         reporter.info(f"Enabling {api} in {project}...")
-        if not enable_api(reporter, project, api):
-            return False
-
-    return True
+        enable_api(reporter, project, api)
 
 
 def run_preflight_checks(config: Config, reporter: Reporter) -> None:
-    """Run all preflight checks."""
-    step = reporter.start_step("Validating prerequisites")
+    """Run all preflight checks.
+
+    Raises:
+        GCPAuthenticationError: If not authenticated with GCP.
+        GCPAccessError: If projects cannot be accessed.
+        APIEnablementError: If APIs cannot be enabled.
+    """
+    reporter.start_step("Validating prerequisites")
 
     # Check GCP authentication
     check_gcp_authentication(reporter)
@@ -123,7 +126,7 @@ def run_preflight_checks(config: Config, reporter: Reporter) -> None:
             failed_projects.append(project)
 
     if failed_projects:
-        reporter.fatal(
+        raise GCPAccessError(
             f"Cannot access {len(failed_projects)} project(s)",
             "Ensure you have 'resourcemanager.projects.get' permission on:\n"
             + "\n".join(f"  - {p}" for p in failed_projects),
@@ -133,15 +136,12 @@ def run_preflight_checks(config: Config, reporter: Reporter) -> None:
 
     # Enable APIs in scanner project
     reporter.info(f"Checking APIs in scanner project ({config.scanner_project})...")
-    if not check_and_enable_apis(reporter, config.scanner_project, SCANNER_PROJECT_APIS):
-        reporter.fatal("Failed to enable required APIs in scanner project")
+    check_and_enable_apis(reporter, config.scanner_project, SCANNER_PROJECT_APIS)
     reporter.success("Scanner project APIs ready")
 
     # Enable APIs in other scanned projects
     if config.other_projects:
         reporter.info(f"Checking APIs in {len(config.other_projects)} scanned project(s)...")
         for project in config.other_projects:
-            if not check_and_enable_apis(reporter, project, SCANNED_PROJECT_APIS):
-                reporter.fatal(f"Failed to enable required APIs in {project}")
+            check_and_enable_apis(reporter, project, SCANNED_PROJECT_APIS)
         reporter.success("Scanned project APIs ready")
-

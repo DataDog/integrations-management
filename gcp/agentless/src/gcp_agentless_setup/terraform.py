@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config
+from .errors import TerraformError
 from .gcloud import run_command
 from .reporter import Reporter
 
@@ -186,34 +187,44 @@ class TerraformRunner:
         self.work_dir = work_dir
         return work_dir
 
-    def init(self) -> bool:
-        """Run terraform init."""
+    def init(self) -> None:
+        """Run terraform init.
+
+        Raises:
+            TerraformError: If init fails.
+        """
         if not self.work_dir:
-            raise RuntimeError("Working directory not set up")
+            raise TerraformError("Working directory not set up")
 
         result = run_command(
             ["terraform", "init", "-input=false"],
             capture_output=False,  # Show output to user
         )
 
-        return result.success
+        if not result.success:
+            raise TerraformError("Terraform init failed")
 
-    def apply(self) -> bool:
-        """Run terraform apply."""
+    def apply(self) -> None:
+        """Run terraform apply.
+
+        Raises:
+            TerraformError: If apply fails.
+        """
         if not self.work_dir:
-            raise RuntimeError("Working directory not set up")
+            raise TerraformError("Working directory not set up")
 
         result = run_command(
             ["terraform", "apply", "-auto-approve", "-input=false"],
             capture_output=False,  # Show output to user
         )
 
-        return result.success
+        if not result.success:
+            raise TerraformError("Terraform apply failed")
 
     def get_outputs(self) -> dict[str, Any]:
         """Get Terraform outputs."""
         if not self.work_dir:
-            raise RuntimeError("Working directory not set up")
+            raise TerraformError("Working directory not set up")
 
         result = run_command(
             ["terraform", "output", "-json"],
@@ -226,9 +237,13 @@ class TerraformRunner:
         return {k: v.get("value") for k, v in outputs.items()}
 
     def run(self) -> dict[str, Any]:
-        """Run the full Terraform workflow."""
+        """Run the full Terraform workflow.
+
+        Raises:
+            TerraformError: If any Terraform operation fails.
+        """
         # Set up working directory
-        step = self.reporter.start_step("Generating Terraform configuration")
+        self.reporter.start_step("Generating Terraform configuration")
         work_dir = self.setup_working_directory()
         self.reporter.success(f"Configuration written to {work_dir}")
 
@@ -238,17 +253,15 @@ class TerraformRunner:
 
         try:
             # Terraform init
-            step = self.reporter.start_step("Initializing Terraform")
+            self.reporter.start_step("Initializing Terraform")
             self.reporter.info("Downloading providers (this may take a minute)...")
-            if not self.init():
-                self.reporter.fatal("Terraform init failed")
+            self.init()
             self.reporter.success("Terraform initialized")
 
             # Terraform apply
-            step = self.reporter.start_step("Deploying Agentless Scanner")
+            self.reporter.start_step("Deploying Agentless Scanner")
             self.reporter.info("Creating resources (this may take several minutes)...")
-            if not self.apply():
-                self.reporter.fatal("Terraform apply failed")
+            self.apply()
             self.reporter.success("Resources created successfully")
 
             # Get outputs
@@ -257,4 +270,3 @@ class TerraformRunner:
 
         finally:
             os.chdir(original_dir)
-

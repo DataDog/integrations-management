@@ -5,7 +5,9 @@
 
 import sys
 from dataclasses import dataclass
-from typing import Optional
+from typing import NoReturn
+
+from .errors import SetupError
 
 
 @dataclass
@@ -43,17 +45,17 @@ class Reporter:
         """Report warning message."""
         print(f"    ⚠ {message}")
 
-    def error(self, message: str, detail: Optional[str] = None) -> None:
+    def error(self, message: str, detail: str | None = None) -> None:
         """Report error message."""
         print(f"    ❌ {message}", file=sys.stderr)
         if detail:
             for line in detail.strip().split("\n"):
                 print(f"       {line}", file=sys.stderr)
 
-    def fatal(self, message: str, detail: Optional[str] = None) -> None:
-        """Report fatal error and exit."""
+    def fatal(self, message: str, detail: str | None = None) -> NoReturn:
+        """Report fatal error and raise exception."""
         self.error(message, detail)
-        sys.exit(1)
+        raise SetupError(message, detail)
 
     def complete(self) -> None:
         """Report setup complete."""
@@ -72,4 +74,3 @@ class Reporter:
         for p in projects:
             marker = "(scanner)" if p == scanner_project else ""
             print(f"    - {p} {marker}")
-

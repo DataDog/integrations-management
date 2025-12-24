@@ -4,6 +4,7 @@
 """GCS bucket management for Terraform state."""
 
 from .config import Config
+from .errors import BucketCreationError
 from .gcloud import run_command
 from .reporter import Reporter
 
@@ -28,8 +29,12 @@ def create_bucket(
     bucket_name: str,
     project: str,
     region: str,
-) -> bool:
-    """Create a GCS bucket for Terraform state."""
+) -> None:
+    """Create a GCS bucket for Terraform state.
+
+    Raises:
+        BucketCreationError: If the bucket cannot be created.
+    """
     # Use regional location based on the scanner region
     # Map region to location (e.g., us-central1 -> US, europe-west1 -> EU)
     location = region.split("-")[0].upper()  # Simple mapping: us-central1 -> US
@@ -44,11 +49,10 @@ def create_bucket(
     ])
 
     if not result.success:
-        reporter.error(
+        raise BucketCreationError(
             f"Failed to create state bucket: {bucket_name}",
             result.stderr,
         )
-        return False
 
     # Enable versioning for state protection
     result = run_command([
@@ -61,12 +65,17 @@ def create_bucket(
     if not result.success:
         reporter.warning(f"Could not enable versioning on {bucket_name}")
 
-    return True
-
 
 def ensure_state_bucket(config: Config, reporter: Reporter) -> str:
-    """Ensure the Terraform state bucket exists."""
-    step = reporter.start_step("Setting up Terraform state storage")
+    """Ensure the Terraform state bucket exists.
+
+    Raises:
+        BucketCreationError: If the bucket cannot be created.
+
+    Returns:
+        The bucket name.
+    """
+    reporter.start_step("Setting up Terraform state storage")
 
     bucket_name = get_state_bucket_name(config.scanner_project)
 
@@ -74,9 +83,7 @@ def ensure_state_bucket(config: Config, reporter: Reporter) -> str:
         reporter.success(f"Using existing state bucket: gs://{bucket_name}")
     else:
         reporter.info(f"Creating state bucket: gs://{bucket_name}")
-        if not create_bucket(reporter, bucket_name, config.scanner_project, config.region):
-            reporter.fatal("Failed to create Terraform state bucket")
+        create_bucket(reporter, bucket_name, config.scanner_project, config.region)
         reporter.success(f"Created state bucket: gs://{bucket_name}")
 
     return bucket_name
-
