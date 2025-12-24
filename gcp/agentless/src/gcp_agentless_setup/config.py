@@ -23,6 +23,9 @@ class Config:
     region: str
     projects_to_scan: list[str]
 
+    # Optional: custom GCS bucket for Terraform state
+    state_bucket: str | None = None
+
     @property
     def all_projects(self) -> list[str]:
         """All projects including scanner project (deduplicated)."""
@@ -92,6 +95,9 @@ Usage:
             "GCP_PROJECTS_TO_SCAN must contain at least one project",
         )
 
+    # Optional: custom GCS bucket for Terraform state
+    state_bucket = os.environ.get("GCP_STATE_BUCKET", "").strip() or None
+
     return Config(
         api_key=api_key,
         app_key=app_key,
@@ -99,4 +105,5 @@ Usage:
         scanner_project=scanner_project,
         region=region,
         projects_to_scan=projects_to_scan,
+        state_bucket=state_bucket,
     )

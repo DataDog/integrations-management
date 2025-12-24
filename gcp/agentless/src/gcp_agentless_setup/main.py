@@ -85,6 +85,8 @@ def main() -> None:
         print(f"  Datadog Site:     {config.site}")
         print(f"  Scanner Project:  {config.scanner_project}")
         print(f"  Region:           {config.region}")
+        if config.state_bucket:
+            print(f"  State Bucket:     {config.state_bucket} (custom)")
         print(f"  Projects to Scan: {len(config.all_projects)}")
         for p in config.all_projects:
             marker = " (scanner)" if p == config.scanner_project else ""
