@@ -740,6 +740,36 @@
               "location": "[parameters('location')]"
             },
             {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "name": "[guid(subscription().id, 'resourceTask', parameters('controlPlaneId'))]",
+              "properties": {
+                "description": "[format('ddlfo{0}', parameters('controlPlaneId'))]",
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '43d0d8ad-25c7-4714-9337-8ba259a9fe05')]",
+                "principalId": "[parameters('resourceTaskPrincipalId')]"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "name": "[guid(subscription().id, 'monitor', 'diagnosticSettings', parameters('controlPlaneId'))]",
+              "properties": {
+                "description": "[format('ddlfo{0}', parameters('controlPlaneId'))]",
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '749f88d5-cbae-40b8-bcfc-e573ddc772fa')]",
+                "principalId": "[parameters('diagnosticSettingsTaskPrincipalId')]"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "name": "[guid(subscription().id, 'initialRunMonitoringContributor', parameters('controlPlaneId'))]",
+              "properties": {
+                "description": "[format('ddlfo{0}', parameters('controlPlaneId'))]",
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '749f88d5-cbae-40b8-bcfc-e573ddc772fa')]",
+                "principalId": "[parameters('initialRunIdentityPrincipalId')]"
+              }
+            },
+            {
               "type": "Microsoft.Resources/deployments",
               "apiVersion": "2025-04-01",
               "name": "[format('resourceGroupPermissions-{0}', parameters('controlPlaneId'))]",
