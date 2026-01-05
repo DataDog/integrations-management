@@ -9,7 +9,7 @@ from typing import Any
 
 from .config import Config
 from .errors import TerraformError
-from .gcloud import run_command
+from .shell import run_command
 from .reporter import Reporter
 
 

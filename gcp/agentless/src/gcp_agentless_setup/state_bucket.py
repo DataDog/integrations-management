@@ -5,7 +5,7 @@
 
 from .config import Config
 from .errors import BucketCreationError
-from .gcloud import GcloudCmd, try_gcloud
+from gcp_shared.gcloud import GcloudCmd, try_gcloud
 from .reporter import Reporter
 
 

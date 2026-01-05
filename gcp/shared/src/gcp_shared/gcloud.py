@@ -110,3 +110,19 @@ def try_gcloud(cmd: Union[str, GcloudCmd], *keys: str) -> CommandResult:
         data=data,
         error="",
     )
+
+
+def is_authenticated() -> bool:
+    """Check if gcloud is authenticated."""
+    result = try_gcloud(GcloudCmd("auth", "list"))
+    if not result.success:
+        return False
+    return any(acc.get("status") == "ACTIVE" for acc in (result.data or []))
+
+
+def get_current_project() -> str | None:
+    """Get the current gcloud project."""
+    result = try_gcloud(GcloudCmd("config", "get-value").arg("project"))
+    if result.success and result.data and isinstance(result.data, str):
+        return result.data.strip() or None
+    return None

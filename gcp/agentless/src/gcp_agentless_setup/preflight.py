@@ -5,7 +5,7 @@
 
 from .config import Config
 from .errors import APIEnablementError, GCPAccessError, GCPAuthenticationError
-from .gcloud import GcloudCmd, gcloud, check_gcloud_auth
+from gcp_shared.gcloud import GcloudCmd, gcloud, is_authenticated
 from .reporter import Reporter
 
 
@@ -32,7 +32,7 @@ def check_gcp_authentication(reporter: Reporter) -> None:
     Raises:
         GCPAuthenticationError: If not authenticated with GCP.
     """
-    if not check_gcloud_auth():
+    if not is_authenticated():
         raise GCPAuthenticationError()
     reporter.success("GCP authentication verified")
 
