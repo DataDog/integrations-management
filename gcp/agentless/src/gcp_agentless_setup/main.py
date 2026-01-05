@@ -100,22 +100,11 @@ def main() -> None:
 
         # Steps 3-5: Run Terraform
         tf_runner = TerraformRunner(config, state_bucket, reporter)
-        outputs = tf_runner.run()
+        tf_runner.run()
 
         # Done!
         reporter.complete()
         reporter.summary(config.scanner_project, config.region, config.all_projects)
-
-        # Print useful outputs
-        if outputs:
-            print()
-            print("Resources Created:")
-            if "scanner_service_account_email" in outputs:
-                print(f"  Scanner SA: {outputs['scanner_service_account_email']}")
-            if "vpc_network_name" in outputs:
-                print(f"  VPC:        {outputs['vpc_network_name']}")
-            if "mig_name" in outputs:
-                print(f"  MIG:        {outputs['mig_name']}")
 
         print()
         print("Next Steps:")

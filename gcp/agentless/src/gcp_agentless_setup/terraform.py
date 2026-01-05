@@ -5,7 +5,6 @@
 
 import os
 from pathlib import Path
-from typing import Any
 
 from .config import Config
 from .errors import TerraformError
@@ -127,27 +126,6 @@ resource "datadog_agentless_scanning_gcp_scan_options" "scanner_project" {{
   vuln_containers_os = true
 }}
 {other_projects_tf}
-
-# Outputs
-output "scanner_service_account_email" {{
-  description = "Email of the scanner service account"
-  value       = module.datadog_agentless_scanner.scanner_service_account_email
-}}
-
-output "target_service_account_email" {{
-  description = "Email of the target service account"
-  value       = module.datadog_agentless_scanner.target_service_account_email
-}}
-
-output "vpc_network_name" {{
-  description = "Name of the VPC network"
-  value       = module.datadog_agentless_scanner.vpc_network_name
-}}
-
-output "mig_name" {{
-  description = "Name of the managed instance group"
-  value       = module.datadog_agentless_scanner.instance_group_manager
-}}
 '''
 
     return tf_config
@@ -221,22 +199,7 @@ class TerraformRunner:
         if not result.success:
             raise TerraformError("Terraform apply failed")
 
-    def get_outputs(self) -> dict[str, Any]:
-        """Get Terraform outputs."""
-        if not self.work_dir:
-            raise TerraformError("Working directory not set up")
-
-        result = run_command(
-            ["terraform", "output", "-json"],
-        )
-
-        if not result.success:
-            return {}
-
-        outputs = result.json() or {}
-        return {k: v.get("value") for k, v in outputs.items()}
-
-    def run(self) -> dict[str, Any]:
+    def run(self) -> None:
         """Run the full Terraform workflow.
 
         Raises:
@@ -263,10 +226,6 @@ class TerraformRunner:
             self.reporter.info("Creating resources (this may take several minutes)...")
             self.apply()
             self.reporter.success("Resources created successfully")
-
-            # Get outputs
-            outputs = self.get_outputs()
-            return outputs
 
         finally:
             os.chdir(original_dir)
