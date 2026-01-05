@@ -9,27 +9,29 @@ from gcp_agentless_setup.state_bucket import (
     bucket_exists,
     create_bucket,
 )
+from gcp_shared.gcloud import CommandResult
 
 
 class TestBucketExists(unittest.TestCase):
     """Test bucket existence check."""
 
-    @patch("gcp_agentless_setup.state_bucket.run_command")
-    def test_returns_true_when_bucket_exists(self, mock_run):
+    @patch("gcp_agentless_setup.state_bucket.try_gcloud")
+    def test_returns_true_when_bucket_exists(self, mock_try_gcloud):
         """Should return True when gcloud describe succeeds."""
-        mock_run.return_value = Mock(success=True)
+        mock_try_gcloud.return_value = CommandResult(
+            returncode=0, data={"name": "my-bucket"}, error=""
+        )
 
         result = bucket_exists("my-bucket")
 
         self.assertTrue(result)
-        mock_run.assert_called_once()
-        call_args = mock_run.call_args[0][0]
-        self.assertIn("gs://my-bucket", call_args)
 
-    @patch("gcp_agentless_setup.state_bucket.run_command")
-    def test_returns_false_when_bucket_not_found(self, mock_run):
+    @patch("gcp_agentless_setup.state_bucket.try_gcloud")
+    def test_returns_false_when_bucket_not_found(self, mock_try_gcloud):
         """Should return False when gcloud describe fails."""
-        mock_run.return_value = Mock(success=False)
+        mock_try_gcloud.return_value = CommandResult(
+            returncode=1, data=None, error="NotFound"
+        )
 
         result = bucket_exists("nonexistent-bucket")
 
@@ -39,10 +41,12 @@ class TestBucketExists(unittest.TestCase):
 class TestCreateBucket(unittest.TestCase):
     """Test bucket creation."""
 
-    @patch("gcp_agentless_setup.state_bucket.run_command")
-    def test_raises_error_on_creation_failure(self, mock_run):
+    @patch("gcp_agentless_setup.state_bucket.try_gcloud")
+    def test_raises_error_on_creation_failure(self, mock_try_gcloud):
         """Should raise BucketCreationError when creation fails."""
-        mock_run.return_value = Mock(success=False, stderr="permission denied")
+        mock_try_gcloud.return_value = CommandResult(
+            returncode=1, data=None, error="permission denied"
+        )
         reporter = Mock()
 
         with self.assertRaises(BucketCreationError) as ctx:

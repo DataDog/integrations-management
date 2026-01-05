@@ -5,7 +5,7 @@
 
 from .config import Config
 from .errors import BucketCreationError
-from .gcloud import run_command
+from .gcloud import GcloudCmd, try_gcloud
 from .reporter import Reporter
 
 
@@ -21,11 +21,9 @@ def get_state_bucket_name(scanner_project: str) -> str:
 
 def bucket_exists(bucket_name: str) -> bool:
     """Check if a GCS bucket exists."""
-    result = run_command([
-        "gcloud", "storage", "buckets", "describe",
-        f"gs://{bucket_name}",
-        "--format", "json",
-    ])
+    result = try_gcloud(
+        GcloudCmd("storage", "buckets").arg("describe").arg(f"gs://{bucket_name}")
+    )
     return result.success
 
 
@@ -44,28 +42,28 @@ def create_bucket(
     # Map region to location (e.g., us-central1 -> US, europe-west1 -> EU)
     location = region.split("-")[0].upper()  # Simple mapping: us-central1 -> US
 
-    result = run_command([
-        "gcloud", "storage", "buckets", "create",
-        f"gs://{bucket_name}",
-        "--project", project,
-        "--location", location,
-        "--uniform-bucket-level-access",
-        "--format", "json",
-    ])
+    result = try_gcloud(
+        GcloudCmd("storage", "buckets")
+        .arg("create")
+        .arg(f"gs://{bucket_name}")
+        .param("--project", project)
+        .param("--location", location)
+        .flag("--uniform-bucket-level-access")
+    )
 
     if not result.success:
         raise BucketCreationError(
             f"Failed to create state bucket: {bucket_name}",
-            result.stderr,
+            result.error,
         )
 
     # Enable versioning for state protection
-    result = run_command([
-        "gcloud", "storage", "buckets", "update",
-        f"gs://{bucket_name}",
-        "--versioning",
-        "--format", "json",
-    ])
+    result = try_gcloud(
+        GcloudCmd("storage", "buckets")
+        .arg("update")
+        .arg(f"gs://{bucket_name}")
+        .flag("--versioning")
+    )
 
     if not result.success:
         reporter.warning(f"Could not enable versioning on {bucket_name}")

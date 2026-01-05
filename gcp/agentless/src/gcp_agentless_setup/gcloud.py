@@ -9,15 +9,14 @@ and provides additional helper functions specific to agentless setup.
 
 import subprocess
 from dataclasses import dataclass
-from typing import Any
 
 # Re-export from gcp_shared for consistency
-from gcp_shared.gcloud import GcloudCmd, gcloud
+from gcp_shared.gcloud import CommandResult, GcloudCmd, gcloud, try_gcloud
 
 
 @dataclass
-class CommandResult:
-    """Result of a command execution."""
+class ShellResult:
+    """Result of a shell command execution (for non-gcloud commands like terraform)."""
 
     returncode: int
     stdout: str
@@ -27,23 +26,14 @@ class CommandResult:
     def success(self) -> bool:
         return self.returncode == 0
 
-    def json(self) -> Any:
-        """Parse stdout as JSON."""
-        import json
-
-        if not self.stdout.strip():
-            return None
-        return json.loads(self.stdout)
-
 
 def run_command(
     cmd: list[str],
     capture_output: bool = True,
-) -> CommandResult:
+) -> ShellResult:
     """Run a shell command and return the result.
 
-    Unlike gcloud() which raises on error, this returns a CommandResult
-    for cases where we want to handle failures gracefully.
+    For non-gcloud commands (like terraform) where we need raw stdout/stderr.
     """
     result = subprocess.run(
         cmd,
@@ -51,7 +41,7 @@ def run_command(
         text=True,
     )
 
-    return CommandResult(
+    return ShellResult(
         returncode=result.returncode,
         stdout=result.stdout if capture_output else "",
         stderr=result.stderr if capture_output else "",
@@ -60,27 +50,28 @@ def run_command(
 
 def check_gcloud_auth() -> bool:
     """Check if gcloud is authenticated."""
-    try:
-        accounts = gcloud(GcloudCmd("auth", "list"))
-        return any(acc.get("status") == "ACTIVE" for acc in (accounts or []))
-    except RuntimeError:
+    result = try_gcloud(GcloudCmd("auth", "list"))
+    if not result.success:
         return False
+    return any(acc.get("status") == "ACTIVE" for acc in (result.data or []))
 
 
 def get_current_project() -> str | None:
     """Get the current gcloud project."""
-    result = run_command(["gcloud", "config", "get-value", "project"])
-    if result.success and result.stdout.strip():
-        return result.stdout.strip()
+    result = try_gcloud(GcloudCmd("config", "get-value").arg("project"))
+    if result.success and result.data and isinstance(result.data, str):
+        return result.data.strip() or None
     return None
 
 
 # Re-export for backward compatibility
 __all__ = [
-    "GcloudCmd",
-    "gcloud",
     "CommandResult",
-    "run_command",
+    "GcloudCmd",
+    "ShellResult",
     "check_gcloud_auth",
+    "gcloud",
     "get_current_project",
+    "run_command",
+    "try_gcloud",
 ]
