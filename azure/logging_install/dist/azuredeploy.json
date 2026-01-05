@@ -477,7 +477,12 @@
               "name": "[format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation'))]",
               "location": "[parameters('controlPlaneLocation')]",
               "properties": {
-                "workloadProfiles": []
+                "workloadProfiles": [
+                  {
+                    "name": "Consumption",
+                    "workloadProfileType": "Consumption"
+                  }
+                ]
               }
             },
             {
