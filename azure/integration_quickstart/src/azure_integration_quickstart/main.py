@@ -13,7 +13,6 @@ from datetime import datetime
 from typing import TypedDict
 from urllib.error import URLError
 
-from az_shared.execute_cmd import execute, execute_json
 from az_shared.errors import (
     AccessError,
     AppRegistrationCreationPermissionsError,
@@ -21,6 +20,7 @@ from az_shared.errors import (
     AzCliNotInstalledError,
     InteractiveAuthenticationRequiredError,
 )
+from az_shared.execute_cmd import execute, execute_json
 from azure_integration_quickstart.extension.vm_extension import list_vms_for_subscriptions, set_extension_latest
 from azure_integration_quickstart.role_assignments import can_current_user_create_applications
 from azure_integration_quickstart.scopes import Scope, Subscription, flatten_scopes, report_available_scopes
@@ -31,6 +31,8 @@ from azure_logging_install.configuration import Configuration
 from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
 from azure_logging_install.main import install_log_forwarder
 from common.shell import Cmd
+
+CREATE_APP_REG_WORKFLOW_TYPE = "azure-app-registration-setup"
 
 
 def ensure_login() -> None:
@@ -176,18 +178,18 @@ def main():
 
     workflow_id = os.environ["WORKFLOW_ID"]
 
-    status = StatusReporter(workflow_id)
+    status = StatusReporter(CREATE_APP_REG_WORKFLOW_TYPE, workflow_id)
 
     # report if the user manually disconnects the script
     def interrupt_handler(*_args):
-        status.report("connection", Status.DISCONNECTED, "disconnected by user")
+        status.report("connection", Status.CANCELLED, "disconnected by user")
         exit(1)
 
     signal.signal(signal.SIGINT, interrupt_handler)
 
     # give up after 30 minutes
     def time_out():
-        status.report("connection", Status.DISCONNECTED, "session expired")
+        status.report("connection", Status.CANCELLED, "session expired")
         print(
             "\nSession expired. If you still wish to create a new Datadog configuration, please reload the onboarding page in Datadog and reconnect using the provided command."
         )
@@ -213,7 +215,7 @@ def main():
     def _check_app_registration_permissions() -> None:
         if not can_current_user_create_applications():
             error = AppRegistrationCreationPermissionsError("The current user cannot create app registrations")
-            StatusReporter(workflow_id).report(
+            StatusReporter(CREATE_APP_REG_WORKFLOW_TYPE, workflow_id).report(
                 "app_registration_permissions", Status.USER_ACTIONABLE_ERROR, error.user_action_message
             )
             raise error

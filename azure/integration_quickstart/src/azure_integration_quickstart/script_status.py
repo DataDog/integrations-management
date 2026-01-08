@@ -15,29 +15,35 @@ from azure_integration_quickstart.util import Json, dd_request
 
 
 class Status(Enum):
-    STARTED = "STARTED"
-    OK = "OK"
-    ERROR = "ERROR"
+    IN_PROGRESS = "in_progress"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    FINISHED = "finished"
+    WARN = "warn"
     USER_ACTIONABLE_ERROR = "USER_ACTIONABLE_ERROR"
-    DISCONNECTED = "DISCONNECTED"
-    WARN = "WARN"
 
 
 @dataclass
 class StatusReporter:
     EXPIRED_TOKEN_ERROR = "Lifetime validation failed, the token is expired"
 
+    workflow_type: str
     workflow_id: str
 
     def report(self, step_id: str, status: Status, message: str, metadata: Optional[Json] = None) -> None:
         """Report the status of a step in a workflow to Datadog."""
-        attributes: dict[str, Json] = {"message": message, "status": status.value, "step_id": step_id}
-        if metadata:
-            attributes["metadata"] = metadata
         dd_request(
             "POST",
-            "/api/unstable/integration/azure/setup/status",
-            {"data": {"id": self.workflow_id, "type": "add_azure_app_registration", "attributes": attributes}},
+            f"/api/unstable/integration/azure/workflow/{self.workflow_type}",
+            {
+                "data": {
+                    "id": self.workflow_id,
+                    "status": status.value,
+                    "step": step_id,
+                    "message": message,
+                    "metadata": metadata,
+                }
+            },
         )
 
     @contextmanager
@@ -45,7 +51,7 @@ class StatusReporter:
         self, step_id: str, loading_message: Optional[str] = None, required: bool = True
     ) -> Generator[dict, None, None]:
         """Report the start and outcome of a step in a workflow to Datadog."""
-        self.report(step_id, Status.STARTED, f"{step_id}: {Status.STARTED}")
+        self.report(step_id, Status.IN_PROGRESS, f"{step_id}: {Status.IN_PROGRESS}")
         step_complete: Optional[threading.Event] = None
         loading_message_thread: Optional[threading.Thread] = None
         try:
@@ -62,7 +68,7 @@ class StatusReporter:
             if loading_message_thread:
                 loading_message_thread.join()
             if self.EXPIRED_TOKEN_ERROR in repr(e):
-                self.report("connection", Status.DISCONNECTED, f"Azure CLI token expired: {e}")
+                self.report("connection", Status.CANCELLED, f"Azure CLI token expired: {e}")
                 raise
             if isinstance(e, UserRetriableError):
                 self.report(
@@ -77,7 +83,7 @@ class StatusReporter:
                     e.user_action_message,
                 )
             else:
-                self.report(step_id, Status.ERROR, f"{Status.ERROR}: {traceback.format_exc()}")
+                self.report(step_id, Status.FAILED, f"{Status.FAILED}: {traceback.format_exc()}")
             if required:
                 raise
         else:
@@ -88,7 +94,7 @@ class StatusReporter:
                 # leave line blank and cursor at the beginning
                 print(f"\r{' ' * 60}", end="")
                 print("\r", end="")
-            self.report(step_id, Status.OK, f"{step_id}: {Status.OK}", step_metadata or None)
+            self.report(step_id, Status.FINISHED, f"{step_id}: {Status.FINISHED}", step_metadata or None)
 
 
 def loading_spinner(message: str, done: threading.Event):
