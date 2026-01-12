@@ -7,12 +7,11 @@ from collections.abc import Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from typing import Literal
-from urllib.error import URLError
 
-from az_shared.execute_cmd import execute_json
 from az_shared.errors import AccessError
+from az_shared.execute_cmd import execute_json
 from azure_integration_quickstart.permissions import FlatPermission, get_flat_permission
-from azure_integration_quickstart.util import MAX_WORKERS, dd_request
+from azure_integration_quickstart.util import MAX_WORKERS
 from common.shell import Cmd
 
 ScopeType = Literal["subscription", "management_group"]
@@ -160,26 +159,11 @@ def flatten_scopes(scopes: Sequence[Scope]) -> set[Subscription]:
     )
 
 
-def report_available_scopes(workflow_id: str) -> tuple[list[Scope], list[Scope]]:
+def report_available_scopes(step_metadata: dict) -> tuple[list[Scope], list[Scope]]:
     """Send Datadog the subscriptions and management groups that the user has permission to grant access to."""
     tenant_id = execute_json(Cmd(["az", "account", "show"]).param("--query", "tenantId"))
     subscriptions = filter_scopes_by_permission(get_subscription_scopes(tenant_id))
     management_groups = filter_scopes_by_permission(get_management_group_scopes(tenant_id))
-    try:
-        dd_request(
-            "POST",
-            "/api/unstable/integration/azure/setup/scopes",
-            {
-                "data": {
-                    "id": workflow_id,
-                    "type": "add_azure_app_registration",
-                    "attributes": {
-                        "subscriptions": {"subscriptions": [asdict(s) for s in subscriptions]},
-                        "management_groups": {"management_groups": [asdict(m) for m in management_groups]},
-                    },
-                }
-            },
-        )
-    except URLError as e:
-        raise RuntimeError("Error submitting available scopes to Datadog") from e
+    step_metadata["subscriptions"] = [asdict(s) for s in subscriptions]
+    step_metadata["management_groups"] = [asdict(m) for m in management_groups]
     return subscriptions, management_groups

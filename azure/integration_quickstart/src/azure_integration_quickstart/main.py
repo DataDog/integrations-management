@@ -221,8 +221,8 @@ def main():
             raise error
 
     def _collect_scopes() -> tuple[list[Scope], list[Scope]]:
-        with status.report_step("scopes", "Collecting scopes"):
-            return report_available_scopes(workflow_id)
+        with status.report_step("scopes", "Collecting scopes") as step_metadata:
+            return report_available_scopes(step_metadata)
 
     with ThreadPoolExecutor() as executor:
         scopes_future = executor.submit(_collect_scopes)
