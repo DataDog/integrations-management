@@ -5,6 +5,7 @@
 
 import os
 from dataclasses import dataclass
+from typing import Optional
 
 from .errors import ConfigurationError
 
@@ -24,7 +25,7 @@ class Config:
     projects_to_scan: list[str]
 
     # Optional: custom GCS bucket for Terraform state
-    state_bucket: str | None = None
+    state_bucket: Optional[str] = None
 
     @property
     def all_projects(self) -> list[str]:

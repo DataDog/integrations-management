@@ -5,6 +5,7 @@
 
 import os
 from pathlib import Path
+from typing import Optional
 
 from .config import Config
 from .errors import TerraformError
@@ -146,7 +147,7 @@ class TerraformRunner:
         self.config = config
         self.state_bucket = state_bucket
         self.reporter = reporter
-        self.work_dir: Path | None = None
+        self.work_dir: Optional[Path] = None
 
     def setup_working_directory(self) -> Path:
         """Create and setup the Terraform working directory."""

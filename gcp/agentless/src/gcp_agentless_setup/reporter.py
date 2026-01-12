@@ -5,7 +5,7 @@
 
 import sys
 from dataclasses import dataclass
-from typing import NoReturn
+from typing import NoReturn, Optional
 
 from .errors import SetupError
 
@@ -45,14 +45,14 @@ class Reporter:
         """Report warning message."""
         print(f"    ⚠ {message}")
 
-    def error(self, message: str, detail: str | None = None) -> None:
+    def error(self, message: str, detail: Optional[str] = None) -> None:
         """Report error message."""
         print(f"    ❌ {message}", file=sys.stderr)
         if detail:
             for line in detail.strip().split("\n"):
                 print(f"       {line}", file=sys.stderr)
 
-    def fatal(self, message: str, detail: str | None = None) -> NoReturn:
+    def fatal(self, message: str, detail: Optional[str] = None) -> NoReturn:
         """Report fatal error and raise exception."""
         self.error(message, detail)
         raise SetupError(message, detail)

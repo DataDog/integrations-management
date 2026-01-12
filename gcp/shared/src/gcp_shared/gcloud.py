@@ -6,7 +6,7 @@ import json
 import shlex
 import subprocess
 from dataclasses import dataclass
-from typing import Any, Union
+from typing import Any, Optional, Union
 
 
 @dataclass
@@ -120,7 +120,7 @@ def is_authenticated() -> bool:
     return any(acc.get("status") == "ACTIVE" for acc in (result.data or []))
 
 
-def get_current_project() -> str | None:
+def get_current_project() -> Optional[str]:
     """Get the current gcloud project."""
     result = try_gcloud(GcloudCmd("config", "get-value").arg("project"))
     if result.success and result.data and isinstance(result.data, str):
