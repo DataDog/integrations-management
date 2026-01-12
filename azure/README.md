@@ -30,3 +30,5 @@ pip install -r 'dev_requirements.txt'
   - Ruff (Astral Software)
   - Run on Save (emeralwalk)
 - VS Code `settings.json` file already exists within this directory.
+- Open `azure` as your root folder to ensure that relative paths work correctly
+- Select the python instance from the virtualenv created above as your interpreter
