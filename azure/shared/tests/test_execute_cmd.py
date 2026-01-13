@@ -40,6 +40,7 @@ class CmdExecutionTestCase(TestCase):
         """Set up test fixtures and reset global settings"""
         self.subprocess_mock = self.patch("az_shared.execute_cmd.subprocess.run")
         self.sleep_mock = self.patch("az_shared.execute_cmd.sleep")
+        self.az_version_mock = self.patch("az_shared.execute_cmd._get_az_version", return_value="az version")
 
 
 class TestExecuteCmd(CmdExecutionTestCase):
