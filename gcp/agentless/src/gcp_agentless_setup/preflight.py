@@ -3,11 +3,17 @@
 
 """Preflight checks before running Terraform."""
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional
+
 from .config import Config
 from .errors import APIEnablementError, GCPAccessError, GCPAuthenticationError
 from gcp_shared.gcloud import GcloudCmd, gcloud, is_authenticated
 from .reporter import Reporter
 
+
+# Maximum number of parallel workers for API/project operations
+MAX_PARALLEL_WORKERS = 10
 
 # APIs that must be enabled in the scanner project
 SCANNER_PROJECT_APIS = [
@@ -37,33 +43,56 @@ def check_gcp_authentication(reporter: Reporter) -> None:
     reporter.success("GCP authentication verified")
 
 
-def check_project_access(reporter: Reporter, project: str) -> bool:
-    """Check if we have access to a project."""
-    try:
-        gcloud(GcloudCmd("projects", "describe").arg(project))
-        return True
-    except RuntimeError as e:
-        reporter.error(f"Cannot access project: {project}", str(e))
-        return False
+def check_project_access(project: str) -> tuple[str, bool, Optional[str]]:
+    """Check if we have access to a project.
 
-
-def enable_api(reporter: Reporter, project: str, api: str) -> None:
-    """Enable an API in a project.
-
-    Raises:
-        APIEnablementError: If the API cannot be enabled.
+    Returns:
+        Tuple of (project, success, error_message)
     """
     try:
-        gcloud(
-            GcloudCmd("services", "enable")
-            .arg(api)
-            .param("--project", project)
-        )
+        gcloud(GcloudCmd("projects", "describe").arg(project))
+        return project, True, None
     except RuntimeError as e:
-        raise APIEnablementError(
-            f"Failed to enable {api} in {project}",
-            str(e),
-        )
+        return project, False, str(e)
+
+
+def check_projects_access_parallel(reporter: Reporter, projects: list[str]) -> list[str]:
+    """Check access to multiple projects in parallel.
+
+    Returns:
+        List of projects that failed access check.
+    """
+    failed_projects = []
+
+    with ThreadPoolExecutor(max_workers=min(len(projects), MAX_PARALLEL_WORKERS)) as executor:
+        futures = {executor.submit(check_project_access, p): p for p in projects}
+
+        for future in as_completed(futures):
+            project, success, error = future.result()
+            if not success:
+                reporter.error(f"Cannot access project: {project}", error)
+                failed_projects.append(project)
+
+    return failed_projects
+
+
+def enable_apis_batch(project: str, apis: list[str]) -> tuple[bool, Optional[str]]:
+    """Enable multiple APIs in a single gcloud command.
+
+    Returns:
+        Tuple of (success, error_message)
+    """
+    try:
+        # Build command with all APIs as arguments
+        cmd = GcloudCmd("services", "enable")
+        for api in apis:
+            cmd.arg(api)
+        cmd.param("--project", project)
+
+        gcloud(cmd)
+        return True, None
+    except RuntimeError as e:
+        return False, str(e)
 
 
 def check_and_enable_apis(
@@ -73,9 +102,11 @@ def check_and_enable_apis(
 ) -> None:
     """Check and enable required APIs in a project.
 
+    Uses batch enablement for efficiency.
+
     Raises:
         GCPAccessError: If APIs cannot be listed.
-        APIEnablementError: If an API cannot be enabled.
+        APIEnablementError: If APIs cannot be enabled.
     """
     # Get currently enabled APIs
     try:
@@ -97,16 +128,62 @@ def check_and_enable_apis(
         if name:
             enabled_apis.add(name)
 
-    # Enable missing APIs
+    # Find missing APIs
     missing_apis = [api for api in required_apis if api not in enabled_apis]
 
-    for api in missing_apis:
-        reporter.info(f"Enabling {api} in {project}...")
-        enable_api(reporter, project, api)
+    if not missing_apis:
+        return
+
+    # Enable all missing APIs in a single batch command
+    reporter.info(f"Enabling {len(missing_apis)} API(s) in {project}...")
+    success, error = enable_apis_batch(project, missing_apis)
+
+    if not success:
+        raise APIEnablementError(
+            f"Failed to enable APIs in {project}",
+            error,
+        )
+
+
+def enable_apis_for_projects_parallel(
+    reporter: Reporter,
+    projects: list[str],
+    required_apis: list[str],
+) -> None:
+    """Enable APIs for multiple projects in parallel.
+
+    Raises:
+        APIEnablementError: If APIs cannot be enabled for any project.
+    """
+    errors = []
+
+    def enable_for_project(project: str) -> tuple[str, Optional[str]]:
+        try:
+            check_and_enable_apis(reporter, project, required_apis)
+            return project, None
+        except (GCPAccessError, APIEnablementError) as e:
+            return project, str(e)
+
+    with ThreadPoolExecutor(max_workers=min(len(projects), MAX_PARALLEL_WORKERS)) as executor:
+        futures = {executor.submit(enable_for_project, p): p for p in projects}
+
+        for future in as_completed(futures):
+            project, error = future.result()
+            if error:
+                errors.append((project, error))
+
+    if errors:
+        error_details = "\n".join(f"  - {p}: {e}" for p, e in errors)
+        raise APIEnablementError(
+            f"Failed to enable APIs in {len(errors)} project(s)",
+            error_details,
+        )
 
 
 def run_preflight_checks(config: Config, reporter: Reporter) -> None:
     """Run all preflight checks.
+
+    Uses parallel execution for faster completion.
 
     Raises:
         GCPAuthenticationError: If not authenticated with GCP.
@@ -118,12 +195,9 @@ def run_preflight_checks(config: Config, reporter: Reporter) -> None:
     # Check GCP authentication
     check_gcp_authentication(reporter)
 
-    # Check access to all projects
-    reporter.info("Checking project access...")
-    failed_projects = []
-    for project in config.all_projects:
-        if not check_project_access(reporter, project):
-            failed_projects.append(project)
+    # Check access to all projects in parallel
+    reporter.info(f"Checking access to {len(config.all_projects)} project(s)...")
+    failed_projects = check_projects_access_parallel(reporter, config.all_projects)
 
     if failed_projects:
         raise GCPAccessError(
@@ -134,14 +208,13 @@ def run_preflight_checks(config: Config, reporter: Reporter) -> None:
 
     reporter.success(f"Access verified for {len(config.all_projects)} project(s)")
 
-    # Enable APIs in scanner project
+    # Enable APIs in scanner project (has more APIs, do separately)
     reporter.info(f"Checking APIs in scanner project ({config.scanner_project})...")
     check_and_enable_apis(reporter, config.scanner_project, SCANNER_PROJECT_APIS)
     reporter.success("Scanner project APIs ready")
 
-    # Enable APIs in other scanned projects
+    # Enable APIs in other scanned projects in parallel
     if config.other_projects:
         reporter.info(f"Checking APIs in {len(config.other_projects)} scanned project(s)...")
-        for project in config.other_projects:
-            check_and_enable_apis(reporter, project, SCANNED_PROJECT_APIS)
+        enable_apis_for_projects_parallel(reporter, config.other_projects, SCANNED_PROJECT_APIS)
         reporter.success("Scanned project APIs ready")
