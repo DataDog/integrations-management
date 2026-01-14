@@ -69,15 +69,16 @@ def _get_az_version(timeout: int = AZ_VERS_TIMEOUT) -> str:
             text=True,
             timeout=timeout,
         )
-        if res.returncode == 0 and res.stdout:
-            return res.stdout.strip()
-        return f"Could not retrieve 'az version': exit {res.returncode} stdout: {res.stdout.strip()} stderr: {res.stderr.strip()}"
+        return res.stdout.strip()
     except FileNotFoundError:
         return "Could not retrieve 'az version': 'az' executable not found"
     except subprocess.TimeoutExpired:
         return f"Could not retrieve 'az version': timeout after {timeout}s"
-    except Exception as exc:
-        return f"Could not retrieve 'az version': {exc}"
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.strip() if e.stderr else ""
+        return f"Could not retrieve 'az version': exit {e.returncode}" + (f" stderr: {stderr}" if stderr else "")
+    except Exception as e:
+        return f"Could not retrieve 'az version': {e}"
 
 
 def _update_error_and_raise(
