@@ -63,7 +63,7 @@ module "datadog_agentless_scanner_{region_alias}" {{
 
   site              = var.datadog_site
   api_key_secret_id = "{api_key_secret_id}"
-  vpc_name          = "datadog-agentless-scanner-{region}"
+  vpc_name          = "dd-agentless-{region}"
 }}
 '''
 
