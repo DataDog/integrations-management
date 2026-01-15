@@ -13,6 +13,9 @@ from typing import List, Optional
 # Number of recent Terraform output lines to display
 PROGRESS_DISPLAY_LINES = 5
 
+# Maximum line length before truncation (0 = no truncation)
+PROGRESS_LINE_MAX_LENGTH = 0
+
 # Emoji for progress bar
 EMOJI_COMPLETE = "🟩"
 EMOJI_PENDING = "⬜"
@@ -23,6 +26,9 @@ PROGRESS_BAR_WIDTH = 20
 # ANSI color codes
 COLOR_GRAY = "\033[90m"  # Bright black (gray)
 COLOR_RESET = "\033[0m"
+
+# Regex to strip ANSI escape codes
+ANSI_ESCAPE_PATTERN = re.compile(r'\x1b\[[0-9;]*m')
 
 
 def is_tty() -> bool:
@@ -72,6 +78,11 @@ def build_progress_bar(completed: int, total: int) -> str:
     return f"  {bar}  {percent_str}  {completed}/{total} resources"
 
 
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape codes from text."""
+    return ANSI_ESCAPE_PATTERN.sub('', text)
+
+
 def parse_plan_total(line: str) -> Optional[int]:
     """Parse the total number of resources from terraform plan output.
     
@@ -80,24 +91,39 @@ def parse_plan_total(line: str) -> Optional[int]:
     Returns:
         Total resources to add, or None if not found.
     """
-    match = re.search(r"Plan: (\d+) to add", line)
+    # Strip ANSI codes before parsing
+    clean_line = strip_ansi(line)
+    match = re.search(r"Plan: (\d+) to add", clean_line)
     if match:
         return int(match.group(1))
     return None
 
 
+def is_plan_line(line: str) -> bool:
+    """Check if this is the plan summary line."""
+    clean_line = strip_ansi(line)
+    return "Plan:" in clean_line and "to add" in clean_line
+
+
 def is_resource_complete(line: str) -> bool:
     """Check if a line indicates a resource creation completed."""
-    return "Creation complete" in line or "Still creating" in line
+    clean_line = strip_ansi(line)
+    return "Creation complete" in clean_line or "Still creating" in clean_line
 
 
 def is_resource_created(line: str) -> bool:
     """Check if a line indicates a resource was successfully created."""
-    return "Creation complete" in line
+    clean_line = strip_ansi(line)
+    return "Creation complete" in clean_line
 
 
 class TerraformProgressDisplay:
-    """Displays Terraform apply progress with emoji progress bar."""
+    """Displays Terraform apply progress with emoji progress bar.
+    
+    Has two phases:
+    1. Plan phase: Shows all output until the "Plan:" line
+    2. Apply phase: Shows rolling progress with progress bar
+    """
     
     def __init__(self):
         self.recent_lines: deque = deque(maxlen=PROGRESS_DISPLAY_LINES)
@@ -105,6 +131,7 @@ class TerraformProgressDisplay:
         self.completed_resources: int = 0
         self.use_tty: bool = is_tty()
         self.lines_displayed: int = 0
+        self.in_apply_phase: bool = False  # Start in plan phase
     
     def _redraw(self) -> None:
         """Redraw the progress display."""
@@ -148,18 +175,29 @@ class TerraformProgressDisplay:
         if not line:
             return
         
-        # Check for plan total
+        # Check for plan total - this triggers switch to apply phase
         total = parse_plan_total(line)
         if total is not None:
             self.total_resources = total
+            # Print the plan line, then switch to apply phase
+            print(f"  {line}")
+            print()  # Empty line before progress display
+            self.in_apply_phase = True
+            return
         
+        # Plan phase: print all output directly
+        if not self.in_apply_phase:
+            print(f"  {line}")
+            return
+        
+        # Apply phase: use progress display
         # Check for resource completion
         if is_resource_created(line):
             self.completed_resources += 1
         
         # Add to recent lines (filter out noisy lines)
         if self._should_display_line(line):
-            self.recent_lines.append(self._truncate_line(line))
+            self.recent_lines.append(self._truncate_line(strip_ansi(line)))
         
         # Redraw if TTY, otherwise just print
         if self.use_tty:
@@ -170,6 +208,7 @@ class TerraformProgressDisplay:
     
     def _should_display_line(self, line: str) -> bool:
         """Check if a line should be displayed in the progress view."""
+        clean_line = strip_ansi(line)
         # Skip empty lines and some noisy terraform output
         skip_patterns = [
             "Terraform will perform",
@@ -178,18 +217,21 @@ class TerraformProgressDisplay:
             "This plan was saved to",
             "To perform exactly these",
             "─────────────────",
+            "Apply complete!",
         ]
-        return not any(pattern in line for pattern in skip_patterns)
+        return not any(pattern in clean_line for pattern in skip_patterns)
     
-    def _truncate_line(self, line: str, max_length: int = 70) -> str:
+    def _truncate_line(self, line: str) -> str:
         """Truncate a line if it's too long."""
-        if len(line) <= max_length:
+        if PROGRESS_LINE_MAX_LENGTH == 0:
             return line
-        return line[:max_length - 3] + "..."
+        if len(line) <= PROGRESS_LINE_MAX_LENGTH:
+            return line
+        return line[:PROGRESS_LINE_MAX_LENGTH - 3] + "..."
     
     def finish(self) -> None:
         """Finish the progress display and show final state."""
-        if self.use_tty:
+        if self.use_tty and self.in_apply_phase:
             # Final redraw with completion
             self._redraw()
             print()  # Add newline after progress bar
