@@ -9,6 +9,7 @@ from typing import Optional
 
 from .config import Config
 from .errors import TerraformError
+from .progress import run_terraform_with_progress
 from .shell import run_command
 from .reporter import Reporter
 
@@ -217,7 +218,7 @@ class TerraformRunner:
             raise TerraformError("Terraform init failed")
 
     def apply(self) -> None:
-        """Run terraform apply.
+        """Run terraform apply with progress display.
 
         Raises:
             TerraformError: If apply fails.
@@ -225,12 +226,12 @@ class TerraformRunner:
         if not self.work_dir:
             raise TerraformError("Working directory not set up")
 
-        result = run_command(
-            ["terraform", "apply", "-auto-approve", f"-parallelism={TERRAFORM_PARALLELISM}", "-input=false"],
-            capture_output=False,  # Show output to user
+        # Use progress display for apply
+        result = run_terraform_with_progress(
+            ["terraform", "apply", "-auto-approve", f"-parallelism={TERRAFORM_PARALLELISM}", "-input=false"]
         )
 
-        if not result.success:
+        if result.returncode != 0:
             raise TerraformError("Terraform apply failed")
 
     def run(self) -> None:
