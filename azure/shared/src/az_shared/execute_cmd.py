@@ -7,11 +7,11 @@ import re
 import subprocess
 from re import search
 from time import sleep
-from typing import Any, List, Optional, Type
+from typing import Any, Optional
 
 from common.shell import Cmd
 
-from az_shared.util import get_az_version
+from az_shared.util import get_az_and_python_version
 
 from .errors import (
     AccessError,
@@ -71,7 +71,7 @@ def execute(cmd: Cmd, can_fail: bool = False) -> str:
                 log.error(f"Command failed: {full_command}")
                 log.error(result.stderr)
                 raise RuntimeError(
-                    f"Command failed: {full_command}\nstdout: {result.stdout}\nstderr: {result.stderr}{get_az_version()}"
+                    f"Command failed: {full_command}\nstdout: {result.stdout}\nstderr: {result.stderr}{get_az_and_python_version()}"
                 )
             return result.stdout
         except subprocess.CalledProcessError as e:
@@ -120,7 +120,7 @@ def execute(cmd: Cmd, can_fail: bool = False) -> str:
             log.error(f"Command failed: {full_command}")
             log.error(stderr)
             raise RuntimeError(
-                f"Command failed: {full_command}\nstdout: {stdout}\nstderr: {stderr}{get_az_version()}"
+                f"Command failed: {full_command}\nstdout: {stdout}\nstderr: {stderr}{get_az_and_python_version()}"
             ) from e
 
     raise SystemExit(1)  # unreachable
