@@ -25,7 +25,7 @@ class TestGenerateTerraformConfig(unittest.TestCase):
             app_key="test-app-key",
             site="datadoghq.com",
             scanner_project="scanner-project",
-            region="us-central1",
+            regions=["us-central1"],
             projects_to_scan=["scanner-project", "other-project"],
         )
 
@@ -37,11 +37,12 @@ class TestGenerateTerraformConfig(unittest.TestCase):
         self.assertIn('prefix = "agentless-scanner"', tf)
 
     def test_generates_scanner_project_provider(self):
-        """Test that scanner project provider is generated."""
+        """Test that scanner project provider is generated with region alias."""
         tf = generate_terraform_config(self.config, "bucket", TEST_API_KEY_SECRET_ID)
 
         self.assertIn('project = "scanner-project"', tf)
         self.assertIn('region  = "us-central1"', tf)
+        self.assertIn('alias   = "us_central1"', tf)
 
     def test_generates_other_project_providers(self):
         """Test that providers for other projects are generated with aliases."""
@@ -77,23 +78,50 @@ class TestGenerateTerraformConfig(unittest.TestCase):
         )
         self.assertIn('gcp_project_id     = "other-project"', tf)
 
-    def test_no_extra_providers_when_only_scanner(self):
-        """Test no aliased providers when only scanning scanner project."""
+    def test_no_extra_project_providers_when_only_scanner(self):
+        """Test no aliased providers for other projects when only scanning scanner project."""
         config = Config(
             api_key="key",
             app_key="app",
             site="datadoghq.com",
             scanner_project="only-project",
-            region="us-central1",
+            regions=["us-central1"],
             projects_to_scan=["only-project"],
         )
 
         tf = generate_terraform_config(config, "bucket", TEST_API_KEY_SECRET_ID)
 
-        # Should not have any aliased providers
-        self.assertNotIn("alias   =", tf)
+        # Should have region alias but not project alias
+        self.assertIn('alias   = "us_central1"', tf)
         # Should not have impersonated SA modules
         self.assertNotIn("agentless_impersonated_sa_", tf)
+
+    def test_generates_multiple_region_providers_and_modules(self):
+        """Test that multiple regions generate multiple providers and scanner modules."""
+        config = Config(
+            api_key="key",
+            app_key="app",
+            site="datadoghq.com",
+            scanner_project="scanner-project",
+            regions=["us-central1", "europe-west1"],
+            projects_to_scan=["scanner-project"],
+        )
+
+        tf = generate_terraform_config(config, "bucket", TEST_API_KEY_SECRET_ID)
+
+        # Should have provider for each region
+        self.assertIn('alias   = "us_central1"', tf)
+        self.assertIn('alias   = "europe_west1"', tf)
+        self.assertIn('region  = "us-central1"', tf)
+        self.assertIn('region  = "europe-west1"', tf)
+
+        # Should have scanner module for each region
+        self.assertIn('module "datadog_agentless_scanner_us_central1"', tf)
+        self.assertIn('module "datadog_agentless_scanner_europe_west1"', tf)
+
+        # Should have unique VPC names
+        self.assertIn('vpc_name          = "datadog-agentless-scanner-us-central1"', tf)
+        self.assertIn('vpc_name          = "datadog-agentless-scanner-europe-west1"', tf)
 
     def test_uses_correct_module_version(self):
         """Test that the correct module version is used."""
@@ -125,7 +153,7 @@ class TestGenerateTfvars(unittest.TestCase):
             app_key="my-app-key",
             site="us5.datadoghq.com",
             scanner_project="proj",
-            region="us-central1",
+            regions=["us-central1"],
             projects_to_scan=["proj"],
         )
 

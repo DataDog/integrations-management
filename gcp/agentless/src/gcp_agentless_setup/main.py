@@ -85,7 +85,12 @@ def main() -> None:
         print("Configuration:")
         print(f"  Datadog Site:     {config.site}")
         print(f"  Scanner Project:  {config.scanner_project}")
-        print(f"  Region:           {config.region}")
+        if len(config.regions) == 1:
+            print(f"  Region:           {config.regions[0]}")
+        else:
+            print(f"  Regions:          {len(config.regions)}")
+            for r in config.regions:
+                print(f"    - {r}")
         if config.state_bucket:
             print(f"  State Bucket:     {config.state_bucket} (custom)")
         print(f"  Projects to Scan: {len(config.all_projects)}")
@@ -111,7 +116,7 @@ def main() -> None:
 
         # Done!
         reporter.complete()
-        reporter.summary(config.scanner_project, config.region, config.all_projects)
+        reporter.summary(config.scanner_project, config.regions, config.all_projects)
 
         print()
         print("Next Steps:")

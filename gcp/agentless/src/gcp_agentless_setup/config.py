@@ -10,6 +10,10 @@ from typing import Optional
 from .errors import ConfigurationError
 
 
+# Maximum number of regions that can be specified
+MAX_SCANNER_REGIONS = 4
+
+
 @dataclass
 class Config:
     """Configuration for the agentless scanner setup."""
@@ -21,7 +25,7 @@ class Config:
 
     # GCP configuration
     scanner_project: str
-    region: str
+    regions: list[str]
     projects_to_scan: list[str]
 
     # Optional: custom GCS bucket for Terraform state
@@ -66,9 +70,9 @@ def parse_config() -> Config:
     if not scanner_project:
         errors.append("SCANNER_PROJECT is required")
 
-    region = os.environ.get("SCANNER_REGION", "").strip()
-    if not region:
-        errors.append("SCANNER_REGION is required (e.g., us-central1)")
+    regions_str = os.environ.get("SCANNER_REGIONS", "").strip()
+    if not regions_str:
+        errors.append("SCANNER_REGIONS is required (e.g., us-central1 or us-central1,europe-west1)")
 
     projects_to_scan_str = os.environ.get("PROJECTS_TO_SCAN", "").strip()
     if not projects_to_scan_str:
@@ -78,7 +82,7 @@ def parse_config() -> Config:
         usage = """
 Usage:
   DD_API_KEY=xxx DD_APP_KEY=xxx DD_SITE=datadoghq.com \\
-  SCANNER_PROJECT=my-project SCANNER_REGION=us-central1 \\
+  SCANNER_PROJECT=my-project SCANNER_REGIONS=us-central1 \\
   PROJECTS_TO_SCAN=proj1,proj2,proj3 \\
   python gcp_agentless_setup.pyz"""
 
@@ -87,13 +91,32 @@ Usage:
             "\n".join(f"  - {e}" for e in errors) + "\n" + usage,
         )
 
-    # Parse projects list
-    projects_to_scan = [p.strip() for p in projects_to_scan_str.split(",") if p.strip()]
+    # Parse and deduplicate regions list
+    regions = list(dict.fromkeys(
+        r.strip() for r in regions_str.split(",") if r.strip()
+    ))
+
+    if not regions:
+        raise ConfigurationError(
+            "Invalid configuration",
+            "SCANNER_REGIONS must contain at least one region",
+        )
+
+    if len(regions) > MAX_SCANNER_REGIONS:
+        raise ConfigurationError(
+            "Invalid configuration",
+            f"SCANNER_REGIONS cannot exceed {MAX_SCANNER_REGIONS} regions (got {len(regions)})",
+        )
+
+    # Parse and deduplicate projects list
+    projects_to_scan = list(dict.fromkeys(
+        p.strip() for p in projects_to_scan_str.split(",") if p.strip()
+    ))
 
     if not projects_to_scan:
         raise ConfigurationError(
             "Invalid configuration",
-            "GCP_PROJECTS_TO_SCAN must contain at least one project",
+            "PROJECTS_TO_SCAN must contain at least one project",
         )
 
     # Optional: custom GCS bucket for Terraform state
@@ -104,7 +127,7 @@ Usage:
         app_key=app_key,
         site=site,
         scanner_project=scanner_project,
-        region=region,
+        regions=regions,
         projects_to_scan=projects_to_scan,
         state_bucket=state_bucket,
     )

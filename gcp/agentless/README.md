@@ -20,7 +20,7 @@ DD_API_KEY="your-api-key" \
 DD_APP_KEY="your-app-key" \
 DD_SITE="datadoghq.com" \
 SCANNER_PROJECT="my-scanner-project" \
-SCANNER_REGION="us-central1" \
+SCANNER_REGIONS="us-central1" \
 PROJECTS_TO_SCAN="project1,project2,project3" \
 python gcp_agentless_setup.pyz
 ```
@@ -33,7 +33,7 @@ python gcp_agentless_setup.pyz
 | `DD_APP_KEY` | Yes | Datadog Application key |
 | `DD_SITE` | Yes | Datadog site (e.g., `datadoghq.com`, `datadoghq.eu`) |
 | `SCANNER_PROJECT` | Yes | GCP project where the scanner VM will be deployed |
-| `SCANNER_REGION` | Yes | GCP region for the scanner (e.g., `us-central1`) |
+| `SCANNER_REGIONS` | Yes | Comma-separated list of GCP regions (max 4) for scanners (e.g., `us-central1` or `us-central1,europe-west1`) |
 | `PROJECTS_TO_SCAN` | Yes | Comma-separated list of GCP projects to scan |
 | `TF_STATE_BUCKET` | No | Custom GCS bucket for Terraform state (see below) |
 

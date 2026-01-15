@@ -92,7 +92,7 @@ def ensure_state_bucket(config: Config, reporter: Reporter) -> str:
         if not bucket_exists(bucket_name):
             reporter.fatal(
                 f"Custom state bucket does not exist: gs://{bucket_name}",
-                "Create the bucket first or remove GCP_STATE_BUCKET to use the default.",
+                "Create the bucket first or remove TF_STATE_BUCKET to use the default.",
             )
         reporter.success(f"Using custom state bucket: gs://{bucket_name}")
     else:
@@ -101,7 +101,8 @@ def ensure_state_bucket(config: Config, reporter: Reporter) -> str:
             reporter.success(f"Using existing state bucket: gs://{bucket_name}")
         else:
             reporter.info(f"Creating state bucket: gs://{bucket_name}")
-            create_bucket(reporter, bucket_name, config.scanner_project, config.region)
+            # Use the first region for bucket location
+            create_bucket(reporter, bucket_name, config.scanner_project, config.regions[0])
             reporter.success(f"Created state bucket: gs://{bucket_name}")
 
     return bucket_name
