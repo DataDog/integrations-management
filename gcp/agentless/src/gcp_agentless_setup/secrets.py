@@ -124,20 +124,20 @@ def ensure_api_key_secret(
 
     if not is_secret_existing(project):
         # Secret doesn't exist - create it
-        reporter.info(f"Creating API key secret in Secret Manager...")
+        reporter.info(f"Creating secret in project {project}...")
         create_secret(project, api_key)
-        reporter.success("API key stored in Secret Manager")
+        reporter.success(f"API key stored: {secret_id}")
     else:
         # Secret exists - check if value matches
         current_value = get_secret_value(project)
 
         if current_value == api_key:
-            reporter.success("API key secret already exists (unchanged)")
+            reporter.success(f"API key secret exists (unchanged): {secret_id}")
         else:
             # Value is different - add new version
-            reporter.info("Updating API key secret in Secret Manager...")
+            reporter.info(f"Updating secret in project {project}...")
             add_secret_version(project, api_key)
-            reporter.success("API key secret updated")
+            reporter.success(f"API key secret updated: {secret_id}")
 
     return secret_id
 
