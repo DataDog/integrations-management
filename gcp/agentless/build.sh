@@ -5,6 +5,13 @@
 
 set -e  # Exit on error
 
+# Check if rebuild is needed (skip if no source files changed)
+if [[ -f agentless/dist/gcp_agentless_setup.pyz ]] && \
+   [[ -z $(find shared/src agentless/src -newer agentless/dist/gcp_agentless_setup.pyz 2>/dev/null) ]]; then
+  echo "No changes detected, skipping build."
+  exit 0
+fi
+
 echo "Building gcp_agentless_setup.pyz..."
 
 # Clean up previous build
