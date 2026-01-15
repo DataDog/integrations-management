@@ -41,6 +41,10 @@ class BucketCreationError(SetupError):
     """Failed to create a GCS bucket."""
 
 
+class SecretManagerError(SetupError):
+    """Error during Secret Manager operations."""
+
+
 class TerraformError(SetupError):
     """Terraform operation failed."""
 

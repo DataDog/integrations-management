@@ -21,8 +21,14 @@ MODULE_SOURCE = f"git::https://github.com/DataDog/terraform-module-datadog-agent
 MODULE_SOURCE_SA = f"git::https://github.com/DataDog/terraform-module-datadog-agentless-scanner//gcp/modules/agentless-impersonated-service-account?ref={MODULE_VERSION}"
 
 
-def generate_terraform_config(config: Config, state_bucket: str) -> str:
-    """Generate the Terraform configuration."""
+def generate_terraform_config(config: Config, state_bucket: str, api_key_secret_id: str) -> str:
+    """Generate the Terraform configuration.
+
+    Args:
+        config: Setup configuration.
+        state_bucket: GCS bucket for Terraform state.
+        api_key_secret_id: Full Secret Manager secret ID for the API key.
+    """
 
     # Build the list of scanned projects for the impersonated SA module
     other_projects_tf = ""
@@ -89,19 +95,12 @@ provider "google" {{
 
 # Provider for Datadog
 provider "datadog" {{
-  api_key = var.datadog_api_key
   app_key = var.datadog_app_key
   api_url = "https://api.${{var.datadog_site}}/"
 }}
 {other_providers_tf}
 
 # Variables
-variable "datadog_api_key" {{
-  description = "Datadog API key"
-  type        = string
-  sensitive   = true
-}}
-
 variable "datadog_app_key" {{
   description = "Datadog Application key"
   type        = string
@@ -117,9 +116,9 @@ variable "datadog_site" {{
 module "datadog_agentless_scanner" {{
   source = "{MODULE_SOURCE}"
 
-  site     = var.datadog_site
-  api_key  = var.datadog_api_key
-  vpc_name = "datadog-agentless-scanner"
+  site              = var.datadog_site
+  api_key_secret_id = "{api_key_secret_id}"
+  vpc_name          = "datadog-agentless-scanner"
 }}
 
 # Enable agentless scanning for the scanner project
@@ -136,8 +135,7 @@ resource "datadog_agentless_scanning_gcp_scan_options" "scanner_project" {{
 
 def generate_tfvars(config: Config) -> str:
     """Generate the terraform.tfvars content."""
-    return f'''datadog_api_key = "{config.api_key}"
-datadog_app_key = "{config.app_key}"
+    return f'''datadog_app_key = "{config.app_key}"
 datadog_site    = "{config.site}"
 '''
 
@@ -145,9 +143,16 @@ datadog_site    = "{config.site}"
 class TerraformRunner:
     """Runs Terraform commands in a working directory."""
 
-    def __init__(self, config: Config, state_bucket: str, reporter: Reporter):
+    def __init__(
+        self,
+        config: Config,
+        state_bucket: str,
+        api_key_secret_id: str,
+        reporter: Reporter,
+    ):
         self.config = config
         self.state_bucket = state_bucket
+        self.api_key_secret_id = api_key_secret_id
         self.reporter = reporter
         self.work_dir: Optional[Path] = None
 
@@ -159,7 +164,9 @@ class TerraformRunner:
 
         # Write main.tf
         main_tf = work_dir / "main.tf"
-        main_tf.write_text(generate_terraform_config(self.config, self.state_bucket))
+        main_tf.write_text(
+            generate_terraform_config(self.config, self.state_bucket, self.api_key_secret_id)
+        )
 
         # Write terraform.tfvars
         tfvars = work_dir / "terraform.tfvars"

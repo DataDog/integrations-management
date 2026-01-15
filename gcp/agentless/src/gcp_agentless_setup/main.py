@@ -12,12 +12,13 @@ from .config import parse_config
 from .errors import SetupError
 from .preflight import run_preflight_checks
 from .reporter import Reporter
+from .secrets import ensure_api_key_secret
 from .state_bucket import ensure_state_bucket
 from .terraform import TerraformRunner
 
 
 # Total number of steps in the setup process
-TOTAL_STEPS = 5
+TOTAL_STEPS = 6
 
 # Session timeout in minutes (Cloud Shell times out after 20 min of inactivity,
 # but we set 30 min to account for Terraform operations keeping the session alive)
@@ -98,8 +99,14 @@ def main() -> None:
         # Step 2: Ensure state bucket exists
         state_bucket = ensure_state_bucket(config, reporter)
 
-        # Steps 3-5: Run Terraform
-        tf_runner = TerraformRunner(config, state_bucket, reporter)
+        # Step 3: Store API key in Secret Manager
+        reporter.start_step("Storing API key in Secret Manager")
+        api_key_secret_id = ensure_api_key_secret(
+            reporter, config.scanner_project, config.api_key
+        )
+
+        # Steps 4-6: Run Terraform
+        tf_runner = TerraformRunner(config, state_bucket, api_key_secret_id, reporter)
         tf_runner.run()
 
         # Done!
