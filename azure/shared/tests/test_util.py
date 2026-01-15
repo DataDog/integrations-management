@@ -36,7 +36,9 @@ class TestGetAzAndPythonVersion(TestCase):
         """Test az version returns a message on timeout."""
         subprocess_mock = self.patch("az_shared.util.subprocess.run")
         subprocess_mock.side_effect = TimeoutExpired(cmd="az version", timeout=AZ_VERS_TIMEOUT)
-        self.assertEqual(get_az_and_python_version(), "\nCould not retrieve 'az version': timeout after 5s")
+        self.assertEqual(
+            get_az_and_python_version(), "\nCould not retrieve 'az version': timeout after 5s\npython version: 3.9.22"
+        )
         subprocess_mock.assert_called_once_with(
             ["az", "version", "--output", "json"],
             check=True,
@@ -46,10 +48,10 @@ class TestGetAzAndPythonVersion(TestCase):
         )
 
     def test_get_az_and_python_version_exception(self):
-        """Test az and/or python version returns a message on unexpected exceptions."""
+        """Test az version returns a message on unexpected exceptions and that python version is still returned."""
         subprocess_mock = self.patch("az_shared.util.subprocess.run")
         subprocess_mock.side_effect = ValueError("bad")
-        self.assertEqual(get_az_and_python_version(), "\nCould not retrieve 'az and/or python version': bad")
+        self.assertEqual(get_az_and_python_version(), "\nCould not retrieve 'az version': bad\npython version: 3.9.22")
         subprocess_mock.assert_called_once_with(
             ["az", "version", "--output", "json"],
             check=True,
