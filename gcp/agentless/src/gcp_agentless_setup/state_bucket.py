@@ -35,20 +35,23 @@ def create_bucket(
 ) -> None:
     """Create a GCS bucket for Terraform state.
 
+    Security features enabled:
+    - Regional storage (data stays in the specified region for compliance)
+    - Uniform bucket-level access (simplified, more secure IAM)
+    - Public access prevention (bucket can never be made public)
+    - Versioning (protects against accidental state corruption/deletion)
+
     Raises:
         BucketCreationError: If the bucket cannot be created.
     """
-    # Use regional location based on the scanner region
-    # Map region to location (e.g., us-central1 -> US, europe-west1 -> EU)
-    location = region.split("-")[0].upper()  # Simple mapping: us-central1 -> US
-
     result = try_gcloud(
         GcloudCmd("storage", "buckets")
         .arg("create")
         .arg(f"gs://{bucket_name}")
         .param("--project", project)
-        .param("--location", location)
+        .param("--location", region)  # Use actual region for data residency compliance
         .flag("--uniform-bucket-level-access")
+        .flag("--public-access-prevention=enforced")
     )
 
     if not result.success:
