@@ -51,15 +51,10 @@ class Subscription(Scope):
 
 
 @dataclass
-class SubscriptionList:
-    subscriptions: list[Subscription]
-
-
-@dataclass
 class ManagementGroup(Scope):
     """An Azure management group."""
 
-    subscriptions: SubscriptionList
+    subscriptions: list[Subscription]
 
     @property
     def scope_type(self) -> ScopeType:
@@ -71,9 +66,7 @@ class ManagementGroup(Scope):
 
     @staticmethod
     def from_dict(d: dict) -> "ManagementGroup":
-        return ManagementGroup(
-            d["id"], d["name"], SubscriptionList([Subscription(**s) for s in d["subscriptions"]["subscriptions"]])
-        )
+        return ManagementGroup(d["id"], d["name"], [Subscription(**s) for s in d["subscriptions"]])
 
 
 @dataclass
@@ -124,7 +117,7 @@ def get_management_group_from_list_result(list_result: ManagementGroupListResult
         subscriptions = [Subscription(**s) for s in subscriptions_az_response if s["id"].startswith("/subscriptions/")]
     else:
         subscriptions = []
-    return ManagementGroup(list_result.id, list_result.name, SubscriptionList(subscriptions))
+    return ManagementGroup(list_result.id, list_result.name, subscriptions)
 
 
 def get_management_group_scopes(tenant_id: str) -> list[ManagementGroup]:
@@ -151,11 +144,7 @@ def flatten_scopes(scopes: Sequence[Scope]) -> set[Subscription]:
     """Convert a list of scopes into a set of subscriptions, with management groups represented as their constituent subscriptions"""
     return set(
         [s for s in scopes if isinstance(s, Subscription)]
-        + [
-            s
-            for subs in [m.subscriptions.subscriptions for m in scopes if isinstance(m, ManagementGroup)]
-            for s in subs
-        ]
+        + [s for subs in [m.subscriptions for m in scopes if isinstance(m, ManagementGroup)] for s in subs]
     )
 
 
