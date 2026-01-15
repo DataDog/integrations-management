@@ -5,7 +5,7 @@
 
 from typing import Optional
 
-from gcp_shared.gcloud import GcloudCmd, gcloud, try_gcloud
+from gcp_shared.gcloud import GcloudCmd, try_gcloud
 from .errors import SecretManagerError
 from .reporter import Reporter
 
@@ -34,8 +34,10 @@ def get_secret_value(project: str) -> Optional[str]:
     Returns:
         The secret value, or None if the secret doesn't exist or has no versions.
     """
+    import base64
+
     result = try_gcloud(
-        GcloudCmd("secrets", "versions", "access")
+        GcloudCmd("secrets versions", "access")
         .arg("latest")
         .param("--secret", API_KEY_SECRET_NAME)
         .param("--project", project)
@@ -44,9 +46,14 @@ def get_secret_value(project: str) -> Optional[str]:
     if not result.success:
         return None
 
-    # gcloud returns the raw secret data (not JSON for this command)
-    if isinstance(result.data, str):
-        return result.data.strip()
+    # JSON format returns {"payload": {"data": "BASE64_ENCODED_VALUE"}}
+    try:
+        payload_data = result.data.get("payload", {}).get("data")
+        if payload_data:
+            return base64.b64decode(payload_data).decode("utf-8")
+    except (AttributeError, KeyError, ValueError):
+        pass
+
     return None
 
 
