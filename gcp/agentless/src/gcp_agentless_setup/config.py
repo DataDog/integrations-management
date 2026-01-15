@@ -62,24 +62,24 @@ def parse_config() -> Config:
         errors.append("DD_SITE is required (e.g., datadoghq.com, datadoghq.eu, us5.datadoghq.com). See https://docs.datadoghq.com/getting_started/site/")
 
     # Required: GCP configuration
-    scanner_project = os.environ.get("GCP_SCANNER_PROJECT", "").strip()
+    scanner_project = os.environ.get("SCANNER_PROJECT", "").strip()
     if not scanner_project:
-        errors.append("GCP_SCANNER_PROJECT is required")
+        errors.append("SCANNER_PROJECT is required")
 
-    region = os.environ.get("GCP_REGION", "").strip()
+    region = os.environ.get("SCANNER_REGION", "").strip()
     if not region:
-        errors.append("GCP_REGION is required (e.g., us-central1)")
+        errors.append("SCANNER_REGION is required (e.g., us-central1)")
 
-    projects_to_scan_str = os.environ.get("GCP_PROJECTS_TO_SCAN", "").strip()
+    projects_to_scan_str = os.environ.get("PROJECTS_TO_SCAN", "").strip()
     if not projects_to_scan_str:
-        errors.append("GCP_PROJECTS_TO_SCAN is required (comma-separated list)")
+        errors.append("PROJECTS_TO_SCAN is required (comma-separated list)")
 
     if errors:
         usage = """
 Usage:
   DD_API_KEY=xxx DD_APP_KEY=xxx DD_SITE=datadoghq.com \\
-  GCP_SCANNER_PROJECT=my-project GCP_REGION=us-central1 \\
-  GCP_PROJECTS_TO_SCAN=proj1,proj2,proj3 \\
+  SCANNER_PROJECT=my-project SCANNER_REGION=us-central1 \\
+  PROJECTS_TO_SCAN=proj1,proj2,proj3 \\
   python gcp_agentless_setup.pyz"""
 
         raise ConfigurationError(
@@ -97,7 +97,7 @@ Usage:
         )
 
     # Optional: custom GCS bucket for Terraform state
-    state_bucket = os.environ.get("GCP_STATE_BUCKET", "").strip() or None
+    state_bucket = os.environ.get("TF_STATE_BUCKET", "").strip() or None
 
     return Config(
         api_key=api_key,
