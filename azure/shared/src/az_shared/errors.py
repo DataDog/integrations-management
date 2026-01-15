@@ -8,14 +8,14 @@ from az_shared.util import get_az_version
 
 
 # Errors that prevent script from completing successfully
-class AzCliError(Exception):
+class AzIntegrationError(Exception):
     """Base exception that appends az version details to the error message."""
 
     def __init__(self, error_message: str):
         super().__init__(f"{error_message}{get_az_version()}")
 
 
-class FatalError(AzCliError):
+class FatalError(AzIntegrationError):
     """An error that prevents the installation from completing successfully."""
 
 
@@ -32,7 +32,7 @@ def format_error_details(error_message: str) -> str:
 
 
 # Errors users can resolve through manual action
-class UserActionRequiredError(AzCliError):
+class UserActionRequiredError(AzIntegrationError):
     """An error that requires user action to resolve."""
 
     def __init__(self, error_message: str, user_action_message: str):
@@ -154,9 +154,9 @@ class AzCliNotAuthenticatedError(UserRetriableError):
 
 
 # Expected Errors
-class RateLimitExceededError(AzCliError):
+class RateLimitExceededError(AzIntegrationError):
     """We have exceeded the rate limit for the Azure API. Script will retry until MAX_RETRIES are reached."""
 
 
-class ResourceNotFoundError(AzCliError):
+class ResourceNotFoundError(AzIntegrationError):
     """Azure resource was not found. This gets thrown during some resource existence checks."""
