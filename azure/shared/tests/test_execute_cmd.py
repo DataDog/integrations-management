@@ -9,6 +9,8 @@ from unittest.mock import patch as mock_patch
 
 from az_shared.errors import (
     AccessError,
+    DisabledSubscriptionError,
+    InteractiveAuthenticationRequiredError,
     PolicyError,
     RateLimitExceededError,
     RefreshTokenError,
@@ -18,6 +20,7 @@ from az_shared.errors import (
 from az_shared.execute_cmd import (
     AUTH_FAILED_ERROR,
     MAX_RETRIES,
+    PERMISSION_REQUIRED_ERROR,
     REFRESH_TOKEN_EXPIRED_ERROR,
     RESOURCE_NOT_FOUND_ERROR,
     execute,
@@ -40,6 +43,11 @@ class CmdExecutionTestCase(TestCase):
         """Set up test fixtures and reset global settings"""
         self.subprocess_mock = self.patch("az_shared.execute_cmd.subprocess.run")
         self.sleep_mock = self.patch("az_shared.execute_cmd.sleep")
+        self.az_version_mock = self.patch("az_shared.execute_cmd.get_az_version", return_value="az_version")
+        self.errors_az_version_mock = self.patch("az_shared.errors.get_az_version", return_value="az_version")
+
+    def assert_has_az_version(self, exc: BaseException) -> None:
+        self.assertTrue(any(isinstance(arg, str) and "az_version" in arg for arg in exc.args))
 
 
 class TestExecuteCmd(CmdExecutionTestCase):
@@ -67,6 +75,7 @@ class TestExecuteCmd(CmdExecutionTestCase):
         with self.assertRaises(AccessError) as e:
             execute(cmd)
             self.assertIsInstance(e, UserActionRequiredError)
+        self.assert_has_az_version(e.exception)
 
     def test_execute_refresh_token_error(self):
         """Test execute handles refresh token errors"""
@@ -79,6 +88,7 @@ class TestExecuteCmd(CmdExecutionTestCase):
         with self.assertRaises(RefreshTokenError) as e:
             execute(cmd)
             self.assertIsInstance(e, UserActionRequiredError)
+        self.assert_has_az_version(e.exception)
 
     def test_execute_resource_not_found_error(self):
         """Test execute handles resource not found errors"""
@@ -88,8 +98,9 @@ class TestExecuteCmd(CmdExecutionTestCase):
         error.stderr = f"{RESOURCE_NOT_FOUND_ERROR}: The resource was not found"
         self.subprocess_mock.side_effect = error
 
-        with self.assertRaises(ResourceNotFoundError):
+        with self.assertRaises(ResourceNotFoundError) as e:
             execute(cmd)
+        self.assert_has_az_version(e.exception)
 
     def test_execute_rate_limit_error_with_retry(self):
         """Test execute retries on rate limit errors"""
@@ -119,8 +130,9 @@ class TestExecuteCmd(CmdExecutionTestCase):
         error.stderr = "TooManyRequests: Rate limit exceeded"
         self.subprocess_mock.side_effect = error
 
-        with self.assertRaises(RateLimitExceededError):
+        with self.assertRaises(RateLimitExceededError) as e:
             execute(cmd)
+        self.assert_has_az_version(e.exception)
 
         # Should retry MAX_RETRIES times
         self.assertEqual(self.subprocess_mock.call_count, MAX_RETRIES)
@@ -161,6 +173,7 @@ ERROR: (RequestDisallowedByPolicy) {EXAMPLE_POLICY_ERROR}"""
             ctx.exception.user_action_message,
             f"Unable to create Datadog integration due to your policy {EXAMPLE_POLICY_NAME}. In order to install the Datadog integration you will have to modify this policy or select scopes where it does not apply.\n\nError Details:\n{EXAMPLE_POLICY_ERROR}",
         )
+        self.assert_has_az_version(ctx.exception)
 
     def test_execute_subprocess_exception(self):
         """Test execute handles subprocess exceptions"""
@@ -171,5 +184,46 @@ ERROR: (RequestDisallowedByPolicy) {EXAMPLE_POLICY_ERROR}"""
         error.stderr = "Some generic error"
         self.subprocess_mock.side_effect = error
 
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(RuntimeError) as e:
             execute(cmd)
+        self.assert_has_az_version(e.exception)
+
+    def test_execute_permission_required_error(self):
+        """Test execute handles permission required errors"""
+        cmd = Cmd(["az", "functionapp", "create"])
+
+        error = CalledProcessError(1, "az")
+        error.stderr = f"{PERMISSION_REQUIRED_ERROR}: additional permission is needed"
+        self.subprocess_mock.side_effect = error
+
+        with self.assertRaises(AccessError) as e:
+            execute(cmd)
+        self.assert_has_az_version(e.exception)
+
+    def test_execute_interactive_authentication_required(self):
+        """Test execute handles interactive authentication required errors"""
+        cmd = Cmd(["az", "functionapp", "create"])
+
+        error = CalledProcessError(1, "az")
+        error.stderr = (
+            "Run the command below to authenticate interactively:\n"
+            "az login --scope foo\n"
+            "az account set --subscription bar\n"
+        )
+        self.subprocess_mock.side_effect = error
+
+        with self.assertRaises(InteractiveAuthenticationRequiredError) as e:
+            execute(cmd)
+        self.assert_has_az_version(e.exception)
+
+    def test_execute_disabled_subscription_error(self):
+        """Test execute handles disabled subscription errors."""
+        cmd = Cmd(["az", "functionapp", "create"])
+
+        error = CalledProcessError(1, "az")
+        error.stderr = "DisabledSubscription: subscription is disabled"
+        self.subprocess_mock.side_effect = error
+
+        with self.assertRaises(DisabledSubscriptionError) as e:
+            execute(cmd)
+        self.assert_has_az_version(e.exception)

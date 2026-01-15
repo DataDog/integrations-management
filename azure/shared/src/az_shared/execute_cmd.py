@@ -7,9 +7,11 @@ import re
 import subprocess
 from re import search
 from time import sleep
-from typing import Any, Optional
+from typing import Any, List, Optional, Type
 
 from common.shell import Cmd
+
+from az_shared.util import get_az_version
 
 from .errors import (
     AccessError,
@@ -68,7 +70,9 @@ def execute(cmd: Cmd, can_fail: bool = False) -> str:
             if result.returncode != 0 and not can_fail:
                 log.error(f"Command failed: {full_command}")
                 log.error(result.stderr)
-                raise RuntimeError(f"Command failed: {full_command}\nstdout: {result.stdout}\nstderr: {result.stderr}")
+                raise RuntimeError(
+                    f"Command failed: {full_command}\nstdout: {result.stdout}\nstderr: {result.stderr}{get_az_version()}"
+                )
             return result.stdout
         except subprocess.CalledProcessError as e:
             stderr = str(e.stderr)
@@ -90,7 +94,7 @@ def execute(cmd: Cmd, can_fail: bool = False) -> str:
                 error_message = f"Insufficient permissions to access resource when executing '{str(cmd)}'"
                 error_details = check_access_error(stderr)
                 if error_details:
-                    raise AccessError(f"{error_message}: {error_details}") from e
+                    error_message = f"{error_message}: {error_details}"
                 raise AccessError(error_message) from e
             if POLICY_ERROR in stderr:
                 error_before_and_after_code = stderr.split(f"({POLICY_ERROR}) ")
@@ -115,7 +119,9 @@ def execute(cmd: Cmd, can_fail: bool = False) -> str:
                 return ""
             log.error(f"Command failed: {full_command}")
             log.error(stderr)
-            raise RuntimeError(f"Command failed: {full_command}\nstdout: {stdout}\nstderr: {stderr}") from e
+            raise RuntimeError(
+                f"Command failed: {full_command}\nstdout: {stdout}\nstderr: {stderr}{get_az_version()}"
+            ) from e
 
     raise SystemExit(1)  # unreachable
 
