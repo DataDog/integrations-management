@@ -20,6 +20,10 @@ EMOJI_PENDING = "⬜"
 # Progress bar width (number of emoji)
 PROGRESS_BAR_WIDTH = 20
 
+# ANSI color codes
+COLOR_GRAY = "\033[90m"  # Bright black (gray)
+COLOR_RESET = "\033[0m"
+
 
 def is_tty() -> bool:
     """Check if stdout is a TTY (supports ANSI escape codes)."""
@@ -114,15 +118,15 @@ class TerraformProgressDisplay:
         # Clear and redraw each line
         lines_to_draw: List[str] = []
         
-        # Add recent terraform output lines
+        # Add recent terraform output lines (in gray)
         for line in self.recent_lines:
-            lines_to_draw.append(f"  {line}")
+            lines_to_draw.append(f"  {COLOR_GRAY}{line}{COLOR_RESET}")
         
         # Pad with empty lines if we don't have enough
         while len(lines_to_draw) < PROGRESS_DISPLAY_LINES:
             lines_to_draw.append("")
         
-        # Add progress bar
+        # Add progress bar (normal color)
         lines_to_draw.append("")
         lines_to_draw.append(build_progress_bar(self.completed_resources, self.total_resources))
         
