@@ -51,7 +51,7 @@ def create_bucket(
         .param("--project", project)
         .param("--location", region)  # Use actual region for data residency compliance
         .flag("--uniform-bucket-level-access")
-        .flag("--public-access-prevention=enforced")
+        .flag("--pap")
     )
 
     if not result.success:
