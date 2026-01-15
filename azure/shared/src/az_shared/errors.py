@@ -19,7 +19,7 @@ class FatalError(AzCliError):
     """An error that prevents the installation from completing successfully."""
 
 
-class TimeoutError(Exception):
+class TimeoutError(FatalError):
     """Timeout occurred when waiting for a resource to be ready."""
 
 
