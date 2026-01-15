@@ -17,12 +17,46 @@ from .state_bucket import ensure_state_bucket
 from .terraform import TerraformRunner
 
 
-# Total number of steps in the setup process
+# Total number of steps in the deploy process
 TOTAL_STEPS = 6
 
 # Session timeout in minutes (Cloud Shell times out after 20 min of inactivity,
 # but we set 30 min to account for Terraform operations keeping the session alive)
 SESSION_TIMEOUT_MINUTES = 30
+
+# Available commands
+COMMANDS = ["deploy", "help"]
+
+
+def print_help() -> None:
+    """Print usage help."""
+    print()
+    print("Datadog Agentless Scanner - GCP Cloud Shell Setup")
+    print()
+    print("Usage:")
+    print("  python gcp_agentless_setup.pyz <command>")
+    print()
+    print("Commands:")
+    print("  deploy    Deploy the Agentless Scanner infrastructure")
+    print("  help      Show this help message")
+    print()
+    print("Environment Variables (required for deploy):")
+    print("  DD_API_KEY        Datadog API key with Remote Configuration enabled")
+    print("  DD_APP_KEY        Datadog Application key")
+    print("  DD_SITE           Datadog site (e.g., datadoghq.com, datadoghq.eu)")
+    print("  SCANNER_PROJECT   GCP project where the scanner will be deployed")
+    print("  SCANNER_REGIONS   Comma-separated list of GCP regions (max 4)")
+    print("  PROJECTS_TO_SCAN  Comma-separated list of GCP projects to scan")
+    print()
+    print("Optional Environment Variables:")
+    print("  TF_STATE_BUCKET   Custom GCS bucket for Terraform state")
+    print()
+    print("Example:")
+    print("  DD_API_KEY=xxx DD_APP_KEY=xxx DD_SITE=datadoghq.com \\")
+    print("  SCANNER_PROJECT=my-project SCANNER_REGIONS=us-central1 \\")
+    print("  PROJECTS_TO_SCAN=proj1,proj2 \\")
+    print("  python gcp_agentless_setup.pyz deploy")
+    print()
 
 
 def sigint_handler(signum, frame) -> None:
@@ -57,8 +91,8 @@ def print_session_warning() -> None:
     print("   Terraform state is persisted, so it will continue where it left off.")
 
 
-def main() -> None:
-    """Main entry point."""
+def cmd_deploy() -> None:
+    """Deploy the Agentless Scanner infrastructure."""
     # Set up SIGINT handler for graceful Ctrl+C handling
     signal.signal(signal.SIGINT, sigint_handler)
 
@@ -149,6 +183,32 @@ def main() -> None:
         print()
         print("If this issue persists, please contact Datadog support.")
         sys.exit(1)
+
+
+def main() -> None:
+    """Main entry point - parse command and dispatch."""
+    # Get command from arguments
+    if len(sys.argv) < 2:
+        print_help()
+        sys.exit(1)
+
+    command = sys.argv[1].lower()
+
+    if command == "help" or command == "--help" or command == "-h":
+        print_help()
+        sys.exit(0)
+
+    if command == "deploy":
+        cmd_deploy()
+        return
+
+    # Unknown command
+    print(f"❌ Unknown command: {command}")
+    print()
+    print(f"Available commands: {', '.join(COMMANDS)}")
+    print("Run 'python gcp_agentless_setup.pyz help' for usage information.")
+    print()
+    sys.exit(1)
 
 
 if __name__ == "__main__":

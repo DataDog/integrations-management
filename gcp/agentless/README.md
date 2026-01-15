@@ -22,7 +22,7 @@ DD_SITE="datadoghq.com" \
 SCANNER_PROJECT="my-scanner-project" \
 SCANNER_REGIONS="us-central1" \
 PROJECTS_TO_SCAN="project1,project2,project3" \
-python gcp_agentless_setup.pyz
+python gcp_agentless_setup.pyz deploy
 ```
 
 ### Environment Variables
@@ -48,7 +48,7 @@ Terraform state is stored in a GCS bucket to ensure persistence across runs and 
 TF_STATE_BUCKET="my-existing-bucket" \
 SCANNER_PROJECT="my-project" \
 # ... other variables ...
-python gcp_agentless_setup.pyz
+python gcp_agentless_setup.pyz deploy
 ```
 The custom bucket must already exist; the script will not create it.
 

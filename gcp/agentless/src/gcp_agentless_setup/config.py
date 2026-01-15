@@ -84,7 +84,7 @@ Usage:
   DD_API_KEY=xxx DD_APP_KEY=xxx DD_SITE=datadoghq.com \\
   SCANNER_PROJECT=my-project SCANNER_REGIONS=us-central1 \\
   PROJECTS_TO_SCAN=proj1,proj2,proj3 \\
-  python gcp_agentless_setup.pyz"""
+  python gcp_agentless_setup.pyz deploy"""
 
         raise ConfigurationError(
             "Missing required configuration",
