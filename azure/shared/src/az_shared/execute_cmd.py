@@ -11,6 +11,8 @@ from typing import Any, List, Optional, Type
 
 from common.shell import Cmd
 
+from az_shared.util import get_az_version
+
 from .errors import (
     AccessError,
     DisabledSubscriptionError,
@@ -33,7 +35,6 @@ DISABLED_SUBSCRIPTION_ERROR = "DisabledSubscription"
 INITIAL_RETRY_DELAY = 2  # seconds
 RETRY_DELAY_MULTIPLIER = 2
 MAX_RETRIES = 7
-AZ_VERS_TIMEOUT = 5  # seconds
 
 
 def check_access_error(stderr: str) -> Optional[str]:
@@ -56,58 +57,6 @@ def check_access_error(stderr: str) -> Optional[str]:
     return f"Insufficient permissions for {client} to perform {action} on {scope}"
 
 
-def _get_az_version(timeout: int = AZ_VERS_TIMEOUT) -> str:
-    """
-    Return the raw az version JSON on success, otherwise return a failure
-    string starting with "Could not retrieve 'az version': ...".
-    """
-    try:
-        res = subprocess.run(
-            ["az", "version", "--output", "json"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        return res.stdout.strip()
-    except FileNotFoundError:
-        return "Could not retrieve 'az version': 'az' executable not found"
-    except subprocess.TimeoutExpired:
-        return f"Could not retrieve 'az version': timeout after {timeout}s"
-    except subprocess.CalledProcessError as e:
-        stderr = e.stderr.strip() if e.stderr else ""
-        return f"Could not retrieve 'az version': exit {e.returncode}" + (f" stderr: {stderr}" if stderr else "")
-    except Exception as e:
-        return f"Could not retrieve 'az version': {e}"
-
-
-def _update_error_and_raise(
-    error_type: Type[BaseException],
-    az_version: str,
-    exc_args: Optional[List[Any]] = None,
-    msg_idx: int = 0,
-    e: Optional[Exception] = None,
-) -> None:
-    """
-    Update the error message with az version information and raise the error.
-    Build a new exception and then update the error message to
-    ensure a user facing message remains unchanged.
-    """
-    if exc_args is None:
-        exc_args = []
-    exc = error_type(*exc_args)
-    error_message = exc_args[msg_idx] if len(exc_args) > msg_idx else ""
-    updated_message = f"{error_message}\naz version:\n{az_version}"
-    if len(exc_args) > msg_idx:
-        exc_args[msg_idx] = updated_message
-    else:
-        exc_args.append(updated_message)
-    exc.args = tuple(exc_args)
-    if e:
-        raise exc from e
-    raise exc
-
-
 def execute(cmd: Cmd, can_fail: bool = False) -> str:
     """Run an Azure CLI command and return output or raise error."""
 
@@ -121,86 +70,58 @@ def execute(cmd: Cmd, can_fail: bool = False) -> str:
             if result.returncode != 0 and not can_fail:
                 log.error(f"Command failed: {full_command}")
                 log.error(result.stderr)
-                _update_error_and_raise(
-                    error_type=RuntimeError,
-                    az_version=_get_az_version(),
-                    exc_args=[f"Command failed: {full_command}\nstdout: {result.stdout}\nstderr: {result.stderr}"],
+                raise RuntimeError(
+                    f"Command failed: {full_command}\nstdout: {result.stdout}\nstderr: {result.stderr}{get_az_version()}"
                 )
             return result.stdout
         except subprocess.CalledProcessError as e:
             stderr = str(e.stderr)
             stdout = str(e.stdout)
-            az_version = _get_az_version()
             if RESOURCE_NOT_FOUND_ERROR in stderr:
-                _update_error_and_raise(
-                    error_type=ResourceNotFoundError,
-                    az_version=az_version,
-                    exc_args=[
-                        f"Resource not found when executing '{full_command}'\nstdout: {stdout}\nstderr: {stderr}"
-                    ],
-                    e=e,
-                )
+                raise ResourceNotFoundError(
+                    f"Resource not found when executing '{full_command}'\nstdout: {stdout}\nstderr: {stderr}"
+                ) from e
             if any(text in stderr for text in AZURE_THROTTLING_ERRORS):
                 if attempt < MAX_RETRIES - 1:
                     log.warning(f"Azure throttling ongoing. Retrying in {delay} seconds...")
                     sleep(delay)
                     delay *= RETRY_DELAY_MULTIPLIER
                     continue
-                _update_error_and_raise(
-                    error_type=RateLimitExceededError,
-                    az_version=az_version,
-                    exc_args=["Rate limit exceeded. Please wait a few minutes and try again."],
-                    e=e,
-                )
+                raise RateLimitExceededError("Rate limit exceeded. Please wait a few minutes and try again.") from e
             if REFRESH_TOKEN_EXPIRED_ERROR in stderr:
-                _update_error_and_raise(error_type=RefreshTokenError, az_version=az_version, exc_args=[stderr], e=e)
+                raise RefreshTokenError(stderr) from e
             if AUTH_FAILED_ERROR in stderr:
                 error_message = f"Insufficient permissions to access resource when executing '{str(cmd)}'"
                 error_details = check_access_error(stderr)
                 if error_details:
                     error_message = f"{error_message}: {error_details}"
-                _update_error_and_raise(error_type=AccessError, az_version=az_version, exc_args=[error_message], e=e)
+                raise AccessError(error_message) from e
             if POLICY_ERROR in stderr:
                 error_before_and_after_code = stderr.split(f"({POLICY_ERROR}) ")
                 policy_error_message = (
                     "\n".join(error_before_and_after_code[1:]) if len(error_before_and_after_code) > 1 else stderr
                 )
-                _update_error_and_raise(error_type=PolicyError, az_version=az_version, exc_args=[policy_error_message])
+                raise PolicyError(policy_error_message)
             if interactive_authn_command_matches := re.findall(
                 r"Run the command below to authenticate interactively.*?:\s*((?:az [^\n]+\n?)+)",
                 stderr,
                 flags=re.MULTILINE,
             ):
-                _update_error_and_raise(
-                    error_type=InteractiveAuthenticationRequiredError,
-                    az_version=az_version,
-                    exc_args=[
-                        [line.strip() for line in interactive_authn_command_matches[0].splitlines() if line.strip()],
-                        "Interactive authentication required",
-                    ],
-                    msg_idx=1,
-                    e=e,
-                )
+                raise InteractiveAuthenticationRequiredError(
+                    [line.strip() for line in interactive_authn_command_matches[0].splitlines() if line.strip()],
+                    "Interactive authentication required",
+                ) from e
             if PERMISSION_REQUIRED_ERROR in stderr:
-                _update_error_and_raise(
-                    error_type=AccessError,
-                    az_version=az_version,
-                    exc_args=[f"Insufficient permissions to execute '{str(cmd)}'"],
-                )
+                raise AccessError(f"Insufficient permissions to execute '{str(cmd)}'")
             if DISABLED_SUBSCRIPTION_ERROR in stderr:
-                _update_error_and_raise(
-                    error_type=DisabledSubscriptionError, az_version=az_version, exc_args=[stderr], e=e
-                )
+                raise DisabledSubscriptionError(stderr) from e
             if can_fail:
                 return ""
             log.error(f"Command failed: {full_command}")
             log.error(stderr)
-            _update_error_and_raise(
-                error_type=RuntimeError,
-                az_version=az_version,
-                exc_args=[f"Command failed: {full_command}\nstdout: {stdout}\nstderr: {stderr}"],
-                e=e,
-            )
+            raise RuntimeError(
+                f"Command failed: {full_command}\nstdout: {stdout}\nstderr: {stderr}{get_az_version()}"
+            ) from e
 
     raise SystemExit(1)  # unreachable
 
