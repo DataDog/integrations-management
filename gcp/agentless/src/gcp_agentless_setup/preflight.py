@@ -3,11 +3,13 @@
 
 """Preflight checks before running Terraform."""
 
+import urllib.request
+import urllib.error
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 from .config import Config
-from .errors import APIEnablementError, GCPAccessError, GCPAuthenticationError
+from .errors import APIEnablementError, DatadogAPIKeyError, GCPAccessError, GCPAuthenticationError
 from gcp_shared.gcloud import GcloudCmd, gcloud, is_authenticated
 from .reporter import Reporter
 
@@ -30,6 +32,39 @@ SCANNED_PROJECT_APIS = [
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
 ]
+
+
+def validate_datadog_api_key(reporter: Reporter, api_key: str, site: str) -> None:
+    """Validate the Datadog API key by calling the validate endpoint.
+
+    Raises:
+        DatadogAPIKeyError: If the API key or site is invalid.
+    """
+    url = f"https://api.{site}/api/v1/validate"
+
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "DD-API-KEY": api_key,
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            if response.status == 200:
+                reporter.success("Datadog API key validated")
+                return
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            raise DatadogAPIKeyError(site)
+        # Other HTTP errors - could be network issues, treat as validation failure
+        raise DatadogAPIKeyError(site)
+    except urllib.error.URLError:
+        # Network error - could be wrong site
+        raise DatadogAPIKeyError(site)
+
+    raise DatadogAPIKeyError(site)
 
 
 def check_gcp_authentication(reporter: Reporter) -> None:
@@ -186,11 +221,15 @@ def run_preflight_checks(config: Config, reporter: Reporter) -> None:
     Uses parallel execution for faster completion.
 
     Raises:
+        DatadogAPIKeyError: If the Datadog API key is invalid.
         GCPAuthenticationError: If not authenticated with GCP.
         GCPAccessError: If projects cannot be accessed.
         APIEnablementError: If APIs cannot be enabled.
     """
     reporter.start_step("Validating prerequisites")
+
+    # Validate Datadog API key first (fail fast)
+    validate_datadog_api_key(reporter, config.api_key, config.site)
 
     # Check GCP authentication
     check_gcp_authentication(reporter)
