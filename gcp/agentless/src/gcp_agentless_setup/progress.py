@@ -24,7 +24,7 @@ EMOJI_PENDING = "⬜"
 PROGRESS_BAR_WIDTH = 20
 
 # ANSI color codes
-COLOR_GRAY = "\033[90m"  # Bright black (gray)
+COLOR_GRAY = "\033[37m"  # Light gray
 COLOR_RESET = "\033[0m"
 
 # Regex to strip ANSI escape codes

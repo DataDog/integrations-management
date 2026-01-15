@@ -13,6 +13,8 @@ This script automates the deployment of Datadog Agentless Scanner on GCP using T
 
 ## Usage
 
+### Deploy
+
 Run the script with environment variables:
 
 ```bash
@@ -25,7 +27,7 @@ PROJECTS_TO_SCAN="project1,project2,project3" \
 python gcp_agentless_setup.pyz deploy
 ```
 
-### Environment Variables
+#### Deploy Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -36,6 +38,32 @@ python gcp_agentless_setup.pyz deploy
 | `SCANNER_REGIONS` | Yes | Comma-separated list of GCP regions (max 4) for scanners (e.g., `us-central1` or `us-central1,europe-west1`) |
 | `PROJECTS_TO_SCAN` | Yes | Comma-separated list of GCP projects to scan |
 | `TF_STATE_BUCKET` | No | Custom GCS bucket for Terraform state (see below) |
+
+### Destroy
+
+To remove the scanner infrastructure:
+
+```bash
+SCANNER_PROJECT="my-scanner-project" \
+python gcp_agentless_setup.pyz destroy
+```
+
+If only one installation exists, `SCANNER_PROJECT` can be omitted and will be inferred automatically.
+
+#### Destroy Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SCANNER_PROJECT` | No* | GCP project where the scanner was deployed (*inferred if only one installation exists) |
+| `DD_API_KEY` | No* | Datadog API key (*required only if local config folder doesn't exist) |
+| `DD_APP_KEY` | No* | Datadog Application key (*required only if local config folder doesn't exist) |
+| `DD_SITE` | No* | Datadog site (*required only if local config folder doesn't exist) |
+| `TF_STATE_BUCKET` | No | Custom GCS bucket (if used during deploy) |
+
+The destroy command will:
+1. Run `terraform destroy` (prompts for confirmation)
+2. Ask if you want to delete the API key secret from Secret Manager
+3. Leave the Terraform state bucket intact (manual deletion instructions provided)
 
 ### Terraform State Storage
 

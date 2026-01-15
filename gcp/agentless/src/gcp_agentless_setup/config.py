@@ -5,6 +5,7 @@
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 from .errors import ConfigurationError
@@ -12,6 +13,14 @@ from .errors import ConfigurationError
 
 # Maximum number of regions that can be specified
 MAX_SCANNER_REGIONS = 4
+
+# Base directory for agentless setup configs (Terraform state, etc.)
+CONFIG_BASE_DIR = Path.home() / ".datadog-agentless-setup"
+
+
+def get_config_dir(scanner_project: str) -> Path:
+    """Get the configuration directory for a scanner project."""
+    return CONFIG_BASE_DIR / scanner_project
 
 
 @dataclass

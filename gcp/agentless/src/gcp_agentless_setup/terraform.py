@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from .config import Config
+from .config import Config, get_config_dir
 from .errors import TerraformError
 from .progress import run_terraform_with_progress
 from .shell import run_command
@@ -129,12 +129,19 @@ terraform {{
 
 # Provider for Datadog
 provider "datadog" {{
+  api_key = var.datadog_api_key
   app_key = var.datadog_app_key
   api_url = "https://api.${{var.datadog_site}}/"
 }}
 {region_providers_tf}{other_providers_tf}
 
 # Variables
+variable "datadog_api_key" {{
+  description = "Datadog API key"
+  type        = string
+  sensitive   = true
+}}
+
 variable "datadog_app_key" {{
   description = "Datadog Application key"
   type        = string
@@ -160,7 +167,8 @@ resource "datadog_agentless_scanning_gcp_scan_options" "scanner_project" {{
 
 def generate_tfvars(config: Config) -> str:
     """Generate the terraform.tfvars content."""
-    return f'''datadog_app_key = "{config.app_key}"
+    return f'''datadog_api_key = "{config.api_key}"
+datadog_app_key = "{config.app_key}"
 datadog_site    = "{config.site}"
 '''
 
@@ -183,8 +191,7 @@ class TerraformRunner:
 
     def setup_working_directory(self) -> Path:
         """Create and setup the Terraform working directory."""
-        # Use a persistent directory in user's home for reuse
-        work_dir = Path.home() / ".datadog-agentless-setup" / self.config.scanner_project
+        work_dir = get_config_dir(self.config.scanner_project)
         work_dir.mkdir(parents=True, exist_ok=True)
 
         # Write main.tf

@@ -9,6 +9,7 @@ import sys
 import threading
 
 from .config import parse_config
+from .destroy import cmd_destroy
 from .errors import SetupError
 from .preflight import run_preflight_checks
 from .reporter import Reporter
@@ -25,7 +26,7 @@ TOTAL_STEPS = 6
 SESSION_TIMEOUT_MINUTES = 30
 
 # Available commands
-COMMANDS = ["deploy", "help"]
+COMMANDS = ["deploy", "destroy", "help"]
 
 
 def print_help() -> None:
@@ -38,9 +39,14 @@ def print_help() -> None:
     print()
     print("Commands:")
     print("  deploy    Deploy the Agentless Scanner infrastructure")
+    print("  destroy   Destroy the Agentless Scanner infrastructure")
     print("  help      Show this help message")
     print()
-    print("Environment Variables (required for deploy):")
+    print("=" * 60)
+    print("DEPLOY - Environment Variables:")
+    print("=" * 60)
+    print()
+    print("Required:")
     print("  DD_API_KEY        Datadog API key with Remote Configuration enabled")
     print("  DD_APP_KEY        Datadog Application key")
     print("  DD_SITE           Datadog site (e.g., datadoghq.com, datadoghq.eu)")
@@ -48,7 +54,7 @@ def print_help() -> None:
     print("  SCANNER_REGIONS   Comma-separated list of GCP regions (max 4)")
     print("  PROJECTS_TO_SCAN  Comma-separated list of GCP projects to scan")
     print()
-    print("Optional Environment Variables:")
+    print("Optional:")
     print("  TF_STATE_BUCKET   Custom GCS bucket for Terraform state")
     print()
     print("Example:")
@@ -56,6 +62,22 @@ def print_help() -> None:
     print("  SCANNER_PROJECT=my-project SCANNER_REGIONS=us-central1 \\")
     print("  PROJECTS_TO_SCAN=proj1,proj2 \\")
     print("  python gcp_agentless_setup.pyz deploy")
+    print()
+    print("=" * 60)
+    print("DESTROY - Environment Variables:")
+    print("=" * 60)
+    print()
+    print("Optional (inferred if only one installation exists):")
+    print("  SCANNER_PROJECT   GCP project where the scanner was deployed")
+    print()
+    print("Required only if local config folder doesn't exist:")
+    print("  DD_API_KEY        Datadog API key")
+    print("  DD_APP_KEY        Datadog Application key")
+    print("  DD_SITE           Datadog site")
+    print("  TF_STATE_BUCKET   Custom GCS bucket (if used during deploy)")
+    print()
+    print("Example:")
+    print("  SCANNER_PROJECT=my-project python gcp_agentless_setup.pyz destroy")
     print()
 
 
@@ -200,6 +222,10 @@ def main() -> None:
 
     if command == "deploy":
         cmd_deploy()
+        return
+
+    if command == "destroy":
+        cmd_destroy()
         return
 
     # Unknown command
