@@ -13,6 +13,8 @@ from .shell import run_command
 from .reporter import Reporter
 
 
+TERRAFORM_PARALLELISM = 10
+
 # Module version to use
 MODULE_VERSION = "0.11.12"
 MODULE_SOURCE = f"git::https://github.com/DataDog/terraform-module-datadog-agentless-scanner//gcp?ref={MODULE_VERSION}"
@@ -193,7 +195,7 @@ class TerraformRunner:
             raise TerraformError("Working directory not set up")
 
         result = run_command(
-            ["terraform", "apply", "-auto-approve", "-input=false"],
+            ["terraform", "apply", "-auto-approve", f"-parallelism={TERRAFORM_PARALLELISM}", "-input=false"],
             capture_output=False,  # Show output to user
         )
 
