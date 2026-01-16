@@ -32,7 +32,6 @@ class StatusReporter:
 
     def report(self, step_id: str, status: Status, message: str, metadata: Optional[Json] = None) -> None:
         """Report the status of a step in a workflow to Datadog."""
-        print(f"/api/unstable/integration/azure/workflow/{self.workflow_type}")
         dd_request(
             "POST",
             f"/api/unstable/integration/azure/workflow/{self.workflow_type}",

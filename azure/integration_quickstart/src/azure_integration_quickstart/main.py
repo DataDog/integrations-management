@@ -236,7 +236,7 @@ def main():
     ) as step_metadata:
         exactly_one_log_forwarder = report_existing_log_forwarders(subscriptions, step_metadata)
     with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
-        selections = receive_user_selections(workflow_id)
+        selections = receive_user_selections(CREATE_APP_REG_WORKFLOW_TYPE, workflow_id)
     with status.report_step("app_registration", "Creating app registration in Azure"):
         app_registration = create_app_registration_with_permissions(selections.scopes)
     with status.report_step("integration_config", "Submitting new configuration to Datadog"):
