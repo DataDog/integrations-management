@@ -5,6 +5,7 @@
 
 import subprocess
 from dataclasses import dataclass
+from typing import List
 
 
 @dataclass
@@ -21,7 +22,7 @@ class ShellResult:
 
 
 def run_command(
-    cmd: list[str],
+    cmd: List[str],
     capture_output: bool = True,
 ) -> ShellResult:
     """Run a shell command and return the result.

@@ -64,12 +64,17 @@ class Reporter:
         print("✅ Agentless Scanner setup complete!")
         print("=" * 60)
 
-    def summary(self, scanner_project: str, region: str, projects: list[str]) -> None:
+    def summary(self, scanner_project: str, regions: list[str], projects: list[str]) -> None:
         """Print deployment summary."""
         print()
         print("Deployment Summary:")
-        print(f"  Scanner Project: {scanner_project}")
-        print(f"  Region:          {region}")
+        print(f"  Scanner Project:  {scanner_project}")
+        if len(regions) == 1:
+            print(f"  Region:           {regions[0]}")
+        else:
+            print(f"  Regions:          {len(regions)}")
+            for r in regions:
+                print(f"    - {r}")
         print(f"  Projects Scanned: {len(projects)}")
         for p in projects:
             marker = "(scanner)" if p == scanner_project else ""

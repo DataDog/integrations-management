@@ -9,19 +9,76 @@ import sys
 import threading
 
 from .config import parse_config
+from .destroy import cmd_destroy
 from .errors import SetupError
 from .preflight import run_preflight_checks
 from .reporter import Reporter
+from .secrets import ensure_api_key_secret
 from .state_bucket import ensure_state_bucket
 from .terraform import TerraformRunner
 
 
-# Total number of steps in the setup process
-TOTAL_STEPS = 5
+# Total number of steps in the deploy process
+TOTAL_STEPS = 6
 
 # Session timeout in minutes (Cloud Shell times out after 20 min of inactivity,
 # but we set 30 min to account for Terraform operations keeping the session alive)
 SESSION_TIMEOUT_MINUTES = 30
+
+# Available commands
+COMMANDS = ["deploy", "destroy", "help"]
+
+
+def print_help() -> None:
+    """Print usage help."""
+    print()
+    print("Datadog Agentless Scanner - GCP Cloud Shell Setup")
+    print()
+    print("Usage:")
+    print("  python gcp_agentless_setup.pyz <command>")
+    print()
+    print("Commands:")
+    print("  deploy    Deploy the Agentless Scanner infrastructure")
+    print("  destroy   Destroy the Agentless Scanner infrastructure")
+    print("  help      Show this help message")
+    print()
+    print("=" * 60)
+    print("DEPLOY - Environment Variables:")
+    print("=" * 60)
+    print()
+    print("Required:")
+    print("  DD_API_KEY        Datadog API key with Remote Configuration enabled")
+    print("  DD_APP_KEY        Datadog Application key")
+    print("  DD_SITE           Datadog site (e.g., datadoghq.com, datadoghq.eu)")
+    print("  SCANNER_PROJECT   GCP project where the scanner will be deployed")
+    print("  SCANNER_REGIONS   Comma-separated list of GCP regions (max 4)")
+    print("  PROJECTS_TO_SCAN  Comma-separated list of GCP projects to scan")
+    print()
+    print("Optional:")
+    print("  TF_STATE_BUCKET   Custom GCS bucket for Terraform state")
+    print()
+    print("Example:")
+    print("  DD_API_KEY=xxx DD_APP_KEY=xxx DD_SITE=datadoghq.com \\")
+    print("  SCANNER_PROJECT=my-project SCANNER_REGIONS=us-central1 \\")
+    print("  PROJECTS_TO_SCAN=proj1,proj2 \\")
+    print("  python gcp_agentless_setup.pyz deploy")
+    print()
+    print("=" * 60)
+    print("DESTROY - Environment Variables:")
+    print("=" * 60)
+    print()
+    print("Optional (inferred if only one installation exists):")
+    print("  SCANNER_PROJECT   GCP project where the scanner was deployed")
+    print()
+    print("Required only if local config folder doesn't exist:")
+    print("  DD_API_KEY        Datadog API key")
+    print("  DD_APP_KEY        Datadog Application key")
+    print("  DD_SITE           Datadog site")
+    print("  TF_STATE_BUCKET   Custom GCS bucket (if used during deploy)")
+    print()
+    print("Example:")
+    print("  SCANNER_PROJECT=my-project python gcp_agentless_setup.pyz destroy")
+    print()
 
 
 def sigint_handler(signum, frame) -> None:
@@ -56,8 +113,8 @@ def print_session_warning() -> None:
     print("   Terraform state is persisted, so it will continue where it left off.")
 
 
-def main() -> None:
-    """Main entry point."""
+def cmd_deploy() -> None:
+    """Deploy the Agentless Scanner infrastructure."""
     # Set up SIGINT handler for graceful Ctrl+C handling
     signal.signal(signal.SIGINT, sigint_handler)
 
@@ -84,7 +141,12 @@ def main() -> None:
         print("Configuration:")
         print(f"  Datadog Site:     {config.site}")
         print(f"  Scanner Project:  {config.scanner_project}")
-        print(f"  Region:           {config.region}")
+        if len(config.regions) == 1:
+            print(f"  Region:           {config.regions[0]}")
+        else:
+            print(f"  Regions:          {len(config.regions)}")
+            for r in config.regions:
+                print(f"    - {r}")
         if config.state_bucket:
             print(f"  State Bucket:     {config.state_bucket} (custom)")
         print(f"  Projects to Scan: {len(config.all_projects)}")
@@ -98,13 +160,19 @@ def main() -> None:
         # Step 2: Ensure state bucket exists
         state_bucket = ensure_state_bucket(config, reporter)
 
-        # Steps 3-5: Run Terraform
-        tf_runner = TerraformRunner(config, state_bucket, reporter)
+        # Step 3: Store API key in Secret Manager
+        reporter.start_step("Storing API key in Secret Manager")
+        api_key_secret_id = ensure_api_key_secret(
+            reporter, config.scanner_project, config.api_key
+        )
+
+        # Steps 4-6: Run Terraform
+        tf_runner = TerraformRunner(config, state_bucket, api_key_secret_id, reporter)
         tf_runner.run()
 
         # Done!
         reporter.complete()
-        reporter.summary(config.scanner_project, config.region, config.all_projects)
+        reporter.summary(config.scanner_project, config.regions, config.all_projects)
 
         print()
         print("Next Steps:")
@@ -137,6 +205,36 @@ def main() -> None:
         print()
         print("If this issue persists, please contact Datadog support.")
         sys.exit(1)
+
+
+def main() -> None:
+    """Main entry point - parse command and dispatch."""
+    # Get command from arguments
+    if len(sys.argv) < 2:
+        print_help()
+        sys.exit(1)
+
+    command = sys.argv[1].lower()
+
+    if command == "help" or command == "--help" or command == "-h":
+        print_help()
+        sys.exit(0)
+
+    if command == "deploy":
+        cmd_deploy()
+        return
+
+    if command == "destroy":
+        cmd_destroy()
+        return
+
+    # Unknown command
+    print(f"❌ Unknown command: {command}")
+    print()
+    print(f"Available commands: {', '.join(COMMANDS)}")
+    print("Run 'python gcp_agentless_setup.pyz help' for usage information.")
+    print()
+    sys.exit(1)
 
 
 if __name__ == "__main__":

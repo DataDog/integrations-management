@@ -7,11 +7,14 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from .config import Config
+from .config import Config, get_config_dir
 from .errors import TerraformError
+from .progress import run_terraform_with_progress
 from .shell import run_command
 from .reporter import Reporter
 
+
+TERRAFORM_PARALLELISM = 10
 
 # Module version to use
 MODULE_VERSION = "0.11.12"
@@ -19,40 +22,85 @@ MODULE_SOURCE = f"git::https://github.com/DataDog/terraform-module-datadog-agent
 MODULE_SOURCE_SA = f"git::https://github.com/DataDog/terraform-module-datadog-agentless-scanner//gcp/modules/agentless-impersonated-service-account?ref={MODULE_VERSION}"
 
 
-def generate_terraform_config(config: Config, state_bucket: str) -> str:
-    """Generate the Terraform configuration."""
+def _sanitize_name(name: str) -> str:
+    """Convert a name to a valid Terraform identifier (replace hyphens with underscores)."""
+    return name.replace("-", "_")
+
+
+def generate_terraform_config(config: Config, state_bucket: str, api_key_secret_id: str) -> str:
+    """Generate the Terraform configuration.
+
+    Args:
+        config: Setup configuration.
+        state_bucket: GCS bucket for Terraform state.
+        api_key_secret_id: Full Secret Manager secret ID for the API key.
+    """
+
+    # Build provider blocks for each region (scanner project)
+    region_providers_tf = ""
+    for region in config.regions:
+        region_alias = _sanitize_name(region)
+        region_providers_tf += f'''
+provider "google" {{
+  project = "{config.scanner_project}"
+  region  = "{region}"
+  alias   = "{region_alias}"
+}}
+'''
+
+    # Build scanner module for each region
+    scanner_modules_tf = ""
+    for region in config.regions:
+        region_alias = _sanitize_name(region)
+        scanner_modules_tf += f'''
+# Deploy the scanner infrastructure in {region}
+module "datadog_agentless_scanner_{region_alias}" {{
+  source = "{MODULE_SOURCE}"
+
+  providers = {{
+    google = google.{region_alias}
+  }}
+
+  site              = var.datadog_site
+  api_key_secret_id = "{api_key_secret_id}"
+  vpc_name          = "dd-agentless-{region}"
+}}
+'''
 
     # Build the list of scanned projects for the impersonated SA module
+    # Note: We use the first region's scanner module for the service account email
+    first_region_alias = _sanitize_name(config.regions[0])
     other_projects_tf = ""
     for project in config.other_projects:
+        project_alias = _sanitize_name(project)
         other_projects_tf += f'''
 # Impersonated service account for scanning {project}
-module "agentless_impersonated_sa_{project.replace("-", "_")}" {{
+module "agentless_impersonated_sa_{project_alias}" {{
   source = "{MODULE_SOURCE_SA}"
 
   providers = {{
-    google = google.{project.replace("-", "_")}
+    google = google.{project_alias}
   }}
 
-  scanner_service_account_email = module.datadog_agentless_scanner.scanner_service_account_email
+  scanner_service_account_email = module.datadog_agentless_scanner_{first_region_alias}.scanner_service_account_email
 }}
 
 # Enable agentless scanning for {project}
-resource "datadog_agentless_scanning_gcp_scan_options" "scan_{project.replace("-", "_")}" {{
+resource "datadog_agentless_scanning_gcp_scan_options" "scan_{project_alias}" {{
   gcp_project_id     = "{project}"
   vuln_host_os       = true
   vuln_containers_os = true
 }}
 '''
 
-    # Build provider blocks for other projects
+    # Build provider blocks for other projects (region doesn't matter for IAM)
     other_providers_tf = ""
     for project in config.other_projects:
+        project_alias = _sanitize_name(project)
         other_providers_tf += f'''
 provider "google" {{
   project = "{project}"
-  region  = "{config.region}"
-  alias   = "{project.replace("-", "_")}"
+  alias   = "{project_alias}"
 }}
 '''
 
@@ -79,19 +127,13 @@ terraform {{
   }}
 }}
 
-# Provider for scanner project
-provider "google" {{
-  project = "{config.scanner_project}"
-  region  = "{config.region}"
-}}
-
 # Provider for Datadog
 provider "datadog" {{
   api_key = var.datadog_api_key
   app_key = var.datadog_app_key
   api_url = "https://api.${{var.datadog_site}}/"
 }}
-{other_providers_tf}
+{region_providers_tf}{other_providers_tf}
 
 # Variables
 variable "datadog_api_key" {{
@@ -110,16 +152,7 @@ variable "datadog_site" {{
   description = "Datadog site"
   type        = string
 }}
-
-# Deploy the scanner infrastructure in the scanner project
-module "datadog_agentless_scanner" {{
-  source = "{MODULE_SOURCE}"
-
-  site     = var.datadog_site
-  api_key  = var.datadog_api_key
-  vpc_name = "datadog-agentless-scanner"
-}}
-
+{scanner_modules_tf}
 # Enable agentless scanning for the scanner project
 resource "datadog_agentless_scanning_gcp_scan_options" "scanner_project" {{
   gcp_project_id     = "{config.scanner_project}"
@@ -143,21 +176,29 @@ datadog_site    = "{config.site}"
 class TerraformRunner:
     """Runs Terraform commands in a working directory."""
 
-    def __init__(self, config: Config, state_bucket: str, reporter: Reporter):
+    def __init__(
+        self,
+        config: Config,
+        state_bucket: str,
+        api_key_secret_id: str,
+        reporter: Reporter,
+    ):
         self.config = config
         self.state_bucket = state_bucket
+        self.api_key_secret_id = api_key_secret_id
         self.reporter = reporter
         self.work_dir: Optional[Path] = None
 
     def setup_working_directory(self) -> Path:
         """Create and setup the Terraform working directory."""
-        # Use a persistent directory in user's home for reuse
-        work_dir = Path.home() / ".datadog-agentless-setup" / self.config.scanner_project
+        work_dir = get_config_dir(self.config.scanner_project)
         work_dir.mkdir(parents=True, exist_ok=True)
 
         # Write main.tf
         main_tf = work_dir / "main.tf"
-        main_tf.write_text(generate_terraform_config(self.config, self.state_bucket))
+        main_tf.write_text(
+            generate_terraform_config(self.config, self.state_bucket, self.api_key_secret_id)
+        )
 
         # Write terraform.tfvars
         tfvars = work_dir / "terraform.tfvars"
@@ -184,7 +225,7 @@ class TerraformRunner:
             raise TerraformError("Terraform init failed")
 
     def apply(self) -> None:
-        """Run terraform apply.
+        """Run terraform apply with progress display.
 
         Raises:
             TerraformError: If apply fails.
@@ -192,12 +233,12 @@ class TerraformRunner:
         if not self.work_dir:
             raise TerraformError("Working directory not set up")
 
-        result = run_command(
-            ["terraform", "apply", "-auto-approve", "-input=false"],
-            capture_output=False,  # Show output to user
+        # Use progress display for apply
+        result = run_terraform_with_progress(
+            ["terraform", "apply", "-auto-approve", f"-parallelism={TERRAFORM_PARALLELISM}", "-input=false"]
         )
 
-        if not result.success:
+        if result.returncode != 0:
             raise TerraformError("Terraform apply failed")
 
     def run(self) -> None:

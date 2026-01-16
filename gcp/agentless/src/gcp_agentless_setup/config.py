@@ -5,9 +5,22 @@
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 from .errors import ConfigurationError
+
+
+# Maximum number of regions that can be specified
+MAX_SCANNER_REGIONS = 4
+
+# Base directory for agentless setup configs (Terraform state, etc.)
+CONFIG_BASE_DIR = Path.home() / ".datadog-agentless-setup"
+
+
+def get_config_dir(scanner_project: str) -> Path:
+    """Get the configuration directory for a scanner project."""
+    return CONFIG_BASE_DIR / scanner_project
 
 
 @dataclass
@@ -21,7 +34,7 @@ class Config:
 
     # GCP configuration
     scanner_project: str
-    region: str
+    regions: list[str]
     projects_to_scan: list[str]
 
     # Optional: custom GCS bucket for Terraform state
@@ -62,49 +75,68 @@ def parse_config() -> Config:
         errors.append("DD_SITE is required (e.g., datadoghq.com, datadoghq.eu, us5.datadoghq.com). See https://docs.datadoghq.com/getting_started/site/")
 
     # Required: GCP configuration
-    scanner_project = os.environ.get("GCP_SCANNER_PROJECT", "").strip()
+    scanner_project = os.environ.get("SCANNER_PROJECT", "").strip()
     if not scanner_project:
-        errors.append("GCP_SCANNER_PROJECT is required")
+        errors.append("SCANNER_PROJECT is required")
 
-    region = os.environ.get("GCP_REGION", "").strip()
-    if not region:
-        errors.append("GCP_REGION is required (e.g., us-central1)")
+    regions_str = os.environ.get("SCANNER_REGIONS", "").strip()
+    if not regions_str:
+        errors.append("SCANNER_REGIONS is required (e.g., us-central1 or us-central1,europe-west1)")
 
-    projects_to_scan_str = os.environ.get("GCP_PROJECTS_TO_SCAN", "").strip()
+    projects_to_scan_str = os.environ.get("PROJECTS_TO_SCAN", "").strip()
     if not projects_to_scan_str:
-        errors.append("GCP_PROJECTS_TO_SCAN is required (comma-separated list)")
+        errors.append("PROJECTS_TO_SCAN is required (comma-separated list)")
 
     if errors:
         usage = """
 Usage:
   DD_API_KEY=xxx DD_APP_KEY=xxx DD_SITE=datadoghq.com \\
-  GCP_SCANNER_PROJECT=my-project GCP_REGION=us-central1 \\
-  GCP_PROJECTS_TO_SCAN=proj1,proj2,proj3 \\
-  python gcp_agentless_setup.pyz"""
+  SCANNER_PROJECT=my-project SCANNER_REGIONS=us-central1 \\
+  PROJECTS_TO_SCAN=proj1,proj2,proj3 \\
+  python gcp_agentless_setup.pyz deploy"""
 
         raise ConfigurationError(
             "Missing required configuration",
             "\n".join(f"  - {e}" for e in errors) + "\n" + usage,
         )
 
-    # Parse projects list
-    projects_to_scan = [p.strip() for p in projects_to_scan_str.split(",") if p.strip()]
+    # Parse and deduplicate regions list
+    regions = list(dict.fromkeys(
+        r.strip() for r in regions_str.split(",") if r.strip()
+    ))
+
+    if not regions:
+        raise ConfigurationError(
+            "Invalid configuration",
+            "SCANNER_REGIONS must contain at least one region",
+        )
+
+    if len(regions) > MAX_SCANNER_REGIONS:
+        raise ConfigurationError(
+            "Invalid configuration",
+            f"SCANNER_REGIONS cannot exceed {MAX_SCANNER_REGIONS} regions (got {len(regions)})",
+        )
+
+    # Parse and deduplicate projects list
+    projects_to_scan = list(dict.fromkeys(
+        p.strip() for p in projects_to_scan_str.split(",") if p.strip()
+    ))
 
     if not projects_to_scan:
         raise ConfigurationError(
             "Invalid configuration",
-            "GCP_PROJECTS_TO_SCAN must contain at least one project",
+            "PROJECTS_TO_SCAN must contain at least one project",
         )
 
     # Optional: custom GCS bucket for Terraform state
-    state_bucket = os.environ.get("GCP_STATE_BUCKET", "").strip() or None
+    state_bucket = os.environ.get("TF_STATE_BUCKET", "").strip() or None
 
     return Config(
         api_key=api_key,
         app_key=app_key,
         site=site,
         scanner_project=scanner_project,
-        region=region,
+        regions=regions,
         projects_to_scan=projects_to_scan,
         state_bucket=state_bucket,
     )

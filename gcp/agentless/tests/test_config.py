@@ -19,7 +19,7 @@ class TestConfig(unittest.TestCase):
             app_key="app",
             site="datadoghq.com",
             scanner_project="scanner-proj",
-            region="us-central1",
+            regions=["us-central1"],
             projects_to_scan=["scanner-proj", "other-proj"],
         )
 
@@ -32,7 +32,7 @@ class TestConfig(unittest.TestCase):
             app_key="app",
             site="datadoghq.com",
             scanner_project="scanner-proj",
-            region="us-central1",
+            regions=["us-central1"],
             projects_to_scan=["proj-a", "proj-b"],
         )
 
@@ -47,7 +47,7 @@ class TestConfig(unittest.TestCase):
             app_key="app",
             site="datadoghq.com",
             scanner_project="scanner-proj",
-            region="us-central1",
+            regions=["us-central1"],
             projects_to_scan=["scanner-proj", "proj-a", "proj-b"],
         )
 
@@ -60,7 +60,7 @@ class TestConfig(unittest.TestCase):
             app_key="app",
             site="datadoghq.com",
             scanner_project="scanner-proj",
-            region="us-central1",
+            regions=["us-central1"],
             projects_to_scan=["scanner-proj"],
         )
 
@@ -76,9 +76,9 @@ class TestParseConfig(unittest.TestCase):
             "DD_API_KEY": "test-api-key",
             "DD_APP_KEY": "test-app-key",
             "DD_SITE": "datadoghq.com",
-            "GCP_SCANNER_PROJECT": "my-scanner",
-            "GCP_REGION": "us-central1",
-            "GCP_PROJECTS_TO_SCAN": "proj-a, proj-b, proj-c",
+            "SCANNER_PROJECT": "my-scanner",
+            "SCANNER_REGIONS": "us-central1",
+            "PROJECTS_TO_SCAN": "proj-a, proj-b, proj-c",
         },
         clear=True,
     )
@@ -90,7 +90,7 @@ class TestParseConfig(unittest.TestCase):
         self.assertEqual(config.app_key, "test-app-key")
         self.assertEqual(config.site, "datadoghq.com")
         self.assertEqual(config.scanner_project, "my-scanner")
-        self.assertEqual(config.region, "us-central1")
+        self.assertEqual(config.regions, ["us-central1"])
         self.assertEqual(config.projects_to_scan, ["proj-a", "proj-b", "proj-c"])
 
     @patch.dict(
@@ -99,17 +99,18 @@ class TestParseConfig(unittest.TestCase):
             "DD_API_KEY": "key",
             "DD_APP_KEY": "app",
             "DD_SITE": "datadoghq.com",
-            "GCP_SCANNER_PROJECT": "scanner",
-            "GCP_REGION": "us-central1",
-            "GCP_PROJECTS_TO_SCAN": "  proj-a  ,  proj-b  ",
+            "SCANNER_PROJECT": "scanner",
+            "SCANNER_REGIONS": "us-central1,europe-west1",
+            "PROJECTS_TO_SCAN": "  proj-a  ,  proj-b  ",
         },
         clear=True,
     )
     def test_parse_config_trims_whitespace(self):
-        """Test that whitespace is trimmed from project names."""
+        """Test that whitespace is trimmed from project and region names."""
         config = parse_config()
 
         self.assertEqual(config.projects_to_scan, ["proj-a", "proj-b"])
+        self.assertEqual(config.regions, ["us-central1", "europe-west1"])
 
     @patch.dict(os.environ, {}, clear=True)
     def test_parse_config_missing_all_vars(self):
@@ -127,9 +128,9 @@ class TestParseConfig(unittest.TestCase):
             "DD_API_KEY": "key",
             "DD_APP_KEY": "app",
             "DD_SITE": "datadoghq.com",
-            "GCP_SCANNER_PROJECT": "scanner",
-            "GCP_REGION": "us-central1",
-            "GCP_PROJECTS_TO_SCAN": "  ,  ,  ",
+            "SCANNER_PROJECT": "scanner",
+            "SCANNER_REGIONS": "us-central1",
+            "PROJECTS_TO_SCAN": "  ,  ,  ",
         },
         clear=True,
     )
@@ -139,6 +140,43 @@ class TestParseConfig(unittest.TestCase):
             parse_config()
 
         self.assertIn("at least one project", ctx.exception.detail)
+
+    @patch.dict(
+        os.environ,
+        {
+            "DD_API_KEY": "key",
+            "DD_APP_KEY": "app",
+            "DD_SITE": "datadoghq.com",
+            "SCANNER_PROJECT": "scanner",
+            "SCANNER_REGIONS": "us-central1,europe-west1,asia-east1,us-west1,us-east1",
+            "PROJECTS_TO_SCAN": "proj-a",
+        },
+        clear=True,
+    )
+    def test_parse_config_too_many_regions(self):
+        """Test error when more than MAX_SCANNER_REGIONS regions are provided."""
+        with self.assertRaises(ConfigurationError) as ctx:
+            parse_config()
+
+        self.assertIn("cannot exceed", ctx.exception.detail)
+
+    @patch.dict(
+        os.environ,
+        {
+            "DD_API_KEY": "key",
+            "DD_APP_KEY": "app",
+            "DD_SITE": "datadoghq.com",
+            "SCANNER_PROJECT": "scanner",
+            "SCANNER_REGIONS": "us-central1,us-central1,europe-west1",
+            "PROJECTS_TO_SCAN": "proj-a",
+        },
+        clear=True,
+    )
+    def test_parse_config_deduplicates_regions(self):
+        """Test that duplicate regions are deduplicated."""
+        config = parse_config()
+
+        self.assertEqual(config.regions, ["us-central1", "europe-west1"])
 
 
 if __name__ == "__main__":

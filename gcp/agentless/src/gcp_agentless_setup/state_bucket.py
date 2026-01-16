@@ -35,20 +35,23 @@ def create_bucket(
 ) -> None:
     """Create a GCS bucket for Terraform state.
 
+    Security features enabled:
+    - Regional storage (data stays in the specified region for compliance)
+    - Uniform bucket-level access (simplified, more secure IAM)
+    - Public access prevention (bucket can never be made public)
+    - Versioning (protects against accidental state corruption/deletion)
+
     Raises:
         BucketCreationError: If the bucket cannot be created.
     """
-    # Use regional location based on the scanner region
-    # Map region to location (e.g., us-central1 -> US, europe-west1 -> EU)
-    location = region.split("-")[0].upper()  # Simple mapping: us-central1 -> US
-
     result = try_gcloud(
         GcloudCmd("storage", "buckets")
         .arg("create")
         .arg(f"gs://{bucket_name}")
         .param("--project", project)
-        .param("--location", location)
+        .param("--location", region)  # Use actual region for data residency compliance
         .flag("--uniform-bucket-level-access")
+        .flag("--pap")
     )
 
     if not result.success:
@@ -89,7 +92,7 @@ def ensure_state_bucket(config: Config, reporter: Reporter) -> str:
         if not bucket_exists(bucket_name):
             reporter.fatal(
                 f"Custom state bucket does not exist: gs://{bucket_name}",
-                "Create the bucket first or remove GCP_STATE_BUCKET to use the default.",
+                "Create the bucket first or remove TF_STATE_BUCKET to use the default.",
             )
         reporter.success(f"Using custom state bucket: gs://{bucket_name}")
     else:
@@ -98,7 +101,8 @@ def ensure_state_bucket(config: Config, reporter: Reporter) -> str:
             reporter.success(f"Using existing state bucket: gs://{bucket_name}")
         else:
             reporter.info(f"Creating state bucket: gs://{bucket_name}")
-            create_bucket(reporter, bucket_name, config.scanner_project, config.region)
+            # Use the first region for bucket location
+            create_bucket(reporter, bucket_name, config.scanner_project, config.regions[0])
             reporter.success(f"Created state bucket: gs://{bucket_name}")
 
     return bucket_name
