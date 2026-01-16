@@ -4,15 +4,15 @@
 
 from re import search
 
-from az_shared.util import get_az_version
+from az_shared.util import get_az_and_python_version
 
 
 # Errors that prevent script from completing successfully
 class AzIntegrationError(Exception):
-    """Base exception that appends az version details to the error message."""
+    """Base exception that appends python and az version details to the error message."""
 
     def __init__(self, error_message: str):
-        super().__init__(f"{error_message}{get_az_version()}")
+        super().__init__(f"{error_message}{get_az_and_python_version()}")
 
 
 class FatalError(AzIntegrationError):

@@ -1,13 +1,15 @@
 import subprocess
+import sys
 
 AZ_VERS_TIMEOUT = 5  # seconds
 
 
-def get_az_version(timeout: int = AZ_VERS_TIMEOUT) -> str:
+def get_az_and_python_version(timeout: int = AZ_VERS_TIMEOUT) -> str:
     """
-    Return the az version on success, otherwise return a failure
-    string starting with "Could not retrieve 'az version'".
+    Return the az and python versions on success, otherwise return a failure string.
     """
+    python_version = sys.version_info
+    python_result = f"python version: {python_version[0]}.{python_version[1]}.{python_version[2]}"
     try:
         res = subprocess.run(
             ["az", "version", "--output", "json"],
@@ -16,8 +18,9 @@ def get_az_version(timeout: int = AZ_VERS_TIMEOUT) -> str:
             text=True,
             timeout=timeout,
         )
-        return f"\naz version:\n{res.stdout.strip()}"
+        az_result = f"az version:\n{res.stdout.strip()}"
     except subprocess.TimeoutExpired:
-        return f"\nCould not retrieve 'az version': timeout after {timeout}s"
+        az_result = f"Could not retrieve 'az version': timeout after {timeout}s"
     except Exception as e:
-        return f"\nCould not retrieve 'az version': {e}"
+        az_result = f"Could not retrieve 'az version': {e}"
+    return f"\n{az_result}\n{python_result}"

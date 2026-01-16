@@ -2,6 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
+import re
 from subprocess import CalledProcessError
 from unittest import TestCase
 from unittest.mock import Mock
@@ -43,11 +44,17 @@ class CmdExecutionTestCase(TestCase):
         """Set up test fixtures and reset global settings"""
         self.subprocess_mock = self.patch("az_shared.execute_cmd.subprocess.run")
         self.sleep_mock = self.patch("az_shared.execute_cmd.sleep")
-        self.az_version_mock = self.patch("az_shared.execute_cmd.get_az_version", return_value="az_version")
-        self.errors_az_version_mock = self.patch("az_shared.errors.get_az_version", return_value="az_version")
+        self.az_version_mock = self.patch(
+            "az_shared.execute_cmd.get_az_and_python_version",
+            return_value="\naz version:\naz version\npython version: 3.9.22",
+        )
+        self.errors_az_version_mock = self.patch(
+            "az_shared.errors.get_az_and_python_version",
+            return_value="\naz version:\naz version\npython version: 3.9.22",
+        )
 
     def assert_has_az_version(self, exc: BaseException) -> None:
-        self.assertTrue(any(isinstance(arg, str) and "az_version" in arg for arg in exc.args))
+        self.assertTrue(any(isinstance(arg, str) and "az version" in arg for arg in exc.args))
 
 
 class TestExecuteCmd(CmdExecutionTestCase):
@@ -227,3 +234,17 @@ ERROR: (RequestDisallowedByPolicy) {EXAMPLE_POLICY_ERROR}"""
         with self.assertRaises(DisabledSubscriptionError) as e:
             execute(cmd)
         self.assert_has_az_version(e.exception)
+
+    def test_error_contains_python_version(self):
+        """Test python version is appended to error message and not user_action_message"""
+        cmd = Cmd(["az", "functionapp", "create"])
+
+        error = CalledProcessError(1, "az")
+        error.stderr = f"{AUTH_FAILED_ERROR}: Access denied"
+        self.subprocess_mock.side_effect = error
+
+        with self.assertRaises(AccessError) as ctx:
+            execute(cmd)
+
+        self.assertRegex(ctx.exception.args[0], r"python version: \d+\.\d+\.\d+")
+        self.assertNotIn("python version", ctx.exception.user_action_message)
