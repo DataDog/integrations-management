@@ -132,22 +132,12 @@ def submit_integration_config(app_registration: AppRegistration, config: dict) -
         raise RuntimeError("Error creating Azure Integration in Datadog") from e
 
 
-def submit_config_identifier(workflow_id: str, app_registration: AppRegistration) -> None:
+def submit_config_identifier(app_registration: AppRegistration, step_metadata: dict) -> None:
     """Submit an identifier to Datadog for the new configuration so that it can be displayed to the user."""
-    try:
-        dd_request(
-            "POST",
-            "/api/unstable/integration/azure/setup/serviceprincipal",
-            {
-                "data": {
-                    "id": workflow_id,
-                    "type": "add_azure_app_registration",
-                    "attributes": {"client_id": app_registration.client_id, "tenant_id": app_registration.tenant_id},
-                }
-            },
-        )
-    except URLError as e:
-        raise RuntimeError("Error submitting configuration identifier to Datadog") from e
+    step_metadata["service_principal"] = {
+        "client_id": app_registration.client_id,
+        "tenant_id": app_registration.tenant_id,
+    }
 
 
 def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
@@ -241,8 +231,8 @@ def main():
         app_registration = create_app_registration_with_permissions(selections.scopes)
     with status.report_step("integration_config", "Submitting new configuration to Datadog"):
         submit_integration_config(app_registration, selections.app_registration_config)
-    with status.report_step("config_identifier", "Submitting new configuration identifier to Datadog"):
-        submit_config_identifier(workflow_id, app_registration)
+    with status.report_step("config_identifier", "Submitting new configuration identifier to Datadog") as step_metadata:
+        submit_config_identifier(app_registration, step_metadata)
     if selections.app_registration_config.get("is_agent_enabled"):
         with status.report_step("agent", "Installing the Datadog Agent"):
             set_extension_latest(list_vms_for_subscriptions([s.id for s in flatten_scopes(selections.scopes)]))
