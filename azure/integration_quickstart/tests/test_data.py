@@ -13,7 +13,7 @@ from azure_integration_quickstart.user_selections import UserSelections
 ERROR_404 = HTTPError(url="", code=404, msg="resource does not exist", hdrs=Message(), fp=None)
 ERROR_403 = HTTPError(url="", code=403, msg="you don't have permission", hdrs=Message(), fp=None)
 
-
+EXAMPLE_WORKFLOW_TYPE = "test-azure-setup"
 EXAMPLE_WORKFLOW_ID = "Example quickstart workflow"
 EXAMPLE_STEP_ID = "example_workflow_step"
 
@@ -21,17 +21,17 @@ EXAMPLE_SUBSCRIPTIONS = [{"id": f"example-subscription-id-{i}", "name": f"Exampl
 EXAMPLE_MANAGEMENT_GROUP = {
     "id": "/providers/Microsoft.Management/managementGroups/Azure-Integrations-Mg",
     "name": "Azure Integrations group of subscriptions",
-    "subscriptions": {"subscriptions": [EXAMPLE_SUBSCRIPTIONS[0], EXAMPLE_SUBSCRIPTIONS[1]]},
+    "subscriptions": [EXAMPLE_SUBSCRIPTIONS[0], EXAMPLE_SUBSCRIPTIONS[1]],
 }
 EXAMPLE_MANAGEMENT_GROUP_EMPTY = {
     "id": "/providers/Microsoft.Management/managementGroups/Azure-Integrations-Mg2",
     "name": "Empty management group",
-    "subscriptions": {"subscriptions": []},
+    "subscriptions": [],
 }
 EXAMPLE_MANAGEMENT_GROUP_OVERLAP = {
     "id": "/providers/Microsoft.Management/managementGroups/Azure-Integrations-Mg3",
     "name": "Empty management group",
-    "subscriptions": {"subscriptions": [EXAMPLE_SUBSCRIPTIONS[2], EXAMPLE_SUBSCRIPTIONS[1]]},
+    "subscriptions": [EXAMPLE_SUBSCRIPTIONS[2], EXAMPLE_SUBSCRIPTIONS[1]],
 }
 
 EXAMPLE_SUBSCRIPTION_SCOPES = [Subscription(**sub) for sub in EXAMPLE_SUBSCRIPTIONS]
@@ -72,16 +72,18 @@ def make_selections_response(
             "id": "example-integration-id",
             "type": "add_azure_app_registration",
             "attributes": {
-                "config_options": config_options,
-                "management_groups": {
-                    "management_groups": management_groups,
-                },
-                "subscriptions": {"subscriptions": subscriptions},
+                "metadata": {
+                    "selections": {
+                        "config_options": config_options,
+                        "management_groups": management_groups,
+                        "subscriptions": subscriptions,
+                    }
+                }
             },
         }
     }
     if log_forwarding_options:
-        result["data"]["attributes"]["log_forwarding_options"] = log_forwarding_options
+        result["data"]["attributes"]["metadata"]["selections"]["log_forwarding_options"] = log_forwarding_options
     return json.dumps(result)
 
 
