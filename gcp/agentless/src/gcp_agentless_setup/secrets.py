@@ -85,23 +85,18 @@ def add_secret_version(project: str, api_key: str) -> None:
     Raises:
         SecretManagerError: If adding the version fails.
     """
-    # Use echo to pipe the secret value to gcloud
-    # This avoids having the API key in command line arguments
-    import subprocess
-
-    cmd = f'echo -n "{api_key}" | gcloud secrets versions add {API_KEY_SECRET_NAME} --project={project} --data-file=-'
-
-    proc = subprocess.run(
-        cmd,
-        shell=True,
-        capture_output=True,
-        text=True,
+    result = try_gcloud(
+        GcloudCmd("secrets versions", "add")
+        .arg(API_KEY_SECRET_NAME)
+        .param("--project", project)
+        .flag("--data-file=-"),
+        input_data=api_key,
     )
 
-    if proc.returncode != 0:
+    if not result.success:
         raise SecretManagerError(
             f"Failed to add secret version to: {API_KEY_SECRET_NAME}",
-            proc.stderr,
+            result.error,
         )
 
 
