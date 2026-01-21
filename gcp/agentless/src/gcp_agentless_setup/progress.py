@@ -7,7 +7,7 @@ import re
 import subprocess
 import sys
 from collections import deque
-from typing import List, Optional
+from typing import Optional
 
 
 # Number of recent Terraform output lines to display
@@ -143,7 +143,7 @@ class TerraformProgressDisplay:
             move_cursor_up(self.lines_displayed)
         
         # Clear and redraw each line
-        lines_to_draw: List[str] = []
+        lines_to_draw: list[str] = []
         
         # Add recent terraform output lines (in gray)
         for line in self.recent_lines:
@@ -237,7 +237,7 @@ class TerraformProgressDisplay:
             print()  # Add newline after progress bar
 
 
-def run_terraform_with_progress(cmd: List[str]) -> subprocess.CompletedProcess:
+def run_terraform_with_progress(cmd: list[str]) -> subprocess.CompletedProcess:
     """Run a terraform command with progress display.
     
     Args:
@@ -258,7 +258,7 @@ def run_terraform_with_progress(cmd: List[str]) -> subprocess.CompletedProcess:
     )
     
     # Process output line by line
-    all_output: List[str] = []
+    all_output: list[str] = []
     for line in iter(process.stdout.readline, ""):
         all_output.append(line)
         display.process_line(line)
