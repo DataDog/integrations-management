@@ -11,6 +11,7 @@ from integration_quickstart.tests.test_data import (
     ERROR_403,
     ERROR_404,
     EXAMPLE_WORKFLOW_ID,
+    EXAMPLE_WORKFLOW_TYPE,
     MGROUP_SELECTION_RESPONSE,
     MGROUP_SELECTIONS,
     OVERLAPPING_SELECTIONS,
@@ -33,30 +34,30 @@ class TestReceiveUserSelections(DDTestCase):
 
     def test_receive_subscriptions(self):
         self.dd_request_mock.return_value = (SUBSCRIPTION_SELECTION_RESPONSE, 200)
-        selections = receive_user_selections(EXAMPLE_WORKFLOW_ID)
+        selections = receive_user_selections(EXAMPLE_WORKFLOW_TYPE, EXAMPLE_WORKFLOW_ID)
         self.assert_selections_equal(selections, SUBSCRIPTION_SELECTION)
 
     def test_receive_mgroup(self):
         self.dd_request_mock.return_value = (MGROUP_SELECTION_RESPONSE, 200)
-        selections = receive_user_selections(EXAMPLE_WORKFLOW_ID)
+        selections = receive_user_selections(EXAMPLE_WORKFLOW_TYPE, EXAMPLE_WORKFLOW_ID)
         self.assert_selections_equal(selections, MGROUP_SELECTIONS)
 
     def test_receive_overlapping(self):
         self.dd_request_mock.return_value = (OVERLAPPING_SELECTIONS_RESPONSE, 200)
-        selections = receive_user_selections(EXAMPLE_WORKFLOW_ID)
+        selections = receive_user_selections(EXAMPLE_WORKFLOW_TYPE, EXAMPLE_WORKFLOW_ID)
         self.assert_selections_equal(selections, OVERLAPPING_SELECTIONS)
 
     def test_receive_log_forwarder(self):
         self.dd_request_mock.return_value = (SELECTIONS_WITH_LOG_FORWARDING_RESPONSE, 200)
-        selections = receive_user_selections(EXAMPLE_WORKFLOW_ID)
+        selections = receive_user_selections(EXAMPLE_WORKFLOW_TYPE, EXAMPLE_WORKFLOW_ID)
         self.assert_selections_equal(selections, SELECTIONS_WITH_LOG_FORWARDING)
 
     def test_error(self):
         self.dd_request_mock.side_effect = [ERROR_403, (SUBSCRIPTION_SELECTION_RESPONSE, 200)]
         with self.assertRaises(RuntimeError):
-            receive_user_selections(EXAMPLE_WORKFLOW_ID)
+            receive_user_selections(EXAMPLE_WORKFLOW_TYPE, EXAMPLE_WORKFLOW_ID)
 
     def test_polling(self):
         self.dd_request_mock.side_effect = [ERROR_404, (SUBSCRIPTION_SELECTION_RESPONSE, 200)]
-        selections = receive_user_selections(EXAMPLE_WORKFLOW_ID)
+        selections = receive_user_selections(EXAMPLE_WORKFLOW_TYPE, EXAMPLE_WORKFLOW_ID)
         self.assert_selections_equal(selections, SUBSCRIPTION_SELECTION)

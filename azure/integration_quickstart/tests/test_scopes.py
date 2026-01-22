@@ -31,10 +31,6 @@ def make_flat_permissions_mock_impl(scopes_with_permissions: list[tuple[Scope, F
 
 
 class TestFilterScopesByPermission(DDTestCase):
-    def setUp(self) -> None:
-        self.az_cmd_mock: MagicMock = self.patch("azure_integration_quickstart.scopes.execute_json")
-        self.az_cmd_mock.return_value = {"accessToken": ""}
-
     def test_filter_scopes_by_permission(self):
         test_cases: list[tuple[str, list[tuple[Scope, FlatPermission]], list[Scope]]] = [
             ("no_scopes", [], []),
@@ -74,11 +70,8 @@ class TestFilterScopesByPermission(DDTestCase):
                     "azure_integration_quickstart.scopes.get_flat_permission", wraps=mock_get_flat_permission_impl
                 ) as mock_get_flat_permission:
                     actual = filter_scopes_by_permission([scope for scope, _ in scope_permissions])
-                self.az_cmd_mock.assert_called_once()
                 self.assertEqual(mock_get_flat_permission.call_count, len(scope_permissions))
                 self.assertListEqual(actual, expected_result)
-
-            self.az_cmd_mock.reset_mock()
 
 
 class TestFlattenScopes(DDTestCase):

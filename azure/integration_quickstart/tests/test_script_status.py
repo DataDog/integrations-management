@@ -4,7 +4,6 @@
 
 import threading
 from unittest.mock import ANY, MagicMock
-from unittest.mock import patch as mock_patch
 
 from az_shared.errors import AccessError, AzCliNotInstalledError
 from azure_integration_quickstart.script_status import Status, StatusReporter
@@ -12,35 +11,41 @@ from azure_integration_quickstart.script_status import Status, StatusReporter
 from integration_quickstart.tests.dd_test_case import DDTestCase
 from integration_quickstart.tests.test_data import EXAMPLE_STEP_ID, EXAMPLE_WORKFLOW_ID
 
+CREATE_APP_REG_WORKFLOW_TYPE = "azure-app-registration-setup"
+
 
 class TestStatusReporter(DDTestCase):
     def setUp(self) -> None:
         self.loading_spinner_mock: MagicMock = self.patch("azure_integration_quickstart.script_status.loading_spinner")
 
-        self.status_reporter = StatusReporter(EXAMPLE_WORKFLOW_ID)
+        self.status_reporter = StatusReporter(CREATE_APP_REG_WORKFLOW_TYPE, EXAMPLE_WORKFLOW_ID)
         self.report_mock = MagicMock()
         self.status_reporter.report = self.report_mock
 
     def test_step_pass_no_message(self):
         with self.status_reporter.report_step(EXAMPLE_STEP_ID):
             self.report_mock.assert_called_once_with(
-                EXAMPLE_STEP_ID, Status.STARTED, f"{EXAMPLE_STEP_ID}: {Status.STARTED}"
+                EXAMPLE_STEP_ID, Status.IN_PROGRESS, f"{EXAMPLE_STEP_ID}: {Status.IN_PROGRESS}"
             )
-        self.report_mock.assert_called_with(EXAMPLE_STEP_ID, Status.OK, f"{EXAMPLE_STEP_ID}: {Status.OK}", None)
+        self.report_mock.assert_called_with(
+            EXAMPLE_STEP_ID, Status.FINISHED, f"{EXAMPLE_STEP_ID}: {Status.FINISHED}", None
+        )
         self.assertEqual(self.report_mock.call_count, 2)
         self.loading_spinner_mock.assert_not_called()
 
     def test_loading_message(self):
         with self.status_reporter.report_step(EXAMPLE_STEP_ID, "loading"):
             self.report_mock.assert_called_once_with(
-                EXAMPLE_STEP_ID, Status.STARTED, f"{EXAMPLE_STEP_ID}: {Status.STARTED}"
+                EXAMPLE_STEP_ID, Status.IN_PROGRESS, f"{EXAMPLE_STEP_ID}: {Status.IN_PROGRESS}"
             )
 
             self.loading_spinner_mock.assert_called_with("loading", ANY)
             done_event: threading.Event = self.loading_spinner_mock.call_args[0][1]
             self.assertFalse(done_event.is_set())
 
-        self.report_mock.assert_called_with(EXAMPLE_STEP_ID, Status.OK, f"{EXAMPLE_STEP_ID}: {Status.OK}", None)
+        self.report_mock.assert_called_with(
+            EXAMPLE_STEP_ID, Status.FINISHED, f"{EXAMPLE_STEP_ID}: {Status.FINISHED}", None
+        )
         self.assertEqual(self.report_mock.call_count, 2)
 
         self.loading_spinner_mock.assert_called_with("loading", ANY)
@@ -50,13 +55,15 @@ class TestStatusReporter(DDTestCase):
     def test_metadata(self):
         with self.status_reporter.report_step(EXAMPLE_STEP_ID) as metadata:
             self.report_mock.assert_called_once_with(
-                EXAMPLE_STEP_ID, Status.STARTED, f"{EXAMPLE_STEP_ID}: {Status.STARTED}"
+                EXAMPLE_STEP_ID, Status.IN_PROGRESS, f"{EXAMPLE_STEP_ID}: {Status.IN_PROGRESS}"
             )
 
             self.assertDictEqual(metadata, {})
             metadata["key"] = "val"
 
-        self.report_mock.assert_called_with(EXAMPLE_STEP_ID, Status.OK, f"{EXAMPLE_STEP_ID}: {Status.OK}", ANY)
+        self.report_mock.assert_called_with(
+            EXAMPLE_STEP_ID, Status.FINISHED, f"{EXAMPLE_STEP_ID}: {Status.FINISHED}", ANY
+        )
         self.assertEqual(self.report_mock.call_count, 2)
 
         reported_metadata = self.report_mock.call_args[0][3]
@@ -67,13 +74,11 @@ class TestStatusReporter(DDTestCase):
         with self.assertRaises(Exception) as e:
             with self.status_reporter.report_step(EXAMPLE_STEP_ID):
                 self.report_mock.assert_called_once_with(
-                    EXAMPLE_STEP_ID, Status.STARTED, f"{EXAMPLE_STEP_ID}: {Status.STARTED}"
+                    EXAMPLE_STEP_ID, Status.IN_PROGRESS, f"{EXAMPLE_STEP_ID}: {Status.IN_PROGRESS}"
                 )
                 raise Exception(error_message)
         self.assertEqual(str(e.exception), error_message)
-        self.report_mock.assert_called_with(
-            "connection", Status.DISCONNECTED, f"Azure CLI token expired: {error_message}"
-        )
+        self.report_mock.assert_called_with("connection", Status.CANCELLED, f"Azure CLI token expired: {error_message}")
         self.assertEqual(self.report_mock.call_count, 2)
 
     def test_user_actionable_error(self):
@@ -81,7 +86,7 @@ class TestStatusReporter(DDTestCase):
         with self.assertRaises(AccessError) as e:
             with self.status_reporter.report_step(EXAMPLE_STEP_ID):
                 self.report_mock.assert_called_once_with(
-                    EXAMPLE_STEP_ID, Status.STARTED, f"{EXAMPLE_STEP_ID}: {Status.STARTED}"
+                    EXAMPLE_STEP_ID, Status.IN_PROGRESS, f"{EXAMPLE_STEP_ID}: {Status.IN_PROGRESS}"
                 )
                 raise AccessError(error_message)
 
@@ -100,7 +105,7 @@ class TestStatusReporter(DDTestCase):
         with self.assertRaises(AzCliNotInstalledError) as e:
             with self.status_reporter.report_step(EXAMPLE_STEP_ID):
                 self.report_mock.assert_called_once_with(
-                    EXAMPLE_STEP_ID, Status.STARTED, f"{EXAMPLE_STEP_ID}: {Status.STARTED}"
+                    EXAMPLE_STEP_ID, Status.IN_PROGRESS, f"{EXAMPLE_STEP_ID}: {Status.IN_PROGRESS}"
                 )
                 raise AzCliNotInstalledError(error_message)
 
@@ -117,10 +122,10 @@ class TestStatusReporter(DDTestCase):
         with self.assertRaises(Exception) as e:
             with self.status_reporter.report_step(EXAMPLE_STEP_ID):
                 self.report_mock.assert_called_once_with(
-                    EXAMPLE_STEP_ID, Status.STARTED, f"{EXAMPLE_STEP_ID}: {Status.STARTED}"
+                    EXAMPLE_STEP_ID, Status.IN_PROGRESS, f"{EXAMPLE_STEP_ID}: {Status.IN_PROGRESS}"
                 )
                 raise Exception(error_message)
 
         self.assertEqual(str(e.exception), error_message)
-        self.report_mock.assert_called_with(EXAMPLE_STEP_ID, Status.ERROR, ANY)
+        self.report_mock.assert_called_with(EXAMPLE_STEP_ID, Status.FAILED, ANY)
         self.assertEqual(self.report_mock.call_count, 2)

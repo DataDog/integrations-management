@@ -13,7 +13,6 @@ from datetime import datetime
 from typing import TypedDict
 from urllib.error import URLError
 
-from az_shared.execute_cmd import execute, execute_json
 from az_shared.errors import (
     AccessError,
     AppRegistrationCreationPermissionsError,
@@ -21,6 +20,7 @@ from az_shared.errors import (
     AzCliNotInstalledError,
     InteractiveAuthenticationRequiredError,
 )
+from az_shared.execute_cmd import execute, execute_json
 from azure_integration_quickstart.extension.vm_extension import list_vms_for_subscriptions, set_extension_latest
 from azure_integration_quickstart.role_assignments import can_current_user_create_applications
 from azure_integration_quickstart.scopes import Scope, Subscription, flatten_scopes, report_available_scopes
@@ -31,6 +31,8 @@ from azure_logging_install.configuration import Configuration
 from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
 from azure_logging_install.main import install_log_forwarder
 from common.shell import Cmd
+
+CREATE_APP_REG_WORKFLOW_TYPE = "azure-app-registration-setup"
 
 
 def ensure_login() -> None:
@@ -130,24 +132,6 @@ def submit_integration_config(app_registration: AppRegistration, config: dict) -
         raise RuntimeError("Error creating Azure Integration in Datadog") from e
 
 
-def submit_config_identifier(workflow_id: str, app_registration: AppRegistration) -> None:
-    """Submit an identifier to Datadog for the new configuration so that it can be displayed to the user."""
-    try:
-        dd_request(
-            "POST",
-            "/api/unstable/integration/azure/setup/serviceprincipal",
-            {
-                "data": {
-                    "id": workflow_id,
-                    "type": "add_azure_app_registration",
-                    "attributes": {"client_id": app_registration.client_id, "tenant_id": app_registration.tenant_id},
-                }
-            },
-        )
-    except URLError as e:
-        raise RuntimeError("Error submitting configuration identifier to Datadog") from e
-
-
 def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
     install_log_forwarder(
         Configuration(
@@ -176,18 +160,18 @@ def main():
 
     workflow_id = os.environ["WORKFLOW_ID"]
 
-    status = StatusReporter(workflow_id)
+    status = StatusReporter(CREATE_APP_REG_WORKFLOW_TYPE, workflow_id)
 
     # report if the user manually disconnects the script
     def interrupt_handler(*_args):
-        status.report("connection", Status.DISCONNECTED, "disconnected by user")
+        status.report("connection", Status.CANCELLED, "disconnected by user")
         exit(1)
 
     signal.signal(signal.SIGINT, interrupt_handler)
 
     # give up after 30 minutes
     def time_out():
-        status.report("connection", Status.DISCONNECTED, "session expired")
+        status.report("connection", Status.CANCELLED, "session expired")
         print(
             "\nSession expired. If you still wish to create a new Datadog configuration, please reload the onboarding page in Datadog and reconnect using the provided command."
         )
@@ -213,14 +197,14 @@ def main():
     def _check_app_registration_permissions() -> None:
         if not can_current_user_create_applications():
             error = AppRegistrationCreationPermissionsError("The current user cannot create app registrations")
-            StatusReporter(workflow_id).report(
+            StatusReporter(CREATE_APP_REG_WORKFLOW_TYPE, workflow_id).report(
                 "app_registration_permissions", Status.USER_ACTIONABLE_ERROR, error.user_action_message
             )
             raise error
 
     def _collect_scopes() -> tuple[list[Scope], list[Scope]]:
-        with status.report_step("scopes", "Collecting scopes"):
-            return report_available_scopes(workflow_id)
+        with status.report_step("scopes", "Collecting scopes") as step_metadata:
+            return report_available_scopes(step_metadata)
 
     with ThreadPoolExecutor() as executor:
         scopes_future = executor.submit(_collect_scopes)
@@ -234,13 +218,16 @@ def main():
     ) as step_metadata:
         exactly_one_log_forwarder = report_existing_log_forwarders(subscriptions, step_metadata)
     with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
-        selections = receive_user_selections(workflow_id)
+        selections = receive_user_selections(CREATE_APP_REG_WORKFLOW_TYPE, workflow_id)
     with status.report_step("app_registration", "Creating app registration in Azure"):
         app_registration = create_app_registration_with_permissions(selections.scopes)
     with status.report_step("integration_config", "Submitting new configuration to Datadog"):
         submit_integration_config(app_registration, selections.app_registration_config)
-    with status.report_step("config_identifier", "Submitting new configuration identifier to Datadog"):
-        submit_config_identifier(workflow_id, app_registration)
+    with status.report_step("config_identifier", "Submitting new configuration identifier to Datadog") as step_metadata:
+        step_metadata["service_principal"] = {
+            "client_id": app_registration.client_id,
+            "tenant_id": app_registration.tenant_id,
+        }
     if selections.app_registration_config.get("is_agent_enabled"):
         with status.report_step("agent", "Installing the Datadog Agent"):
             set_extension_latest(list_vms_for_subscriptions([s.id for s in flatten_scopes(selections.scopes)]))

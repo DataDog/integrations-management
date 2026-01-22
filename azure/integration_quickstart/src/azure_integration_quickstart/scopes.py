@@ -7,12 +7,11 @@ from collections.abc import Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from typing import Literal
-from urllib.error import URLError
 
-from az_shared.execute_cmd import execute_json
 from az_shared.errors import AccessError
+from az_shared.execute_cmd import execute_json
 from azure_integration_quickstart.permissions import FlatPermission, get_flat_permission
-from azure_integration_quickstart.util import MAX_WORKERS, dd_request
+from azure_integration_quickstart.util import MAX_WORKERS
 from common.shell import Cmd
 
 ScopeType = Literal["subscription", "management_group"]
@@ -52,15 +51,10 @@ class Subscription(Scope):
 
 
 @dataclass
-class SubscriptionList:
-    subscriptions: list[Subscription]
-
-
-@dataclass
 class ManagementGroup(Scope):
     """An Azure management group."""
 
-    subscriptions: SubscriptionList
+    subscriptions: list[Subscription]
 
     @property
     def scope_type(self) -> ScopeType:
@@ -72,9 +66,7 @@ class ManagementGroup(Scope):
 
     @staticmethod
     def from_dict(d: dict) -> "ManagementGroup":
-        return ManagementGroup(
-            d["id"], d["name"], SubscriptionList([Subscription(**s) for s in d["subscriptions"]["subscriptions"]])
-        )
+        return ManagementGroup(d["id"], d["name"], [Subscription(**s) for s in d["subscriptions"]])
 
 
 @dataclass
@@ -125,7 +117,7 @@ def get_management_group_from_list_result(list_result: ManagementGroupListResult
         subscriptions = [Subscription(**s) for s in subscriptions_az_response if s["id"].startswith("/subscriptions/")]
     else:
         subscriptions = []
-    return ManagementGroup(list_result.id, list_result.name, SubscriptionList(subscriptions))
+    return ManagementGroup(list_result.id, list_result.name, subscriptions)
 
 
 def get_management_group_scopes(tenant_id: str) -> list[ManagementGroup]:
@@ -152,34 +144,15 @@ def flatten_scopes(scopes: Sequence[Scope]) -> set[Subscription]:
     """Convert a list of scopes into a set of subscriptions, with management groups represented as their constituent subscriptions"""
     return set(
         [s for s in scopes if isinstance(s, Subscription)]
-        + [
-            s
-            for subs in [m.subscriptions.subscriptions for m in scopes if isinstance(m, ManagementGroup)]
-            for s in subs
-        ]
+        + [s for subs in [m.subscriptions for m in scopes if isinstance(m, ManagementGroup)] for s in subs]
     )
 
 
-def report_available_scopes(workflow_id: str) -> tuple[list[Scope], list[Scope]]:
+def report_available_scopes(step_metadata: dict) -> tuple[list[Scope], list[Scope]]:
     """Send Datadog the subscriptions and management groups that the user has permission to grant access to."""
     tenant_id = execute_json(Cmd(["az", "account", "show"]).param("--query", "tenantId"))
     subscriptions = filter_scopes_by_permission(get_subscription_scopes(tenant_id))
     management_groups = filter_scopes_by_permission(get_management_group_scopes(tenant_id))
-    try:
-        dd_request(
-            "POST",
-            "/api/unstable/integration/azure/setup/scopes",
-            {
-                "data": {
-                    "id": workflow_id,
-                    "type": "add_azure_app_registration",
-                    "attributes": {
-                        "subscriptions": {"subscriptions": [asdict(s) for s in subscriptions]},
-                        "management_groups": {"management_groups": [asdict(m) for m in management_groups]},
-                    },
-                }
-            },
-        )
-    except URLError as e:
-        raise RuntimeError("Error submitting available scopes to Datadog") from e
+    step_metadata["subscriptions"] = [asdict(s) for s in subscriptions]
+    step_metadata["management_groups"] = [asdict(m) for m in management_groups]
     return subscriptions, management_groups
