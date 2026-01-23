@@ -140,6 +140,12 @@ def get_management_group_scopes(tenant_id: str) -> list[ManagementGroup]:
     return list(management_groups)
 
 
+def get_available_regions() -> list[str]:
+    """Get the list of Azure regions (by name) that the user's tenant has access to."""
+    regions = execute_json(Cmd(["az", "account", "list-locations"]).param("--query", "[].name").param("-o", "json"))
+    return regions
+
+
 def flatten_scopes(scopes: Sequence[Scope]) -> set[Subscription]:
     """Convert a list of scopes into a set of subscriptions, with management groups represented as their constituent subscriptions"""
     return set(
@@ -153,6 +159,8 @@ def report_available_scopes(step_metadata: dict) -> tuple[list[Scope], list[Scop
     tenant_id = execute_json(Cmd(["az", "account", "show"]).param("--query", "tenantId"))
     subscriptions = filter_scopes_by_permission(get_subscription_scopes(tenant_id))
     management_groups = filter_scopes_by_permission(get_management_group_scopes(tenant_id))
+    regions = get_available_regions()
     step_metadata["subscriptions"] = [asdict(s) for s in subscriptions]
     step_metadata["management_groups"] = [asdict(m) for m in management_groups]
+    step_metadata["regions"] = regions
     return subscriptions, management_groups
