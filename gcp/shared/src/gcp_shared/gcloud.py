@@ -74,12 +74,17 @@ def gcloud(cmd: Union[str, GcloudCmd], *keys: str) -> Any:
     return result.data
 
 
-def try_gcloud(cmd: Union[str, GcloudCmd], *keys: str) -> CommandResult:
+def try_gcloud(
+    cmd: Union[str, GcloudCmd],
+    *keys: str,
+    input_data: Optional[str] = None,
+) -> CommandResult:
     """Run gcloud CLI command and return a CommandResult. Never raises exceptions.
 
     Args:
         cmd: Either a command string or a GcloudCmd object
         *keys: Optional keys to extract from JSON output
+        input_data: Optional data to pass via stdin (useful for --data-file=-)
 
     Returns:
         CommandResult with returncode, data (parsed JSON), and error (stderr).
@@ -91,6 +96,7 @@ def try_gcloud(cmd: Union[str, GcloudCmd], *keys: str) -> CommandResult:
         check=False,
         text=True,
         capture_output=True,
+        input=input_data,
     )
 
     if proc_result.returncode != 0:

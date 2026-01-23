@@ -19,6 +19,17 @@ class ConfigurationError(SetupError):
     """Error in configuration/environment variables."""
 
 
+class DatadogAPIKeyError(SetupError):
+    """Invalid Datadog API key or site."""
+
+    def __init__(self, site: str):
+        super().__init__(
+            "Invalid Datadog API key or site",
+            f"Please verify your DD_API_KEY and DD_SITE ({site}) are correct.\n"
+            "Ensure the API key has Remote Configuration enabled.",
+        )
+
+
 class GCPAuthenticationError(SetupError):
     """Not authenticated with GCP."""
 
@@ -39,6 +50,10 @@ class APIEnablementError(SetupError):
 
 class BucketCreationError(SetupError):
     """Failed to create a GCS bucket."""
+
+
+class SecretManagerError(SetupError):
+    """Error during Secret Manager operations."""
 
 
 class TerraformError(SetupError):
