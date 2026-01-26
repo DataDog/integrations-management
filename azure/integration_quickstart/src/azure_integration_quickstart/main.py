@@ -125,7 +125,6 @@ def submit_integration_config(app_registration: AppRegistration, config: dict) -
                 "client_secret": app_registration.client_secret,
                 "tenant_name": app_registration.tenant_id,
                 "source": "quickstart",
-                "validate": False,
             },
         )
     except URLError as e:
