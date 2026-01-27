@@ -158,6 +158,7 @@ def wait_for_app_registration_to_work(app_registration: AppRegistration) -> None
 
     consecutive_success_count = 0
     while True:
+        # If we can read subscription metadata, the assigned access is being honored.
         if get_subscription_count(access_token):
             consecutive_success_count += 1
         else:
