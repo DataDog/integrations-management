@@ -162,6 +162,7 @@ def wait_for_app_registration_to_work(app_registration: AppRegistration) -> None
             consecutive_success_count += 1
         else:
             consecutive_success_count = 0
+        # Require several consecutive successes to account for eventual consistency.
         if consecutive_success_count < 5:
             break
         else:
