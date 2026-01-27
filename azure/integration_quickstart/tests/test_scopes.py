@@ -3,11 +3,16 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 from collections.abc import Sequence
-from unittest.mock import MagicMock
 from unittest.mock import patch as mock_patch
 
 from azure_integration_quickstart.permissions import FlatPermission
-from azure_integration_quickstart.scopes import Scope, Subscription, filter_scopes_by_permission, flatten_scopes
+from azure_integration_quickstart.scopes import (
+    Scope,
+    Subscription,
+    filter_scopes_by_permission,
+    flatten_scopes,
+    get_available_regions,
+)
 
 from integration_quickstart.tests.dd_test_case import DDTestCase
 from integration_quickstart.tests.test_data import (
@@ -108,3 +113,24 @@ class TestFlattenScopes(DDTestCase):
             with self.subTest(msg=name):
                 actual = flatten_scopes(scopes)
                 self.assert_same_scopes(actual, expected_result)
+
+
+class TestGetAvailableRegions(DDTestCase):
+    def test_get_available_regions(self):
+        """Test that get_available_regions returns a list of region names."""
+        expected_regions = [
+            "eastus",
+            "eastus2",
+            "westus",
+            "westus2",
+            "centralus",
+            "northeurope",
+            "westeurope",
+        ]
+        with mock_patch("azure_integration_quickstart.scopes.execute_json") as mock_execute_json:
+            mock_execute_json.return_value = expected_regions
+            regions = get_available_regions()
+            self.assertIsNotNone(regions)
+            self.assertGreater(len(regions), 0)
+            self.assertEqual(regions, expected_regions)
+            mock_execute_json.assert_called_once()
