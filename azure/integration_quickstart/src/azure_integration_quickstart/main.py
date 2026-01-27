@@ -121,6 +121,7 @@ def get_access_token_with_client_credentials(tenant_id: str, client_id: str, cli
         .param("-u", f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token")
         .param("-b", f"grant_type=client_credentials&client_id={client_id}&client_secret={client_secret}&scope={scope}")
         .flag("--skip-authorization-header")
+        .param("--query", "access_token")
     )
 
 
@@ -159,12 +160,12 @@ def wait_for_app_registration_to_work(app_registration: AppRegistration) -> None
     consecutive_success_count = 0
     while True:
         # If we can read subscription metadata, the assigned access is being honored.
-        if get_subscription_count(access_token):
+        if get_subscription_count(access_token) > 0:
             consecutive_success_count += 1
         else:
             consecutive_success_count = 0
         # Require several consecutive successes to account for eventual consistency.
-        if consecutive_success_count < 5:
+        if consecutive_success_count >= 5:
             break
         else:
             sleep(1)
