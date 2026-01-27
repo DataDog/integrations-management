@@ -143,7 +143,6 @@ def get_management_group_scopes(tenant_id: str) -> list[ManagementGroup]:
 def get_available_regions() -> list[str]:
     """Get the list of Azure regions (by name) that the user's tenant has access to."""
     regions = execute_json(Cmd(["az", "account", "list-locations"]).param("--query", "[].name").param("-o", "json"))
-    print("Available regions:", regions)
     return regions
 
 
