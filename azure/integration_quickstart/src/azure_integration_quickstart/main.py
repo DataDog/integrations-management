@@ -279,7 +279,7 @@ def main():
     with status.report_step("app_registration", "Creating app registration in Azure"):
         app_registration = create_app_registration_with_permissions(selections.scopes)
     if selections.app_registration_config.get("validate"):
-        with status.report_step("validate", "Validating app registration's access"):
+        with status.report_step("validate_app_registration", "Validating app registration's access"):
             wait_for_app_registration_to_work(app_registration)
     with status.report_step("integration_config", "Submitting new configuration to Datadog"):
         submit_integration_config(app_registration, selections.app_registration_config)
