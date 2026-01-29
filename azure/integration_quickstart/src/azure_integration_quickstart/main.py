@@ -11,7 +11,6 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from time import sleep
-from typing import TypedDict
 from urllib.error import URLError
 
 from az_shared.errors import (
@@ -21,55 +20,23 @@ from az_shared.errors import (
     AzCliNotInstalledError,
     InteractiveAuthenticationRequiredError,
 )
-from az_shared.execute_cmd import execute, execute_json
+from az_shared.execute_cmd import execute_json
 from azure_integration_quickstart.extension.vm_extension import list_vms_for_subscriptions, set_extension_latest
+from azure_integration_quickstart.quickstart_shared import (
+    REQUIRED_ENVIRONMENT_VARS,
+    collect_scopes,
+    ensure_login,
+    report_existing_log_forwarders,
+    upsert_log_forwarder,
+)
 from azure_integration_quickstart.role_assignments import can_current_user_create_applications
-from azure_integration_quickstart.scopes import Scope, Subscription, flatten_scopes, report_available_scopes
+from azure_integration_quickstart.scopes import Scope, flatten_scopes
 from azure_integration_quickstart.script_status import Status, StatusReporter
 from azure_integration_quickstart.user_selections import receive_user_selections
 from azure_integration_quickstart.util import dd_request
-from azure_logging_install.configuration import Configuration
-from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
-from azure_logging_install.main import install_log_forwarder
 from common.shell import Cmd
 
 CREATE_APP_REG_WORKFLOW_TYPE = "azure-app-registration-setup"
-
-
-def ensure_login() -> None:
-    """Ensure that the user is logged into the Azure CLI. If not, raise an exception."""
-    if not execute(Cmd(["az", "account", "show"]), can_fail=True):
-        raise AzCliNotAuthenticatedError("Azure CLI is not authenticated. Please run 'az login' first and retry")
-
-
-class LogForwarderPayload(TypedDict):
-    """Log Forwarder format expected by quickstart UI"""
-
-    resourceGroupName: str
-    controlPlaneSubscriptionId: str
-    controlPlaneSubscriptionName: str
-    controlPlaneRegion: str
-    tagFilters: str
-    piiFilters: str
-
-
-def build_log_forwarder_payload(metadata: LfoMetadata) -> LogForwarderPayload:
-    return LogForwarderPayload(
-        resourceGroupName=metadata.control_plane.resource_group,
-        controlPlaneSubscriptionId=metadata.control_plane.sub_id,
-        controlPlaneSubscriptionName=metadata.control_plane.sub_name,
-        controlPlaneRegion=metadata.control_plane.region,
-        tagFilters=metadata.tag_filter,
-        piiFilters=metadata.pii_rules,
-    )
-
-
-def report_existing_log_forwarders(subscriptions: list[Scope], step_metadata: dict) -> bool:
-    """Send Datadog any existing Log Forwarders in the tenant and return whether we found exactly 1 Forwarder, in which case we will potentially update it."""
-    scope_id_to_name = {s.id: s.name for s in subscriptions}
-    forwarders = check_existing_lfo(set(scope_id_to_name.keys()), scope_id_to_name)
-    step_metadata["log_forwarders"] = [build_log_forwarder_payload(forwarder) for forwarder in forwarders.values()]
-    return len(forwarders) == 1
 
 
 @dataclass
@@ -189,24 +156,6 @@ def submit_integration_config(app_registration: AppRegistration, config: dict) -
         raise RuntimeError("Error creating Azure Integration in Datadog") from e
 
 
-def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
-    install_log_forwarder(
-        Configuration(
-            control_plane_region=config["controlPlaneRegion"],
-            control_plane_sub_id=config["controlPlaneSubscriptionId"],
-            control_plane_rg=config["resourceGroupName"],
-            monitored_subs=",".join([s.id for s in subscriptions]),
-            datadog_api_key=os.environ["DD_API_KEY"],
-            datadog_site=os.environ["DD_SITE"],
-            resource_tag_filters=config.get("tagFilters", ""),
-            pii_scrubber_rules=config.get("piiFilters", ""),
-        )
-    )
-
-
-REQUIRED_ENVIRONMENT_VARS = {"DD_API_KEY", "DD_APP_KEY", "DD_SITE", "WORKFLOW_ID"}
-
-
 def main():
     if missing_environment_vars := {var for var in REQUIRED_ENVIRONMENT_VARS if not os.environ.get(var)}:
         print(f"Missing required environment variables: {', '.join(missing_environment_vars)}")
@@ -259,12 +208,8 @@ def main():
             )
             raise error
 
-    def _collect_scopes() -> tuple[list[Scope], list[Scope]]:
-        with status.report_step("scopes", "Collecting scopes") as step_metadata:
-            return report_available_scopes(step_metadata)
-
     with ThreadPoolExecutor() as executor:
-        scopes_future = executor.submit(_collect_scopes)
+        scopes_future = executor.submit(collect_scopes, status)
         # NOTE: For now, we do not bubble up any exceptions from `_check_app_registration_permissions`.
         # We're just reporting the status to verify correctness. Later, this will be used to early exit.
         executor.submit(_check_app_registration_permissions)
