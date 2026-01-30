@@ -5,12 +5,15 @@
 """Shared functions and constants used by the main and LFO-only quickstart scripts."""
 
 import os
+import signal
+import sys
+import threading
 from typing import TypedDict
 
-from az_shared.errors import AzCliNotAuthenticatedError
+from az_shared.errors import AzCliNotAuthenticatedError, AzCliNotInstalledError
 from az_shared.execute_cmd import execute
 from azure_integration_quickstart.scopes import Scope, report_available_scopes
-from azure_integration_quickstart.script_status import StatusReporter
+from azure_integration_quickstart.script_status import Status, StatusReporter
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
 from azure_logging_install.main import install_log_forwarder
@@ -31,10 +34,62 @@ class LogForwarderPayload(TypedDict):
     piiFilters: str
 
 
-def ensure_login() -> None:
-    """Ensure that the user is logged into the Azure CLI. If not, raise an exception."""
-    if not execute(Cmd(["az", "account", "show"]), can_fail=True):
-        raise AzCliNotAuthenticatedError("Azure CLI is not authenticated. Please run 'az login' first and retry")
+def validate_environment_variables() -> None:
+    """Validate that all required environment variables are set."""
+    if missing_environment_vars := {var for var in REQUIRED_ENVIRONMENT_VARS if not os.environ.get(var)}:
+        print(f"Missing required environment variables: {', '.join(missing_environment_vars)}")
+        print('Use the "copy" button from the quickstart UI to grab the complete command.')
+        if missing_environment_vars == {"DD_API_KEY", "DD_APP_KEY"}:
+            print("\nNOTE: Manually selecting and copying the command won't include the masked keys.")
+        sys.exit(1)
+
+
+def setup_cancellation_handlers(status: StatusReporter) -> None:
+    """Set up handler for manual script disconnection and 30-minute timeout."""
+
+    def interrupt_handler(*_args):
+        status.report("connection", Status.CANCELLED, "disconnected by user")
+        exit(1)
+
+    def time_out():
+        status.report("connection", Status.CANCELLED, "session expired")
+        print(
+            "\nSession expired. If you still wish to create a new Datadog configuration, "
+            "please reload the onboarding page in Datadog and reconnect using the provided command."
+        )
+        os._exit(1)
+
+    signal.signal(signal.SIGINT, interrupt_handler)
+
+    timer = threading.Timer(30 * 60, time_out)
+    timer.daemon = True
+    timer.start()
+
+
+def login(status: StatusReporter) -> None:
+    """Perform the Azure CLI login with error handling."""
+    with status.report_step("login"):
+        try:
+            # Check if user is logged into Azure CLI
+            if not execute(Cmd(["az", "account", "show"]), can_fail=True):
+                raise AzCliNotAuthenticatedError(
+                    "Azure CLI is not authenticated. Please run 'az login' first and retry"
+                )
+        except Exception as e:
+            if "az: command not found" in str(e):
+                print("You must install and log in to Azure CLI to run this script.")
+                raise AzCliNotInstalledError(str(e)) from e
+            else:
+                print("You must be logged in to Azure CLI to run this script. Run `az login` and try again.")
+                raise AzCliNotAuthenticatedError(str(e)) from e
+        else:
+            print("Connected! Leave this shell running and go back to the Datadog UI to continue.")
+
+
+def collect_scopes(status: StatusReporter) -> tuple[list[Scope], list[Scope]]:
+    """Collect available Azure scopes (subscriptions and management groups)."""
+    with status.report_step("scopes", "Collecting scopes") as step_metadata:
+        return report_available_scopes(step_metadata)
 
 
 def build_log_forwarder_payload(metadata: LfoMetadata) -> LogForwarderPayload:
@@ -69,9 +124,3 @@ def upsert_log_forwarder(config: dict, subscriptions: set[Scope]):
             pii_scrubber_rules=config.get("piiFilters", ""),
         )
     )
-
-
-def collect_scopes(status: StatusReporter) -> tuple[list[Scope], list[Scope]]:
-    """Collect available Azure scopes (subscriptions and management groups)."""
-    with status.report_step("scopes", "Collecting scopes") as step_metadata:
-        return report_available_scopes(step_metadata)

@@ -3,9 +3,6 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 import os
-import signal
-import sys
-import threading
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -16,18 +13,17 @@ from urllib.error import URLError
 from az_shared.errors import (
     AccessError,
     AppRegistrationCreationPermissionsError,
-    AzCliNotAuthenticatedError,
-    AzCliNotInstalledError,
     InteractiveAuthenticationRequiredError,
 )
 from az_shared.execute_cmd import execute_json
 from azure_integration_quickstart.extension.vm_extension import list_vms_for_subscriptions, set_extension_latest
 from azure_integration_quickstart.quickstart_shared import (
-    REQUIRED_ENVIRONMENT_VARS,
     collect_scopes,
-    ensure_login,
+    login,
     report_existing_log_forwarders,
+    setup_cancellation_handlers,
     upsert_log_forwarder,
+    validate_environment_variables,
 )
 from azure_integration_quickstart.role_assignments import can_current_user_create_applications
 from azure_integration_quickstart.scopes import Scope, flatten_scopes
@@ -157,48 +153,13 @@ def submit_integration_config(app_registration: AppRegistration, config: dict) -
 
 
 def main():
-    if missing_environment_vars := {var for var in REQUIRED_ENVIRONMENT_VARS if not os.environ.get(var)}:
-        print(f"Missing required environment variables: {', '.join(missing_environment_vars)}")
-        print('Use the "copy" button from the quickstart UI to grab the complete command.')
-        if missing_environment_vars == {"DD_API_KEY", "DD_APP_KEY"}:
-            print("\nNOTE: Manually selecting and copying the command won't include the masked keys.")
-        sys.exit(1)
+    validate_environment_variables()
 
     workflow_id = os.environ["WORKFLOW_ID"]
-
     status = StatusReporter(CREATE_APP_REG_WORKFLOW_TYPE, workflow_id)
 
-    # report if the user manually disconnects the script
-    def interrupt_handler(*_args):
-        status.report("connection", Status.CANCELLED, "disconnected by user")
-        exit(1)
-
-    signal.signal(signal.SIGINT, interrupt_handler)
-
-    # give up after 30 minutes
-    def time_out():
-        status.report("connection", Status.CANCELLED, "session expired")
-        print(
-            "\nSession expired. If you still wish to create a new Datadog configuration, please reload the onboarding page in Datadog and reconnect using the provided command."
-        )
-        os._exit(1)
-
-    timer = threading.Timer(30 * 60, time_out)
-    timer.daemon = True
-    timer.start()
-
-    with status.report_step("login"):
-        try:
-            ensure_login()
-        except Exception as e:
-            if "az: command not found" in str(e):
-                print("You must install and log in to Azure CLI to run this script.")
-                raise AzCliNotInstalledError(str(e)) from e
-            else:
-                print("You must be logged in to Azure CLI to run this script. Run `az login` and try again.")
-                raise AzCliNotAuthenticatedError(str(e)) from e
-        else:
-            print("Connected! Leave this shell running and go back to the Datadog UI to continue.")
+    setup_cancellation_handlers(status)
+    login(status)
 
     def _check_app_registration_permissions() -> None:
         if not can_current_user_create_applications():

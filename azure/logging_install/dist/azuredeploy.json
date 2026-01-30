@@ -5,8 +5,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.39.26.7824",
-      "templateHash": "17607446298462590284"
+      "version": "0.40.2.10011",
+      "templateHash": "7495236833180759364"
     }
   },
   "functions": [
@@ -113,8 +113,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "15211540593971910555"
+              "version": "0.40.2.10011",
+              "templateHash": "17404150646180468653"
             }
           },
           "parameters": {
@@ -164,8 +164,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "4808957170609748425"
+              "version": "0.40.2.10011",
+              "templateHash": "13571479375399626871"
             }
           },
           "parameters": {
@@ -273,8 +273,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "7332260903925708894"
+              "version": "0.40.2.10011",
+              "templateHash": "7936142359489851732"
             }
           },
           "parameters": {
@@ -477,12 +477,7 @@
               "name": "[format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation'))]",
               "location": "[parameters('controlPlaneLocation')]",
               "properties": {
-                "workloadProfiles": [
-                  {
-                    "name": "Consumption",
-                    "workloadProfileType": "Consumption"
-                  }
-                ]
+                "workloadProfiles": []
               }
             },
             {
@@ -705,8 +700,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "14106651005959977692"
+              "version": "0.40.2.10011",
+              "templateHash": "10880729064774509523"
             }
           },
           "parameters": {
@@ -799,8 +794,8 @@
                   "metadata": {
                     "_generator": {
                       "name": "bicep",
-                      "version": "0.39.26.7824",
-                      "templateHash": "11484499283643502291"
+                      "version": "0.40.2.10011",
+                      "templateHash": "7875550604890881208"
                     }
                   },
                   "parameters": {
@@ -917,8 +912,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "8564548388162381123"
+              "version": "0.40.2.10011",
+              "templateHash": "5137937327345988345"
             }
           },
           "parameters": {
