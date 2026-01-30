@@ -6,15 +6,15 @@ This project sets up Datadog's Azure integration for new customers or new scopes
 
 This project builds two quickstart executables:
 
-### Full Quickstart (`azure_integration_quickstart.pyz`)
+#### Full Quickstart (`azure_integration_quickstart.pyz`)
 - **Purpose**: Complete Azure integration setup
 - **Sets up**:
   - Azure App Registration with Monitoring Reader role for Metric Collection, Resource Collection, and more
   - (Optional) Log Forwarder for Log Collection
   - (Optional) Datadog Agent on VMs
 
-### LFO-Only Quickstart (`azure_lfo_quickstart.pyz`)
-- **Purpose**: Log Forwarder deployment only
+#### LFO-Only Quickstart (`azure_lfo_quickstart.pyz`)
+- **Purpose**: Log Forwarder setup only
 - **Sets up**:
   - Log Forwarder for Log Collection
 
