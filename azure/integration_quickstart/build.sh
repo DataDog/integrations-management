@@ -7,9 +7,19 @@ mkdir -p integration_quickstart/dist/tmp
 cp -r integration_quickstart/src/. integration_quickstart/dist/tmp
 cp -r logging_install/src/. integration_quickstart/dist/tmp
 cp -r shared/src/. integration_quickstart/dist/tmp
+
+# Build full quickstart executable
 python -m zipapp integration_quickstart/dist/tmp \
   -o integration_quickstart/dist/azure_integration_quickstart.pyz \
   -p "/usr/bin/env python3" \
-  -m "azure_integration_quickstart.main:main"
+  -m "azure_integration_quickstart.quickstart:main"
 chmod +x integration_quickstart/dist/azure_integration_quickstart.pyz
+
+# Build LFO-only quickstart executable
+python -m zipapp integration_quickstart/dist/tmp \
+  -o integration_quickstart/dist/azure_lfo_quickstart.pyz \
+  -p "/usr/bin/env python3" \
+  -m "azure_integration_quickstart.lfo_quickstart:main"
+chmod +x integration_quickstart/dist/azure_lfo_quickstart.pyz
+
 rm -r integration_quickstart/dist/tmp
