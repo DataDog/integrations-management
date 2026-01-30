@@ -1,9 +1,26 @@
 # Overview
 
-This project sets up Datadog's Azure integration for new customers or new scopes. It can set up both Log Forwarders for Log collection and App Registrations for Metric
-Collection, Resource Collection, and more. It is designed to work in conjunction with the Quickstart onboarding UI, which can be found [here](https://app.datadoghq.com/integrations/azure/add) under "Quickstart".
+This project sets up Datadog's Azure integration for new customers or new scopes. It is designed to work in conjunction with the Quickstart onboarding UI, which can be found [here](https://app.datadoghq.com/integrations/azure/add) under "Quickstart".
 
-For end users, the produced executable will run in an [Azure Cloud Shell](https://learn.microsoft.com/en-us/azure/cloud-shell/get-started/classic?tabs=azurecli) in bash mode.
+## Quickstart Variants
+
+This project builds two quickstart executables:
+
+### Full Quickstart (`azure_integration_quickstart.pyz`)
+- **Purpose**: Complete Azure integration setup
+- **Sets up**:
+  - Azure App Registration with Monitoring Reader role for Metric Collection, Resource Collection, and more
+  - (Optional) Log Forwarder for Log Collection
+  - (Optional) Datadog Agent on VMs
+
+### LFO-Only Quickstart (`azure_lfo_quickstart.pyz`)
+- **Purpose**: Log Forwarder deployment only
+- **Sets up**:
+  - Log Forwarder for Log Collection
+
+## Environment
+
+For end users, the produced executables will run in an [Azure Cloud Shell](https://learn.microsoft.com/en-us/azure/cloud-shell/get-started/classic?tabs=azurecli) in bash mode.
 
 For development, you can run the script locally (assuming you have Azure CLI setup).
 
@@ -23,6 +40,10 @@ Run all tests from the `azure` folder:
 
 Run from the `azure` folder:
 ```bash integration_quickstart/build.sh```
+
+This builds both quickstart executables:
+- `integration_quickstart/dist/azure_integration_quickstart.pyz` (full quickstart)
+- `integration_quickstart/dist/azure_lfo_quickstart.pyz` (LFO-only quickstart)
 
 # Execution
 
