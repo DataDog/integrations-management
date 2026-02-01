@@ -10,8 +10,8 @@ import threading
 
 from .config import parse_config
 from .destroy import cmd_destroy
-from .errors import SetupError
-from .preflight import run_preflight_checks
+from .errors import DatadogAPIKeyError, SetupError
+from .preflight import run_preflight_checks, validate_datadog_api_key
 from .reporter import Reporter, AgentlessStep
 from .secrets import ensure_api_key_secret
 from .state_bucket import ensure_state_bucket
@@ -116,12 +116,35 @@ def print_session_warning() -> None:
     print("   continue where it left off.")
 
 
+def validate_credentials_and_workflow(config, reporter: Reporter) -> None:
+    """Validate Datadog credentials and workflow ID before starting setup.
+    
+    Exits the process if validation fails.
+    """
+    try:
+        validate_datadog_api_key(reporter, config.api_key, config.site)
+    except DatadogAPIKeyError as e:
+        reporter.error(e.message)
+        if e.detail:
+            print(f"   {e.detail}")
+        sys.exit(1)
+
+    if not reporter.is_valid_workflow_id():
+        print(
+            f"Workflow ID {config.workflow_id} has already been used. "
+            "Please start a new workflow from the Datadog UI."
+        )
+        sys.exit(1)
+
+    # Handle login step (verify GCloud auth and report to API)
+    reporter.handle_login_step()
+
+
 def cmd_deploy() -> None:
     """Deploy the Agentless Scanner infrastructure."""
     # Set up SIGINT handler for graceful Ctrl+C handling
     signal.signal(signal.SIGINT, sigint_handler)
 
-    # Start session timeout timer
     timer = start_session_timer()
 
     print()
@@ -129,26 +152,13 @@ def cmd_deploy() -> None:
     print("  Datadog Agentless Scanner - GCP Cloud Shell Setup")
     print("=" * 60)
 
-    # Print session timeout warning
     print_session_warning()
 
     try:
-        # Parse configuration
         config = parse_config()
-
-        # Initialize reporter with workflow ID
         reporter = Reporter(TOTAL_STEPS, workflow_id=config.workflow_id)
 
-        # Validate workflow ID can be used
-        if not reporter.is_valid_workflow_id():
-            print(
-                f"Workflow ID {config.workflow_id} has already been used. "
-                "Please start a new workflow from the Datadog UI."
-            )
-            sys.exit(1)
-
-        # Handle login step (verify GCloud auth and report to API)
-        reporter.handle_login_step()
+        validate_credentials_and_workflow(config, reporter)
 
         # Show what we're going to do
         print()

@@ -221,15 +221,11 @@ def run_preflight_checks(config: Config, reporter: Reporter) -> None:
     Uses parallel execution for faster completion.
 
     Raises:
-        DatadogAPIKeyError: If the Datadog API key is invalid.
         GCPAuthenticationError: If not authenticated with GCP.
         GCPAccessError: If projects cannot be accessed.
         APIEnablementError: If APIs cannot be enabled.
     """
     reporter.start_step("Validating prerequisites", AgentlessStep.PREFLIGHT_CHECKS)
-
-    # Validate Datadog API key first (fail fast)
-    validate_datadog_api_key(reporter, config.api_key, config.site)
 
     # Check GCP authentication
     check_gcp_authentication(reporter)
