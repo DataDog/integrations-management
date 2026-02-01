@@ -12,7 +12,7 @@ from .config import parse_config
 from .destroy import cmd_destroy
 from .errors import SetupError
 from .preflight import run_preflight_checks
-from .reporter import Reporter
+from .reporter import Reporter, AgentlessStep
 from .secrets import ensure_api_key_secret
 from .state_bucket import ensure_state_bucket
 from .terraform import TerraformRunner
@@ -111,8 +111,9 @@ def print_session_warning() -> None:
     """Print Cloud Shell session timeout warning."""
     print()
     print(f"⚠️  Note: This session will timeout after {SESSION_TIMEOUT_MINUTES} minutes.")
-    print("   If your session expires during setup, simply re-run the command.")
-    print("   Terraform state is persisted, so it will continue where it left off.")
+    print("   If your session expires, generate a new workflow ID from the Datadog UI")
+    print("   and re-run the command. Terraform state is persisted, so it will")
+    print("   continue where it left off.")
 
 
 def cmd_deploy() -> None:
@@ -138,6 +139,17 @@ def cmd_deploy() -> None:
         # Initialize reporter with workflow ID
         reporter = Reporter(TOTAL_STEPS, workflow_id=config.workflow_id)
 
+        # Validate workflow ID can be used
+        if not reporter.is_valid_workflow_id():
+            print(
+                f"Workflow ID {config.workflow_id} has already been used. "
+                "Please start a new workflow from the Datadog UI."
+            )
+            sys.exit(1)
+
+        # Handle login step (verify GCloud auth and report to API)
+        reporter.handle_login_step()
+
         # Show what we're going to do
         print()
         print("Configuration:")
@@ -158,15 +170,18 @@ def cmd_deploy() -> None:
 
         # Step 1: Preflight checks
         run_preflight_checks(config, reporter)
+        reporter.finish_step()
 
         # Step 2: Ensure state bucket exists
         state_bucket = ensure_state_bucket(config, reporter)
+        reporter.finish_step()
 
         # Step 3: Store API key in Secret Manager
-        reporter.start_step("Storing API key in Secret Manager")
+        reporter.start_step("Storing API key in Secret Manager", AgentlessStep.STORE_API_KEY)
         api_key_secret_id = ensure_api_key_secret(
             reporter, config.scanner_project, config.api_key
         )
+        reporter.finish_step()
 
         # Steps 4-6: Run Terraform
         tf_runner = TerraformRunner(config, state_bucket, api_key_secret_id, reporter)

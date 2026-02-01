@@ -11,7 +11,7 @@ from typing import Optional
 from .config import Config
 from .errors import APIEnablementError, DatadogAPIKeyError, GCPAccessError, GCPAuthenticationError
 from gcp_shared.gcloud import GcloudCmd, gcloud, is_authenticated
-from .reporter import Reporter
+from .reporter import Reporter, AgentlessStep
 
 
 # Maximum number of parallel workers for API/project operations
@@ -226,7 +226,7 @@ def run_preflight_checks(config: Config, reporter: Reporter) -> None:
         GCPAccessError: If projects cannot be accessed.
         APIEnablementError: If APIs cannot be enabled.
     """
-    reporter.start_step("Validating prerequisites")
+    reporter.start_step("Validating prerequisites", AgentlessStep.PREFLIGHT_CHECKS)
 
     # Validate Datadog API key first (fail fast)
     validate_datadog_api_key(reporter, config.api_key, config.site)
