@@ -8,8 +8,17 @@ import urllib.error
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
+import json
+
 from .config import Config
-from .errors import APIEnablementError, DatadogAPIKeyError, GCPAccessError, GCPAuthenticationError
+from .errors import (
+    APIEnablementError,
+    DatadogAPIKeyError,
+    DatadogAPIKeyMissingRCError,
+    DatadogAppKeyError,
+    GCPAccessError,
+    GCPAuthenticationError,
+)
 from gcp_shared.gcloud import GcloudCmd, gcloud, is_authenticated
 from .reporter import Reporter, AgentlessStep
 
@@ -35,13 +44,13 @@ SCANNED_PROJECT_APIS = [
 
 
 def validate_datadog_api_key(reporter: Reporter, api_key: str, site: str) -> None:
-    """Validate the Datadog API key by calling the validate endpoint.
+    """Validate Datadog API key and check for Remote Configuration scope.
 
     Raises:
         DatadogAPIKeyError: If the API key or site is invalid.
+        DatadogAPIKeyMissingRCError: If the API key doesn't have Remote Configuration scope.
     """
-    url = f"https://api.{site}/api/v1/validate"
-
+    url = f"https://api.{site}/api/v2/validate"
     request = urllib.request.Request(
         url,
         headers={
@@ -53,18 +62,50 @@ def validate_datadog_api_key(reporter: Reporter, api_key: str, site: str) -> Non
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
             if response.status == 200:
-                reporter.success("Datadog API key validated")
-                return
+                data = json.loads(response.read().decode("utf-8"))
+                scopes = data.get("data", {}).get("attributes", {}).get("api_key_scopes", [])
+                if "remote_config_read" not in scopes:
+                    raise DatadogAPIKeyMissingRCError()
+                reporter.success("Datadog API key validated (Remote Configuration enabled)")
+            else:
+                raise DatadogAPIKeyError(site)
     except urllib.error.HTTPError as e:
         if e.code in (401, 403):
             raise DatadogAPIKeyError(site)
-        # Other HTTP errors - could be network issues, treat as validation failure
         raise DatadogAPIKeyError(site)
     except urllib.error.URLError:
-        # Network error - could be wrong site
         raise DatadogAPIKeyError(site)
 
-    raise DatadogAPIKeyError(site)
+
+def validate_datadog_app_key(reporter: Reporter, api_key: str, app_key: str, site: str) -> None:
+    """Validate Datadog Application key.
+
+    Raises:
+        DatadogAppKeyError: If the Application key is invalid.
+    """
+    url = f"https://api.{site}/api/v2/validate_keys"
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "DD-API-KEY": api_key,
+            "DD-APPLICATION-KEY": app_key,
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            if response.status == 200:
+                reporter.success("Datadog Application key validated")
+                return
+            else:
+                raise DatadogAppKeyError()
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            raise DatadogAppKeyError()
+        raise DatadogAppKeyError()
+    except urllib.error.URLError:
+        raise DatadogAppKeyError()
 
 
 def check_gcp_authentication(reporter: Reporter) -> None:

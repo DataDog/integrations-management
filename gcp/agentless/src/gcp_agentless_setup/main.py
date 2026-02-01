@@ -10,8 +10,8 @@ import threading
 
 from .config import parse_config
 from .destroy import cmd_destroy
-from .errors import DatadogAPIKeyError, SetupError
-from .preflight import run_preflight_checks, validate_datadog_api_key
+from .errors import DatadogCredentialsError, SetupError
+from .preflight import run_preflight_checks, validate_datadog_api_key, validate_datadog_app_key
 from .reporter import Reporter, AgentlessStep
 from .secrets import ensure_api_key_secret
 from .state_bucket import ensure_state_bucket
@@ -121,9 +121,11 @@ def validate_credentials_and_workflow(config, reporter: Reporter) -> None:
     
     Exits the process if validation fails.
     """
+    # Validate Datadog API key (with RC) and Application key
     try:
         validate_datadog_api_key(reporter, config.api_key, config.site)
-    except DatadogAPIKeyError as e:
+        validate_datadog_app_key(reporter, config.api_key, config.app_key, config.site)
+    except DatadogCredentialsError as e:
         reporter.error(e.message)
         if e.detail:
             print(f"   {e.detail}")
