@@ -22,7 +22,13 @@ class Step:
 class Reporter:
     """Reports progress to stdout."""
 
-    def __init__(self, total_steps: int):
+    def __init__(self, total_steps: int, workflow_id: str):
+        """Initialize the reporter.
+
+        Args:
+            total_steps: Total number of steps in the setup process.
+            workflow_id: The workflow ID for API reporting (required).
+        """
         self.total_steps = total_steps
         self.current_step = 0
 

@@ -50,6 +50,7 @@ def print_help() -> None:
     print("  DD_API_KEY        Datadog API key with Remote Configuration enabled")
     print("  DD_APP_KEY        Datadog Application key")
     print("  DD_SITE           Datadog site (e.g., datadoghq.com, datadoghq.eu)")
+    print("  WORKFLOW_ID       Workflow ID from Datadog UI (UUID)")
     print("  SCANNER_PROJECT   GCP project where the scanner will be deployed")
     print("  SCANNER_REGIONS   Comma-separated list of GCP regions (max 4)")
     print("  PROJECTS_TO_SCAN  Comma-separated list of GCP projects to scan")
@@ -59,6 +60,7 @@ def print_help() -> None:
     print()
     print("Example:")
     print("  DD_API_KEY=xxx DD_APP_KEY=xxx DD_SITE=datadoghq.com \\")
+    print("  WORKFLOW_ID=<uuid-from-datadog-ui> \\")
     print("  SCANNER_PROJECT=my-project SCANNER_REGIONS=us-central1 \\")
     print("  PROJECTS_TO_SCAN=proj1,proj2 \\")
     print("  python gcp_agentless_setup.pyz deploy")
@@ -133,8 +135,8 @@ def cmd_deploy() -> None:
         # Parse configuration
         config = parse_config()
 
-        # Initialize reporter
-        reporter = Reporter(TOTAL_STEPS)
+        # Initialize reporter with workflow ID
+        reporter = Reporter(TOTAL_STEPS, workflow_id=config.workflow_id)
 
         # Show what we're going to do
         print()

@@ -31,6 +31,7 @@ class Config:
     api_key: str
     app_key: str
     site: str
+    workflow_id: str
 
     # GCP configuration
     scanner_project: str
@@ -74,6 +75,10 @@ def parse_config() -> Config:
     if not site:
         errors.append("DD_SITE is required (e.g., datadoghq.com, datadoghq.eu, us5.datadoghq.com). See https://docs.datadoghq.com/getting_started/site/")
 
+    workflow_id = os.environ.get("WORKFLOW_ID", "").strip()
+    if not workflow_id:
+        errors.append("WORKFLOW_ID is required")
+
     # Required: GCP configuration
     scanner_project = os.environ.get("SCANNER_PROJECT", "").strip()
     if not scanner_project:
@@ -91,6 +96,7 @@ def parse_config() -> Config:
         usage = """
 Usage:
   DD_API_KEY=xxx DD_APP_KEY=xxx DD_SITE=datadoghq.com \\
+  WORKFLOW_ID=<uuid> \\
   SCANNER_PROJECT=my-project SCANNER_REGIONS=us-central1 \\
   PROJECTS_TO_SCAN=proj1,proj2,proj3 \\
   python gcp_agentless_setup.pyz deploy"""
@@ -135,6 +141,7 @@ Usage:
         api_key=api_key,
         app_key=app_key,
         site=site,
+        workflow_id=workflow_id,
         scanner_project=scanner_project,
         regions=regions,
         projects_to_scan=projects_to_scan,
