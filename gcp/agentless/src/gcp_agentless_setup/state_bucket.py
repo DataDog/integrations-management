@@ -6,7 +6,7 @@
 from .config import Config
 from .errors import BucketCreationError
 from gcp_shared.gcloud import GcloudCmd, try_gcloud
-from .reporter import Reporter
+from .reporter import Reporter, AgentlessStep
 
 
 def get_state_bucket_name(scanner_project: str) -> str:
@@ -84,7 +84,7 @@ def ensure_state_bucket(config: Config, reporter: Reporter) -> str:
     Returns:
         The bucket name.
     """
-    reporter.start_step("Setting up Terraform state storage")
+    reporter.start_step("Setting up Terraform state storage", AgentlessStep.CREATE_STATE_BUCKET)
 
     # Use custom bucket if provided, otherwise generate default name
     if config.state_bucket:
@@ -105,4 +105,5 @@ def ensure_state_bucket(config: Config, reporter: Reporter) -> str:
             create_bucket(reporter, bucket_name, config.scanner_project, config.regions[0])
             reporter.success(f"Created state bucket: gs://{bucket_name}")
 
+    reporter.finish_step()
     return bucket_name

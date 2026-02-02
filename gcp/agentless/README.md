@@ -21,6 +21,7 @@ Run the script with environment variables:
 DD_API_KEY="your-api-key" \
 DD_APP_KEY="your-app-key" \
 DD_SITE="datadoghq.com" \
+WORKFLOW_ID="uuid-from-datadog-ui" \
 SCANNER_PROJECT="my-scanner-project" \
 SCANNER_REGIONS="us-central1" \
 PROJECTS_TO_SCAN="project1,project2,project3" \
@@ -34,6 +35,7 @@ python gcp_agentless_setup.pyz deploy
 | `DD_API_KEY` | Yes | Datadog API key with Remote Configuration enabled |
 | `DD_APP_KEY` | Yes | Datadog Application key |
 | `DD_SITE` | Yes | Datadog site (e.g., `datadoghq.com`, `datadoghq.eu`) |
+| `WORKFLOW_ID` | Yes | Workflow ID from Datadog UI (UUID) for tracking setup progress |
 | `SCANNER_PROJECT` | Yes | GCP project where the scanner VM will be deployed |
 | `SCANNER_REGIONS` | Yes | Comma-separated list of GCP regions (max 4) for scanners (e.g., `us-central1` or `us-central1,europe-west1`) |
 | `PROJECTS_TO_SCAN` | Yes | Comma-separated list of GCP projects to scan |

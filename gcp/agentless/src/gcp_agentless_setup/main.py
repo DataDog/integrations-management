@@ -10,8 +10,8 @@ import threading
 
 from .config import parse_config
 from .destroy import cmd_destroy
-from .errors import SetupError
-from .preflight import run_preflight_checks
+from .errors import DatadogCredentialsError, SetupError
+from .preflight import run_preflight_checks, validate_datadog_api_key, validate_datadog_app_key
 from .reporter import Reporter
 from .secrets import ensure_api_key_secret
 from .state_bucket import ensure_state_bucket
@@ -50,6 +50,7 @@ def print_help() -> None:
     print("  DD_API_KEY        Datadog API key with Remote Configuration enabled")
     print("  DD_APP_KEY        Datadog Application key")
     print("  DD_SITE           Datadog site (e.g., datadoghq.com, datadoghq.eu)")
+    print("  WORKFLOW_ID       Workflow ID from Datadog UI (UUID)")
     print("  SCANNER_PROJECT   GCP project where the scanner will be deployed")
     print("  SCANNER_REGIONS   Comma-separated list of GCP regions (max 4)")
     print("  PROJECTS_TO_SCAN  Comma-separated list of GCP projects to scan")
@@ -59,6 +60,7 @@ def print_help() -> None:
     print()
     print("Example:")
     print("  DD_API_KEY=xxx DD_APP_KEY=xxx DD_SITE=datadoghq.com \\")
+    print("  WORKFLOW_ID=<uuid-from-datadog-ui> \\")
     print("  SCANNER_PROJECT=my-project SCANNER_REGIONS=us-central1 \\")
     print("  PROJECTS_TO_SCAN=proj1,proj2 \\")
     print("  python gcp_agentless_setup.pyz deploy")
@@ -109,8 +111,35 @@ def print_session_warning() -> None:
     """Print Cloud Shell session timeout warning."""
     print()
     print(f"⚠️  Note: This session will timeout after {SESSION_TIMEOUT_MINUTES} minutes.")
-    print("   If your session expires during setup, simply re-run the command.")
-    print("   Terraform state is persisted, so it will continue where it left off.")
+    print("   If your session expires, generate a new workflow ID from the Datadog UI")
+    print("   and re-run the command. Terraform state is persisted, so it will")
+    print("   continue where it left off.")
+
+
+def validate_credentials_and_workflow(config, reporter: Reporter) -> None:
+    """Validate Datadog credentials and workflow ID before starting setup.
+    
+    Exits the process if validation fails.
+    """
+    # Validate Datadog API key (with RC) and Application key
+    try:
+        validate_datadog_api_key(reporter, config.api_key, config.site)
+        validate_datadog_app_key(reporter, config.api_key, config.app_key, config.site)
+    except DatadogCredentialsError as e:
+        reporter.error(e.message)
+        if e.detail:
+            print(f"   {e.detail}")
+        sys.exit(1)
+
+    if not reporter.is_valid_workflow_id():
+        print(
+            f"Workflow ID {config.workflow_id} has already been used. "
+            "Please start a new workflow from the Datadog UI."
+        )
+        sys.exit(1)
+
+    # Handle login step (verify GCloud auth and report to API)
+    reporter.handle_login_step()
 
 
 def cmd_deploy() -> None:
@@ -118,7 +147,6 @@ def cmd_deploy() -> None:
     # Set up SIGINT handler for graceful Ctrl+C handling
     signal.signal(signal.SIGINT, sigint_handler)
 
-    # Start session timeout timer
     timer = start_session_timer()
 
     print()
@@ -126,15 +154,13 @@ def cmd_deploy() -> None:
     print("  Datadog Agentless Scanner - GCP Cloud Shell Setup")
     print("=" * 60)
 
-    # Print session timeout warning
     print_session_warning()
 
     try:
-        # Parse configuration
         config = parse_config()
+        reporter = Reporter(TOTAL_STEPS, workflow_id=config.workflow_id)
 
-        # Initialize reporter
-        reporter = Reporter(TOTAL_STEPS)
+        validate_credentials_and_workflow(config, reporter)
 
         # Show what we're going to do
         print()
@@ -161,7 +187,6 @@ def cmd_deploy() -> None:
         state_bucket = ensure_state_bucket(config, reporter)
 
         # Step 3: Store API key in Secret Manager
-        reporter.start_step("Storing API key in Secret Manager")
         api_key_secret_id = ensure_api_key_secret(
             reporter, config.scanner_project, config.api_key
         )

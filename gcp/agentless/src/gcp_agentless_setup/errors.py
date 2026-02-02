@@ -19,14 +19,40 @@ class ConfigurationError(SetupError):
     """Error in configuration/environment variables."""
 
 
-class DatadogAPIKeyError(SetupError):
+class DatadogCredentialsError(SetupError):
+    """Invalid Datadog credentials."""
+
+    pass
+
+
+class DatadogAPIKeyError(DatadogCredentialsError):
     """Invalid Datadog API key or site."""
 
     def __init__(self, site: str):
         super().__init__(
             "Invalid Datadog API key or site",
-            f"Please verify your DD_API_KEY and DD_SITE ({site}) are correct.\n"
-            "Ensure the API key has Remote Configuration enabled.",
+            f"Please verify your DD_API_KEY and DD_SITE ({site}) are correct.",
+        )
+
+
+class DatadogAPIKeyMissingRCError(DatadogCredentialsError):
+    """API key missing Remote Configuration scope."""
+
+    def __init__(self):
+        super().__init__(
+            "API key missing Remote Configuration scope",
+            "Please ensure your DD_API_KEY has Remote Configuration enabled.\n"
+            "You can enable it in Datadog under Organization Settings > API Keys.",
+        )
+
+
+class DatadogAppKeyError(DatadogCredentialsError):
+    """Invalid Datadog Application key."""
+
+    def __init__(self):
+        super().__init__(
+            "Invalid Datadog Application key",
+            "Please verify your DD_APP_KEY is correct and belongs to the same organization.",
         )
 
 

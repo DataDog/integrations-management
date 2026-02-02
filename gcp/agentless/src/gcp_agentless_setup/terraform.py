@@ -11,7 +11,7 @@ from .config import Config, get_config_dir
 from .errors import TerraformError
 from .progress import run_terraform_with_progress
 from .shell import run_command
-from .reporter import Reporter
+from .reporter import Reporter, AgentlessStep
 
 
 TERRAFORM_PARALLELISM = 10
@@ -248,9 +248,10 @@ class TerraformRunner:
             TerraformError: If any Terraform operation fails.
         """
         # Set up working directory
-        self.reporter.start_step("Generating Terraform configuration")
+        self.reporter.start_step("Generating Terraform configuration", AgentlessStep.GENERATE_TERRAFORM_CONFIG)
         work_dir = self.setup_working_directory()
         self.reporter.success(f"Configuration written to {work_dir}")
+        self.reporter.finish_step()
 
         # Change to working directory
         original_dir = os.getcwd()
@@ -258,16 +259,22 @@ class TerraformRunner:
 
         try:
             # Terraform init
-            self.reporter.start_step("Initializing Terraform")
+            self.reporter.start_step("Initializing Terraform", AgentlessStep.TERRAFORM_INIT)
             self.reporter.info("Downloading providers (this may take a minute)...")
             self.init()
             self.reporter.success("Terraform initialized")
+            self.reporter.finish_step()
 
-            # Terraform apply
-            self.reporter.start_step("Deploying Agentless Scanner")
+            # Terraform apply (final step)
+            self.reporter.start_step("Deploying Agentless Scanner", AgentlessStep.DEPLOY_INFRASTRUCTURE)
             self.reporter.info("Creating resources (this may take several minutes)...")
             self.apply()
             self.reporter.success("Resources created successfully")
+            self.reporter.finish_step(metadata={
+                "scanner_project": self.config.scanner_project,
+                "scanner_regions": self.config.regions,
+                "projects_to_scan": self.config.all_projects,
+            })
 
         finally:
             os.chdir(original_dir)

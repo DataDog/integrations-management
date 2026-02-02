@@ -7,7 +7,7 @@ from typing import Optional
 
 from gcp_shared.gcloud import GcloudCmd, try_gcloud
 from .errors import SecretManagerError
-from .reporter import Reporter
+from .reporter import Reporter, AgentlessStep
 
 
 API_KEY_SECRET_NAME = "datadog-agentless-scanner-api-key"
@@ -122,6 +122,7 @@ def ensure_api_key_secret(
     Raises:
         SecretManagerError: If secret operations fail.
     """
+    reporter.start_step("Storing API key in Secret Manager", AgentlessStep.STORE_API_KEY)
     secret_id = get_secret_id(project)
 
     if not is_secret_existing(project):
@@ -141,5 +142,6 @@ def ensure_api_key_secret(
             add_secret_version(project, api_key)
             reporter.success(f"API key secret updated: {secret_id}")
 
+    reporter.finish_step()
     return secret_id
 
