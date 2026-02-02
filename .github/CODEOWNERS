@@ -9,3 +9,6 @@ gcp/   @DataDog/gcp-integrations
 
 # Storage Monitoring
 azure/storage_monitoring/    @DataDog/new-workloads
+
+# Agentless Scanning
+gcp/agentless/  @DataDog/k9-agentless
