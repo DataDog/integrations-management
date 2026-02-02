@@ -12,7 +12,7 @@ from .config import parse_config
 from .destroy import cmd_destroy
 from .errors import DatadogCredentialsError, SetupError
 from .preflight import run_preflight_checks, validate_datadog_api_key, validate_datadog_app_key
-from .reporter import Reporter, AgentlessStep
+from .reporter import Reporter
 from .secrets import ensure_api_key_secret
 from .state_bucket import ensure_state_bucket
 from .terraform import TerraformRunner
@@ -182,18 +182,14 @@ def cmd_deploy() -> None:
 
         # Step 1: Preflight checks
         run_preflight_checks(config, reporter)
-        reporter.finish_step()
 
         # Step 2: Ensure state bucket exists
         state_bucket = ensure_state_bucket(config, reporter)
-        reporter.finish_step()
 
         # Step 3: Store API key in Secret Manager
-        reporter.start_step("Storing API key in Secret Manager", AgentlessStep.STORE_API_KEY)
         api_key_secret_id = ensure_api_key_secret(
             reporter, config.scanner_project, config.api_key
         )
-        reporter.finish_step()
 
         # Steps 4-6: Run Terraform
         tf_runner = TerraformRunner(config, state_bucket, api_key_secret_id, reporter)

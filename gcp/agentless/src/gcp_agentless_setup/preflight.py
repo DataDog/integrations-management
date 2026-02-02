@@ -286,3 +286,5 @@ def run_preflight_checks(config: Config, reporter: Reporter) -> None:
         reporter.info(f"Checking APIs in {len(config.other_projects)} scanned project(s)...")
         enable_apis_for_projects_parallel(reporter, config.other_projects, SCANNED_PROJECT_APIS)
         reporter.success("Scanned project APIs ready")
+
+    reporter.finish_step()
