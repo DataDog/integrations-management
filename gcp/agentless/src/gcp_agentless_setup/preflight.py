@@ -69,11 +69,7 @@ def validate_datadog_api_key(reporter: Reporter, api_key: str, site: str) -> Non
                 reporter.success("Datadog API key validated (Remote Configuration enabled)")
             else:
                 raise DatadogAPIKeyError(site)
-    except urllib.error.HTTPError as e:
-        if e.code in (401, 403):
-            raise DatadogAPIKeyError(site)
-        raise DatadogAPIKeyError(site)
-    except urllib.error.URLError:
+    except (urllib.error.HTTPError, urllib.error.URLError):
         raise DatadogAPIKeyError(site)
 
 
@@ -100,11 +96,7 @@ def validate_datadog_app_key(reporter: Reporter, api_key: str, app_key: str, sit
                 return
             else:
                 raise DatadogAppKeyError()
-    except urllib.error.HTTPError as e:
-        if e.code in (401, 403):
-            raise DatadogAppKeyError()
-        raise DatadogAppKeyError()
-    except urllib.error.URLError:
+    except (urllib.error.HTTPError, urllib.error.URLError):
         raise DatadogAppKeyError()
 
 
