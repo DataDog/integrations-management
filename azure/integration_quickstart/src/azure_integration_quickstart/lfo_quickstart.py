@@ -16,16 +16,14 @@ from azure_integration_quickstart.scopes import flatten_scopes
 from azure_integration_quickstart.script_status import StatusReporter
 from azure_integration_quickstart.user_selections import receive_user_selections
 
-# TODO: change to "azure-log-forwarding-setup"
-# Leave as is for now for end-to-end testing before new UI is made
-WORKFLOW_TYPE = "azure-app-registration-setup"
+LOG_FORWARDING_WORKFLOW_TYPE = "azure-log-forwarding-setup"
 
 
 def main():
     validate_environment_variables()
 
     workflow_id = os.environ["WORKFLOW_ID"]
-    status = StatusReporter(WORKFLOW_TYPE, workflow_id)
+    status = StatusReporter(LOG_FORWARDING_WORKFLOW_TYPE, workflow_id)
 
     setup_cancellation_handlers(status)
     login(status)
@@ -37,7 +35,7 @@ def main():
     ) as step_metadata:
         exactly_one_log_forwarder = report_existing_log_forwarders(subscriptions, step_metadata)
     with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
-        selections = receive_user_selections(WORKFLOW_TYPE, workflow_id)
+        selections = receive_user_selections(LOG_FORWARDING_WORKFLOW_TYPE, workflow_id)
     if selections.log_forwarding_config:
         with status.report_step(
             "upsert_log_forwarder", f"{'Updating' if exactly_one_log_forwarder else 'Creating'} Log Forwarder"

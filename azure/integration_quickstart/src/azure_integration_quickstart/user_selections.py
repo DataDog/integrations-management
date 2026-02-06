@@ -18,8 +18,21 @@ class UserSelections:
     """The selections the user has made in the quickstart onboarding UI"""
 
     scopes: Sequence[Scope]
+
+
+@dataclass
+class AppRegistrationUserSelections(UserSelections):
+    """The selections the user has made in the quickstart onboarding UI for creating a new app registration."""
+
     app_registration_config: dict
     log_forwarding_config: Optional[dict] = None
+
+
+@dataclass
+class LFOUserSelections(UserSelections):
+    """The selections the user has made in the quickstart onboarding UI for setting up a Log Forwarder."""
+
+    log_forwarding_config: dict
 
 
 def receive_user_selections(workflow_type: str, workflow_id: str) -> UserSelections:
@@ -51,10 +64,16 @@ def receive_user_selections(workflow_type: str, workflow_id: str) -> UserSelecti
             )
             for mg in selections["management_groups"]
         ]
-        return UserSelections(
-            tuple(subscriptions + management_groups),
-            json.loads(selections["config_options"]),
-            json.loads(selections["log_forwarding_options"])
-            if "log_forwarding_options" in selections and selections["log_forwarding_options"]
-            else None,
-        )
+        if workflow_type == "azure-app-registration-setup":
+            return AppRegistrationUserSelections(
+                tuple(subscriptions + management_groups),
+                json.loads(selections["config_options"]),
+                json.loads(selections["log_forwarding_options"])
+                if "log_forwarding_options" in selections and selections["log_forwarding_options"]
+                else None,
+            )
+        else:  # workflow_type == "azure-log-forwarding-setup":
+            return LFOUserSelections(
+                tuple(subscriptions + management_groups),
+                json.loads(selections["log_forwarding_options"]),
+            )

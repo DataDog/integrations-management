@@ -31,5 +31,11 @@
                 "cmd": "./logging_install/build.sh"
             }
         ]
-    }
+    },
+    "cursorpyright.analysis.autoSearchPaths": true,
+    "cursorpyright.analysis.extraPaths": [
+        "./integration_quickstart/src",
+        "./logging_install/src",
+        "./shared/src"
+    ]
 }
