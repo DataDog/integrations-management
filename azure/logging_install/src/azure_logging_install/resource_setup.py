@@ -46,6 +46,7 @@ def create_storage_account(storage_account_name: str, control_plane_rg: str, con
         .param("--kind", "StorageV2")
         .param("--access-tier", "Hot")
         .param("--min-tls-version", "TLS1_2")
+        .param("--allow-blob-public-access", "false")
         .flag("--https-only")
     )
 
@@ -136,6 +137,7 @@ def create_function_app(config: Configuration, name: str):
             .param("--name", name)
             .param("--storage-account", config.control_plane_cache_storage_name)
             .flag("--assign-identity")
+            .flag("--https-only")
         )
 
         log.debug(f"Configuring Linux runtime for Function App {name}")
