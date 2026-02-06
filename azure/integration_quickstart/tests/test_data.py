@@ -8,12 +8,16 @@ from urllib.error import HTTPError
 
 from azure_integration_quickstart.permissions import FlatPermission
 from azure_integration_quickstart.scopes import ASSIGN_ROLES_ACTION, ManagementGroup, Subscription
-from azure_integration_quickstart.user_selections import UserSelections
+from azure_integration_quickstart.user_selections import (
+    AppRegistrationUserSelections,
+    LFOUserSelections,
+)
 
 ERROR_404 = HTTPError(url="", code=404, msg="resource does not exist", hdrs=Message(), fp=None)
 ERROR_403 = HTTPError(url="", code=403, msg="you don't have permission", hdrs=Message(), fp=None)
 
-EXAMPLE_WORKFLOW_TYPE = "test-azure-setup"
+EXAMPLE_WORKFLOW_TYPE = "azure-app-registration-setup"
+LFO_WORKFLOW_TYPE = "azure-log-forwarding-setup"
 EXAMPLE_WORKFLOW_ID = "Example quickstart workflow"
 EXAMPLE_STEP_ID = "example_workflow_step"
 
@@ -87,6 +91,28 @@ def make_selections_response(
     return json.dumps(result)
 
 
+def make_lfo_selections_response(
+    subscriptions=[], management_groups=[], log_forwarding_options=EXAMPLE_LOG_FORWARDER_JSON
+):
+    """Create a selections response for LFO workflow (no config_options)."""
+    result = {
+        "data": {
+            "id": "example-lfo-integration-id",
+            "type": "add_azure_log_forwarding",
+            "attributes": {
+                "metadata": {
+                    "selections": {
+                        "management_groups": management_groups,
+                        "subscriptions": subscriptions,
+                        "log_forwarding_options": log_forwarding_options,
+                    }
+                }
+            },
+        }
+    }
+    return json.dumps(result)
+
+
 SUBSCRIPTION_SELECTION_RESPONSE = make_selections_response(
     subscriptions=[EXAMPLE_SUBSCRIPTIONS[0], EXAMPLE_SUBSCRIPTIONS[1], EXAMPLE_SUBSCRIPTIONS[2]]
 )
@@ -96,15 +122,15 @@ OVERLAPPING_SELECTIONS_RESPONSE = make_selections_response(
 )
 SELECTIONS_WITH_LOG_FORWARDING_RESPONSE = make_selections_response(log_forwarding_options=EXAMPLE_LOG_FORWARDER_JSON)
 
-SUBSCRIPTION_SELECTION = UserSelections(
+SUBSCRIPTION_SELECTION = AppRegistrationUserSelections(
     app_registration_config=DEFAULT_CONFIG_OPTIONS,
     scopes=[EXAMPLE_SUBSCRIPTION_SCOPES[0], EXAMPLE_SUBSCRIPTION_SCOPES[1], EXAMPLE_SUBSCRIPTION_SCOPES[2]],
 )
-MGROUP_SELECTIONS = UserSelections(
+MGROUP_SELECTIONS = AppRegistrationUserSelections(
     app_registration_config=DEFAULT_CONFIG_OPTIONS,
     scopes=[EXAMPLE_MANAGEMENT_GROUP_SCOPE],
 )
-OVERLAPPING_SELECTIONS = UserSelections(
+OVERLAPPING_SELECTIONS = AppRegistrationUserSelections(
     app_registration_config=DEFAULT_CONFIG_OPTIONS,
     scopes=[
         EXAMPLE_SUBSCRIPTION_SCOPES[0],
@@ -113,12 +139,22 @@ OVERLAPPING_SELECTIONS = UserSelections(
         EXAMPLE_MANAGEMENT_GROUP_SCOPE,
     ],
 )
-MGROUP_SELECTIONS = UserSelections(
+MGROUP_SELECTIONS = AppRegistrationUserSelections(
     app_registration_config=DEFAULT_CONFIG_OPTIONS,
     scopes=[EXAMPLE_MANAGEMENT_GROUP_SCOPE],
 )
-SELECTIONS_WITH_LOG_FORWARDING = UserSelections(
+SELECTIONS_WITH_LOG_FORWARDING = AppRegistrationUserSelections(
     app_registration_config=DEFAULT_CONFIG_OPTIONS, log_forwarding_config=EXAMPLE_LOG_FORWARDER, scopes=[]
+)
+
+
+LFO_SELECTION_RESPONSE = make_lfo_selections_response(
+    subscriptions=[EXAMPLE_SUBSCRIPTIONS[0], EXAMPLE_SUBSCRIPTIONS[1]],
+    log_forwarding_options=EXAMPLE_LOG_FORWARDER_JSON,
+)
+LFO_SELECTION = LFOUserSelections(
+    log_forwarding_config=EXAMPLE_LOG_FORWARDER,
+    scopes=[EXAMPLE_SUBSCRIPTION_SCOPES[0], EXAMPLE_SUBSCRIPTION_SCOPES[1]],
 )
 
 FLAT_PERMISSION_EMPTY = FlatPermission([], [])
