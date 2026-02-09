@@ -3,6 +3,8 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 import json
+import os
+import tempfile
 import time
 from typing import Iterable
 
@@ -77,13 +79,17 @@ def create_custom_container_app_start_role(role_name: str, role_scope: str):
         "AssignableScopes": [role_scope],
     }
 
-    with open("custom_role.json", "w") as f:
-        json.dump(role_definition, f)
+    with tempfile.NamedTemporaryFile("w+", delete=False, suffix=".json") as tmpfile:
+        json.dump(role_definition, tmpfile)
+        tmpfile.flush()
+        tmpfile_path = tmpfile.name
 
     try:
-        execute(AzCmd("role", "definition create").param("--role-definition", "custom_role.json"))
+        execute(AzCmd("role", "definition create").param("--role-definition", tmpfile_path))
     except Exception as e:
         raise RuntimeError(f"Failed to create custom role definition '{role_name}': {e}") from e
+    finally:
+        os.unlink(tmpfile_path)
 
 
 def role_exists(role_id: str, scope: str, principal_id: str) -> bool:
