@@ -158,7 +158,8 @@ def main():
     status = StatusReporter(APP_REGISTRATION_WORKFLOW_TYPE, workflow_id)
 
     setup_cancellation_handlers(status)
-    login(status)
+    with status.report_step("login"):
+        login()
 
     def _check_app_registration_permissions() -> None:
         if not can_current_user_create_applications():

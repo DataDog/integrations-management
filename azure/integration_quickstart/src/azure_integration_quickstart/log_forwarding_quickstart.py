@@ -25,7 +25,8 @@ def main():
     status = StatusReporter(LOG_FORWARDING_WORKFLOW_TYPE, workflow_id)
 
     setup_cancellation_handlers(status)
-    login(status)
+    with status.report_step("login"):
+        login()
 
     subscriptions, _ = collect_scopes(status)
 
