@@ -4,6 +4,7 @@
 
 import os
 
+from azure_integration_quickstart.constants import LOG_FORWARDING_WORKFLOW_TYPE
 from azure_integration_quickstart.quickstart_shared import (
     collect_scopes,
     login,
@@ -14,9 +15,7 @@ from azure_integration_quickstart.quickstart_shared import (
 )
 from azure_integration_quickstart.scopes import flatten_scopes
 from azure_integration_quickstart.script_status import StatusReporter
-from azure_integration_quickstart.user_selections import receive_user_selections
-
-LOG_FORWARDING_WORKFLOW_TYPE = "azure-log-forwarding-setup"
+from azure_integration_quickstart.user_selections import receive_log_forwarding_selections
 
 
 def main():
@@ -35,7 +34,7 @@ def main():
     ) as step_metadata:
         exactly_one_log_forwarder = report_existing_log_forwarders(subscriptions, step_metadata)
     with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
-        selections = receive_user_selections(LOG_FORWARDING_WORKFLOW_TYPE, workflow_id)
+        selections = receive_log_forwarding_selections(workflow_id)
     if selections.log_forwarding_config:
         with status.report_step(
             "upsert_log_forwarder", f"{'Updating' if exactly_one_log_forwarder else 'Creating'} Log Forwarder"

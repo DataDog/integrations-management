@@ -16,8 +16,6 @@ from azure_integration_quickstart.user_selections import (
 ERROR_404 = HTTPError(url="", code=404, msg="resource does not exist", hdrs=Message(), fp=None)
 ERROR_403 = HTTPError(url="", code=403, msg="you don't have permission", hdrs=Message(), fp=None)
 
-EXAMPLE_WORKFLOW_TYPE = "azure-app-registration-setup"
-LFO_WORKFLOW_TYPE = "azure-log-forwarding-setup"
 EXAMPLE_WORKFLOW_ID = "Example quickstart workflow"
 EXAMPLE_STEP_ID = "example_workflow_step"
 

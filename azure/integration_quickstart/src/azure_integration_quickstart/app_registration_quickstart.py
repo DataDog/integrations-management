@@ -16,6 +16,7 @@ from az_shared.errors import (
     InteractiveAuthenticationRequiredError,
 )
 from az_shared.execute_cmd import execute_json
+from azure_integration_quickstart.constants import APP_REGISTRATION_WORKFLOW_TYPE
 from azure_integration_quickstart.extension.vm_extension import list_vms_for_subscriptions, set_extension_latest
 from azure_integration_quickstart.quickstart_shared import (
     collect_scopes,
@@ -28,11 +29,9 @@ from azure_integration_quickstart.quickstart_shared import (
 from azure_integration_quickstart.role_assignments import can_current_user_create_applications
 from azure_integration_quickstart.scopes import Scope, flatten_scopes
 from azure_integration_quickstart.script_status import Status, StatusReporter
-from azure_integration_quickstart.user_selections import receive_user_selections
+from azure_integration_quickstart.user_selections import receive_app_registration_selections
 from azure_integration_quickstart.util import dd_request
 from common.shell import Cmd
-
-CREATE_APP_REG_WORKFLOW_TYPE = "azure-app-registration-setup"
 
 
 @dataclass
@@ -156,7 +155,7 @@ def main():
     validate_environment_variables()
 
     workflow_id = os.environ["WORKFLOW_ID"]
-    status = StatusReporter(CREATE_APP_REG_WORKFLOW_TYPE, workflow_id)
+    status = StatusReporter(APP_REGISTRATION_WORKFLOW_TYPE, workflow_id)
 
     setup_cancellation_handlers(status)
     login(status)
@@ -164,7 +163,7 @@ def main():
     def _check_app_registration_permissions() -> None:
         if not can_current_user_create_applications():
             error = AppRegistrationCreationPermissionsError("The current user cannot create app registrations")
-            StatusReporter(CREATE_APP_REG_WORKFLOW_TYPE, workflow_id).report(
+            StatusReporter(APP_REGISTRATION_WORKFLOW_TYPE, workflow_id).report(
                 "app_registration_permissions", Status.USER_ACTIONABLE_ERROR, error.user_action_message
             )
             raise error
@@ -181,7 +180,7 @@ def main():
     ) as step_metadata:
         exactly_one_log_forwarder = report_existing_log_forwarders(subscriptions, step_metadata)
     with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
-        selections = receive_user_selections(CREATE_APP_REG_WORKFLOW_TYPE, workflow_id)
+        selections = receive_app_registration_selections(workflow_id)
     with status.report_step("app_registration", "Creating app registration in Azure"):
         app_registration = create_app_registration_with_permissions(selections.scopes)
     if selections.app_registration_config.get("validate"):
