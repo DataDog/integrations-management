@@ -10,7 +10,7 @@ from azure_integration_quickstart.permissions import FlatPermission
 from azure_integration_quickstart.scopes import ASSIGN_ROLES_ACTION, ManagementGroup, Subscription
 from azure_integration_quickstart.user_selections import (
     AppRegistrationUserSelections,
-    LFOUserSelections,
+    LogForwardingUserSelections,
 )
 
 ERROR_404 = HTTPError(url="", code=404, msg="resource does not exist", hdrs=Message(), fp=None)
@@ -152,7 +152,7 @@ LFO_SELECTION_RESPONSE = make_lfo_selections_response(
     subscriptions=[EXAMPLE_SUBSCRIPTIONS[0], EXAMPLE_SUBSCRIPTIONS[1]],
     log_forwarding_options=EXAMPLE_LOG_FORWARDER_JSON,
 )
-LFO_SELECTION = LFOUserSelections(
+LFO_SELECTION = LogForwardingUserSelections(
     log_forwarding_config=EXAMPLE_LOG_FORWARDER,
     scopes=[EXAMPLE_SUBSCRIPTION_SCOPES[0], EXAMPLE_SUBSCRIPTION_SCOPES[1]],
 )

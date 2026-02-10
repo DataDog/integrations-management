@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 from azure_integration_quickstart.user_selections import (
     AppRegistrationUserSelections,
-    LFOUserSelections,
+    LogForwardingUserSelections,
     UserSelections,
     receive_user_selections,
 )
@@ -44,7 +44,9 @@ class TestReceiveUserSelections(DDTestCase):
         ):
             self.assertEqual(selections1.app_registration_config, selections2.app_registration_config)
             self.assertEqual(selections1.log_forwarding_config, selections2.log_forwarding_config)
-        elif isinstance(selections1, LFOUserSelections) and isinstance(selections2, LFOUserSelections):
+        elif isinstance(selections1, LogForwardingUserSelections) and isinstance(
+            selections2, LogForwardingUserSelections
+        ):
             self.assertEqual(selections1.log_forwarding_config, selections2.log_forwarding_config)
         else:
             self.fail(f"Type mismatch: {type(selections1)} vs {type(selections2)}")
@@ -79,11 +81,11 @@ class TestReceiveUserSelections(DDTestCase):
         selections = receive_user_selections(EXAMPLE_WORKFLOW_TYPE, EXAMPLE_WORKFLOW_ID)
         self.assert_selections_equal(selections, SUBSCRIPTION_SELECTION)
 
-    def test_receive_lfo_selections(self):
-        """Test that LFO workflow type returns LFOUserSelections."""
+    def test_receive_log_forwarding_selections(self):
+        """Test that LFO workflow type returns LogForwardingUserSelections."""
         self.dd_request_mock.return_value = (LFO_SELECTION_RESPONSE, 200)
         selections = receive_user_selections(LFO_WORKFLOW_TYPE, EXAMPLE_WORKFLOW_ID)
-        self.assertIsInstance(selections, LFOUserSelections)
+        self.assertIsInstance(selections, LogForwardingUserSelections)
         self.assert_selections_equal(selections, LFO_SELECTION)
         self.assertIsNotNone(selections.log_forwarding_config)
 

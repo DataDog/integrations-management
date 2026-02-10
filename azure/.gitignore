@@ -26,5 +26,4 @@ __pycache__/
 build/
 
 # Allow quickstart executables
-!integration_quickstart/dist/
-!integration_quickstart/dist/azure_lfo_quickstart.pyz
+!integration_quickstart/dist/*.pyz

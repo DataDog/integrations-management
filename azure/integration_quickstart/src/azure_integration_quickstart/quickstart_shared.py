@@ -2,7 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-"""Shared functions and constants used by the main and LFO-only quickstart scripts."""
+"""Shared functions and constants used by the main and log forwarding quickstart scripts."""
 
 import os
 import signal

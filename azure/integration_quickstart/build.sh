@@ -8,18 +8,18 @@ cp -r integration_quickstart/src/. integration_quickstart/dist/tmp
 cp -r logging_install/src/. integration_quickstart/dist/tmp
 cp -r shared/src/. integration_quickstart/dist/tmp
 
-# Build full quickstart executable
+# Build app registration quickstart executable
 python -m zipapp integration_quickstart/dist/tmp \
-  -o integration_quickstart/dist/azure_integration_quickstart.pyz \
+  -o integration_quickstart/dist/azure_app_registration_quickstart.pyz \
   -p "/usr/bin/env python3" \
-  -m "azure_integration_quickstart.quickstart:main"
-chmod +x integration_quickstart/dist/azure_integration_quickstart.pyz
+  -m "azure_integration_quickstart.app_registration_quickstart:main"
+chmod +x integration_quickstart/dist/azure_app_registration_quickstart.pyz
 
-# Build LFO-only quickstart executable
+# Build log forwarding quickstart executable
 python -m zipapp integration_quickstart/dist/tmp \
-  -o integration_quickstart/dist/azure_lfo_quickstart.pyz \
+  -o integration_quickstart/dist/azure_log_forwarding_quickstart.pyz \
   -p "/usr/bin/env python3" \
-  -m "azure_integration_quickstart.lfo_quickstart:main"
-chmod +x integration_quickstart/dist/azure_lfo_quickstart.pyz
+  -m "azure_integration_quickstart.log_forwarding_quickstart:main"
+chmod +x integration_quickstart/dist/azure_log_forwarding_quickstart.pyz
 
 rm -r integration_quickstart/dist/tmp
