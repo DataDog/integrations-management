@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.40.2.10011",
-      "templateHash": "7495236833180759364"
+      "templateHash": "14748854779921976909"
     }
   },
   "functions": [
@@ -274,7 +274,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.40.2.10011",
-              "templateHash": "7936142359489851732"
+              "templateHash": "18211863829958809073"
             }
           },
           "parameters": {
@@ -477,7 +477,12 @@
               "name": "[format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation'))]",
               "location": "[parameters('controlPlaneLocation')]",
               "properties": {
-                "workloadProfiles": []
+                "workloadProfiles": [
+                  {
+                    "name": "Consumption",
+                    "workloadProfileType": "Consumption"
+                  }
+                ]
               }
             },
             {
