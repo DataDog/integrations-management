@@ -6,19 +6,18 @@ import threading
 from unittest.mock import ANY, MagicMock
 
 from az_shared.errors import AccessError, AzCliNotInstalledError
+from azure_integration_quickstart.constants import APP_REGISTRATION_WORKFLOW_TYPE
 from azure_integration_quickstart.script_status import Status, StatusReporter
 
 from integration_quickstart.tests.dd_test_case import DDTestCase
 from integration_quickstart.tests.test_data import EXAMPLE_STEP_ID, EXAMPLE_WORKFLOW_ID
-
-CREATE_APP_REG_WORKFLOW_TYPE = "azure-app-registration-setup"
 
 
 class TestStatusReporter(DDTestCase):
     def setUp(self) -> None:
         self.loading_spinner_mock: MagicMock = self.patch("azure_integration_quickstart.script_status.loading_spinner")
 
-        self.status_reporter = StatusReporter(CREATE_APP_REG_WORKFLOW_TYPE, EXAMPLE_WORKFLOW_ID)
+        self.status_reporter = StatusReporter(APP_REGISTRATION_WORKFLOW_TYPE, EXAMPLE_WORKFLOW_ID)
         self.report_mock = MagicMock()
         self.status_reporter.report = self.report_mock
 

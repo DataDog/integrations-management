@@ -3,73 +3,35 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 import os
-import signal
-import sys
-import threading
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from time import sleep
-from typing import TypedDict
 from urllib.error import URLError
 
 from az_shared.errors import (
     AccessError,
     AppRegistrationCreationPermissionsError,
-    AzCliNotAuthenticatedError,
-    AzCliNotInstalledError,
     InteractiveAuthenticationRequiredError,
 )
-from az_shared.execute_cmd import execute, execute_json
+from az_shared.execute_cmd import execute_json
+from azure_integration_quickstart.constants import APP_REGISTRATION_WORKFLOW_TYPE
 from azure_integration_quickstart.extension.vm_extension import list_vms_for_subscriptions, set_extension_latest
+from azure_integration_quickstart.quickstart_shared import (
+    collect_scopes_step,
+    login,
+    report_existing_log_forwarders,
+    setup_cancellation_handlers,
+    upsert_log_forwarder,
+    validate_environment_variables,
+)
 from azure_integration_quickstart.role_assignments import can_current_user_create_applications
-from azure_integration_quickstart.scopes import Scope, Subscription, flatten_scopes, report_available_scopes
+from azure_integration_quickstart.scopes import Scope, flatten_scopes
 from azure_integration_quickstart.script_status import Status, StatusReporter
-from azure_integration_quickstart.user_selections import receive_user_selections
+from azure_integration_quickstart.user_selections import receive_app_registration_selections
 from azure_integration_quickstart.util import dd_request
-from azure_logging_install.configuration import Configuration
-from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
-from azure_logging_install.main import install_log_forwarder
 from common.shell import Cmd
-
-CREATE_APP_REG_WORKFLOW_TYPE = "azure-app-registration-setup"
-
-
-def ensure_login() -> None:
-    """Ensure that the user is logged into the Azure CLI. If not, raise an exception."""
-    if not execute(Cmd(["az", "account", "show"]), can_fail=True):
-        raise AzCliNotAuthenticatedError("Azure CLI is not authenticated. Please run 'az login' first and retry")
-
-
-class LogForwarderPayload(TypedDict):
-    """Log Forwarder format expected by quickstart UI"""
-
-    resourceGroupName: str
-    controlPlaneSubscriptionId: str
-    controlPlaneSubscriptionName: str
-    controlPlaneRegion: str
-    tagFilters: str
-    piiFilters: str
-
-
-def build_log_forwarder_payload(metadata: LfoMetadata) -> LogForwarderPayload:
-    return LogForwarderPayload(
-        resourceGroupName=metadata.control_plane.resource_group,
-        controlPlaneSubscriptionId=metadata.control_plane.sub_id,
-        controlPlaneSubscriptionName=metadata.control_plane.sub_name,
-        controlPlaneRegion=metadata.control_plane.region,
-        tagFilters=metadata.tag_filter,
-        piiFilters=metadata.pii_rules,
-    )
-
-
-def report_existing_log_forwarders(subscriptions: list[Scope], step_metadata: dict) -> bool:
-    """Send Datadog any existing Log Forwarders in the tenant and return whether we found exactly 1 Forwarder, in which case we will potentially update it."""
-    scope_id_to_name = {s.id: s.name for s in subscriptions}
-    forwarders = check_existing_lfo(set(scope_id_to_name.keys()), scope_id_to_name)
-    step_metadata["log_forwarders"] = [build_log_forwarder_payload(forwarder) for forwarder in forwarders.values()]
-    return len(forwarders) == 1
 
 
 @dataclass
@@ -189,82 +151,26 @@ def submit_integration_config(app_registration: AppRegistration, config: dict) -
         raise RuntimeError("Error creating Azure Integration in Datadog") from e
 
 
-def upsert_log_forwarder(config: dict, subscriptions: set[Subscription]):
-    install_log_forwarder(
-        Configuration(
-            control_plane_region=config["controlPlaneRegion"],
-            control_plane_sub_id=config["controlPlaneSubscriptionId"],
-            control_plane_rg=config["resourceGroupName"],
-            monitored_subs=",".join([s.id for s in subscriptions]),
-            datadog_api_key=os.environ["DD_API_KEY"],
-            datadog_site=os.environ["DD_SITE"],
-            resource_tag_filters=config.get("tagFilters", ""),
-            pii_scrubber_rules=config.get("piiFilters", ""),
-        )
-    )
-
-
-REQUIRED_ENVIRONMENT_VARS = {"DD_API_KEY", "DD_APP_KEY", "DD_SITE", "WORKFLOW_ID"}
-
-
 def main():
-    if missing_environment_vars := {var for var in REQUIRED_ENVIRONMENT_VARS if not os.environ.get(var)}:
-        print(f"Missing required environment variables: {', '.join(missing_environment_vars)}")
-        print('Use the "copy" button from the quickstart UI to grab the complete command.')
-        if missing_environment_vars == {"DD_API_KEY", "DD_APP_KEY"}:
-            print("\nNOTE: Manually selecting and copying the command won't include the masked keys.")
-        sys.exit(1)
+    validate_environment_variables()
 
     workflow_id = os.environ["WORKFLOW_ID"]
+    status = StatusReporter(APP_REGISTRATION_WORKFLOW_TYPE, workflow_id)
 
-    status = StatusReporter(CREATE_APP_REG_WORKFLOW_TYPE, workflow_id)
-
-    # report if the user manually disconnects the script
-    def interrupt_handler(*_args):
-        status.report("connection", Status.CANCELLED, "disconnected by user")
-        exit(1)
-
-    signal.signal(signal.SIGINT, interrupt_handler)
-
-    # give up after 30 minutes
-    def time_out():
-        status.report("connection", Status.CANCELLED, "session expired")
-        print(
-            "\nSession expired. If you still wish to create a new Datadog configuration, please reload the onboarding page in Datadog and reconnect using the provided command."
-        )
-        os._exit(1)
-
-    timer = threading.Timer(30 * 60, time_out)
-    timer.daemon = True
-    timer.start()
-
+    setup_cancellation_handlers(status)
     with status.report_step("login"):
-        try:
-            ensure_login()
-        except Exception as e:
-            if "az: command not found" in str(e):
-                print("You must install and log in to Azure CLI to run this script.")
-                raise AzCliNotInstalledError(str(e)) from e
-            else:
-                print("You must be logged in to Azure CLI to run this script. Run `az login` and try again.")
-                raise AzCliNotAuthenticatedError(str(e)) from e
-        else:
-            print("Connected! Leave this shell running and go back to the Datadog UI to continue.")
+        login()
 
     def _check_app_registration_permissions() -> None:
         if not can_current_user_create_applications():
             error = AppRegistrationCreationPermissionsError("The current user cannot create app registrations")
-            StatusReporter(CREATE_APP_REG_WORKFLOW_TYPE, workflow_id).report(
+            StatusReporter(APP_REGISTRATION_WORKFLOW_TYPE, workflow_id).report(
                 "app_registration_permissions", Status.USER_ACTIONABLE_ERROR, error.user_action_message
             )
             raise error
 
-    def _collect_scopes() -> tuple[list[Scope], list[Scope]]:
-        with status.report_step("scopes", "Collecting scopes") as step_metadata:
-            return report_available_scopes(step_metadata)
-
     with ThreadPoolExecutor() as executor:
-        scopes_future = executor.submit(_collect_scopes)
+        scopes_future = executor.submit(collect_scopes_step, status)
         # NOTE: For now, we do not bubble up any exceptions from `_check_app_registration_permissions`.
         # We're just reporting the status to verify correctness. Later, this will be used to early exit.
         executor.submit(_check_app_registration_permissions)
@@ -275,7 +181,7 @@ def main():
     ) as step_metadata:
         exactly_one_log_forwarder = report_existing_log_forwarders(subscriptions, step_metadata)
     with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
-        selections = receive_user_selections(CREATE_APP_REG_WORKFLOW_TYPE, workflow_id)
+        selections = receive_app_registration_selections(workflow_id)
     with status.report_step("app_registration", "Creating app registration in Azure"):
         app_registration = create_app_registration_with_permissions(selections.scopes)
     if selections.app_registration_config.get("validate"):

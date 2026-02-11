@@ -24,3 +24,6 @@ __pycache__/
 
 # Build artifacts
 build/
+
+# Allow quickstart executables
+!integration_quickstart/dist/*.pyz
