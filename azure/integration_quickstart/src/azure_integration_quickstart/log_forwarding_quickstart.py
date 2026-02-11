@@ -6,7 +6,7 @@ import os
 
 from azure_integration_quickstart.constants import LOG_FORWARDING_WORKFLOW_TYPE
 from azure_integration_quickstart.quickstart_shared import (
-    collect_scopes,
+    collect_scopes_step,
     login,
     report_existing_log_forwarders,
     setup_cancellation_handlers,
@@ -28,7 +28,7 @@ def main():
     with status.report_step("login"):
         login()
 
-    subscriptions, _ = collect_scopes(status)
+    subscriptions, _ = collect_scopes_step(status)
 
     with status.report_step(
         "log_forwarders", loading_message="Collecting existing Log Forwarders", required=False

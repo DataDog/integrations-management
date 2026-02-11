@@ -19,7 +19,7 @@ from az_shared.execute_cmd import execute_json
 from azure_integration_quickstart.constants import APP_REGISTRATION_WORKFLOW_TYPE
 from azure_integration_quickstart.extension.vm_extension import list_vms_for_subscriptions, set_extension_latest
 from azure_integration_quickstart.quickstart_shared import (
-    collect_scopes,
+    collect_scopes_step,
     login,
     report_existing_log_forwarders,
     setup_cancellation_handlers,
@@ -170,7 +170,7 @@ def main():
             raise error
 
     with ThreadPoolExecutor() as executor:
-        scopes_future = executor.submit(collect_scopes, status)
+        scopes_future = executor.submit(collect_scopes_step, status)
         # NOTE: For now, we do not bubble up any exceptions from `_check_app_registration_permissions`.
         # We're just reporting the status to verify correctness. Later, this will be used to early exit.
         executor.submit(_check_app_registration_permissions)

@@ -83,7 +83,7 @@ def login() -> None:
         print("Connected! Leave this shell running and go back to the Datadog UI to continue.")
 
 
-def collect_scopes(status: StatusReporter) -> tuple[list[Scope], list[Scope]]:
+def collect_scopes_step(status: StatusReporter) -> tuple[list[Scope], list[Scope]]:
     """Collect available Azure scopes (subscriptions and management groups)."""
     with status.report_step("scopes", "Collecting scopes") as step_metadata:
         return report_available_scopes(step_metadata)
