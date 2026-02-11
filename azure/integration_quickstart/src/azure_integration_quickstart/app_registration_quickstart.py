@@ -7,7 +7,6 @@ from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
-from time import sleep
 from urllib.error import URLError
 
 from az_shared.errors import (
@@ -76,63 +75,6 @@ def create_app_registration_with_permissions(scopes: Iterable[Scope]) -> AppRegi
     return AppRegistration(result["tenant"], result["appId"], result["password"])
 
 
-def get_access_token_with_client_credentials(tenant_id: str, client_id: str, client_secret: str, scope: str) -> str:
-    return execute_json(
-        Cmd(["az", "rest"])
-        .param("-m", "post")
-        .param("-u", f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token")
-        .param("-b", f"grant_type=client_credentials&client_id={client_id}&client_secret={client_secret}&scope={scope}")
-        .flag("--skip-authorization-header")
-        .param("--query", "access_token")
-    )
-
-
-def set_access_token(az_rest_cmd: Cmd, token: str) -> Cmd:
-    return az_rest_cmd.flag("--skip-authorization-header").param("--headers", f"Authorization=Bearer {token}")
-
-
-def get_arm_scope() -> str:
-    return f"{execute_json(Cmd(['az', 'cloud', 'show']).param('--query', 'endpoints.resourceManager')).strip('/')}/.default"
-
-
-def get_subscription_count(access_token: str) -> int:
-    return execute_json(
-        set_access_token(Cmd(["az", "rest"]), access_token)
-        .param("-u", "https://management.azure.com/subscriptions?api-version=2022-12-01")
-        .param("--query", "count.value")
-    )
-
-
-def wait_for_app_registration_to_work(app_registration: AppRegistration) -> None:
-    """Wait for a newly-created app registration's authn/authz to work."""
-    # It will generally take at least this long. No point even trying before then.
-    sleep(15)
-
-    scope = get_arm_scope()
-    while True:
-        try:
-            access_token = get_access_token_with_client_credentials(
-                app_registration.tenant_id, app_registration.client_id, app_registration.client_secret, scope
-            )
-        except Exception:
-            sleep(1)
-        else:
-            break
-
-    consecutive_success_count = 0
-    while True:
-        # If we can read subscription metadata, the assigned access is being honored.
-        if get_subscription_count(access_token) > 0:
-            consecutive_success_count += 1
-        else:
-            consecutive_success_count = 0
-        # Require several consecutive successes to account for eventual consistency.
-        if consecutive_success_count >= 5:
-            break
-        else:
-            sleep(1)
-
-
 def submit_integration_config(app_registration: AppRegistration, config: dict) -> None:
     """Submit a new configuration to Datadog."""
     try:
@@ -184,9 +126,6 @@ def main():
         selections = receive_app_registration_selections(workflow_id)
     with status.report_step("app_registration", "Creating app registration in Azure"):
         app_registration = create_app_registration_with_permissions(selections.scopes)
-    if selections.app_registration_config.get("validate"):
-        with status.report_step("validate_app_registration", "Validating app registration's access"):
-            wait_for_app_registration_to_work(app_registration)
     with status.report_step("integration_config", "Submitting new configuration to Datadog"):
         submit_integration_config(app_registration, selections.app_registration_config)
     with status.report_step("config_identifier", "Submitting new configuration identifier to Datadog") as step_metadata:
