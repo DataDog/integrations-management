@@ -18,7 +18,6 @@ from az_shared.execute_cmd import execute_json
 from azure_integration_quickstart.constants import APP_REGISTRATION_WORKFLOW_TYPE
 from azure_integration_quickstart.extension.vm_extension import list_vms_for_subscriptions, set_extension_latest
 from azure_integration_quickstart.quickstart_shared import (
-    collect_scopes_step,
     login,
     report_existing_log_forwarders,
     setup_cancellation_handlers,
@@ -26,7 +25,7 @@ from azure_integration_quickstart.quickstart_shared import (
     validate_environment_variables,
 )
 from azure_integration_quickstart.role_assignments import can_current_user_create_applications
-from azure_integration_quickstart.scopes import Scope, flatten_scopes
+from azure_integration_quickstart.scopes import Scope, Subscription, flatten_scopes, report_available_scopes
 from azure_integration_quickstart.script_status import Status, StatusReporter
 from azure_integration_quickstart.user_selections import receive_app_registration_selections
 from azure_integration_quickstart.util import dd_request
@@ -111,12 +110,16 @@ def main():
             )
             raise error
 
+    def _collect_scopes() -> list[Subscription]:
+        with status.report_step("scopes", "Collecting scopes") as step_metadata:
+            return report_available_scopes(step_metadata)
+
     with ThreadPoolExecutor() as executor:
-        scopes_future = executor.submit(collect_scopes_step, status)
+        scopes_future = executor.submit(_collect_scopes)
         # NOTE: For now, we do not bubble up any exceptions from `_check_app_registration_permissions`.
         # We're just reporting the status to verify correctness. Later, this will be used to early exit.
         executor.submit(_check_app_registration_permissions)
-    subscriptions, _ = scopes_future.result()
+    subscriptions = scopes_future.result()
 
     with status.report_step(
         "log_forwarders", loading_message="Collecting existing Log Forwarders", required=False

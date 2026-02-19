@@ -12,7 +12,7 @@ from typing import TypedDict
 
 from az_shared.errors import AzCliNotAuthenticatedError, AzCliNotInstalledError
 from az_shared.execute_cmd import execute
-from azure_integration_quickstart.scopes import Scope, report_available_scopes
+from azure_integration_quickstart.scopes import Scope
 from azure_integration_quickstart.script_status import Status, StatusReporter
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
@@ -81,12 +81,6 @@ def login() -> None:
             raise AzCliNotAuthenticatedError(str(e)) from e
     else:
         print("Connected! Leave this shell running and go back to the Datadog UI to continue.")
-
-
-def collect_scopes_step(status: StatusReporter) -> tuple[list[Scope], list[Scope]]:
-    """Collect available Azure scopes (subscriptions and management groups)."""
-    with status.report_step("scopes", "Collecting scopes") as step_metadata:
-        return report_available_scopes(step_metadata)
 
 
 def build_log_forwarder_payload(metadata: LfoMetadata) -> LogForwarderPayload:

@@ -146,6 +146,22 @@ def get_available_regions() -> list[str]:
     return regions
 
 
+def get_tenant_and_subscriptions() -> tuple[str, list[Subscription]]:
+    """Get tenant ID and subscriptions the user has permission to assign roles on. Used to start scope collection before running the rest in parallel with LFO."""
+    tenant_id = execute_json(Cmd(["az", "account", "show"]).param("--query", "tenantId"))
+    subscriptions = filter_scopes_by_permission(get_subscription_scopes(tenant_id))
+    return tenant_id, subscriptions
+
+
+def finish_collecting_scopes(tenant_id: str, subscriptions: list[Scope], step_metadata: dict) -> None:
+    """Finish scope collection: management groups, regions, and write all three to step_metadata."""
+    management_groups = filter_scopes_by_permission(get_management_group_scopes(tenant_id))
+    regions = get_available_regions()
+    step_metadata["subscriptions"] = [asdict(s) for s in subscriptions]
+    step_metadata["management_groups"] = [asdict(m) for m in management_groups]
+    step_metadata["regions"] = regions
+
+
 def flatten_scopes(scopes: Sequence[Scope]) -> set[Subscription]:
     """Convert a list of scopes into a set of subscriptions, with management groups represented as their constituent subscriptions"""
     return set(
@@ -154,13 +170,8 @@ def flatten_scopes(scopes: Sequence[Scope]) -> set[Subscription]:
     )
 
 
-def report_available_scopes(step_metadata: dict) -> tuple[list[Scope], list[Scope]]:
-    """Send Datadog the subscriptions and management groups that the user has permission to grant access to."""
-    tenant_id = execute_json(Cmd(["az", "account", "show"]).param("--query", "tenantId"))
-    subscriptions = filter_scopes_by_permission(get_subscription_scopes(tenant_id))
-    management_groups = filter_scopes_by_permission(get_management_group_scopes(tenant_id))
-    regions = get_available_regions()
-    step_metadata["subscriptions"] = [asdict(s) for s in subscriptions]
-    step_metadata["management_groups"] = [asdict(m) for m in management_groups]
-    step_metadata["regions"] = regions
-    return subscriptions, management_groups
+def report_available_scopes(step_metadata: dict) -> list[Subscription]:
+    """Fetch subscriptions, management groups, and regions that the user has access to, and report them to Datadog via step_metadata."""
+    tenant_id, subscriptions = get_tenant_and_subscriptions()
+    finish_collecting_scopes(tenant_id, subscriptions, step_metadata)
+    return subscriptions
