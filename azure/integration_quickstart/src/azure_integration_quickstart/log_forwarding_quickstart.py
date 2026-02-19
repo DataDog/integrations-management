@@ -4,7 +4,6 @@
 
 import os
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict
 
 from azure_integration_quickstart.constants import LOG_FORWARDING_WORKFLOW_TYPE
 from azure_integration_quickstart.quickstart_shared import (
@@ -19,14 +18,6 @@ from azure_integration_quickstart.script_status import StatusReporter
 from azure_integration_quickstart.user_selections import receive_log_forwarding_selections
 
 
-def _collect_log_forwarders_step(status: StatusReporter, subscriptions: list) -> bool:
-    """Open the log_forwarders step and call report_existing_log_forwarders (for use in a thread)."""
-    with status.report_step(
-        "log_forwarders", loading_message="Collecting existing Log Forwarders", required=False
-    ) as step_metadata:
-        return report_existing_log_forwarders(subscriptions, step_metadata)
-
-
 def main():
     validate_environment_variables()
 
@@ -37,11 +28,13 @@ def main():
     with status.report_step("login"):
         login()
 
-    with status.report_step("scopes", "Collecting scopes") as step_metadata:
+    with status.report_step(
+        "scopes_and_log_forwarders", loading_message="Collecting scopes and existing Log Forwarders"
+    ) as step_metadata:
         tenant_id, subscriptions = get_tenant_and_subscriptions()
         with ThreadPoolExecutor() as executor:
             scopes_future = executor.submit(finish_collecting_scopes, tenant_id, subscriptions, step_metadata)
-            lfo_future = executor.submit(_collect_log_forwarders_step, status, subscriptions)
+            lfo_future = executor.submit(report_existing_log_forwarders, subscriptions, step_metadata)
         scopes_future.result()
         exactly_one_log_forwarder = lfo_future.result()
     with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
