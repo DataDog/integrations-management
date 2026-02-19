@@ -171,7 +171,7 @@ def flatten_scopes(scopes: Sequence[Scope]) -> set[Subscription]:
 
 
 def report_available_scopes(step_metadata: dict) -> list[Subscription]:
-    """Send Datadog the subscriptions and management groups that the user has permission to grant access to."""
+    """Fetch subscriptions, management groups, and regions that the user has access to, and report them to Datadog via step_metadata."""
     tenant_id, subscriptions = get_tenant_and_subscriptions()
     finish_collecting_scopes(tenant_id, subscriptions, step_metadata)
     return subscriptions
