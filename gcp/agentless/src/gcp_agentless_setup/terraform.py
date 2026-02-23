@@ -17,7 +17,7 @@ from .reporter import Reporter, AgentlessStep
 TERRAFORM_PARALLELISM = 10
 
 # Module version to use
-MODULE_VERSION = "129ce4e0a7a43dbf83d4bc4163d7f7f4c4efefe4"
+MODULE_VERSION = "4ecd78b38ac0a2794542eb2ed6fad5a25bccd14c"
 MODULE_SOURCE = f"git::https://github.com/DataDog/terraform-module-datadog-agentless-scanner//gcp?ref={MODULE_VERSION}"
 MODULE_SOURCE_SA = f"git::https://github.com/DataDog/terraform-module-datadog-agentless-scanner//gcp/modules/agentless-impersonated-service-account?ref={MODULE_VERSION}"
 
