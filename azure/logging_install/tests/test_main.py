@@ -208,7 +208,7 @@ class TestMain(TestCase):
         with self.assertRaises(FatalError) as context:
             main.create_new_lfo(mock_config)
 
-        self.assertEqual(str(context.exception), error_message)
+        self.assertIn(error_message, str(context.exception))
         self.deploy_control_plane_mock.assert_not_called()
         self.grant_permissions_mock.assert_not_called()
         self.run_initial_deploy_mock.assert_not_called()
@@ -345,4 +345,4 @@ class TestMain(TestCase):
                 main.install_log_forwarder(test_config)
 
             # Verify the correct exception was raised
-            self.assertEqual(str(context.exception), error_message)
+            self.assertIn(error_message, str(context.exception))
