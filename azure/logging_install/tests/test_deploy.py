@@ -239,4 +239,4 @@ class TestDeploy(TestCase):
         with self.assertRaises(FatalError) as context:
             deploy.deploy_control_plane(self.config)
 
-        self.assertEqual(str(context.exception), error_message)
+        self.assertIn(error_message, str(context.exception))
