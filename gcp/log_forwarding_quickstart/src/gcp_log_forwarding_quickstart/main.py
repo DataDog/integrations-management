@@ -15,8 +15,9 @@ from gcp_shared.models import (
 from gcp_shared.reporter import WorkflowReporter
 from gcp_shared.scopes import collect_configuration_scopes
 from gcp_shared.service_accounts import find_or_create_service_account
+from gcp_shared.dataflow_models import DataflowConfiguration, ExclusionFilter
 
-from .dataflow_configuration import (
+from gcp_shared.dataflow_configuration import (
     SERVICE_ACCOUNT_ID,
     assign_required_dataflow_roles,
     create_dataflow_job,
@@ -25,7 +26,6 @@ from .dataflow_configuration import (
     create_secret_manager_entry,
     create_topics_with_subscription,
 )
-from .models import DataflowConfiguration, ExclusionFilter
 
 REQUIRED_ENVIRONMENT_VARS: set[str] = {
     "DD_API_KEY",

@@ -10,8 +10,21 @@ from gcp_shared.gcloud import GcloudCmd, gcloud
 from gcp_shared.models import ConfigurationScope
 from gcp_shared.reporter import StepStatusReporter
 from gcp_shared.requests import dd_request
+from gcp_shared.dataflow_configuration import (
+    create_topics_with_subscription,
+    create_dataflow_staging_bucket,
+    create_secret_manager_entry,
+    create_log_sinks,
+    assign_required_dataflow_roles,
+    create_dataflow_job,
+)
 
-from .models import IntegrationConfiguration, ProductRequirements
+from gcp_shared.dataflow_models import DataflowConfiguration, ExclusionFilter
+from .models import (
+    IntegrationConfiguration,
+    ProductRequirements,
+    LogsForwardingConfiguration,
+)
 
 REQUIRED_APIS: list[str] = [
     "cloudasset.googleapis.com",
@@ -57,6 +70,49 @@ def assign_delegate_permissions(
         .param("--condition", "None")
         .param("--project", project_id)
         .flag("--quiet")
+    )
+
+
+def create_logs_forwarding_integration(
+    step_reporter: StepStatusReporter,
+    service_account_email: str,
+    logs_forwarding_configuration: LogsForwardingConfiguration,
+    default_project_id: str,
+    configuration_scope: ConfigurationScope,
+):
+    """Create the logs forwarding integration in Datadog during main onboarding using the new service account."""
+    create_topics_with_subscription(
+        step_reporter, default_project_id, service_account_email
+    )
+    create_dataflow_staging_bucket(
+        step_reporter,
+        default_project_id,
+        service_account_email,
+        logs_forwarding_configuration.region,
+    )
+    create_secret_manager_entry(
+        step_reporter, default_project_id, service_account_email
+    )
+    create_log_sinks(
+        step_reporter,
+        default_project_id,
+        configuration_scope,
+        logs_forwarding_configuration.inclusion_filter,
+        exclusion_filters=[
+            ExclusionFilter(**exclusion)
+            for exclusion in logs_forwarding_configuration.exclusion_filters
+        ],
+    )
+
+    assign_required_dataflow_roles(
+        step_reporter, service_account_email, default_project_id
+    )
+    create_dataflow_job(
+        step_reporter,
+        default_project_id,
+        service_account_email,
+        logs_forwarding_configuration.region,
+        DataflowConfiguration(**logs_forwarding_configuration.dataflow_configuration),
     )
 
 

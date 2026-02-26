@@ -4,6 +4,7 @@
 
 from dataclasses import dataclass, field
 from typing import Any
+from gcp_shared.dataflow_models import DataflowConfiguration, ExclusionFilter
 
 
 @dataclass
@@ -26,3 +27,13 @@ class ProductRequirements:
 
     required_roles: list[str]
     required_apis: list[str]
+
+
+@dataclass
+class LogsForwardingConfiguration:
+    """Wrapper for logs forwarding in main onboarding"""
+
+    region: str
+    exclusion_filters: list[dict[str, str]]
+    inclusion_filter: str
+    dataflow_configuration: dict[str, Any]

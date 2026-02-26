@@ -6,7 +6,7 @@ import json
 import unittest
 from unittest.mock import Mock, patch
 
-from gcp_log_forwarding_quickstart.dataflow_configuration import (
+from gcp_shared.dataflow_configuration import (
     DATAFLOW_JOB_NAME,
     LOG_SINK_NAME,
     PUBSUB_DEAD_LETTER_TOPIC_ID,
@@ -20,12 +20,12 @@ from gcp_log_forwarding_quickstart.dataflow_configuration import (
     create_topics_with_subscription,
     find_or_create_datadog_api_key,
 )
-from gcp_log_forwarding_quickstart.models import DataflowConfiguration, ExclusionFilter
+from gcp_shared.dataflow_models import DataflowConfiguration, ExclusionFilter
 from gcp_shared.models import ConfigurationScope, Folder, Project
 
 
 class TestCreateDataflowStagingBucket(unittest.TestCase):
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
+    @patch("gcp_shared.dataflow_configuration.gcloud")
     def test_create_dataflow_staging_bucket_creates_new(self, mock_gcloud):
         mock_gcloud.side_effect = [
             [],
@@ -58,7 +58,7 @@ class TestCreateDataflowStagingBucket(unittest.TestCase):
             "storage buckets add-iam-policy-binding gs://dataflow-temp-test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/storage.objectAdmin --quiet",
         )
 
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
+    @patch("gcp_shared.dataflow_configuration.gcloud")
     def test_create_dataflow_staging_bucket_uses_existing(self, mock_gcloud):
         mock_gcloud.side_effect = [
             [{"name": "dataflow-temp-test-project"}],
@@ -90,7 +90,7 @@ class TestCreateDataflowStagingBucket(unittest.TestCase):
 class TestCreateTopicsWithSubscription(unittest.TestCase):
     """Test the create_topics_with_subscription function."""
 
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
+    @patch("gcp_shared.dataflow_configuration.gcloud")
     def test_create_topics_with_subscription_creates_new_topic(self, mock_gcloud):
         """Test creating a new topic and subscription."""
         mock_gcloud.side_effect = [
@@ -171,7 +171,7 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
             f"pubsub subscriptions add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.viewer --quiet",
         )
 
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
+    @patch("gcp_shared.dataflow_configuration.gcloud")
     def test_create_topics_with_subscription_uses_existing_topic(self, mock_gcloud):
         """Test using an existing topic."""
 
@@ -233,7 +233,7 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
             f"pubsub subscriptions add-iam-policy-binding {PUBSUB_DEAD_LETTER_TOPIC_ID}-subscription --project test-project --member serviceAccount:test-sa@project.iam.gserviceaccount.com --role roles/pubsub.viewer --quiet",
         )
 
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
+    @patch("gcp_shared.dataflow_configuration.gcloud")
     def test_create_topics_with_subscription_recreates_subscription(self, mock_gcloud):
         """Test recreating subscription when topic mismatch."""
         wrong_topic = "projects/test-project/topics/wrong-topic"
@@ -314,10 +314,8 @@ class TestCreateTopicsWithSubscription(unittest.TestCase):
 class TestCreateSecretManagerEntry(unittest.TestCase):
     """Test the create_secret_manager_entry function."""
 
-    @patch(
-        "gcp_log_forwarding_quickstart.dataflow_configuration.find_or_create_datadog_api_key"
-    )
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
+    @patch("gcp_shared.dataflow_configuration.find_or_create_datadog_api_key")
+    @patch("gcp_shared.dataflow_configuration.gcloud")
     def test_create_secret_manager_entry_uses_existing_secret(
         self, mock_gcloud, mock_create_api_key
     ):
@@ -337,13 +335,9 @@ class TestCreateSecretManagerEntry(unittest.TestCase):
 
         mock_create_api_key.assert_not_called()
 
-    @patch(
-        "gcp_log_forwarding_quickstart.dataflow_configuration.find_or_create_datadog_api_key"
-    )
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
-    @patch(
-        "gcp_log_forwarding_quickstart.dataflow_configuration.tempfile.NamedTemporaryFile"
-    )
+    @patch("gcp_shared.dataflow_configuration.find_or_create_datadog_api_key")
+    @patch("gcp_shared.dataflow_configuration.gcloud")
+    @patch("gcp_shared.dataflow_configuration.tempfile.NamedTemporaryFile")
     def test_create_secret_manager_entry_creates_new_secret(
         self, mock_tempfile, mock_gcloud, mock_create_api_key
     ):
@@ -390,13 +384,9 @@ class TestCreateSecretManagerEntry(unittest.TestCase):
             f"secrets versions add {SECRET_MANAGER_NAME} --project test-project --data-file /tmp/test --quiet",
         )
 
-    @patch(
-        "gcp_log_forwarding_quickstart.dataflow_configuration.find_or_create_datadog_api_key"
-    )
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
-    @patch(
-        "gcp_log_forwarding_quickstart.dataflow_configuration.tempfile.NamedTemporaryFile"
-    )
+    @patch("gcp_shared.dataflow_configuration.find_or_create_datadog_api_key")
+    @patch("gcp_shared.dataflow_configuration.gcloud")
+    @patch("gcp_shared.dataflow_configuration.tempfile.NamedTemporaryFile")
     def test_create_secret_manager_entry_adds_version_to_existing(
         self, mock_tempfile, mock_gcloud, mock_create_api_key
     ):
@@ -452,7 +442,7 @@ class TestCreateSecretManagerEntry(unittest.TestCase):
 class TestFindOrCreateDatadogApiKey(unittest.TestCase):
     """Test the find_or_create_datadog_api_key function."""
 
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.dd_request")
+    @patch("gcp_shared.dataflow_configuration.dd_request")
     def test_find_or_create_datadog_api_key_uses_existing(self, mock_dd_request):
         """Test using an existing API key."""
         mock_dd_request.side_effect = [
@@ -479,7 +469,7 @@ class TestFindOrCreateDatadogApiKey(unittest.TestCase):
 
         self.assertEqual(result, "existing-api-key-value")
 
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.dd_request")
+    @patch("gcp_shared.dataflow_configuration.dd_request")
     def test_find_or_create_datadog_api_key_creates_new(self, mock_dd_request):
         """Test creating a new API key."""
         mock_dd_request.side_effect = [
@@ -494,7 +484,7 @@ class TestFindOrCreateDatadogApiKey(unittest.TestCase):
 
         self.assertEqual(result, "new-api-key-value")
 
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.dd_request")
+    @patch("gcp_shared.dataflow_configuration.dd_request")
     def test_find_or_create_datadog_api_key_search_error(self, mock_dd_request):
         """Test error handling when searching for keys fails."""
         mock_dd_request.return_value = ('{"error": "bad request"}', 400)
@@ -508,7 +498,7 @@ class TestFindOrCreateDatadogApiKey(unittest.TestCase):
 class TestAssignRequiredDataflowRoles(unittest.TestCase):
     """Test the assign_required_dataflow_roles function."""
 
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
+    @patch("gcp_shared.dataflow_configuration.gcloud")
     def test_assign_required_dataflow_roles_success(self, mock_gcloud):
         """Test successfully assigning all required roles."""
         mock_gcloud.return_value = None
@@ -531,7 +521,7 @@ class TestAssignRequiredDataflowRoles(unittest.TestCase):
 class TestCreateLogSinks(unittest.TestCase):
     """Test the create_log_sinks function."""
 
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
+    @patch("gcp_shared.dataflow_configuration.gcloud")
     def test_create_log_sinks_for_projects(self, mock_gcloud):
         """Test creating log sinks for projects."""
 
@@ -581,7 +571,7 @@ class TestCreateLogSinks(unittest.TestCase):
             f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} --project default-project --member serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com --role roles/pubsub.publisher --quiet",
         )
 
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
+    @patch("gcp_shared.dataflow_configuration.gcloud")
     def test_create_log_sinks_for_folders(self, mock_gcloud):
         """Test creating log sinks for folders."""
 
@@ -631,7 +621,7 @@ class TestCreateLogSinks(unittest.TestCase):
             f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} --project default-project --member serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com --role roles/pubsub.publisher --quiet",
         )
 
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
+    @patch("gcp_shared.dataflow_configuration.gcloud")
     def test_create_log_sinks_updates_existing_project(self, mock_gcloud):
         """Test updating sink when it already exists in project."""
 
@@ -681,7 +671,7 @@ class TestCreateLogSinks(unittest.TestCase):
             f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} --project default-project --member serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com --role roles/pubsub.publisher --quiet",
         )
 
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
+    @patch("gcp_shared.dataflow_configuration.gcloud")
     def test_create_log_sinks_updates_existing_folder(self, mock_gcloud):
         """Test updating sink when it already exists in folder."""
 
@@ -731,7 +721,7 @@ class TestCreateLogSinks(unittest.TestCase):
             f"pubsub topics add-iam-policy-binding {PUBSUB_TOPIC_ID} --project default-project --member serviceAccount:test-writer@gcp-sa.iam.gserviceaccount.com --role roles/pubsub.publisher --quiet",
         )
 
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
+    @patch("gcp_shared.dataflow_configuration.gcloud")
     def test_create_log_sinks_with_filters(self, mock_gcloud):
         """Test creating log sinks with inclusion and exclusion filters."""
 
@@ -788,8 +778,8 @@ class TestCreateLogSinks(unittest.TestCase):
 class TestCreateDataflowJob(unittest.TestCase):
     """Test the create_dataflow_job function."""
 
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.os.environ.get")
+    @patch("gcp_shared.dataflow_configuration.gcloud")
+    @patch("gcp_shared.dataflow_configuration.os.environ.get")
     def test_create_dataflow_job_creates_new_job(self, mock_env_get, mock_gcloud):
         """Test creating a new Dataflow job."""
         mock_env_get.return_value = "datadoghq.com"
@@ -846,7 +836,7 @@ class TestCreateDataflowJob(unittest.TestCase):
             f"dataflow jobs run {DATAFLOW_JOB_NAME} --gcs-location gs://dataflow-templates-us-central1/latest/Cloud_PubSub_to_Datadog --region us-central1 --project test-project --service-account-email test-sa@project.iam.gserviceaccount.com --staging-location gs://dataflow-temp-test-project --max-workers 5 --num-workers 1 --parameters {expected_params} --quiet --worker-machine-type n1-standard-1",
         )
 
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
+    @patch("gcp_shared.dataflow_configuration.gcloud")
     def test_create_dataflow_job_uses_existing(self, mock_gcloud):
         """Test skipping creation when job already exists."""
 
@@ -879,8 +869,8 @@ class TestCreateDataflowJob(unittest.TestCase):
             f"dataflow jobs list --project test-project --region us-central1 --filter 'name={DATAFLOW_JOB_NAME} AND state=RUNNING'",
         )
 
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.gcloud")
-    @patch("gcp_log_forwarding_quickstart.dataflow_configuration.os.environ.get")
+    @patch("gcp_shared.dataflow_configuration.gcloud")
+    @patch("gcp_shared.dataflow_configuration.os.environ.get")
     def test_create_dataflow_job_with_prime_enabled(self, mock_env_get, mock_gcloud):
         """Test creating a Dataflow job with Prime enabled."""
         mock_env_get.return_value = "datadoghq.com"
