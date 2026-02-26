@@ -14,4 +14,5 @@ chmod +x logging_install/dist/azure_logging_install.pyz
 rm -r logging_install/dist/tmp
 
 az bicep build --file logging_install/bicep/azuredeploy.bicep --outfile logging_install/dist/azuredeploy.json
+az bicep build --file logging_install/bicep/forwarder.bicep --outfile logging_install/dist/forwarder.json
 cp logging_install/bicep/createUiDefinition.json logging_install/dist/createUiDefinition.json
