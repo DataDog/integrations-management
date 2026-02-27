@@ -70,8 +70,8 @@ provider "google" {{
 
     # Explicit scanner service account module (created once, shared across regions)
     scanner_sa_tf = f'''
-# The scanner service account is the identity used by scanner VMs to run scans
-# and report results to Datadog.
+# The scanner service account is attached to scanner VMs and can impersonate
+# other service accounts to scan resources across projects.
 module "scanner_service_account" {{
   source = "{MODULE_SOURCE_SCANNER_SA}"
 
@@ -81,8 +81,8 @@ module "scanner_service_account" {{
 
     # Impersonated service account for scanner project
     impersonated_sa_tf = f'''
-# The impersonated service account grants the scanner cross-project access
-# to scan resources in the scanner project.
+# The impersonated service account provides the permissions needed to scan
+# resources (disks, snapshots) in the scanner project.
 module "impersonated_service_account" {{
   source = "{MODULE_SOURCE_SA}"
 
@@ -137,7 +137,7 @@ moved {{
     for project in config.other_projects:
         project_alias = _sanitize_name(project)
         other_projects_tf += f'''
-# Impersonated service account for scanning {project}
+# Impersonated service account with permissions to scan resources in {project}
 module "agentless_impersonated_sa_{project_alias}" {{
   source = "{MODULE_SOURCE_SA}"
 
