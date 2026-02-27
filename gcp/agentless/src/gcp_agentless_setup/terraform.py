@@ -110,6 +110,28 @@ module "datadog_agentless_scanner_{region_alias}" {{
 }}
 '''
 
+    # State migration: move SA resources from the first regional module to top-level.
+    # Previously, service accounts were created implicitly inside each regional scanner
+    # module. Now they are explicit top-level modules. These moved blocks let Terraform
+    # update state in-place instead of destroying and recreating resources.
+    # Safe to remove after the first successful apply on existing deployments.
+    first_region_alias = _sanitize_name(config.regions[0])
+    moved_blocks_tf = f'''
+# ── State migration ──
+# Migrate service accounts from the regional module to top-level modules.
+# Safe to remove after the first successful apply.
+
+moved {{
+  from = module.datadog_agentless_scanner_{first_region_alias}.module.agentless_scanner_service_account[0]
+  to   = module.scanner_service_account
+}}
+
+moved {{
+  from = module.datadog_agentless_scanner_{first_region_alias}.module.agentless_impersonated_service_account[0]
+  to   = module.impersonated_service_account
+}}
+'''
+
     # Build modules for other projects
     other_projects_tf = ""
     for project in config.other_projects:
@@ -188,7 +210,7 @@ resource "datadog_agentless_scanning_gcp_scan_options" "scanner_project" {{
   vuln_host_os       = true
   vuln_containers_os = true
 }}
-{other_projects_tf}
+{other_projects_tf}{moved_blocks_tf}
 '''
 
     return tf_config
