@@ -256,13 +256,29 @@ class TerraformRunner:
     def apply(self) -> None:
         """Run terraform apply with progress display.
 
+        Uses a two-phase apply: the scanner service account must be created
+        first because its email output is unknown at plan time, which causes
+        Terraform's count expressions in regional modules to fail with
+        "count depends on resource attributes that cannot be determined until
+        apply". After phase 1, the email is stored in state and known.
+
         Raises:
             TerraformError: If apply fails.
         """
         if not self.work_dir:
             raise TerraformError("Working directory not set up")
 
-        # Use progress display for apply
+        # Phase 1: Create the scanner service account so its email is known in state
+        result = run_terraform_with_progress(
+            ["terraform", "apply", "-auto-approve",
+             "-target=module.scanner_service_account",
+             f"-parallelism={TERRAFORM_PARALLELISM}", "-input=false"]
+        )
+
+        if result.returncode != 0:
+            raise TerraformError("Terraform apply failed (scanner service account)")
+
+        # Phase 2: Apply everything (regional modules can now resolve the SA email)
         result = run_terraform_with_progress(
             ["terraform", "apply", "-auto-approve", f"-parallelism={TERRAFORM_PARALLELISM}", "-input=false"]
         )
