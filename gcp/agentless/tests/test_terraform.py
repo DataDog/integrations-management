@@ -93,8 +93,7 @@ class TestGenerateTerraformConfig(unittest.TestCase):
             "scanner_service_account_email = module.scanner_service_account.scanner_service_account_email",
             tf,
         )
-        # Other-project SA should not reference a region-specific scanner SA email
-        self.assertNotIn("module.datadog_agentless_scanner_", tf.split("moved")[0])
+        self.assertNotIn("module.datadog_agentless_scanner_", tf)
 
     def test_regional_modules_pass_scanner_service_account_email(self):
         """Test that regional scanner modules reference the shared scanner SA."""
