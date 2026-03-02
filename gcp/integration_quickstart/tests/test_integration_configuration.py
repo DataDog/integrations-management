@@ -5,23 +5,31 @@
 import json
 import unittest
 from unittest.mock import Mock, patch
+import os
+from contextlib import contextmanager
 
 from gcp_integration_quickstart.integration_configuration import (
     REQUIRED_APIS,
     REQUIRED_ROLES,
     assign_delegate_permissions,
     create_integration_with_permissions,
+    create_logs_forwarding_integration,
 )
+
 from gcp_integration_quickstart.models import (
     IntegrationConfiguration,
     ProductRequirements,
+    LogsForwardingConfiguration,
 )
+
+from gcp_shared.dataflow_models import DataflowConfiguration, ExclusionFilter
 from gcp_shared.models import (
     ConfigurationScope,
     Folder,
     Project,
 )
 from gcp_shared.service_accounts import find_or_create_service_account
+from gcp_integration_quickstart.main import main
 
 
 class TestFindOrCreateServiceAccount(unittest.TestCase):
@@ -329,6 +337,219 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
 
         self.assertIn("failed to create service account", str(context.exception))
 
+@contextmanager
+def _step_ctx(step_reporter):
+    yield step_reporter
+
+
+class TestMainLogsForwardingConfiguration(unittest.TestCase):
+    def setUp(self):
+        self.env = {
+            "DD_API_KEY": "x",
+            "DD_APP_KEY": "y",
+            "DD_SITE": "datad0g.com",
+            "WORKFLOW_ID": "11111111-1111-1111-1111-111111111111",
+        }
+
+    @patch("gcp_integration_quickstart.main.signal.signal")
+    @patch("gcp_integration_quickstart.main.create_logs_forwarding_integration")
+    @patch("gcp_integration_quickstart.main.create_integration_with_permissions")
+    @patch("gcp_integration_quickstart.main.assign_delegate_permissions")
+    @patch("gcp_integration_quickstart.main.find_or_create_service_account")
+    @patch("gcp_integration_quickstart.main.WorkflowReporter")
+    def test_main_calls_create_logs_forwarding_when_present(
+        self,
+        mock_workflow_reporter_cls,
+        mock_find_or_create_sa,
+        _mock_assign_delegate,
+        mock_create_integration,
+        mock_create_logs_forwarding,
+        _mock_signal,
+    ):
+        user_selections = {
+            "service_account_id": "my-sa",
+            "default_project_id": "my-project",
+            "projects": [],
+            "folders": [],
+            "integration_configuration": {
+                "metric_namespace_configs": [{"namespace": "test"}],
+                "monitored_resource_configs": [{"cloud_run": ["filter1"]}],
+                "account_tags": ["tag1"],
+                "resource_collection_enabled": True,
+                "automute": False,
+                "region_filter_configs": [],
+                "is_global_location_enabled": True,
+            },
+            "logs_forwarding_configuration": {
+                "region": "us-central1",
+                "inclusion_filter": "",
+                "exclusion_filters": [
+                    {"filter": "resource.type=gce_instance", "name": "ex1"}
+                ],
+                "dataflow_configuration": {
+                    "is_dataflow_prime_enabled": False,
+                    "is_streaming_engine_enabled": False,
+                    "max_workers": 5,
+                    "num_workers": 1,
+                    "machine_type": "n1-standard-1",
+                    "parallelism": 1,
+                    "batch_size": 100,
+                },
+            },
+        }
+
+        step_reporter = Mock()
+
+        workflow_reporter = Mock()
+        workflow_reporter.is_valid_workflow_id.return_value = True
+        workflow_reporter.is_scopes_step_already_completed.return_value = True
+        workflow_reporter.receive_user_selections.return_value = user_selections
+        workflow_reporter.report_step.side_effect = lambda *_a, **_k: _step_ctx(
+            step_reporter
+        )
+
+        mock_workflow_reporter_cls.return_value = workflow_reporter
+        mock_find_or_create_sa.return_value = "sa@my-project.iam.gserviceaccount.com"
+
+        with patch.dict(os.environ, self.env, clear=True):
+            main()
+
+        mock_create_integration.assert_called_once()
+        mock_create_logs_forwarding.assert_called_once()
+
+    @patch("gcp_integration_quickstart.main.signal.signal")
+    @patch("gcp_integration_quickstart.main.create_logs_forwarding_integration")
+    @patch("gcp_integration_quickstart.main.create_integration_with_permissions")
+    @patch("gcp_integration_quickstart.main.assign_delegate_permissions")
+    @patch("gcp_integration_quickstart.main.find_or_create_service_account")
+    @patch("gcp_integration_quickstart.main.WorkflowReporter")
+    def test_main_skips_create_logs_forwarding_when_missing(
+        self,
+        mock_workflow_reporter_cls,
+        mock_find_or_create_sa,
+        _mock_assign_delegate,
+        mock_create_integration,
+        mock_create_logs_forwarding,
+        _mock_signal,
+    ):
+        user_selections = {
+            "service_account_id": "my-sa",
+            "default_project_id": "my-project",
+            "projects": [],
+            "folders": [],
+            "integration_configuration": {
+                "metric_namespace_configs": [{"namespace": "test"}],
+                "monitored_resource_configs": [{"cloud_run": ["filter1"]}],
+                "account_tags": ["tag1"],
+                "resource_collection_enabled": True,
+                "automute": False,
+                "region_filter_configs": [],
+                "is_global_location_enabled": True,
+            },
+        }
+
+        step_reporter = Mock()
+
+        workflow_reporter = Mock()
+        workflow_reporter.is_valid_workflow_id.return_value = True
+        workflow_reporter.is_scopes_step_already_completed.return_value = True
+        workflow_reporter.receive_user_selections.return_value = user_selections
+        workflow_reporter.report_step.side_effect = lambda *_a, **_k: _step_ctx(
+            step_reporter
+        )
+
+        mock_workflow_reporter_cls.return_value = workflow_reporter
+        mock_find_or_create_sa.return_value = "sa@my-project.iam.gserviceaccount.com"
+
+        with patch.dict(os.environ, self.env, clear=True):
+            main()
+
+        mock_create_integration.assert_called_once()
+        mock_create_logs_forwarding.assert_not_called()
+
+    @patch("gcp_integration_quickstart.integration_configuration.create_dataflow_job")
+    @patch(
+        "gcp_integration_quickstart.integration_configuration.assign_required_dataflow_roles"
+    )
+    @patch("gcp_integration_quickstart.integration_configuration.create_log_sinks")
+    @patch(
+        "gcp_integration_quickstart.integration_configuration.create_secret_manager_entry"
+    )
+    @patch(
+        "gcp_integration_quickstart.integration_configuration.create_dataflow_staging_bucket"
+    )
+    @patch(
+        "gcp_integration_quickstart.integration_configuration.create_topics_with_subscription"
+    )
+    def test_create_logs_forwarding_integration_success_when_called(
+        self,
+        mock_create_topics,
+        mock_create_bucket,
+        mock_create_secret,
+        mock_create_log_sinks,
+        mock_assign_roles,
+        mock_create_job,
+    ):
+        step_reporter = Mock()
+        service_account_email = "test-sa@test-project.iam.gserviceaccount.com"
+        default_project_id = "default-project"
+        configuration_scope = ConfigurationScope(projects=[], folders=[])
+
+        logs_cfg = LogsForwardingConfiguration(
+            region="us-central1",
+            inclusion_filter="severity>=ERROR",
+            exclusion_filters=[
+                {"filter": "resource.type=gce_instance", "name": "ex1"},
+            ],
+            dataflow_configuration={
+                "is_dataflow_prime_enabled": False,
+                "is_streaming_engine_enabled": False,
+                "max_workers": 7,
+                "num_workers": 2,
+                "machine_type": "n1-standard-1",
+                "parallelism": 3,
+                "batch_size": 111,
+            },
+        )
+
+        create_logs_forwarding_integration(
+            step_reporter,
+            service_account_email,
+            logs_cfg,
+            default_project_id,
+            configuration_scope,
+        )
+
+        mock_create_topics.assert_called_once_with(
+            step_reporter, default_project_id, service_account_email
+        )
+        mock_create_bucket.assert_called_once_with(
+            step_reporter, default_project_id, service_account_email, logs_cfg.region
+        )
+        mock_create_secret.assert_called_once_with(
+            step_reporter, default_project_id, service_account_email
+        )
+        mock_create_log_sinks.assert_called_once_with(
+            step_reporter,
+            default_project_id,
+            configuration_scope,
+            logs_cfg.inclusion_filter,
+            exclusion_filters=[
+                ExclusionFilter(filter="resource.type=gce_instance", name="ex1")
+            ],
+        )
+        mock_assign_roles.assert_called_once_with(
+            step_reporter, service_account_email, default_project_id
+        )
+
+        df_args = mock_create_job.call_args.args
+        self.assertEqual(
+            df_args[:4],
+            (step_reporter, default_project_id, service_account_email, logs_cfg.region),
+        )
+        self.assertIsInstance(df_args[4], DataflowConfiguration)
+        self.assertEqual(df_args[4].max_workers, 7)
+        self.assertEqual(df_args[4].batch_size, 111)
 
 if __name__ == "__main__":
     unittest.main()

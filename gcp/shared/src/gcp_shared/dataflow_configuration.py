@@ -13,7 +13,7 @@ from gcp_shared.models import ConfigurationScope
 from gcp_shared.reporter import StepStatusReporter
 from gcp_shared.requests import dd_request
 
-from .models import DataflowConfiguration, ExclusionFilter
+from gcp_shared.dataflow_models import DataflowConfiguration, ExclusionFilter
 
 BUCKET_PREFIX: str = "dataflow-temp"
 RESOURCE_NAME_PREFIX: str = "export-logs-to-datadog"

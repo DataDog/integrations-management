@@ -16,9 +16,11 @@ from gcp_shared.models import (
 from gcp_shared.reporter import WorkflowReporter
 from gcp_shared.scopes import collect_configuration_scopes
 from gcp_shared.service_accounts import find_or_create_service_account
+from .models import LogsForwardingConfiguration
 
 from .integration_configuration import (
     assign_delegate_permissions,
+    create_logs_forwarding_integration,
     create_integration_with_permissions,
 )
 from .models import IntegrationConfiguration, ProductRequirements
@@ -39,6 +41,7 @@ class OnboardingStep(str, Enum):
     CREATE_SERVICE_ACCOUNT = "create_service_account"
     ASSIGN_DELEGATE_PERMISSIONS = "assign_delegate_permissions"
     CREATE_INTEGRATION_WITH_PERMISSIONS = "create_integration_with_permissions"
+    CREATE_LOGS_FORWARDING_INTEGRATION = "create_logs_forwarding_integration"
 
 
 def main():
@@ -85,6 +88,16 @@ def main():
             service_account_email,
             user_selections["default_project_id"],
         )
+
+    configuration_scope = ConfigurationScope(
+        projects=[
+            Project(**project) for project in user_selections.get("projects", [])
+        ],
+        folders=[
+            from_dict_recursive(folder) for folder in user_selections.get("folders", [])
+        ],
+    )
+
     with workflow_reporter.report_step(
         OnboardingStep.CREATE_INTEGRATION_WITH_PERMISSIONS
     ) as step_reporter:
@@ -98,18 +111,25 @@ def main():
             step_reporter,
             service_account_email,
             IntegrationConfiguration(**user_selections["integration_configuration"]),
-            ConfigurationScope(
-                projects=[
-                    Project(**project)
-                    for project in user_selections.get("projects", [])
-                ],
-                folders=[
-                    from_dict_recursive(folder)
-                    for folder in user_selections.get("folders", [])
-                ],
-            ),
+            configuration_scope,
             product_requirements,
         )
+
+    if user_selections.get("logs_forwarding_configuration") is not None:
+        with workflow_reporter.report_step(
+            OnboardingStep.CREATE_LOGS_FORWARDING_INTEGRATION
+        ) as step_reporter:
+            logs_forwarding_configuration = LogsForwardingConfiguration(
+                **user_selections["logs_forwarding_configuration"]
+            )
+
+            create_logs_forwarding_integration(
+                step_reporter,
+                service_account_email,
+                logs_forwarding_configuration,
+                user_selections["default_project_id"],
+                configuration_scope,
+            )
 
     print("Script succeeded. You may exit this shell.")
 

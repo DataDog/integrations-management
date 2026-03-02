@@ -27,7 +27,7 @@ See instructions in the main `gcp/` folder.
 Run all tests from the `integration_quickstart` folder:
 
 ```bash
-python -m pytest tests/ --tb=short
+PYTHONPATH=src:../shared/src python -m pytest tests/ --tb=short
 ```
 
 ### Build / Ship
