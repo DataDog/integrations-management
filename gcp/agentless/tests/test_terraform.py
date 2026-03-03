@@ -8,6 +8,7 @@ from gcp_agentless_setup.terraform import (
     generate_terraform_config,
     generate_tfvars,
     MODULE_VERSION,
+    MODULE_SOURCE_SCANNER_SA,
 )
 
 
@@ -27,6 +28,7 @@ class TestGenerateTerraformConfig(unittest.TestCase):
             scanner_project="scanner-project",
             regions=["us-central1"],
             projects_to_scan=["scanner-project", "other-project"],
+            workflow_id="test-workflow-id",
         )
 
     def test_generates_backend_config(self):
@@ -35,6 +37,15 @@ class TestGenerateTerraformConfig(unittest.TestCase):
 
         self.assertIn('bucket = "my-state-bucket"', tf)
         self.assertIn('prefix = "agentless-scanner"', tf)
+
+    def test_generates_default_provider(self):
+        """Test that a default (un-aliased) Google provider is generated for project-scoped resources."""
+        tf = generate_terraform_config(self.config, "bucket", TEST_API_KEY_SECRET_ID)
+
+        # Should have a default provider block without alias
+        self.assertIn('# Default provider for project-scoped resources', tf)
+        # The default provider should reference the scanner project
+        self.assertIn('project = "scanner-project"', tf)
 
     def test_generates_scanner_project_provider(self):
         """Test that scanner project provider is generated with region alias."""
@@ -52,6 +63,24 @@ class TestGenerateTerraformConfig(unittest.TestCase):
         self.assertIn('alias   = "other_project"', tf)
         self.assertIn('project = "other-project"', tf)
 
+    def test_generates_scanner_service_account_module(self):
+        """Test that an explicit scanner service account module is generated."""
+        tf = generate_terraform_config(self.config, "bucket", TEST_API_KEY_SECRET_ID)
+
+        self.assertIn('module "scanner_service_account"', tf)
+        self.assertIn(MODULE_SOURCE_SCANNER_SA, tf)
+        self.assertIn(f'api_key_secret_id = "{TEST_API_KEY_SECRET_ID}"', tf)
+
+    def test_generates_impersonated_sa_for_scanner_project(self):
+        """Test that an impersonated SA module is generated for the scanner project."""
+        tf = generate_terraform_config(self.config, "bucket", TEST_API_KEY_SECRET_ID)
+
+        self.assertIn('module "impersonated_service_account"', tf)
+        self.assertIn(
+            "scanner_service_account_email = module.scanner_service_account.scanner_service_account_email",
+            tf,
+        )
+
     def test_generates_impersonated_sa_modules(self):
         """Test that impersonated SA modules are generated for other projects."""
         tf = generate_terraform_config(self.config, "bucket", TEST_API_KEY_SECRET_ID)
@@ -59,6 +88,22 @@ class TestGenerateTerraformConfig(unittest.TestCase):
         # Should have module for other project
         self.assertIn('module "agentless_impersonated_sa_other_project"', tf)
         self.assertIn("google = google.other_project", tf)
+        # Should reference the explicit scanner SA, not a region-specific one
+        self.assertIn(
+            "scanner_service_account_email = module.scanner_service_account.scanner_service_account_email",
+            tf,
+        )
+        self.assertNotIn("module.datadog_agentless_scanner_", tf)
+
+    def test_regional_modules_pass_scanner_service_account_email(self):
+        """Test that regional scanner modules reference the shared scanner SA."""
+        tf = generate_terraform_config(self.config, "bucket", TEST_API_KEY_SECRET_ID)
+
+        self.assertIn('module "datadog_agentless_scanner_us_central1"', tf)
+        self.assertIn(
+            "scanner_service_account_email = module.scanner_service_account.scanner_service_account_email",
+            tf,
+        )
 
     def test_generates_scan_options_for_all_projects(self):
         """Test that scan options are generated for all projects."""
@@ -87,14 +132,18 @@ class TestGenerateTerraformConfig(unittest.TestCase):
             scanner_project="only-project",
             regions=["us-central1"],
             projects_to_scan=["only-project"],
+            workflow_id="test-workflow-id",
         )
 
         tf = generate_terraform_config(config, "bucket", TEST_API_KEY_SECRET_ID)
 
         # Should have region alias but not project alias
         self.assertIn('alias   = "us_central1"', tf)
-        # Should not have impersonated SA modules
+        # Should not have impersonated SA modules for other projects
         self.assertNotIn("agentless_impersonated_sa_", tf)
+        # Should still have scanner SA and impersonated SA for scanner project
+        self.assertIn('module "scanner_service_account"', tf)
+        self.assertIn('module "impersonated_service_account"', tf)
 
     def test_generates_multiple_region_providers_and_modules(self):
         """Test that multiple regions generate multiple providers and scanner modules."""
@@ -105,6 +154,7 @@ class TestGenerateTerraformConfig(unittest.TestCase):
             scanner_project="scanner-project",
             regions=["us-central1", "europe-west1"],
             projects_to_scan=["scanner-project"],
+            workflow_id="test-workflow-id",
         )
 
         tf = generate_terraform_config(config, "bucket", TEST_API_KEY_SECRET_ID)
@@ -120,8 +170,14 @@ class TestGenerateTerraformConfig(unittest.TestCase):
         self.assertIn('module "datadog_agentless_scanner_europe_west1"', tf)
 
         # Should have unique VPC names
-        self.assertIn('vpc_name          = "datadog-agentless-scanner-us-central1"', tf)
-        self.assertIn('vpc_name          = "datadog-agentless-scanner-europe-west1"', tf)
+        self.assertIn('vpc_name                      = "datadog-agentless-scanner-us-central1"', tf)
+        self.assertIn('vpc_name                      = "datadog-agentless-scanner-europe-west1"', tf)
+
+        # Both regional modules should share the same scanner SA
+        # Count occurrences of the SA reference - should appear in
+        # impersonated_sa module (1) and each regional module (2) = 3 total
+        sa_ref = "module.scanner_service_account.scanner_service_account_email"
+        self.assertGreaterEqual(tf.count(sa_ref), 3)
 
     def test_uses_correct_module_version(self):
         """Test that the correct module version is used."""
@@ -155,6 +211,7 @@ class TestGenerateTfvars(unittest.TestCase):
             scanner_project="proj",
             regions=["us-central1"],
             projects_to_scan=["proj"],
+            workflow_id="test-workflow-id",
         )
 
         tfvars = generate_tfvars(config)

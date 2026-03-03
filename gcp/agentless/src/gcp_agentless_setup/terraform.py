@@ -17,9 +17,10 @@ from .reporter import Reporter, AgentlessStep
 TERRAFORM_PARALLELISM = 10
 
 # Module version to use
-MODULE_VERSION = "0.11.12"
+MODULE_VERSION = "0.12.0"
 MODULE_SOURCE = f"git::https://github.com/DataDog/terraform-module-datadog-agentless-scanner//gcp?ref={MODULE_VERSION}"
 MODULE_SOURCE_SA = f"git::https://github.com/DataDog/terraform-module-datadog-agentless-scanner//gcp/modules/agentless-impersonated-service-account?ref={MODULE_VERSION}"
+MODULE_SOURCE_SCANNER_SA = f"git::https://github.com/DataDog/terraform-module-datadog-agentless-scanner//gcp/modules/agentless-scanner-service-account?ref={MODULE_VERSION}"
 
 
 def _sanitize_name(name: str) -> str:
@@ -36,6 +37,14 @@ def generate_terraform_config(config: Config, state_bucket: str, api_key_secret_
         api_key_secret_id: Full Secret Manager secret ID for the API key.
     """
 
+    # Build default provider for project-scoped resources (service accounts, secrets)
+    default_provider_tf = f'''
+# Default provider for project-scoped resources (service accounts, secrets)
+provider "google" {{
+  project = "{config.scanner_project}"
+}}
+'''
+
     # Build provider blocks for each region (scanner project)
     region_providers_tf = ""
     for region in config.regions:
@@ -45,6 +54,39 @@ provider "google" {{
   project = "{config.scanner_project}"
   region  = "{region}"
   alias   = "{region_alias}"
+}}
+'''
+
+    # Build provider blocks for other projects (region doesn't matter for IAM)
+    other_providers_tf = ""
+    for project in config.other_projects:
+        project_alias = _sanitize_name(project)
+        other_providers_tf += f'''
+provider "google" {{
+  project = "{project}"
+  alias   = "{project_alias}"
+}}
+'''
+
+    # Explicit scanner service account module (created once, shared across regions)
+    scanner_sa_tf = f'''
+# The scanner service account is attached to scanner VMs and can impersonate
+# other service accounts to scan resources across projects.
+module "scanner_service_account" {{
+  source = "{MODULE_SOURCE_SCANNER_SA}"
+
+  api_key_secret_id = "{api_key_secret_id}"
+}}
+'''
+
+    # Impersonated service account for scanner project
+    impersonated_sa_tf = f'''
+# The impersonated service account provides the permissions needed to scan
+# resources (disks, snapshots) in the scanner project.
+module "impersonated_service_account" {{
+  source = "{MODULE_SOURCE_SA}"
+
+  scanner_service_account_email = module.scanner_service_account.scanner_service_account_email
 }}
 '''
 
@@ -61,20 +103,19 @@ module "datadog_agentless_scanner_{region_alias}" {{
     google = google.{region_alias}
   }}
 
-  site              = var.datadog_site
-  api_key_secret_id = "{api_key_secret_id}"
-  vpc_name          = "dd-agentless-{region}"
+  scanner_service_account_email = module.scanner_service_account.scanner_service_account_email
+  api_key_secret_id             = "{api_key_secret_id}"
+  site                          = var.datadog_site
+  vpc_name                      = "datadog-agentless-scanner-{region}"
 }}
 '''
 
-    # Build the list of scanned projects for the impersonated SA module
-    # Note: We use the first region's scanner module for the service account email
-    first_region_alias = _sanitize_name(config.regions[0])
+    # Build modules for other projects
     other_projects_tf = ""
     for project in config.other_projects:
         project_alias = _sanitize_name(project)
         other_projects_tf += f'''
-# Impersonated service account for scanning {project}
+# Impersonated service account with permissions to scan resources in {project}
 module "agentless_impersonated_sa_{project_alias}" {{
   source = "{MODULE_SOURCE_SA}"
 
@@ -82,7 +123,7 @@ module "agentless_impersonated_sa_{project_alias}" {{
     google = google.{project_alias}
   }}
 
-  scanner_service_account_email = module.datadog_agentless_scanner_{first_region_alias}.scanner_service_account_email
+  scanner_service_account_email = module.scanner_service_account.scanner_service_account_email
 }}
 
 # Enable agentless scanning for {project}
@@ -90,17 +131,6 @@ resource "datadog_agentless_scanning_gcp_scan_options" "scan_{project_alias}" {{
   gcp_project_id     = "{project}"
   vuln_host_os       = true
   vuln_containers_os = true
-}}
-'''
-
-    # Build provider blocks for other projects (region doesn't matter for IAM)
-    other_providers_tf = ""
-    for project in config.other_projects:
-        project_alias = _sanitize_name(project)
-        other_providers_tf += f'''
-provider "google" {{
-  project = "{project}"
-  alias   = "{project_alias}"
 }}
 '''
 
@@ -133,8 +163,7 @@ provider "datadog" {{
   app_key = var.datadog_app_key
   api_url = "https://api.${{var.datadog_site}}/"
 }}
-{region_providers_tf}{other_providers_tf}
-
+{default_provider_tf}{region_providers_tf}{other_providers_tf}
 # Variables
 variable "datadog_api_key" {{
   description = "Datadog API key"
@@ -152,7 +181,7 @@ variable "datadog_site" {{
   description = "Datadog site"
   type        = string
 }}
-{scanner_modules_tf}
+{scanner_sa_tf}{impersonated_sa_tf}{scanner_modules_tf}
 # Enable agentless scanning for the scanner project
 resource "datadog_agentless_scanning_gcp_scan_options" "scanner_project" {{
   gcp_project_id     = "{config.scanner_project}"
