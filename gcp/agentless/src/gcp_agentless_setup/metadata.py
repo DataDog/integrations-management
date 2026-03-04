@@ -23,6 +23,7 @@ from .errors import MetadataError
 METADATA_BLOB = "config.json"
 METADATA_VERSION = 1
 MAX_CAS_ATTEMPTS = 3
+TF_STATE_PREFIX = "agentless-scanner"
 
 
 @dataclass
@@ -169,6 +170,20 @@ def write_metadata(
         f"Could not update {_gcs_uri(bucket)} after {MAX_CAS_ATTEMPTS} attempts.\n"
         "Another process may be modifying the metadata concurrently.",
     )
+
+
+def terraform_state_exists(bucket: str) -> bool:
+    """Check if Terraform state exists in the bucket (under agentless-scanner prefix)."""
+    result = subprocess.run(
+        [
+            "gcloud", "storage", "ls",
+            f"gs://{bucket}/{TF_STATE_PREFIX}/",
+            "--limit=1",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0 and bool(result.stdout.strip())
 
 
 def delete_metadata(bucket: str) -> bool:

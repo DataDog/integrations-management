@@ -11,7 +11,7 @@ import threading
 from .config import parse_config
 from .destroy import cmd_destroy
 from .errors import DatadogCredentialsError, SetupError
-from .metadata import read_metadata, write_metadata, merge_with_config
+from .metadata import read_metadata, write_metadata, merge_with_config, terraform_state_exists
 from .preflight import run_preflight_checks, validate_datadog_api_key, validate_datadog_app_key
 from .reporter import Reporter
 from .secrets import ensure_api_key_secret
@@ -189,6 +189,24 @@ def cmd_deploy() -> None:
 
         # Read existing metadata and merge with current inputs
         existing_metadata, metadata_generation = read_metadata(state_bucket)
+
+        if existing_metadata is None and terraform_state_exists(state_bucket):
+            print()
+            print("❌ Existing Terraform state found but no deployment metadata.")
+            print()
+            print("This usually means the deployment was created with an older version")
+            print("of this script. You must destroy the existing deployment first,")
+            print("then redeploy with the current script.")
+            print()
+            print("To destroy:")
+            print(f"  SCANNER_PROJECT={config.scanner_project} \\")
+            print("  DD_API_KEY=xxx DD_APP_KEY=xxx DD_SITE=... \\")
+            print("  python gcp_agentless_setup.pyz destroy")
+            print()
+            print("Then run deploy again with your desired configuration.")
+            print()
+            sys.exit(1)
+
         merged_metadata = merge_with_config(existing_metadata, config)
         merged_config = config.with_merged(
             regions=merged_metadata.regions,
