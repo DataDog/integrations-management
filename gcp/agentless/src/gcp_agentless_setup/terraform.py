@@ -96,7 +96,7 @@ module "impersonated_service_account" {{
         region_alias = _sanitize_name(region)
         scanner_modules_tf += f'''
 # Deploy the scanner infrastructure in {region}
-module "datadog_agentless_scanner_{region_alias}" {{
+module "datadog_agentless_{region_alias}" {{
   source = "{MODULE_SOURCE}"
 
   providers = {{
@@ -106,7 +106,7 @@ module "datadog_agentless_scanner_{region_alias}" {{
   scanner_service_account_email = module.scanner_service_account.scanner_service_account_email
   api_key_secret_id             = "{api_key_secret_id}"
   site                          = var.datadog_site
-  vpc_name                      = "datadog-agentless-scanner-{region}"
+  vpc_name                      = "datadog-agentless-{region}"
 }}
 '''
 
@@ -153,7 +153,7 @@ terraform {{
 
   backend "gcs" {{
     bucket = "{state_bucket}"
-    prefix = "agentless-scanner"
+    prefix = "datadog-agentless"
   }}
 }}
 

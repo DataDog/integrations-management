@@ -24,7 +24,7 @@ from .errors import MetadataError
 METADATA_BLOB = "config.json"
 METADATA_VERSION = 1
 MAX_CAS_ATTEMPTS = 3
-TF_STATE_PREFIX = "agentless-scanner"
+TF_STATE_PREFIX = "datadog-agentless"
 
 
 def _utc_now_iso() -> str:

@@ -36,7 +36,7 @@ class TestGenerateTerraformConfig(unittest.TestCase):
         tf = generate_terraform_config(self.config, "my-state-bucket", TEST_API_KEY_SECRET_ID)
 
         self.assertIn('bucket = "my-state-bucket"', tf)
-        self.assertIn('prefix = "agentless-scanner"', tf)
+        self.assertIn('prefix = "datadog-agentless"', tf)
 
     def test_generates_default_provider(self):
         """Test that a default (un-aliased) Google provider is generated for project-scoped resources."""
@@ -93,13 +93,13 @@ class TestGenerateTerraformConfig(unittest.TestCase):
             "scanner_service_account_email = module.scanner_service_account.scanner_service_account_email",
             tf,
         )
-        self.assertNotIn("module.datadog_agentless_scanner_", tf)
+        self.assertNotIn("module.datadog_agentless_us", tf)
 
     def test_regional_modules_pass_scanner_service_account_email(self):
         """Test that regional scanner modules reference the shared scanner SA."""
         tf = generate_terraform_config(self.config, "bucket", TEST_API_KEY_SECRET_ID)
 
-        self.assertIn('module "datadog_agentless_scanner_us_central1"', tf)
+        self.assertIn('module "datadog_agentless_us_central1"', tf)
         self.assertIn(
             "scanner_service_account_email = module.scanner_service_account.scanner_service_account_email",
             tf,
@@ -166,12 +166,12 @@ class TestGenerateTerraformConfig(unittest.TestCase):
         self.assertIn('region  = "europe-west1"', tf)
 
         # Should have scanner module for each region
-        self.assertIn('module "datadog_agentless_scanner_us_central1"', tf)
-        self.assertIn('module "datadog_agentless_scanner_europe_west1"', tf)
+        self.assertIn('module "datadog_agentless_us_central1"', tf)
+        self.assertIn('module "datadog_agentless_europe_west1"', tf)
 
         # Should have unique VPC names
-        self.assertIn('vpc_name                      = "datadog-agentless-scanner-us-central1"', tf)
-        self.assertIn('vpc_name                      = "datadog-agentless-scanner-europe-west1"', tf)
+        self.assertIn('vpc_name                      = "datadog-agentless-us-central1"', tf)
+        self.assertIn('vpc_name                      = "datadog-agentless-europe-west1"', tf)
 
         # Both regional modules should share the same scanner SA
         # Count occurrences of the SA reference - should appear in
