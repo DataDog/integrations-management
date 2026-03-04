@@ -13,6 +13,7 @@ import json
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -26,6 +27,10 @@ MAX_CAS_ATTEMPTS = 3
 TF_STATE_PREFIX = "agentless-scanner"
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 @dataclass
 class DeploymentMetadata:
     """Tracks the full set of deployed regions and projects."""
@@ -33,6 +38,8 @@ class DeploymentMetadata:
     scanner_project: str
     regions: list[str]
     projects_to_scan: list[str]
+    created_at: str
+    modified_at: str
 
     def to_dict(self) -> dict:
         return {
@@ -40,6 +47,8 @@ class DeploymentMetadata:
             "scanner_project": self.scanner_project,
             "regions": sorted(self.regions),
             "projects_to_scan": sorted(self.projects_to_scan),
+            "created_at": self.created_at,
+            "modified_at": self.modified_at,
         }
 
     @staticmethod
@@ -48,6 +57,8 @@ class DeploymentMetadata:
             scanner_project=data["scanner_project"],
             regions=sorted(data.get("regions", [])),
             projects_to_scan=sorted(data.get("projects_to_scan", [])),
+            created_at=data.get("created_at", ""),
+            modified_at=data.get("modified_at", ""),
         )
 
 
@@ -209,11 +220,15 @@ def merge_with_config(
 
     Regions and projects are unioned (additive). Scanner project must match.
     """
+    now = _utc_now_iso()
+
     if existing is None:
         return DeploymentMetadata(
             scanner_project=config.scanner_project,
             regions=list(config.regions),
             projects_to_scan=list(config.all_projects),
+            created_at=now,
+            modified_at=now,
         )
 
     if existing.scanner_project != config.scanner_project:
@@ -231,4 +246,6 @@ def merge_with_config(
         scanner_project=config.scanner_project,
         regions=merged_regions,
         projects_to_scan=merged_projects,
+        created_at=existing.created_at,
+        modified_at=now,
     )
