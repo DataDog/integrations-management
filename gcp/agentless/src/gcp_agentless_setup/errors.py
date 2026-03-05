@@ -82,6 +82,10 @@ class SecretManagerError(SetupError):
     """Error during Secret Manager operations."""
 
 
+class MetadataError(SetupError):
+    """Error reading/writing deployment metadata."""
+
+
 class TerraformError(SetupError):
     """Terraform operation failed."""
 

@@ -53,6 +53,23 @@ class Config:
         """Projects to scan excluding the scanner project."""
         return [p for p in self.projects_to_scan if p != self.scanner_project]
 
+    def with_merged(self, regions: list[str], projects_to_scan: list[str]) -> "Config":
+        """Return a copy of this Config with merged regions and projects.
+
+        Used after merging with deployment metadata so that Terraform config
+        generation includes all previously deployed regions and projects.
+        """
+        return Config(
+            api_key=self.api_key,
+            app_key=self.app_key,
+            site=self.site,
+            workflow_id=self.workflow_id,
+            scanner_project=self.scanner_project,
+            regions=regions,
+            projects_to_scan=projects_to_scan,
+            state_bucket=self.state_bucket,
+        )
+
 
 def parse_config() -> Config:
     """Parse configuration from environment variables.

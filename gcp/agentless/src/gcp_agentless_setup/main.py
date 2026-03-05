@@ -11,6 +11,7 @@ import threading
 from .config import parse_config
 from .destroy import cmd_destroy
 from .errors import DatadogCredentialsError, SetupError
+from .metadata import read_metadata, write_metadata, merge_with_config, terraform_state_exists
 from .preflight import run_preflight_checks, validate_datadog_api_key, validate_datadog_app_key
 from .reporter import Reporter
 from .secrets import ensure_api_key_secret
@@ -162,9 +163,9 @@ def cmd_deploy() -> None:
 
         validate_credentials_and_workflow(config, reporter)
 
-        # Show what we're going to do
+        # Show current run inputs
         print()
-        print("Configuration:")
+        print("Current run inputs:")
         print(f"  Datadog Site:     {config.site}")
         print(f"  Scanner Project:  {config.scanner_project}")
         if len(config.regions) == 1:
@@ -180,24 +181,69 @@ def cmd_deploy() -> None:
             marker = " (scanner)" if p == config.scanner_project else ""
             print(f"    - {p}{marker}")
 
-        # Step 1: Preflight checks
+        # Step 1: Preflight checks (on current run inputs first)
         run_preflight_checks(config, reporter)
 
         # Step 2: Ensure state bucket exists
         state_bucket = ensure_state_bucket(config, reporter)
+
+        # Read existing metadata and merge with current inputs
+        existing_metadata, metadata_generation = read_metadata(state_bucket)
+
+        if existing_metadata is None and terraform_state_exists(state_bucket):
+            print()
+            print("❌ Existing Terraform state found but no deployment metadata.")
+            print()
+            print("This usually means the deployment was created with an older version")
+            print("of this script. You must destroy the existing deployment first,")
+            print("then redeploy with the current script.")
+            print()
+            print("To destroy:")
+            print(f"  SCANNER_PROJECT={config.scanner_project} \\")
+            print("  DD_API_KEY=xxx DD_APP_KEY=xxx DD_SITE=... \\")
+            print("  python gcp_agentless_setup.pyz destroy")
+            print()
+            print("Then run deploy again with your desired configuration.")
+            print()
+            sys.exit(1)
+
+        merged_metadata = merge_with_config(existing_metadata, config)
+        merged_config = config.with_merged(
+            regions=merged_metadata.regions,
+            projects_to_scan=merged_metadata.projects_to_scan,
+        )
+
+        if existing_metadata:
+            new_regions = set(config.regions) - set(existing_metadata.regions)
+            new_projects = set(config.all_projects) - set(existing_metadata.projects_to_scan)
+            print()
+            print("Merged with existing deployment:")
+            print(f"  Total regions:    {len(merged_config.regions)}")
+            for r in merged_config.regions:
+                marker = " (new)" if r in new_regions else ""
+                print(f"    - {r}{marker}")
+            print(f"  Total projects:   {len(merged_config.all_projects)}")
+            for p in merged_config.all_projects:
+                marker = " (new)" if p in new_projects else ""
+                if p == config.scanner_project:
+                    marker += " (scanner)"
+                print(f"    - {p}{marker}")
 
         # Step 3: Store API key in Secret Manager
         api_key_secret_id = ensure_api_key_secret(
             reporter, config.scanner_project, config.api_key
         )
 
-        # Steps 4-6: Run Terraform
-        tf_runner = TerraformRunner(config, state_bucket, api_key_secret_id, reporter)
+        # Steps 4-6: Run Terraform (with merged config)
+        tf_runner = TerraformRunner(merged_config, state_bucket, api_key_secret_id, reporter)
         tf_runner.run()
+
+        # Write metadata only after successful apply
+        write_metadata(state_bucket, merged_metadata, metadata_generation, config)
 
         # Done!
         reporter.complete()
-        reporter.summary(config.scanner_project, config.regions, config.all_projects)
+        reporter.summary(merged_config.scanner_project, merged_config.regions, merged_config.all_projects)
 
         print()
         print("Next Steps:")

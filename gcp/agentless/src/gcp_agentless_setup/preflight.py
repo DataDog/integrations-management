@@ -13,13 +13,14 @@ import json
 from .config import Config
 from .errors import (
     APIEnablementError,
+    ConfigurationError,
     DatadogAPIKeyError,
     DatadogAPIKeyMissingRCError,
     DatadogAppKeyError,
     GCPAccessError,
     GCPAuthenticationError,
 )
-from gcp_shared.gcloud import GcloudCmd, gcloud, is_authenticated
+from gcp_shared.gcloud import GcloudCmd, gcloud, try_gcloud, is_authenticated
 from .reporter import Reporter, AgentlessStep
 
 
@@ -248,6 +249,47 @@ def enable_apis_for_projects_parallel(
         )
 
 
+def _check_region(region: str, project: str) -> tuple[str, bool]:
+    """Check a single region against the GCP Compute API. Returns (region, is_valid)."""
+    result = try_gcloud(
+        GcloudCmd("compute", "regions")
+        .arg("describe")
+        .arg(region)
+        .param("--project", project)
+    )
+    return (region, result.success)
+
+
+def validate_regions(reporter: Reporter, regions: list[str], project: str) -> None:
+    """Validate that region IDs exist in GCP using the Compute API.
+
+    Queries `gcloud compute regions describe` concurrently for each region
+    against the scanner project to confirm they are real GCP regions.
+
+    Raises:
+        ConfigurationError: If any region ID is invalid.
+    """
+    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
+        futures = {
+            executor.submit(_check_region, region, project): region
+            for region in regions
+        }
+        invalid = []
+        for future in as_completed(futures):
+            region, is_valid = future.result()
+            if not is_valid:
+                invalid.append(region)
+
+    if invalid:
+        raise ConfigurationError(
+            f"Invalid GCP region(s): {', '.join(invalid)}",
+            "These regions do not exist or are not accessible in the scanner project.\n"
+            "Run 'gcloud compute regions list' to see available regions.\n"
+            "See: https://cloud.google.com/compute/docs/regions-zones",
+        )
+    reporter.success(f"Region(s) validated: {', '.join(regions)}")
+
+
 def run_preflight_checks(config: Config, reporter: Reporter) -> None:
     """Run all preflight checks.
 
@@ -262,6 +304,9 @@ def run_preflight_checks(config: Config, reporter: Reporter) -> None:
 
     # Check GCP authentication
     check_gcp_authentication(reporter)
+
+    # Validate region IDs (requires auth, so runs after auth check)
+    validate_regions(reporter, config.regions, config.scanner_project)
 
     # Check access to all projects in parallel
     reporter.info(f"Checking access to {len(config.all_projects)} project(s)...")

@@ -12,6 +12,7 @@ from gcp_shared.gcloud import GcloudCmd, try_gcloud
 
 from .config import Config, CONFIG_BASE_DIR, get_config_dir
 from .errors import SetupError
+from .metadata import read_metadata, delete_metadata
 from .secrets import API_KEY_SECRET_NAME
 from .shell import run_command
 from .state_bucket import get_state_bucket_name, bucket_exists
@@ -113,37 +114,59 @@ def regenerate_terraform_config(
 ) -> None:
     """Regenerate Terraform configuration when local folder doesn't exist.
 
-    Requires DD_API_KEY, DD_APP_KEY, DD_SITE environment variables.
+    Reads deployment metadata from GCS to discover all regions and projects.
+    Falls back to requiring DD_API_KEY, DD_APP_KEY, DD_SITE, SCANNER_REGIONS,
+    and PROJECTS_TO_SCAN environment variables if metadata is not available.
     """
     print("Local config not found, but Terraform state exists in bucket.")
-    print("Credentials required to regenerate configuration.")
-    print()
 
     api_key, app_key, site = get_credentials_from_env()
+
+    # Try to read metadata for the full deployment picture
+    metadata, _ = read_metadata(state_bucket)
+    if metadata:
+        print(f"Found deployment metadata with {len(metadata.regions)} region(s) "
+              f"and {len(metadata.projects_to_scan)} project(s).")
+        regions = metadata.regions
+        projects_to_scan = metadata.projects_to_scan
+    else:
+        print("No deployment metadata found. Using environment variables.")
+        regions_str = os.environ.get("SCANNER_REGIONS", "").strip()
+        projects_str = os.environ.get("PROJECTS_TO_SCAN", "").strip()
+
+        if not regions_str or not projects_str:
+            raise SetupError(
+                "Cannot determine deployment configuration",
+                "No deployment metadata (config.json) found in the state bucket.\n"
+                "Please provide SCANNER_REGIONS and PROJECTS_TO_SCAN environment\n"
+                "variables matching your original deployment.",
+            )
+
+        regions = [r.strip() for r in regions_str.split(",") if r.strip()]
+        projects_to_scan = [p.strip() for p in projects_str.split(",") if p.strip()]
 
     print("Regenerating Terraform configuration...")
     config_folder.mkdir(parents=True, exist_ok=True)
 
-    # Create minimal config (regions don't matter for destroy)
-    minimal_config = Config(
+    config = Config(
         api_key=api_key,
         app_key=app_key,
         site=site,
+        workflow_id="destroy",
         scanner_project=scanner_project,
-        regions=["us-central1"],  # Doesn't matter for destroy
-        projects_to_scan=[scanner_project],
+        regions=regions,
+        projects_to_scan=projects_to_scan,
     )
 
-    # Generate config files
     api_key_secret_id = f"projects/{scanner_project}/secrets/{API_KEY_SECRET_NAME}"
 
     main_tf = config_folder / "main.tf"
     main_tf.write_text(
-        generate_terraform_config(minimal_config, state_bucket, api_key_secret_id)
+        generate_terraform_config(config, state_bucket, api_key_secret_id)
     )
 
     tfvars = config_folder / "terraform.tfvars"
-    tfvars.write_text(generate_tfvars(minimal_config))
+    tfvars.write_text(generate_tfvars(config))
 
     print(f"Configuration written to {config_folder}")
     print()
@@ -293,6 +316,12 @@ def cmd_destroy() -> None:
         work_dir = get_working_directory(scanner_project, state_bucket)
 
         run_terraform_destroy(work_dir)
+
+        # Clean up deployment metadata
+        if delete_metadata(state_bucket):
+            print("Deployment metadata removed.")
+        else:
+            print("⚠️  Could not remove deployment metadata from bucket.")
 
         prompt_secret_cleanup(scanner_project)
         print_final_notes(state_bucket)

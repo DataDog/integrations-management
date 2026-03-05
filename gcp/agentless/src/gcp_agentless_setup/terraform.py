@@ -17,7 +17,7 @@ from .reporter import Reporter, AgentlessStep
 TERRAFORM_PARALLELISM = 10
 
 # Module version to use
-MODULE_VERSION = "0.12.0"
+MODULE_VERSION = "0.12.1"
 MODULE_SOURCE = f"git::https://github.com/DataDog/terraform-module-datadog-agentless-scanner//gcp?ref={MODULE_VERSION}"
 MODULE_SOURCE_SA = f"git::https://github.com/DataDog/terraform-module-datadog-agentless-scanner//gcp/modules/agentless-impersonated-service-account?ref={MODULE_VERSION}"
 MODULE_SOURCE_SCANNER_SA = f"git::https://github.com/DataDog/terraform-module-datadog-agentless-scanner//gcp/modules/agentless-scanner-service-account?ref={MODULE_VERSION}"
@@ -26,6 +26,51 @@ MODULE_SOURCE_SCANNER_SA = f"git::https://github.com/DataDog/terraform-module-da
 def _sanitize_name(name: str) -> str:
     """Convert a name to a valid Terraform identifier (replace hyphens with underscores)."""
     return name.replace("-", "_")
+
+
+# GCP resource names are limited to 63 characters (RFC 1035). The TF module
+# derives names like {vpc_name}-{8char_suffix}-allow-health-checks (30 extra
+# chars), so we abbreviate long continent/direction parts of region names to
+# keep the vpc_name short enough.
+_CONTINENT_ABBREVS = {
+    "australia": "au",
+    "northamerica": "na",
+    "southamerica": "sa",
+    "europe": "eu",
+    "africa": "af",
+}
+
+_DIRECTION_ABBREVS = {
+    "central": "cen",
+    "northeast": "ne",
+    "southwest": "sw",
+    "southeast": "se",
+}
+
+
+def _abbreviate_region(region: str) -> str:
+    """Abbreviate a GCP region for use in resource names.
+
+    Examples: northamerica-northeast1 → na-ne1, us-central1 → us-cen1,
+              us-east1 → us-east1 (no change).
+    """
+    parts = region.split("-", 1)
+    if len(parts) != 2:
+        return region
+
+    continent, direction_num = parts
+
+    # Split trailing digits from direction (e.g. "northeast1" → "northeast", "1")
+    i = len(direction_num)
+    while i > 0 and direction_num[i - 1].isdigit():
+        i -= 1
+    direction = direction_num[:i]
+    number = direction_num[i:]
+
+    abbrev_continent = _CONTINENT_ABBREVS.get(continent, continent)
+    abbrev_direction = _DIRECTION_ABBREVS.get(direction, direction)
+
+    return f"{abbrev_continent}-{abbrev_direction}{number}"
 
 
 def generate_terraform_config(config: Config, state_bucket: str, api_key_secret_id: str) -> str:
@@ -96,7 +141,7 @@ module "impersonated_service_account" {{
         region_alias = _sanitize_name(region)
         scanner_modules_tf += f'''
 # Deploy the scanner infrastructure in {region}
-module "datadog_agentless_scanner_{region_alias}" {{
+module "datadog_agentless_{region_alias}" {{
   source = "{MODULE_SOURCE}"
 
   providers = {{
@@ -106,7 +151,7 @@ module "datadog_agentless_scanner_{region_alias}" {{
   scanner_service_account_email = module.scanner_service_account.scanner_service_account_email
   api_key_secret_id             = "{api_key_secret_id}"
   site                          = var.datadog_site
-  vpc_name                      = "datadog-agentless-scanner-{region}"
+  vpc_name                      = "datadog-agentless-{_abbreviate_region(region)}"
 }}
 '''
 
@@ -153,7 +198,7 @@ terraform {{
 
   backend "gcs" {{
     bucket = "{state_bucket}"
-    prefix = "agentless-scanner"
+    prefix = "datadog-agentless"
   }}
 }}
 

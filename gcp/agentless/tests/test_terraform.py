@@ -5,6 +5,7 @@ import unittest
 
 from gcp_agentless_setup.config import Config
 from gcp_agentless_setup.terraform import (
+    _abbreviate_region,
     generate_terraform_config,
     generate_tfvars,
     MODULE_VERSION,
@@ -36,7 +37,7 @@ class TestGenerateTerraformConfig(unittest.TestCase):
         tf = generate_terraform_config(self.config, "my-state-bucket", TEST_API_KEY_SECRET_ID)
 
         self.assertIn('bucket = "my-state-bucket"', tf)
-        self.assertIn('prefix = "agentless-scanner"', tf)
+        self.assertIn('prefix = "datadog-agentless"', tf)
 
     def test_generates_default_provider(self):
         """Test that a default (un-aliased) Google provider is generated for project-scoped resources."""
@@ -93,13 +94,13 @@ class TestGenerateTerraformConfig(unittest.TestCase):
             "scanner_service_account_email = module.scanner_service_account.scanner_service_account_email",
             tf,
         )
-        self.assertNotIn("module.datadog_agentless_scanner_", tf)
+        self.assertNotIn("module.datadog_agentless_us", tf)
 
     def test_regional_modules_pass_scanner_service_account_email(self):
         """Test that regional scanner modules reference the shared scanner SA."""
         tf = generate_terraform_config(self.config, "bucket", TEST_API_KEY_SECRET_ID)
 
-        self.assertIn('module "datadog_agentless_scanner_us_central1"', tf)
+        self.assertIn('module "datadog_agentless_us_central1"', tf)
         self.assertIn(
             "scanner_service_account_email = module.scanner_service_account.scanner_service_account_email",
             tf,
@@ -166,12 +167,12 @@ class TestGenerateTerraformConfig(unittest.TestCase):
         self.assertIn('region  = "europe-west1"', tf)
 
         # Should have scanner module for each region
-        self.assertIn('module "datadog_agentless_scanner_us_central1"', tf)
-        self.assertIn('module "datadog_agentless_scanner_europe_west1"', tf)
+        self.assertIn('module "datadog_agentless_us_central1"', tf)
+        self.assertIn('module "datadog_agentless_europe_west1"', tf)
 
-        # Should have unique VPC names
-        self.assertIn('vpc_name                      = "datadog-agentless-scanner-us-central1"', tf)
-        self.assertIn('vpc_name                      = "datadog-agentless-scanner-europe-west1"', tf)
+        # VPC names use abbreviated regions to stay within GCP's 63-char limit
+        self.assertIn('vpc_name                      = "datadog-agentless-us-cen1"', tf)
+        self.assertIn('vpc_name                      = "datadog-agentless-eu-west1"', tf)
 
         # Both regional modules should share the same scanner SA
         # Count occurrences of the SA reference - should appear in
@@ -197,6 +198,57 @@ class TestGenerateTerraformConfig(unittest.TestCase):
 
         # Should NOT have api_key in module
         self.assertNotIn("api_key  =", tf)
+
+
+class TestAbbreviateRegion(unittest.TestCase):
+    """Test region name abbreviation for GCP resource name limits."""
+
+    def test_short_regions_partially_abbreviated(self):
+        self.assertEqual(_abbreviate_region("us-east1"), "us-east1")
+        self.assertEqual(_abbreviate_region("us-west4"), "us-west4")
+        self.assertEqual(_abbreviate_region("me-west1"), "me-west1")
+        self.assertEqual(_abbreviate_region("us-south1"), "us-south1")
+        self.assertEqual(_abbreviate_region("us-central1"), "us-cen1")
+
+    def test_long_continents_abbreviated(self):
+        self.assertEqual(_abbreviate_region("europe-west1"), "eu-west1")
+        self.assertEqual(_abbreviate_region("europe-north1"), "eu-north1")
+        self.assertEqual(_abbreviate_region("australia-southeast1"), "au-se1")
+        self.assertEqual(_abbreviate_region("northamerica-northeast1"), "na-ne1")
+        self.assertEqual(_abbreviate_region("southamerica-east1"), "sa-east1")
+        self.assertEqual(_abbreviate_region("africa-south1"), "af-south1")
+
+    def test_compound_directions_abbreviated(self):
+        self.assertEqual(_abbreviate_region("europe-southwest1"), "eu-sw1")
+        self.assertEqual(_abbreviate_region("asia-southeast1"), "asia-se1")
+        self.assertEqual(_abbreviate_region("asia-northeast1"), "asia-ne1")
+        self.assertEqual(_abbreviate_region("northamerica-northeast2"), "na-ne2")
+
+    def test_all_abbreviated_vpc_names_fit_63_char_limit(self):
+        """The TF module appends -{8char_suffix}-allow-health-checks (+30 chars)."""
+        long_regions = [
+            "northamerica-northeast1",
+            "northamerica-northeast2",
+            "northamerica-south1",
+            "southamerica-east1",
+            "southamerica-west1",
+            "australia-southeast1",
+            "australia-southeast2",
+            "europe-southwest1",
+            "asia-southeast1",
+            "asia-southeast2",
+            "asia-northeast1",
+            "asia-northeast2",
+            "asia-northeast3",
+        ]
+        for region in long_regions:
+            vpc_name = f"datadog-agentless-{_abbreviate_region(region)}"
+            worst_case = f"{vpc_name}-{'a' * 8}-allow-health-checks"
+            self.assertLessEqual(
+                len(worst_case), 63,
+                f"Region {region} → vpc_name '{vpc_name}' produces "
+                f"'{worst_case}' ({len(worst_case)} chars, exceeds 63)",
+            )
 
 
 class TestGenerateTfvars(unittest.TestCase):
