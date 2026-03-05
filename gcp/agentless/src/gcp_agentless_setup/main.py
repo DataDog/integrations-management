@@ -239,7 +239,7 @@ def cmd_deploy() -> None:
         tf_runner.run()
 
         # Write metadata only after successful apply
-        write_metadata(state_bucket, merged_metadata, metadata_generation)
+        write_metadata(state_bucket, merged_metadata, metadata_generation, config)
 
         # Done!
         reporter.complete()

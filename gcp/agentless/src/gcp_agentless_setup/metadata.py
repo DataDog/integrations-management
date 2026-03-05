@@ -131,16 +131,21 @@ def _upload_metadata_cas(bucket: str, content: str, expected_generation: int) ->
 def read_metadata(bucket: str) -> tuple[Optional[DeploymentMetadata], int]:
     """Read deployment metadata from GCS.
 
+    Gets the generation number first, then downloads the content. If another
+    process writes between these two calls, our generation will be stale and
+    the CAS write will safely fail (correct behavior), rather than reading
+    content from version N but getting generation from version N+1.
+
     Returns:
         Tuple of (metadata or None if not found, generation number).
         Generation is 0 when the object doesn't exist (for CAS on first write).
     """
-    content = _download_metadata(bucket)
-    if content is None:
-        return None, 0
-
     generation = _get_object_generation(bucket)
     if generation is None:
+        return None, 0
+
+    content = _download_metadata(bucket)
+    if content is None:
         return None, 0
 
     try:
@@ -158,23 +163,34 @@ def write_metadata(
     bucket: str,
     metadata: DeploymentMetadata,
     expected_generation: int,
+    config: Optional[Config] = None,
 ) -> None:
     """Write deployment metadata to GCS with compare-and-swap.
 
-    Retries up to MAX_CAS_ATTEMPTS times on generation conflict.
+    On generation conflict, re-reads the remote metadata and re-merges
+    with the provided config before retrying, so concurrent writes from
+    other processes are not silently overwritten.
+
+    Args:
+        bucket: GCS bucket name.
+        metadata: The metadata to write.
+        expected_generation: Generation from the initial read_metadata call.
+        config: Original Config for re-merging on conflict. If None, retries
+            use the same metadata without re-merging.
 
     Raises:
         MetadataError: If all attempts fail.
     """
-    content = json.dumps(metadata.to_dict(), indent=2) + "\n"
-
     for attempt in range(MAX_CAS_ATTEMPTS):
+        content = json.dumps(metadata.to_dict(), indent=2) + "\n"
+
         if _upload_metadata_cas(bucket, content, expected_generation):
             return
 
-        # Generation conflict — get the current generation
-        current_generation = _get_object_generation(bucket)
-        expected_generation = current_generation if current_generation is not None else 0
+        # Generation conflict — re-read remote state and re-merge
+        remote_metadata, expected_generation = read_metadata(bucket)
+        if remote_metadata is not None and config is not None:
+            metadata = merge_with_config(remote_metadata, config)
 
     raise MetadataError(
         "Failed to write deployment metadata",
@@ -184,7 +200,7 @@ def write_metadata(
 
 
 def terraform_state_exists(bucket: str) -> bool:
-    """Check if Terraform state exists in the bucket (under agentless-scanner prefix)."""
+    """Check if Terraform state exists in the bucket (under datadog-agentless prefix)."""
     result = subprocess.run(
         [
             "gcloud", "storage", "ls",
