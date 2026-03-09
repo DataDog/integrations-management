@@ -34,7 +34,12 @@ def main():
         tenant_id, subscriptions = get_tenant_and_subscriptions()
         with ThreadPoolExecutor() as executor:
             scopes_future = executor.submit(finish_collecting_scopes, tenant_id, subscriptions, step_metadata)
-            lfo_future = executor.submit(report_existing_log_forwarders, subscriptions, step_metadata)
+            lfo_future = executor.submit(
+            report_existing_log_forwarders,
+            subscriptions,
+            step_metadata,
+            True,
+        )
         scopes_future.result()
         exactly_one_log_forwarder = lfo_future.result()
     with status.report_step("selections", "Waiting for user selections in the Datadog UI"):

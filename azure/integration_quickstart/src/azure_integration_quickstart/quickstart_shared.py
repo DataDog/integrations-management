@@ -8,7 +8,12 @@ import os
 import signal
 import sys
 import threading
-from typing import TypedDict
+from typing import Optional, TypedDict
+
+try:
+    from typing import NotRequired
+except ImportError:
+    from typing_extensions import NotRequired  # type: ignore[import-untyped]
 
 from az_shared.errors import AzCliNotAuthenticatedError, AzCliNotInstalledError
 from az_shared.execute_cmd import execute
@@ -32,6 +37,7 @@ class LogForwarderPayload(TypedDict):
     controlPlaneRegion: str
     tagFilters: str
     piiFilters: str
+    monitoredSubscriptions: NotRequired[list[dict[str, str]]]
 
 
 def validate_environment_variables() -> None:
@@ -83,8 +89,8 @@ def login() -> None:
         print("Connected! Leave this shell running and go back to the Datadog UI to continue.")
 
 
-def build_log_forwarder_payload(metadata: LfoMetadata) -> LogForwarderPayload:
-    return LogForwarderPayload(
+def build_log_forwarder_payload(metadata: LfoMetadata, include_monitored_scopes: bool) -> LogForwarderPayload:
+    payload = LogForwarderPayload(
         resourceGroupName=metadata.control_plane.resource_group,
         controlPlaneSubscriptionId=metadata.control_plane.sub_id,
         controlPlaneSubscriptionName=metadata.control_plane.sub_name,
@@ -92,13 +98,23 @@ def build_log_forwarder_payload(metadata: LfoMetadata) -> LogForwarderPayload:
         tagFilters=metadata.tag_filter,
         piiFilters=metadata.pii_rules,
     )
+    if include_monitored_scopes:
+        payload["monitoredSubscriptions"] = [
+            {"id": sub_id, "name": name} for sub_id, name in metadata.monitored_subs.items()
+        ]
+    return payload
 
 
-def report_existing_log_forwarders(subscriptions: list[Scope], step_metadata: dict) -> bool:
-    """Send Datadog any existing Log Forwarders in the tenant and return whether we found exactly 1 Forwarder, in which case we will potentially update it."""
+def report_existing_log_forwarders(
+    subscriptions: list[Scope], step_metadata: dict, include_monitored_scopes: bool
+) -> bool:
+    """Send Datadog any existing Log Forwarders in the tenant and return whether we found exactly 1 Forwarder, in which case we will potentially update it.
+    When step_id is 'scopes_and_log_forwarders', each payload includes monitoredSubscriptions."""
     scope_id_to_name = {s.id: s.name for s in subscriptions}
     forwarders = check_existing_lfo(set(scope_id_to_name.keys()), scope_id_to_name)
-    step_metadata["log_forwarders"] = [build_log_forwarder_payload(forwarder) for forwarder in forwarders.values()]
+    step_metadata["log_forwarders"] = [
+        build_log_forwarder_payload(forwarder, include_monitored_scopes) for forwarder in forwarders.values()
+    ]
     return len(forwarders) == 1
 
 
