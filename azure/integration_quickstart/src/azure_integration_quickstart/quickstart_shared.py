@@ -89,7 +89,7 @@ def login() -> None:
         print("Connected! Leave this shell running and go back to the Datadog UI to continue.")
 
 
-def build_log_forwarder_payload(metadata: LfoMetadata, step_id: Optional[str] = None) -> LogForwarderPayload:
+def build_log_forwarder_payload(metadata: LfoMetadata, include_monitored_scopes: bool) -> LogForwarderPayload:
     payload = LogForwarderPayload(
         resourceGroupName=metadata.control_plane.resource_group,
         controlPlaneSubscriptionId=metadata.control_plane.sub_id,
@@ -98,7 +98,7 @@ def build_log_forwarder_payload(metadata: LfoMetadata, step_id: Optional[str] = 
         tagFilters=metadata.tag_filter,
         piiFilters=metadata.pii_rules,
     )
-    if step_id == "scopes_and_log_forwarders":
+    if include_monitored_scopes:
         payload["monitoredSubscriptions"] = [
             {"id": sub_id, "name": name} for sub_id, name in metadata.monitored_subs.items()
         ]
@@ -106,14 +106,14 @@ def build_log_forwarder_payload(metadata: LfoMetadata, step_id: Optional[str] = 
 
 
 def report_existing_log_forwarders(
-    subscriptions: list[Scope], step_metadata: dict, step_id: Optional[str] = None
+    subscriptions: list[Scope], step_metadata: dict, include_monitored_scopes: bool
 ) -> bool:
     """Send Datadog any existing Log Forwarders in the tenant and return whether we found exactly 1 Forwarder, in which case we will potentially update it.
     When step_id is 'scopes_and_log_forwarders', each payload includes monitoredSubscriptions."""
     scope_id_to_name = {s.id: s.name for s in subscriptions}
     forwarders = check_existing_lfo(set(scope_id_to_name.keys()), scope_id_to_name)
     step_metadata["log_forwarders"] = [
-        build_log_forwarder_payload(forwarder, step_id=step_id) for forwarder in forwarders.values()
+        build_log_forwarder_payload(forwarder, include_monitored_scopes) for forwarder in forwarders.values()
     ]
     return len(forwarders) == 1
 

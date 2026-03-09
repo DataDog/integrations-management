@@ -38,7 +38,7 @@ def main():
             report_existing_log_forwarders,
             subscriptions,
             step_metadata,
-            step_id="scopes_and_log_forwarders",
+            True,
         )
         scopes_future.result()
         exactly_one_log_forwarder = lfo_future.result()
