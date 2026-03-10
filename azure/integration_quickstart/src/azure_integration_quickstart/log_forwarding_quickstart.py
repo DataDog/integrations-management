@@ -48,7 +48,10 @@ def main():
         with status.report_step(
             "upsert_log_forwarder", f"{'Updating' if exactly_one_log_forwarder else 'Creating'} Log Forwarder"
         ):
-            upsert_log_forwarder(selections.log_forwarding_config, flatten_scopes(selections.scopes))
+            upsert_log_forwarder(
+                selections.log_forwarding_config,
+                flatten_scopes(selections.add_scopes),
+            )
 
     print("Script succeeded. You may exit this shell.")
 
