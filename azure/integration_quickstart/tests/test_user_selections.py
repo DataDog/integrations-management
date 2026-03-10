@@ -17,6 +17,8 @@ from integration_quickstart.tests.test_data import (
     ERROR_404,
     EXAMPLE_WORKFLOW_ID,
     LFO_SELECTION,
+    LFO_SELECTION_OVERLAPPING_ADD,
+    LFO_SELECTION_OVERLAPPING_ADD_RESPONSE,
     LFO_SELECTION_RESPONSE,
     MGROUP_SELECTION_RESPONSE,
     MGROUP_SELECTIONS,
@@ -81,13 +83,21 @@ class TestReceiveLogForwardingSelections(DDTestCase):
         self, selections1: LogForwardingUserSelections, selections2: LogForwardingUserSelections
     ):
         """Assert that two LogForwardingUserSelections objects are equal."""
-        self.assert_same_scopes(selections1.scopes, selections2.scopes)
+        self.assert_same_scopes(selections1.add_scopes, selections2.add_scopes)
+        self.assert_same_scopes(selections1.remove_scopes, selections2.remove_scopes)
         self.assertEqual(selections1.log_forwarding_config, selections2.log_forwarding_config)
 
     def test_receive_log_forwarding_selections(self):
-        """Test that log forwarding selections returns LogForwardingUserSelections."""
+        """Test that log forwarding selections returns LogForwardingUserSelections with add_scopes and remove_scopes."""
         self.dd_request_mock.return_value = (LFO_SELECTION_RESPONSE, 200)
         selections = receive_log_forwarding_selections(EXAMPLE_WORKFLOW_ID)
         self.assertIsInstance(selections, LogForwardingUserSelections)
         self.assert_selections_equal(selections, LFO_SELECTION)
         self.assertIsNotNone(selections.log_forwarding_config)
+
+    def test_receive_log_forwarding_selections_dedupes_add(self):
+        """Add_subscriptions and add_management_groups can overlap; add_scopes must be unique by subscription id."""
+        self.dd_request_mock.return_value = (LFO_SELECTION_OVERLAPPING_ADD_RESPONSE, 200)
+        selections = receive_log_forwarding_selections(EXAMPLE_WORKFLOW_ID)
+        self.assert_selections_equal(selections, LFO_SELECTION_OVERLAPPING_ADD)
+        self.assertEqual(len(selections.add_scopes), 2)
