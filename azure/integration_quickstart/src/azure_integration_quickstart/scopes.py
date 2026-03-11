@@ -103,21 +103,12 @@ def get_subscription_scopes(tenant_id: str) -> list[Subscription]:
     ]
 
 
-def _collect_subscriptions_from_children(children: Optional[Sequence[dict]]) -> list[Subscription]:
-    """Recursively walk management group children and collect all subscriptions at any depth."""
-    if not children:
-        return []
-    result: list[Subscription] = []
-    for node in children:
-        node_id = node.get("id") or ""
-        if node_id.startswith("/subscriptions/"):
-            sub_id = node_id.removeprefix("/subscriptions/")
-            result.append(
-                Subscription(id=sub_id, name=node.get("displayName") or node.get("name") or sub_id)
-            )
-        # Recurse into nested child management groups
-        result.extend(_collect_subscriptions_from_children(node.get("children")))
-    return result
+def _collect_subscriptions_from_children(node: dict) -> list[Subscription]:
+    """Recursively walk a scope and collect all subscriptions at any depth."""
+    if (node_id := node.get("id") or "").startswith("/subscriptions/"):
+        sub_id = node_id.removeprefix("/subscriptions/")
+        return [Subscription(id=sub_id, name=node.get("displayName") or node.get("name") or sub_id)]
+    return [s for child in node.get("children", []) for s in _collect_subscriptions_from_children(child)]
 
 
 def get_management_group_from_list_result(list_result: ManagementGroupListResult) -> ManagementGroup:
@@ -128,14 +119,10 @@ def get_management_group_from_list_result(list_result: ManagementGroupListResult
         .flag("-r")
         .param("-o", "json")
     )
-    # CLI command may expose children at top level or under properties
-    children = None
-    if response:
-        if "children" in response:
-            children = response["children"]
-        else:
-            children = (response.get("properties") or {}).get("children")
-    subscriptions = _collect_subscriptions_from_children(children)
+    # CLI command may expose children at top level or under properties - normalize response to always have children at top level
+    if response and "children" not in response:
+        response["children"] = (response.get("properties") or {}).get("children", [])
+    subscriptions = _collect_subscriptions_from_children(response or {})
     return ManagementGroup(list_result.id, list_result.name, subscriptions)
 
 
