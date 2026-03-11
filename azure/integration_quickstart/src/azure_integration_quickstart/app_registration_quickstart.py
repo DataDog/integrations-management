@@ -124,7 +124,7 @@ def main():
     with status.report_step(
         "log_forwarders", loading_message="Collecting existing Log Forwarders", required=False
     ) as step_metadata:
-        exactly_one_log_forwarder = report_existing_log_forwarders(
+        exactly_one_log_forwarder, _ = report_existing_log_forwarders(
         subscriptions, step_metadata, False
     )
     with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
