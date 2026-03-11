@@ -158,7 +158,6 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
         "FUNCTIONS_EXTENSION_VERSION": "~4",
         "FUNCTIONS_WORKER_RUNTIME": "python",
         "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING": config.get_control_plane_cache_conn_string(),
-        "WEBSITE_CONTENTSHARE": function_app_name,
         "AzureWebJobsFeatureFlags": "EnableWorkerIndexing",
         "DD_API_KEY": config.datadog_api_key,
         "DD_SITE": config.datadog_site,

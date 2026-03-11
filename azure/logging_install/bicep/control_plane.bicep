@@ -115,7 +115,6 @@ resource resourceTask 'Microsoft.Web/sites@2022-09-01' = {
     serverFarmId: asp.id
     siteConfig: {
       appSettings: union(commonAppSettings, [
-        { name: 'WEBSITE_CONTENTSHARE', value: 'contentshare-${resourceTaskName}' }
         { name: MONITORED_SUBSCRIPTIONS_SETTING, value: monitoredSubscriptions }
         { name: RESOURCE_TAG_FILTERS_SETTING, value: resourceTagFilters }
       ])
@@ -139,7 +138,6 @@ resource diagnosticSettingsTask 'Microsoft.Web/sites@2022-09-01' = {
     siteConfig: {
       appSettings: union(commonAppSettings, [
         { name: RESOURCE_GROUP_SETTING, value: controlPlaneResourceGroupName }
-        { name: 'WEBSITE_CONTENTSHARE', value: 'contentshare-${diagnosticSettingsTaskName}' }
       ])
       linuxFxVersion: 'Python|3.11'
     }
@@ -162,7 +160,6 @@ resource scalingTask 'Microsoft.Web/sites@2022-09-01' = {
     siteConfig: {
       appSettings: union(commonAppSettings, [
         { name: RESOURCE_GROUP_SETTING, value: controlPlaneResourceGroupName }
-        { name: 'WEBSITE_CONTENTSHARE', value: 'contentshare-${scalingTaskName}' }
         { name: FORWARDER_IMAGE_SETTING, value: forwarderImage }
         { name: CONTROL_PLANE_REGION_SETTING, value: controlPlaneLocation }
         { name: PII_SCRUBBER_RULES_SETTING, value: piiScrubberRules }
