@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass
-from typing import Literal
+from typing import Literal, Optional
 
 from az_shared.errors import AccessError
 from az_shared.execute_cmd import execute_json
@@ -103,20 +103,26 @@ def get_subscription_scopes(tenant_id: str) -> list[Subscription]:
     ]
 
 
+def _collect_subscriptions_from_children(node: dict) -> list[Subscription]:
+    """Recursively walk a scope and collect all subscriptions at any depth."""
+    if (node_id := node.get("id") or "").startswith("/subscriptions/"):
+        sub_id = node_id.removeprefix("/subscriptions/")
+        return [Subscription(id=sub_id, name=node.get("displayName") or node.get("name") or sub_id)]
+    return [s for child in node.get("children", []) for s in _collect_subscriptions_from_children(child)]
+
+
 def get_management_group_from_list_result(list_result: ManagementGroupListResult) -> ManagementGroup:
-    subscriptions_az_response = execute_json(
+    response = execute_json(
         Cmd(["az", "account", "management-group", "show"])
         .param("--name", list_result.az_name)
         .flag("-e")
         .flag("-r")
-        .param("--query", "children[].{id:id, name:name}")
         .param("-o", "json")
     )
-
-    if subscriptions_az_response:
-        subscriptions = [Subscription(**s) for s in subscriptions_az_response if s["id"].startswith("/subscriptions/")]
-    else:
-        subscriptions = []
+    # CLI command may expose children at top level or under properties - normalize response to always have children at top level
+    if response and "children" not in response:
+        response["children"] = (response.get("properties") or {}).get("children", [])
+    subscriptions = _collect_subscriptions_from_children(response or {})
     return ManagementGroup(list_result.id, list_result.name, subscriptions)
 
 
