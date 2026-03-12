@@ -55,6 +55,7 @@ def main():
 
         if exactly_one_log_forwarder and existing_lfo:
             remove_ids = {s.id for s in flatten_scopes(selections.remove_scopes)}
+            # Safeguard against removing the control plane subscription
             control_plane_sub_id = selections.log_forwarding_config["controlPlaneSubscriptionId"]
             remove_ids.discard(control_plane_sub_id)
             final_sub_ids = (set(existing_lfo.monitored_subs.keys()) | add_ids) - remove_ids
