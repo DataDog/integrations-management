@@ -59,14 +59,11 @@ def main():
             if existing_lfo:
                 id_to_name.update(existing_lfo.monitored_subs)
             final_subscriptions = {
-                Subscription(id=sub_id, name=id_to_name.get(sub_id, "Unknown"))
-                for sub_id in final_sub_ids
+                Subscription(id=sub_id, name=id_to_name.get(sub_id, "Unknown")) for sub_id in final_sub_ids
             }
 
     if selections.log_forwarding_config:
-        with status.report_step(
-            "upsert_log_forwarder", f"{'Updating' if existing_lfo else 'Creating'} Log Forwarder"
-        ):
+        with status.report_step("upsert_log_forwarder", f"{'Updating' if existing_lfo else 'Creating'} Log Forwarder"):
             upsert_log_forwarder(selections.log_forwarding_config, final_subscriptions)
 
     print("Script succeeded. You may exit this shell.")
