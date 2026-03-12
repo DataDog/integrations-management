@@ -249,9 +249,29 @@ def assign_role(scope: str, principal_id: str, role_id: str, control_plane_id: s
     )
 
 
-def grant_subscriptions_permissions(config: Configuration, sub_ids: Iterable[str]):
-    """Grant permissions to a set of subscriptions."""
+def remove_role(scope: str, principal_id: str, role_id: str) -> None:
+    """Remove a role assignment for a principal at a given scope."""
 
+    log.debug(f"Removing role assignment for role {role_id} from principal {principal_id} at scope {scope}")
+    
+    output = execute(
+        AzCmd("role", "assignment list")
+        .param("--scope", scope)
+        .param("--assignee", principal_id)
+        .param("--role", role_id)
+        .param("--query", "[].id")
+        .param("--output", "tsv")
+    )
+    assignment_ids = [aid.strip() for aid in output.strip().split() if aid.strip()]
+    if assignment_ids:
+        execute(
+            AzCmd("role", "assignment delete")
+            .param("--ids", assignment_ids[0])
+        )
+
+
+def _get_lfo_task_principal_ids(config: Configuration) -> tuple[str, str, str]:
+    """Return (resources_task, scaling_task, diagnostic_settings_task) principal IDs for the control plane."""
     resource_principal_id = get_function_app_principal_id(
         config.control_plane_rg, config.control_plane_sub_id, config.resources_task_name
     )
@@ -263,6 +283,13 @@ def grant_subscriptions_permissions(config: Configuration, sub_ids: Iterable[str
         config.control_plane_sub_id,
         config.diagnostic_settings_task_name,
     )
+    return resource_principal_id, scaling_principal_id, diagnostic_principal_id
+
+
+def grant_subscriptions_permissions(config: Configuration, sub_ids: Iterable[str]):
+    """Grant permissions to a set of subscriptions."""
+
+    resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_lfo_task_principal_ids(config)
 
     for sub_id in sub_ids:
         log.info(f"Create resource group in subscription: {sub_id}")
@@ -304,6 +331,41 @@ def grant_subscriptions_permissions(config: Configuration, sub_ids: Iterable[str
 
     set_subscription(config.control_plane_sub_id)
     log.info("Subscriptions permission setup complete")
+
+
+def revoke_subscriptions_permissions(config: Configuration, sub_ids: Iterable[str]) -> None:
+    """Revoke permissions and delete the LFO-created resource group for each subscription in sub_ids.
+    Mirrors grant_subscriptions_permissions: remove the four role assignments per subscription, then delete the RG."""
+    resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_lfo_task_principal_ids(config)
+
+    for sub_id in sub_ids:
+        subscription_scope = f"/subscriptions/{sub_id}"
+        resource_group_scope = f"{subscription_scope}/resourceGroups/{config.control_plane_rg}"
+
+        log.info(f"Revoking permissions and deleting resource group {config.control_plane_rg} in subscription: {sub_id}")
+        for scope, principal_id, role_id in [
+            (subscription_scope, resource_principal_id, MONITORING_READER_ID),
+            (resource_group_scope, scaling_principal_id, SCALING_CONTRIBUTOR_ID),
+            (subscription_scope, diagnostic_principal_id, MONITORING_CONTRIBUTOR_ID),
+            (resource_group_scope, diagnostic_principal_id, STORAGE_READER_AND_DATA_ACCESS_ID),
+        ]:
+            remove_role(scope, principal_id, role_id)
+
+        try:
+            execute(
+                AzCmd("group", "delete")
+                .param("--name", config.control_plane_rg)
+                .param("--subscription", sub_id)
+                .flag("--yes")
+            )
+        except RuntimeError as e:
+            if "could not be found" in str(e).lower() or "ResourceGroupNotFound" in str(e):
+                log.debug("Resource group already deleted or not found: %s", e)
+            else:
+                raise
+
+    set_subscription(config.control_plane_sub_id)
+    log.info("Revoke and resource group deletion complete")
 
 
 def grant_permissions(config: Configuration):
