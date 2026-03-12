@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "6722102772719873141"
+      "templateHash": "3375588130201590196"
     }
   },
   "functions": [
@@ -82,6 +82,13 @@
     "storageAccountUrl": {
       "type": "string",
       "defaultValue": "https://ddazurelfo.blob.core.windows.net"
+    },
+    "storageAccountSas": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional SAS token for the initial run deployment script to fetch initial_run.sh when anonymous access is disabled, for example when running in a personal environment"
+      }
     }
   },
   "variables": {
@@ -274,7 +281,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.41.2.15936",
-              "templateHash": "752262751870140872"
+              "templateHash": "6703028199453298211"
             }
           },
           "parameters": {
@@ -367,7 +374,9 @@
               "location": "[parameters('controlPlaneLocation')]",
               "properties": {
                 "accessTier": "Hot",
-                "minimumTlsVersion": "TLS1_2"
+                "minimumTlsVersion": "TLS1_2",
+                "supportsHttpsTrafficOnly": true,
+                "allowBlobPublicAccess": false
               },
               "sku": {
                 "name": "Standard_LRS"
@@ -914,6 +923,9 @@
           },
           "storageAccountUrl": {
             "value": "[parameters('storageAccountUrl')]"
+          },
+          "storageAccountSas": {
+            "value": "[parameters('storageAccountSas')]"
           }
         },
         "template": {
@@ -923,7 +935,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.41.2.15936",
-              "templateHash": "14478965320502961169"
+              "templateHash": "15357563284184854457"
             }
           },
           "parameters": {
@@ -962,6 +974,13 @@
             },
             "storageAccountUrl": {
               "type": "string"
+            },
+            "storageAccountSas": {
+              "type": "securestring",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Optional SAS token for the initial run deployment script to fetch initial_run.sh when anonymous access is disabled, for example when running in a personal environment"
+              }
             }
           },
           "resources": [
@@ -1037,7 +1056,7 @@
                   }
                 ],
                 "azCliVersion": "2.67.0",
-                "primaryScriptUri": "[format('{0}/lfo/initial_run.sh', parameters('storageAccountUrl'))]",
+                "primaryScriptUri": "[if(empty(parameters('storageAccountSas')), format('{0}/lfo/initial_run.sh', parameters('storageAccountUrl')), format('{0}/lfo/initial_run.sh?{1}', parameters('storageAccountUrl'), parameters('storageAccountSas')))]",
                 "timeout": "PT30M",
                 "retentionInterval": "PT1H",
                 "cleanupPreference": "OnSuccess"

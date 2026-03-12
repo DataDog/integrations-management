@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "3829426835013912020"
+      "templateHash": "4942456296969216449"
     }
   },
   "parameters": {
@@ -95,7 +95,8 @@
       "kind": "StorageV2",
       "properties": {
         "minimumTlsVersion": "TLS1_2",
-        "supportsHttpsTrafficOnly": true
+        "supportsHttpsTrafficOnly": true,
+        "allowBlobPublicAccess": false
       }
     },
     {
@@ -177,8 +178,8 @@
               "name": "datadog-forwarder",
               "image": "datadoghq.azurecr.io/forwarder:latest",
               "resources": {
-                "cpu": 1,
-                "memory": "2Gi"
+                "cpu": 2,
+                "memory": "4Gi"
               },
               "env": [
                 {
