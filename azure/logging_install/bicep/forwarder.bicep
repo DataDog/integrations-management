@@ -61,6 +61,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   properties: {
     minimumTlsVersion: 'TLS1_2'
     supportsHttpsTrafficOnly: true
+    allowBlobPublicAccess: false
   }
 }
 
@@ -134,8 +135,8 @@ resource forwarder 'Microsoft.App/jobs@2023-05-01' = {
           name: 'datadog-forwarder'
           image: 'datadoghq.azurecr.io/forwarder:latest'
           resources: {
-            cpu: 1
-            memory: '2Gi'
+            cpu: 2
+            memory: '4Gi'
           }
           env: [
             { name: 'AzureWebJobsStorage', secretRef: 'storage-connection-string' }
