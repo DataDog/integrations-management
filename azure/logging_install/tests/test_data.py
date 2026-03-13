@@ -4,6 +4,8 @@
 
 """Shared test data constants for azure's logging_install tests."""
 
+import copy
+
 from azure_logging_install.configuration import Configuration
 
 # Azure env test subscriptions
@@ -56,7 +58,8 @@ TEST_CONFIG = Configuration(
 
 
 def get_test_config():
-    test_config = TEST_CONFIG
+    """Return a copy of TEST_CONFIG so test mutations do not affect other tests."""
+    test_config = copy.copy(TEST_CONFIG)
     test_config.control_plane_function_app_names = [
         RESOURCE_TASK_NAME,
         SCALING_TASK_NAME,

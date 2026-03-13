@@ -205,6 +205,43 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
         os.unlink(tmpfile_path)
 
 
+def set_monitored_subscriptions(config: Configuration) -> None:
+    """Update only MONITORED_SUBSCRIPTIONS on the resources-task function app."""
+    log.info(f"Updating MONITORED_SUBSCRIPTIONS for function app {config.resources_task_name}")
+    monitored_json = json.dumps(config.monitored_subscriptions)
+    execute(
+        AzCmd("functionapp", "config appsettings set")
+        .param("--subscription", config.control_plane_sub_id)
+        .param("--name", config.resources_task_name)
+        .param("--resource-group", config.control_plane_rg)
+        .param("--settings", shlex.quote(f"MONITORED_SUBSCRIPTIONS={monitored_json}"))
+    )
+
+
+def set_resource_tag_filters(config: Configuration) -> None:
+    """Update only RESOURCE_TAG_FILTERS on the resources-task function app."""
+    log.info(f"Updating RESOURCE_TAG_FILTERS for function app {config.resources_task_name}")
+    execute(
+        AzCmd("functionapp", "config appsettings set")
+        .param("--subscription", config.control_plane_sub_id)
+        .param("--name", config.resources_task_name)
+        .param("--resource-group", config.control_plane_rg)
+        .param("--settings", shlex.quote(f"RESOURCE_TAG_FILTERS={config.resource_tag_filters}"))
+    )
+
+
+def set_pii_scrubber_rules(config: Configuration) -> None:
+    """Update only PII_SCRUBBER_RULES on the scaling-task function app."""
+    log.info(f"Updating PII_SCRUBBER_RULES for function app {config.scaling_task_name}")
+    execute(
+        AzCmd("functionapp", "config appsettings set")
+        .param("--subscription", config.control_plane_sub_id)
+        .param("--name", config.scaling_task_name)
+        .param("--resource-group", config.control_plane_rg)
+        .param("--settings", shlex.quote(f"PII_SCRUBBER_RULES={config.pii_scrubber_rules}"))
+    )
+
+
 def create_function_apps(config: Configuration):
     """Create function apps for LFO Resources Task, Scaling Task, and Diagnostic Settings Task"""
 
