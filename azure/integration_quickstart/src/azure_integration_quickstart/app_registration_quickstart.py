@@ -124,9 +124,9 @@ def main():
     with status.report_step(
         "log_forwarders", loading_message="Collecting existing Log Forwarders", required=False
     ) as step_metadata:
-        exactly_one_log_forwarder, _ = report_existing_log_forwarders(
-        subscriptions, step_metadata, False
-    )
+        exactly_one_log_forwarder, existing_lfo = report_existing_log_forwarders(
+            subscriptions, step_metadata, False
+        )
     with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
         selections = receive_app_registration_selections(workflow_id)
     with status.report_step("app_registration", "Creating app registration in Azure"):
@@ -145,7 +145,17 @@ def main():
         with status.report_step(
             "upsert_log_forwarder", f"{'Updating' if exactly_one_log_forwarder else 'Creating'} Log Forwarder"
         ):
-            upsert_log_forwarder(selections.log_forwarding_config, flatten_scopes(selections.scopes))
+            selected_scopes = flatten_scopes(selections.scopes)
+            # App registration flow is add-only: when an LFO exists, monitored scopes becomes existing ∪ selected.
+            if exactly_one_log_forwarder and existing_lfo:
+                existing_subs = {
+                    Subscription(id=sub_id, name=name)
+                    for sub_id, name in existing_lfo.monitored_subs.items()
+                }
+                final_scopes = set(existing_subs | selected_scopes)
+            else:
+                final_scopes = selected_scopes
+            upsert_log_forwarder(selections.log_forwarding_config, final_scopes)
 
     print("Script succeeded. You may exit this shell.")
 

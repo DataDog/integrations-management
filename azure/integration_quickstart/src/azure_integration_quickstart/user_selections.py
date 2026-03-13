@@ -15,16 +15,10 @@ from azure_integration_quickstart.util import dd_request
 
 
 @dataclass
-class UserSelections:
-    """The selections the user has made in the quickstart onboarding UI"""
-
-    scopes: Sequence[Scope]
-
-
-@dataclass
-class AppRegistrationUserSelections(UserSelections):
+class AppRegistrationUserSelections:
     """The selections the user has made in the quickstart onboarding UI for creating a new app registration."""
 
+    scopes: Sequence[Scope]
     app_registration_config: dict
     log_forwarding_config: Optional[dict] = None
 
