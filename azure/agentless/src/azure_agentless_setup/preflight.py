@@ -36,6 +36,21 @@ REQUIRED_RESOURCE_PROVIDERS = [
     "Microsoft.Authorization",
 ]
 
+# Actions required on all subscriptions (scanner + scan targets) for cross-subscription role assignments.
+REQUIRED_ACTIONS_ALL_SUBSCRIPTIONS = [
+    "Microsoft.Authorization/roleAssignments/write",
+]
+
+# Additional actions required on the scanner subscription for resource creation.
+REQUIRED_ACTIONS_SCANNER_SUBSCRIPTION = [
+    "Microsoft.Resources/subscriptions/resourceGroups/write",
+    "Microsoft.Compute/virtualMachineScaleSets/write",
+    "Microsoft.Network/virtualNetworks/write",
+    "Microsoft.ManagedIdentity/userAssignedIdentities/write",
+    "Microsoft.KeyVault/vaults/write",
+    "Microsoft.Storage/storageAccounts/write",
+]
+
 
 def validate_datadog_api_key(reporter: Reporter, api_key: str, site: str) -> None:
     """Validate Datadog API key and check for Remote Configuration scope.
@@ -123,34 +138,95 @@ def set_subscription(reporter: Reporter, subscription_id: str) -> None:
     reporter.success(f"Active subscription set to {subscription_id}")
 
 
-def check_subscription_access(subscription_id: str) -> tuple[str, bool, Optional[str]]:
-    """Check if we have access to a subscription.
+def _get_granted_actions(subscription_id: str) -> tuple[str, list[str]]:
+    """Fetch the granted actions for the current user on a subscription.
+
+    Uses the Azure permissions REST API, same approach as integration_quickstart.
 
     Returns:
-        Tuple of (subscription_id, success, error_message)
+        Tuple of (subscription_id, list_of_granted_action_patterns).
     """
+    scope = f"/subscriptions/{subscription_id}"
+    url = f"https://management.azure.com{scope}/providers/Microsoft.Authorization/permissions?api-version=2022-04-01"
     try:
-        execute(Cmd(["az", "account", "show", "--subscription", subscription_id, "--output", "json"]))
-        return subscription_id, True, None
-    except Exception as e:
-        return subscription_id, False, str(e)
+        result = execute_json(Cmd(["az", "rest", "-u", url, "--query", "value"]))
+    except Exception:
+        return subscription_id, []
+
+    actions: list[str] = []
+    not_actions: list[str] = []
+    for perm in (result or []):
+        actions.extend(perm.get("actions", []))
+        not_actions.extend(perm.get("notActions", []))
+    return subscription_id, actions
 
 
-def check_subscriptions_access_parallel(reporter: Reporter, subscriptions: list[str]) -> list[str]:
-    """Check access to multiple subscriptions in parallel.
+def _action_matches(required: str, granted_patterns: list[str]) -> bool:
+    """Check if a required action is covered by any granted wildcard pattern.
+
+    E.g. "Microsoft.Compute/*" covers "Microsoft.Compute/virtualMachineScaleSets/write",
+    and "*" covers everything.
+    """
+    required_lower = required.lower()
+    for pattern in granted_patterns:
+        pattern_lower = pattern.lower()
+        if pattern_lower == "*":
+            return True
+        if pattern_lower == required_lower:
+            return True
+        if pattern_lower.endswith("/*"):
+            prefix = pattern_lower[:-1]
+            if required_lower.startswith(prefix):
+                return True
+    return False
+
+
+def check_subscription_permissions(
+    subscription_id: str,
+    required_actions: list[str],
+) -> tuple[str, bool, list[str]]:
+    """Check if the current user has the required permissions on a subscription.
 
     Returns:
-        List of subscriptions that failed access check.
+        Tuple of (subscription_id, all_granted, list_of_missing_actions).
+    """
+    _, granted = _get_granted_actions(subscription_id)
+    if not granted:
+        return subscription_id, False, required_actions
+
+    missing = [a for a in required_actions if not _action_matches(a, granted)]
+    return subscription_id, len(missing) == 0, missing
+
+
+def check_subscriptions_permissions_parallel(
+    reporter: Reporter,
+    scanner_subscription: str,
+    all_subscriptions: list[str],
+) -> list[str]:
+    """Check permissions on all subscriptions in parallel.
+
+    The scanner subscription is checked for both common and scanner-specific actions.
+    Scan-only subscriptions are checked for common actions only.
+
+    Returns:
+        List of subscription IDs that failed permission checks.
     """
     failed = []
 
-    with ThreadPoolExecutor(max_workers=min(len(subscriptions), MAX_PARALLEL_WORKERS)) as executor:
-        futures = {executor.submit(check_subscription_access, s): s for s in subscriptions}
+    def _check(sub_id: str) -> tuple[str, bool, list[str]]:
+        required = list(REQUIRED_ACTIONS_ALL_SUBSCRIPTIONS)
+        if sub_id == scanner_subscription:
+            required += REQUIRED_ACTIONS_SCANNER_SUBSCRIPTION
+        return check_subscription_permissions(sub_id, required)
+
+    with ThreadPoolExecutor(max_workers=min(len(all_subscriptions), MAX_PARALLEL_WORKERS)) as executor:
+        futures = {executor.submit(_check, s): s for s in all_subscriptions}
 
         for future in as_completed(futures):
-            sub_id, success, error = future.result()
-            if not success:
-                reporter.error(f"Cannot access subscription: {sub_id}", error)
+            sub_id, granted, missing = future.result()
+            if not granted:
+                detail = "\n".join(f"    - {a}" for a in missing)
+                reporter.error(f"Missing permissions on subscription: {sub_id}", f"Required actions:\n{detail}")
                 failed.append(sub_id)
 
     return failed
@@ -281,17 +357,19 @@ def run_preflight_checks(config: Config, reporter: Reporter) -> None:
 
     validate_locations(reporter, config.locations, config.scanner_subscription)
 
-    reporter.info(f"Checking access to {len(config.all_subscriptions)} subscription(s)...")
-    failed = check_subscriptions_access_parallel(reporter, config.all_subscriptions)
+    reporter.info(f"Checking permissions on {len(config.all_subscriptions)} subscription(s)...")
+    failed = check_subscriptions_permissions_parallel(
+        reporter, config.scanner_subscription, config.all_subscriptions,
+    )
 
     if failed:
         raise AzureAccessError(
-            f"Cannot access {len(failed)} subscription(s)",
-            "Ensure you have 'Reader' role or equivalent on:\n"
+            f"Insufficient permissions on {len(failed)} subscription(s)",
+            "Ensure you have the required role assignments on:\n"
             + "\n".join(f"  - {s}" for s in failed),
         )
 
-    reporter.success(f"Access verified for {len(config.all_subscriptions)} subscription(s)")
+    reporter.success(f"Permissions verified for {len(config.all_subscriptions)} subscription(s)")
 
     reporter.info(f"Checking resource providers in scanner subscription ({config.scanner_subscription})...")
     check_and_register_resource_providers(reporter, config.scanner_subscription)
