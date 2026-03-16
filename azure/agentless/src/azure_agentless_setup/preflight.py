@@ -3,14 +3,18 @@
 
 """Preflight checks before running Terraform."""
 
-import json
-import urllib.error
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 from az_shared.errors import AzCliNotAuthenticatedError
 from az_shared.execute_cmd import execute, execute_json
+from common.datadog_validation import (
+    APIKeyMissingRCScopeError,
+    InvalidAPIKeyError,
+    InvalidAppKeyError,
+    validate_api_key,
+    validate_app_key,
+)
 from common.shell import Cmd
 
 from .config import Config
@@ -60,27 +64,13 @@ def validate_datadog_api_key(reporter: Reporter, api_key: str, site: str) -> Non
         DatadogAPIKeyError: If the API key or site is invalid.
         DatadogAPIKeyMissingRCError: If the API key doesn't have Remote Configuration scope.
     """
-    url = f"https://api.{site}/api/v2/validate"
-    request = urllib.request.Request(
-        url,
-        headers={
-            "Accept": "application/json",
-            "DD-API-KEY": api_key,
-        },
-    )
-
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            if response.status == 200:
-                data = json.loads(response.read().decode("utf-8"))
-                scopes = data.get("data", {}).get("attributes", {}).get("api_key_scopes", [])
-                if "remote_config_read" not in scopes:
-                    raise DatadogAPIKeyMissingRCError()
-                reporter.success("Datadog API key validated (Remote Configuration enabled)")
-            else:
-                raise DatadogAPIKeyError(site)
-    except (urllib.error.HTTPError, urllib.error.URLError):
+        validate_api_key(api_key, site, require_rc_scope=True)
+    except APIKeyMissingRCScopeError:
+        raise DatadogAPIKeyMissingRCError()
+    except InvalidAPIKeyError:
         raise DatadogAPIKeyError(site)
+    reporter.success("Datadog API key validated (Remote Configuration enabled)")
 
 
 def validate_datadog_app_key(reporter: Reporter, api_key: str, app_key: str, site: str) -> None:
@@ -89,25 +79,11 @@ def validate_datadog_app_key(reporter: Reporter, api_key: str, app_key: str, sit
     Raises:
         DatadogAppKeyError: If the Application key is invalid.
     """
-    url = f"https://api.{site}/api/v2/validate_keys"
-    request = urllib.request.Request(
-        url,
-        headers={
-            "Accept": "application/json",
-            "DD-API-KEY": api_key,
-            "DD-APPLICATION-KEY": app_key,
-        },
-    )
-
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            if response.status == 200:
-                reporter.success("Datadog Application key validated")
-                return
-            else:
-                raise DatadogAppKeyError()
-    except (urllib.error.HTTPError, urllib.error.URLError):
+        validate_app_key(api_key, app_key, site)
+    except InvalidAppKeyError:
         raise DatadogAppKeyError()
+    reporter.success("Datadog Application key validated")
 
 
 def check_azure_authentication(reporter: Reporter) -> None:
