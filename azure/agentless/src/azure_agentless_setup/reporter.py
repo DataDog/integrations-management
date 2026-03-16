@@ -10,9 +10,10 @@ from typing import Any, NoReturn, Optional
 from az_shared.execute_cmd import execute
 from common.shell import Cmd
 
+from common.requests import dd_request
+
 from .console_reporter import ConsoleReporter, Step
 from .errors import SetupError
-from .requests import dd_request
 
 
 WORKFLOW_TYPE = "azure-agentless-setup"
