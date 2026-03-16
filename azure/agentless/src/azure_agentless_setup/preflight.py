@@ -6,7 +6,8 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
-from az_shared.errors import AzCliNotAuthenticatedError
+from az_shared.auth import check_login
+from az_shared.auth import set_subscription as az_set_subscription
 from az_shared.execute_cmd import execute, execute_json
 from common.datadog_validation import (
     APIKeyMissingRCScopeError,
@@ -93,9 +94,7 @@ def check_azure_authentication(reporter: Reporter) -> None:
         SetupError: If not authenticated with Azure.
     """
     try:
-        execute(Cmd(["az", "account", "show", "--output", "json"]))
-    except AzCliNotAuthenticatedError:
-        raise SetupError("Not authenticated with Azure", "Run: az login")
+        check_login()
     except Exception:
         raise SetupError("Not authenticated with Azure", "Run: az login")
     reporter.success("Azure CLI authentication verified")
@@ -108,7 +107,7 @@ def set_subscription(reporter: Reporter, subscription_id: str) -> None:
         AzureAccessError: If the subscription cannot be set.
     """
     try:
-        execute(Cmd(["az", "account", "set", "--subscription", subscription_id]))
+        az_set_subscription(subscription_id)
     except Exception as e:
         raise AzureAccessError(
             f"Cannot set subscription: {subscription_id}",

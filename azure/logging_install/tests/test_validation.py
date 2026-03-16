@@ -95,20 +95,28 @@ class TestValidation(TestCase):
 
     def test_validate_az_cli_success(self):
         """Test successful Azure CLI validation"""
-        self.execute_mock.return_value = "azure-cli-user"
-
-        validation.validate_az_cli()
-
-        self.execute_mock.assert_called_once()
+        with mock_patch("azure_logging_install.validation.check_login", return_value="{}"):
+            validation.validate_az_cli()
 
     def test_validate_az_cli_not_authenticated(self):
         """Test Azure CLI validation when not authenticated"""
-        self.execute_mock.side_effect = Exception("Please run 'az login'")
+        with mock_patch(
+            "azure_logging_install.validation.check_login",
+            side_effect=AzCliNotAuthenticatedError("not logged in"),
+        ):
+            with self.assertRaises(AzCliNotAuthenticatedError):
+                validation.validate_az_cli()
 
-        with self.assertRaises(AzCliNotAuthenticatedError) as context:
-            validation.validate_az_cli()
+    def test_validate_az_cli_not_installed(self):
+        """Test Azure CLI validation when CLI is not installed"""
+        from az_shared.errors import AzCliNotInstalledError
 
-        self.assertIn("Azure CLI is not authenticated", str(context.exception))
+        with mock_patch(
+            "azure_logging_install.validation.check_login",
+            side_effect=AzCliNotInstalledError("az: command not found"),
+        ):
+            with self.assertRaises(AzCliNotInstalledError):
+                validation.validate_az_cli()
 
     # ===== Subscription Access Validation Tests ===== #
 

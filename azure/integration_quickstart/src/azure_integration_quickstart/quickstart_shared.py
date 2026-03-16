@@ -15,14 +15,13 @@ try:
 except ImportError:
     from typing_extensions import NotRequired  # type: ignore[import-untyped]
 
+from az_shared.auth import check_login
 from az_shared.errors import AzCliNotAuthenticatedError, AzCliNotInstalledError
-from az_shared.execute_cmd import execute
 from azure_integration_quickstart.scopes import Scope
 from azure_integration_quickstart.script_status import Status, StatusReporter
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
 from azure_logging_install.main import install_log_forwarder
-from common.shell import Cmd
 
 # Required environment variables for both quickstart variants
 REQUIRED_ENVIRONMENT_VARS = {"DD_API_KEY", "DD_APP_KEY", "DD_SITE", "WORKFLOW_ID"}
@@ -75,16 +74,13 @@ def setup_cancellation_handlers(status: StatusReporter) -> None:
 def login() -> None:
     """Perform the Azure CLI login with error handling."""
     try:
-        # Check if user is logged into Azure CLI
-        if not execute(Cmd(["az", "account", "show"]), can_fail=True):
-            raise AzCliNotAuthenticatedError("Azure CLI is not authenticated. Please run 'az login' first and retry")
-    except Exception as e:
-        if "az: command not found" in str(e):
-            print("You must install and log in to Azure CLI to run this script.")
-            raise AzCliNotInstalledError(str(e)) from e
-        else:
-            print("You must be logged in to Azure CLI to run this script. Run `az login` and try again.")
-            raise AzCliNotAuthenticatedError(str(e)) from e
+        check_login()
+    except AzCliNotInstalledError:
+        print("You must install and log in to Azure CLI to run this script.")
+        raise
+    except AzCliNotAuthenticatedError:
+        print("You must be logged in to Azure CLI to run this script. Run `az login` and try again.")
+        raise
     else:
         print("Connected! Leave this shell running and go back to the Datadog UI to continue.")
 

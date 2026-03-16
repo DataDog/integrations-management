@@ -7,6 +7,7 @@ import sys
 import uuid
 from dataclasses import asdict
 
+from az_shared.auth import check_login
 from az_shared.errors import (
     AccessError,
     AzCliNotAuthenticatedError,
@@ -58,11 +59,8 @@ def validate_azure_env(config: Configuration):
 
 def validate_az_cli():
     """Ensure Azure CLI is installed and user is authenticated."""
-    try:
-        execute(AzCmd("account", "show"))
-        log.debug("Azure CLI authentication verified")
-    except Exception as e:
-        raise AzCliNotAuthenticatedError("Azure CLI is not authenticated. Please run 'az login' first and retry") from e
+    check_login()
+    log.debug("Azure CLI authentication verified")
 
 
 def check_fresh_install(config: Configuration, sub_id_to_name: dict[str, str]) -> dict[str, LfoMetadata]:

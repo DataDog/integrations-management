@@ -7,10 +7,9 @@ import json
 from enum import Enum
 from typing import Any, NoReturn, Optional
 
+from az_shared.auth import check_login
 from az_shared.errors import AzCliNotAuthenticatedError, AzCliNotInstalledError
-from az_shared.execute_cmd import execute
 from common.requests import dd_request
-from common.shell import Cmd
 
 from .console_reporter import ConsoleReporter, Step
 from .errors import SetupError
@@ -88,7 +87,7 @@ class Reporter:
         """Verify Azure CLI authentication and report to the workflow API."""
         self._report_to_api("login", Status.IN_PROGRESS)
         try:
-            execute(Cmd(["az", "account", "show", "--output", "json"]))
+            check_login()
         except AzCliNotInstalledError as e:
             self._report_to_api("login", Status.FAILED, message=str(e))
             print(
