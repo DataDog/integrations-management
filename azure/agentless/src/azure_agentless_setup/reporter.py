@@ -7,10 +7,12 @@ import json
 from enum import Enum
 from typing import Any, NoReturn, Optional
 
+from az_shared.execute_cmd import execute
+from common.shell import Cmd
+
 from .console_reporter import ConsoleReporter, Step
 from .errors import SetupError
 from .requests import dd_request
-from .shell import az_cli
 
 
 WORKFLOW_TYPE = "azure-agentless-setup"
@@ -85,9 +87,7 @@ class Reporter:
         """Verify Azure CLI authentication and report to the workflow API."""
         self._report_to_api("login", Status.IN_PROGRESS)
         try:
-            success, result = az_cli(["account", "show"])
-            if not success:
-                raise RuntimeError("not logged in to Azure CLI")
+            execute(Cmd(["az", "account", "show", "--output", "json"]))
         except Exception as e:
             self._report_to_api("login", Status.FAILED, message=str(e))
             if "az: command not found" in str(e) or "'az' is not recognized" in str(e):

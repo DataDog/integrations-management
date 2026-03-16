@@ -7,7 +7,7 @@ set -e
 
 # Check if rebuild is needed (skip if no source files changed)
 if [[ -f agentless/dist/azure_agentless_setup.pyz ]] && \
-   [[ -z $(find agentless/src -newer agentless/dist/azure_agentless_setup.pyz 2>/dev/null) ]]; then
+   [[ -z $(find shared/src agentless/src -newer agentless/dist/azure_agentless_setup.pyz 2>/dev/null) ]]; then
   echo "No changes detected, skipping build."
   exit 0
 fi
@@ -17,6 +17,7 @@ echo "Building azure_agentless_setup.pyz..."
 rm -rf agentless/dist/tmp
 
 mkdir -p agentless/dist/tmp
+cp -r shared/src/. agentless/dist/tmp
 cp -r agentless/src/. agentless/dist/tmp
 
 if python -m zipapp agentless/dist/tmp \

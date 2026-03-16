@@ -3,11 +3,14 @@
 
 """Preflight checks before running Terraform."""
 
-import urllib.request
-import urllib.error
 import json
+import urllib.error
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
+
+from az_shared.execute_cmd import execute, execute_json
+from common.shell import Cmd
 
 from .config import Config
 from .errors import (
@@ -19,8 +22,7 @@ from .errors import (
     DatadogAppKeyError,
     ResourceProviderError,
 )
-from .reporter import Reporter, AgentlessStep
-from .shell import az_cli
+from .reporter import AgentlessStep, Reporter
 
 
 MAX_PARALLEL_WORKERS = 10
@@ -98,8 +100,9 @@ def check_azure_authentication(reporter: Reporter) -> None:
     Raises:
         AzureAuthenticationError: If not authenticated with Azure.
     """
-    success, result = az_cli(["account", "show"])
-    if not success:
+    try:
+        execute(Cmd(["az", "account", "show", "--output", "json"]))
+    except Exception:
         raise AzureAuthenticationError()
     reporter.success("Azure CLI authentication verified")
 
@@ -110,11 +113,12 @@ def set_subscription(reporter: Reporter, subscription_id: str) -> None:
     Raises:
         AzureAccessError: If the subscription cannot be set.
     """
-    success, result = az_cli(["account", "set", "--subscription", subscription_id], output_json=False)
-    if not success:
+    try:
+        execute(Cmd(["az", "account", "set", "--subscription", subscription_id]))
+    except Exception as e:
         raise AzureAccessError(
             f"Cannot set subscription: {subscription_id}",
-            f"Ensure you have access to this subscription.\n{result}",
+            f"Ensure you have access to this subscription.\n{e}",
         )
     reporter.success(f"Active subscription set to {subscription_id}")
 
@@ -125,10 +129,11 @@ def check_subscription_access(subscription_id: str) -> tuple[str, bool, Optional
     Returns:
         Tuple of (subscription_id, success, error_message)
     """
-    success, result = az_cli(["account", "show", "--subscription", subscription_id])
-    if not success:
-        return subscription_id, False, str(result)
-    return subscription_id, True, None
+    try:
+        execute(Cmd(["az", "account", "show", "--subscription", subscription_id, "--output", "json"]))
+        return subscription_id, True, None
+    except Exception as e:
+        return subscription_id, False, str(e)
 
 
 def check_subscriptions_access_parallel(reporter: Reporter, subscriptions: list[str]) -> list[str]:
@@ -153,14 +158,13 @@ def check_subscriptions_access_parallel(reporter: Reporter, subscriptions: list[
 
 def _check_location(location: str, subscription_id: str) -> tuple[str, bool]:
     """Check a single location against the Azure API. Returns (location, is_valid)."""
-    success, result = az_cli([
-        "account", "list-locations",
-        "--query", f"[?name=='{location}']",
-    ])
-    if not success:
+    try:
+        result = execute_json(
+            Cmd(["az", "account", "list-locations", "--query", f"[?name=='{location}']", "--output", "json"])
+        )
+        return location, isinstance(result, list) and len(result) > 0
+    except Exception:
         return location, False
-    # result is a list; non-empty means valid
-    return location, isinstance(result, list) and len(result) > 0
 
 
 def validate_locations(reporter: Reporter, locations: list[str], subscription_id: str) -> None:
@@ -191,29 +195,25 @@ def validate_locations(reporter: Reporter, locations: list[str], subscription_id
 
 def _check_resource_provider(provider: str, subscription_id: str) -> tuple[str, str]:
     """Check registration state of a resource provider. Returns (provider, state)."""
-    success, result = az_cli([
-        "provider", "show",
-        "--namespace", provider,
-        "--subscription", subscription_id,
-        "--query", "registrationState",
-    ])
-    if not success:
+    try:
+        result = execute(
+            Cmd(["az", "provider", "show", "--namespace", provider,
+                 "--subscription", subscription_id,
+                 "--query", "registrationState", "--output", "json"])
+        )
+        state = result.strip().strip('"')
+        return provider, state
+    except Exception:
         return provider, "Unknown"
-    # result is a quoted string like "Registered"
-    state = result.strip('"') if isinstance(result, str) else str(result)
-    return provider, state
 
 
 def _register_resource_provider(provider: str, subscription_id: str) -> tuple[str, bool, Optional[str]]:
     """Register a resource provider. Returns (provider, success, error)."""
-    success, result = az_cli([
-        "provider", "register",
-        "--namespace", provider,
-        "--subscription", subscription_id,
-    ], output_json=False)
-    if not success:
-        return provider, False, str(result)
-    return provider, True, None
+    try:
+        execute(Cmd(["az", "provider", "register", "--namespace", provider, "--subscription", subscription_id]))
+        return provider, True, None
+    except Exception as e:
+        return provider, False, str(e)
 
 
 def check_and_register_resource_providers(
