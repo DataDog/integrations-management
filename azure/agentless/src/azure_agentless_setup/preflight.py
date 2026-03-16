@@ -9,6 +9,7 @@ from typing import Optional
 from az_shared.auth import check_login
 from az_shared.auth import set_subscription as az_set_subscription
 from az_shared.execute_cmd import execute, execute_json
+from az_shared.regions import get_available_regions
 from common.datadog_validation import (
     APIKeyMissingRCScopeError,
     InvalidAPIKeyError,
@@ -210,33 +211,29 @@ def check_subscriptions_permissions_parallel(
     return failed
 
 
-def _check_location(location: str, subscription_id: str) -> tuple[str, bool]:
-    """Check a single location against the Azure API. Returns (location, is_valid)."""
-    try:
-        result = execute_json(
-            Cmd(["az", "account", "list-locations", "--query", f"[?name=='{location}']", "--output", "json"])
-        )
-        return location, isinstance(result, list) and len(result) > 0
-    except Exception:
-        return location, False
-
-
-def validate_locations(reporter: Reporter, locations: list[str], subscription_id: str) -> None:
+def validate_locations(reporter: Reporter, locations: list[str]) -> None:
     """Validate that location names are valid Azure regions.
+
+    Fetches all available regions in a single API call via ``az_shared.regions``
+    and checks that every requested location is in the returned list.
 
     Raises:
         ConfigurationError: If any location is invalid.
     """
-    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
-        futures = {
-            executor.submit(_check_location, loc, subscription_id): loc
-            for loc in locations
-        }
-        invalid = []
-        for future in as_completed(futures):
-            location, is_valid = future.result()
-            if not is_valid:
-                invalid.append(location)
+    try:
+        available = get_available_regions()
+    except Exception:
+        available = []
+
+    if not available:
+        raise ConfigurationError(
+            "Could not fetch available Azure regions",
+            "Ensure you are authenticated and your subscription is active.\n"
+            "Run 'az account list-locations --query \"[].name\"' to verify.",
+        )
+
+    available_set = set(available)
+    invalid = [loc for loc in locations if loc not in available_set]
 
     if invalid:
         raise ConfigurationError(
@@ -333,7 +330,7 @@ def run_preflight_checks(config: Config, reporter: Reporter) -> None:
 
     set_subscription(reporter, config.scanner_subscription)
 
-    validate_locations(reporter, config.locations, config.scanner_subscription)
+    validate_locations(reporter, config.locations)
 
     reporter.info(f"Checking permissions on {len(config.all_subscriptions)} subscription(s)...")
     failed = check_subscriptions_permissions_parallel(

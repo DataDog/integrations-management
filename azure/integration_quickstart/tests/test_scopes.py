@@ -130,7 +130,7 @@ class TestGetAvailableRegions(DDTestCase):
             "northeurope",
             "westeurope",
         ]
-        with mock_patch("azure_integration_quickstart.scopes.execute_json") as mock_execute_json:
+        with mock_patch("az_shared.regions.execute_json") as mock_execute_json:
             mock_execute_json.return_value = expected_regions
             regions = get_available_regions()
             self.assertIsNotNone(regions)
