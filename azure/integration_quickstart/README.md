@@ -14,9 +14,10 @@ This project builds two quickstart executables:
   - (Optional) Datadog Agent on VMs
 
 #### Log Forwarding Quickstart (`azure_log_forwarding_quickstart.pyz`)
-- **Purpose**: Log Forwarder setup only
+- **Purpose**: Log Forwarder setup and/or modification
 - **Sets up**:
   - Log Forwarder for Log Collection
+  - If a Log Forwarder already exists, supports subsequent modification
 
 ## Environment
 
