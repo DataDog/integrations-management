@@ -9,18 +9,19 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
+from az_shared.errors import AzCliNotAuthenticatedError
 from az_shared.execute_cmd import execute, execute_json
 from common.shell import Cmd
 
 from .config import Config
 from .errors import (
     AzureAccessError,
-    AzureAuthenticationError,
     ConfigurationError,
     DatadogAPIKeyError,
     DatadogAPIKeyMissingRCError,
     DatadogAppKeyError,
     ResourceProviderError,
+    SetupError,
 )
 from .reporter import AgentlessStep, Reporter
 
@@ -113,12 +114,14 @@ def check_azure_authentication(reporter: Reporter) -> None:
     """Verify Azure CLI authentication.
 
     Raises:
-        AzureAuthenticationError: If not authenticated with Azure.
+        SetupError: If not authenticated with Azure.
     """
     try:
         execute(Cmd(["az", "account", "show", "--output", "json"]))
+    except AzCliNotAuthenticatedError:
+        raise SetupError("Not authenticated with Azure", "Run: az login")
     except Exception:
-        raise AzureAuthenticationError()
+        raise SetupError("Not authenticated with Azure", "Run: az login")
     reporter.success("Azure CLI authentication verified")
 
 

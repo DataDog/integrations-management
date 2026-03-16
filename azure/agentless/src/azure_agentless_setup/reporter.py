@@ -7,10 +7,10 @@ import json
 from enum import Enum
 from typing import Any, NoReturn, Optional
 
+from az_shared.errors import AzCliNotAuthenticatedError, AzCliNotInstalledError
 from az_shared.execute_cmd import execute
-from common.shell import Cmd
-
 from common.requests import dd_request
+from common.shell import Cmd
 
 from .console_reporter import ConsoleReporter, Step
 from .errors import SetupError
@@ -89,16 +89,17 @@ class Reporter:
         self._report_to_api("login", Status.IN_PROGRESS)
         try:
             execute(Cmd(["az", "account", "show", "--output", "json"]))
-        except Exception as e:
+        except AzCliNotInstalledError as e:
             self._report_to_api("login", Status.FAILED, message=str(e))
-            if "az: command not found" in str(e) or "'az' is not recognized" in str(e):
-                print(
-                    "You must install the Azure CLI and log in to run this script.\n"
-                    "https://learn.microsoft.com/cli/azure/install-azure-cli"
-                )
-            else:
-                print("You must be logged in to Azure CLI to run this script.")
-                print("Run: az login")
+            print(
+                "You must install the Azure CLI and log in to run this script.\n"
+                "https://learn.microsoft.com/cli/azure/install-azure-cli"
+            )
+            exit(1)
+        except (AzCliNotAuthenticatedError, Exception) as e:
+            self._report_to_api("login", Status.FAILED, message=str(e))
+            print("You must be logged in to Azure CLI to run this script.")
+            print("Run: az login")
             exit(1)
         else:
             self._report_to_api("login", Status.FINISHED)
