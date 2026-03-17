@@ -4,7 +4,6 @@
 
 import json
 from unittest import TestCase
-from unittest.mock import MagicMock
 from unittest.mock import patch as mock_patch
 
 from az_shared.errors import (
@@ -35,23 +34,12 @@ from tests.test_data import (
 
 CONTROL_PLANE_CACHE_STORAGE_NAME = f"lfostorage{CONTROL_PLANE_SUBSCRIPTION_ID}"
 
-MOCK_DATADOG_VALID_RESPONSE = {
-    "valid": True,
-}
-
-MOCK_DATADOG_ERROR_RESPONSE = {
-    "status": "error",
-    "code": 403,
-    "errors": ["Forbidden"],
-}
-
 
 class TestValidation(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures and reset global settings"""
         self.execute_mock = self.patch("azure_logging_install.validation.execute")
         self.set_subscription_mock = self.patch("azure_logging_install.validation.set_subscription")
-        self.urlopen_mock = self.patch("azure_logging_install.validation.urllib.request.urlopen")
 
         # Create test configuration
         self.config = Configuration(
@@ -107,20 +95,28 @@ class TestValidation(TestCase):
 
     def test_validate_az_cli_success(self):
         """Test successful Azure CLI validation"""
-        self.execute_mock.return_value = "azure-cli-user"
-
-        validation.validate_az_cli()
-
-        self.execute_mock.assert_called_once()
+        with mock_patch("azure_logging_install.validation.check_login", return_value="{}"):
+            validation.validate_az_cli()
 
     def test_validate_az_cli_not_authenticated(self):
         """Test Azure CLI validation when not authenticated"""
-        self.execute_mock.side_effect = Exception("Please run 'az login'")
+        with mock_patch(
+            "azure_logging_install.validation.check_login",
+            side_effect=AzCliNotAuthenticatedError("not logged in"),
+        ):
+            with self.assertRaises(AzCliNotAuthenticatedError):
+                validation.validate_az_cli()
 
-        with self.assertRaises(AzCliNotAuthenticatedError) as context:
-            validation.validate_az_cli()
+    def test_validate_az_cli_not_installed(self):
+        """Test Azure CLI validation when CLI is not installed"""
+        from az_shared.errors import AzCliNotInstalledError
 
-        self.assertIn("Azure CLI is not authenticated", str(context.exception))
+        with mock_patch(
+            "azure_logging_install.validation.check_login",
+            side_effect=AzCliNotInstalledError("az: command not found"),
+        ):
+            with self.assertRaises(AzCliNotInstalledError):
+                validation.validate_az_cli()
 
     # ===== Subscription Access Validation Tests ===== #
 
@@ -233,36 +229,30 @@ class TestValidation(TestCase):
 
     def test_validate_datadog_credentials_success(self):
         """Test successful Datadog credentials validation"""
-        mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(MOCK_DATADOG_VALID_RESPONSE).encode("utf-8")
-        mock_response.__enter__ = MagicMock(return_value=mock_response)
-        mock_response.__exit__ = MagicMock(return_value=None)
-        self.urlopen_mock.return_value = mock_response
-        validation.validate_datadog_credentials(DATADOG_API_KEY, DATADOG_SITE)
+        with mock_patch("azure_logging_install.validation.validate_api_key_v1", return_value=True):
+            validation.validate_datadog_credentials(DATADOG_API_KEY, DATADOG_SITE)
+
+    def test_validate_datadog_credentials_empty_key(self):
+        """Test Datadog credentials validation with empty API key"""
+        with self.assertRaises(InputParamValidationError):
+            validation.validate_datadog_credentials("", DATADOG_SITE)
 
     def test_validate_datadog_credentials_invalid_api_key(self):
         """Test Datadog credentials validation with invalid API key"""
-        mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(MOCK_DATADOG_ERROR_RESPONSE).encode("utf-8")
-        mock_response.__enter__ = MagicMock(return_value=mock_response)
-        mock_response.__exit__ = MagicMock(return_value=None)
-        self.urlopen_mock.return_value = mock_response
+        from common.datadog_validation import DatadogValidationError
 
-        with self.assertRaises(DatadogAccessValidationError):
-            validation.validate_datadog_credentials("invalid-key", DATADOG_SITE)
+        with mock_patch(
+            "azure_logging_install.validation.validate_api_key_v1",
+            side_effect=DatadogValidationError("Invalid Datadog API key or site"),
+        ):
+            with self.assertRaises(DatadogAccessValidationError):
+                validation.validate_datadog_credentials("invalid-key", DATADOG_SITE)
 
-    def test_validate_datadog_credentials_different_sites(self):
-        """Test Datadog credentials validation with different sites"""
-        mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(MOCK_DATADOG_VALID_RESPONSE).encode("utf-8")
-        mock_response.__enter__ = MagicMock(return_value=mock_response)
-        mock_response.__exit__ = MagicMock(return_value=None)
-        self.urlopen_mock.return_value = mock_response
-
-        validation.validate_datadog_credentials(DATADOG_API_KEY, "datadoghq.eu")
-        if self.urlopen_mock.call_args:
-            call_args = self.urlopen_mock.call_args[0][0]
-            self.assertIn("datadoghq.eu", call_args.full_url)
+    def test_validate_datadog_credentials_delegates_to_shared(self):
+        """Test that validation delegates to the shared validate_api_key_v1 function"""
+        with mock_patch("azure_logging_install.validation.validate_api_key_v1", return_value=True) as mock_validate:
+            validation.validate_datadog_credentials(DATADOG_API_KEY, "datadoghq.eu")
+            mock_validate.assert_called_once_with(DATADOG_API_KEY, "datadoghq.eu")
 
     # ===== Azure Environment Validation Tests ===== #
 

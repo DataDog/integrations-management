@@ -4,11 +4,10 @@
 
 import json
 import sys
-import urllib.error
-import urllib.request
 import uuid
 from dataclasses import asdict
 
+from az_shared.auth import check_login
 from az_shared.errors import (
     AccessError,
     AzCliNotAuthenticatedError,
@@ -19,6 +18,7 @@ from az_shared.errors import (
 )
 from az_shared.execute_cmd import execute
 from az_shared.logs import log
+from common.datadog_validation import DatadogValidationError, validate_api_key_v1
 
 from .az_cmd import AzCmd, set_subscription
 from .configuration import Configuration
@@ -59,11 +59,8 @@ def validate_azure_env(config: Configuration):
 
 def validate_az_cli():
     """Ensure Azure CLI is installed and user is authenticated."""
-    try:
-        execute(AzCmd("account", "show"))
-        log.debug("Azure CLI authentication verified")
-    except Exception as e:
-        raise AzCliNotAuthenticatedError("Azure CLI is not authenticated. Please run 'az login' first and retry") from e
+    check_login()
+    log.debug("Azure CLI authentication verified")
 
 
 def check_fresh_install(config: Configuration, sub_id_to_name: dict[str, str]) -> dict[str, LfoMetadata]:
@@ -210,21 +207,10 @@ def validate_datadog_credentials(datadog_api_key: str, datadog_site: str):
         raise InputParamValidationError("Datadog API key not configured")
 
     try:
-        url = f"https://api.{datadog_site}/api/v1/validate"
-        headers = {"Accept": "application/json", "DD-API-KEY": datadog_api_key}
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req) as response:
-            response_json = json.loads(response.read())
-            if not response_json.get("valid", False):
-                raise DatadogAccessValidationError(f"Datadog API Key validation with {datadog_site} failed")
-
+        validate_api_key_v1(datadog_api_key, datadog_site)
         log.debug("Datadog API credentials validated")
-    except urllib.error.HTTPError as e:
-        raise DatadogAccessValidationError(f"Failed to validate Datadog credentials: HTTP {e.code} {e.reason}") from e
-    except urllib.error.URLError as e:
-        raise DatadogAccessValidationError(f"Failed to validate Datadog credentials: {e.reason}") from e
-    except json.JSONDecodeError as e:
-        raise DatadogAccessValidationError(f"Failed to parse Datadog validation response: {e}") from e
+    except DatadogValidationError as e:
+        raise DatadogAccessValidationError(f"Datadog API Key validation with {datadog_site} failed: {e.message}") from e
 
 
 def validate_user_config(config: Configuration):

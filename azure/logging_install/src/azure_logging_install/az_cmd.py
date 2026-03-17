@@ -5,8 +5,8 @@
 import json
 from collections.abc import Iterable
 
+from az_shared.auth import set_subscription  # noqa: F401 — re-exported for existing callers
 from az_shared.execute_cmd import execute
-from az_shared.logs import log
 from common.shell import Cmd
 
 
@@ -33,9 +33,3 @@ def list_users_subscriptions() -> dict[str, str]:
     user_subs = execute(AzCmd("account", "list").param("--output", "json"))
     subs_json = json.loads(user_subs)
     return {sub["id"]: sub["name"] for sub in subs_json}
-
-
-def set_subscription(sub_id: str):
-    """Set the active Azure subscription."""
-    log.debug(f"Setting active subscription to {sub_id}")
-    execute(AzCmd("account", "set").param("--subscription", sub_id))

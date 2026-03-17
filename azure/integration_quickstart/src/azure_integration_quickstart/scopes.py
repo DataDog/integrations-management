@@ -10,6 +10,7 @@ from typing import Literal, Optional
 
 from az_shared.errors import AccessError
 from az_shared.execute_cmd import execute_json
+from az_shared.regions import get_available_regions
 from azure_integration_quickstart.permissions import FlatPermission, get_flat_permission
 from azure_integration_quickstart.util import MAX_WORKERS
 from common.shell import Cmd
@@ -144,12 +145,6 @@ def get_management_group_scopes(tenant_id: str) -> list[ManagementGroup]:
     with ThreadPoolExecutor(MAX_WORKERS) as executor:
         management_groups = executor.map(get_management_group_from_list_result, mgroup_list_results)
     return list(management_groups)
-
-
-def get_available_regions() -> list[str]:
-    """Get the list of Azure regions (by name) that the user's tenant has access to."""
-    regions = execute_json(Cmd(["az", "account", "list-locations"]).param("--query", "[].name").param("-o", "json"))
-    return regions
 
 
 def get_tenant_and_subscriptions() -> tuple[str, list[Subscription]]:
