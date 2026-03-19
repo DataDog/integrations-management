@@ -12,6 +12,7 @@ from .config import parse_config
 from .errors import DatadogCredentialsError, SetupError
 from .preflight import run_preflight_checks, validate_datadog_api_key, validate_datadog_app_key
 from .reporter import Reporter
+from .state_storage import ensure_state_storage
 
 
 # Total number of steps in the deploy process:
@@ -163,8 +164,8 @@ def cmd_deploy() -> None:
         # Step 1: Preflight checks
         run_preflight_checks(config, reporter)
 
-        # Step 2: Create state storage (Storage Account + Key Vault)
-        # TODO: implement in next PR (state_storage.py)
+        # Step 2: Create state storage (Storage Account + blob container)
+        storage_account = ensure_state_storage(config, reporter)
 
         # Step 3: Store API key in Key Vault
         # TODO: implement in next PR (secrets.py)
