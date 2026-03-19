@@ -9,6 +9,8 @@ Secrets User" access so scanner VMs can retrieve the key at runtime.
 """
 
 import hashlib
+import json
+from time import sleep
 from typing import Optional
 
 from az_shared.execute_cmd import execute, execute_json
@@ -133,47 +135,75 @@ def grant_current_user_secrets_officer(vault_name: str, subscription: str) -> No
 def get_secret_value(vault_name: str) -> Optional[str]:
     """Get the current value of the API key secret.
 
+    Retries on failure to handle Azure RBAC propagation delay after
+    granting Key Vault Secrets Officer role.
+
     Returns:
         The secret value, or None if the secret doesn't exist.
     """
-    try:
-        result = execute_json(
-            Cmd(["az", "keyvault", "secret", "show"])
-            .param("--vault-name", vault_name)
-            .param("--name", API_KEY_SECRET_NAME)
-            .param("--query", "value")
-            .param("--output", "json")
-        )
-        return result if isinstance(result, str) else None
-    except Exception:
-        return None
+    cmd = (
+        Cmd(["az", "keyvault", "secret", "show"])
+        .param("--vault-name", vault_name)
+        .param("--name", API_KEY_SECRET_NAME)
+    )
+    for attempt in range(RBAC_PROPAGATION_RETRIES):
+        try:
+            raw = execute(cmd, can_fail=True)
+            if raw:
+                data = json.loads(raw)
+                return data.get("value")
+            if attempt < RBAC_PROPAGATION_RETRIES - 1:
+                print(f"      Waiting for role assignment to propagate ({RBAC_PROPAGATION_DELAY}s)...")
+                sleep(RBAC_PROPAGATION_DELAY)
+                continue
+            return None
+        except Exception:
+            return None
+
+
+RBAC_PROPAGATION_RETRIES = 6
+RBAC_PROPAGATION_DELAY = 10  # seconds
 
 
 def set_secret(vault_name: str, api_key: str) -> str:
     """Create or update the API key secret in Key Vault.
 
+    Retries on failure to handle Azure RBAC propagation delay after
+    granting Key Vault Secrets Officer role.
+
     Returns:
-        The versionless secret resource ID.
+        The secret data-plane URL (https://<vault>.vault.azure.net/secrets/<name>/<version>).
 
     Raises:
-        KeyVaultError: If the secret cannot be set.
+        KeyVaultError: If the secret cannot be set after all retries.
     """
-    try:
-        result = execute_json(
-            Cmd(["az", "keyvault", "secret", "set"])
-            .param("--vault-name", vault_name)
-            .param("--name", API_KEY_SECRET_NAME)
-            .param("--value", api_key)
-        )
-        # The resource ID looks like:
-        # https://<vault>.vault.azure.net/secrets/<name>/<version>
-        # The TF module expects the ARM resource ID, which we build from the vault.
-        return result["id"]
-    except Exception as e:
-        raise KeyVaultError(
-            f"Failed to store API key in Key Vault: {vault_name}",
-            str(e),
-        ) from e
+    cmd = (
+        Cmd(["az", "keyvault", "secret", "set"])
+        .param("--vault-name", vault_name)
+        .param("--name", API_KEY_SECRET_NAME)
+        .param("--value", api_key)
+    )
+    for attempt in range(RBAC_PROPAGATION_RETRIES):
+        try:
+            raw = execute(cmd, can_fail=True)
+            if raw:
+                data = json.loads(raw)
+                return data["id"]
+            if attempt < RBAC_PROPAGATION_RETRIES - 1:
+                print(f"      Waiting for role assignment to propagate ({RBAC_PROPAGATION_DELAY}s)...")
+                sleep(RBAC_PROPAGATION_DELAY)
+                continue
+        except Exception as e:
+            raise KeyVaultError(
+                f"Failed to store API key in Key Vault: {vault_name}",
+                str(e),
+            ) from e
+
+    raise KeyVaultError(
+        f"Failed to store API key in Key Vault: {vault_name}",
+        "Timed out waiting for Key Vault RBAC role assignment to propagate.\n"
+        "Please wait a few minutes and re-run the command.",
+    )
 
 
 def get_secret_resource_id(vault_name: str, resource_group: str) -> str:

@@ -9,7 +9,7 @@ The azurerm backend requires: storage_account_name, container_name, key.
 
 import hashlib
 
-from az_shared.execute_cmd import execute, execute_json
+from az_shared.execute_cmd import execute
 from common.shell import Cmd
 
 from .config import Config
@@ -38,13 +38,13 @@ def get_storage_account_name(scanner_subscription: str) -> str:
 def storage_account_exists(account_name: str, resource_group: str) -> bool:
     """Check if a Storage Account exists in the resource group."""
     try:
-        execute(
+        result = execute(
             Cmd(["az", "storage", "account", "show"])
             .param("--name", account_name)
             .param("--resource-group", resource_group),
             can_fail=True,
         )
-        return True
+        return bool(result)
     except Exception:
         return False
 
@@ -89,13 +89,14 @@ def create_storage_account(
 def container_exists(account_name: str) -> bool:
     """Check if the tfstate blob container exists."""
     try:
-        result = execute_json(
+        result = execute(
             Cmd(["az", "storage", "container", "show"])
             .param("--name", CONTAINER_NAME)
             .param("--account-name", account_name)
-            .param("--auth-mode", "login")
+            .param("--auth-mode", "login"),
+            can_fail=True,
         )
-        return result is not None
+        return bool(result)
     except Exception:
         return False
 
