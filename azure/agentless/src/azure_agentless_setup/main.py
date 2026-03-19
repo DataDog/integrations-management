@@ -12,6 +12,7 @@ from .config import parse_config
 from .errors import DatadogCredentialsError, SetupError
 from .preflight import run_preflight_checks, validate_datadog_api_key, validate_datadog_app_key
 from .reporter import Reporter
+from .secrets import ensure_api_key_secret, get_key_vault_name
 from .state_storage import ensure_state_storage
 
 
@@ -168,7 +169,15 @@ def cmd_deploy() -> None:
         storage_account = ensure_state_storage(config, reporter)
 
         # Step 3: Store API key in Key Vault
-        # TODO: implement in next PR (secrets.py)
+        vault_name = get_key_vault_name(config.scanner_subscription)
+        api_key_secret_id = ensure_api_key_secret(
+            config_api_key=config.api_key,
+            vault_name=vault_name,
+            resource_group=config.resource_group,
+            location=config.locations[0],
+            subscription=config.scanner_subscription,
+            reporter=reporter,
+        )
 
         # Step 4-6: Terraform generate, init, apply
         # TODO: implement in next PR (terraform.py)
