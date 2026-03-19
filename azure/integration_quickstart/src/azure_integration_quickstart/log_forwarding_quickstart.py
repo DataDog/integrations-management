@@ -40,20 +40,20 @@ def main():
         with ThreadPoolExecutor() as executor:
             scopes_future = executor.submit(finish_collecting_scopes, tenant_id, subscriptions, step_metadata)
             lfo_future = executor.submit(
-            report_existing_log_forwarders,
-            subscriptions,
-            step_metadata,
-            True,
-        )
-        scopes_future.result()
-        exactly_one_log_forwarder, existing_lfo = lfo_future.result()
+                report_existing_log_forwarders,
+                subscriptions,
+                step_metadata,
+                True,
+            )
+            scopes_future.result()
+            existing_lfo = lfo_future.result()
     with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
         selections = receive_log_forwarding_selections(workflow_id)
     if selections.log_forwarding_config:
         flattened_add_scopes = flatten_scopes(selections.add_scopes)
         add_ids = {s.id for s in flattened_add_scopes}
 
-        if exactly_one_log_forwarder and existing_lfo:
+        if existing_lfo:
             remove_ids = {s.id for s in flatten_scopes(selections.remove_scopes)}
             # Safeguard against removing the control plane subscription
             control_plane_sub_id = selections.log_forwarding_config["controlPlaneSubscriptionId"]
@@ -71,7 +71,7 @@ def main():
         }
 
         with status.report_step(
-            "upsert_log_forwarder", f"{'Updating' if exactly_one_log_forwarder else 'Creating'} Log Forwarder"
+            "upsert_log_forwarder", f"{'Updating' if existing_lfo else 'Creating'} Log Forwarder"
         ):
             upsert_log_forwarder(selections.log_forwarding_config, final_subscriptions)
 

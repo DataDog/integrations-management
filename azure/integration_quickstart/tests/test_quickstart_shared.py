@@ -54,34 +54,28 @@ class TestBuildLogForwarderPayload(DDTestCase):
 
 
 class TestReportExistingLogForwarders(DDTestCase):
-    """report_existing_log_forwarders populates step_metadata and returns (exactly_one, existing_lfo)."""
+    """report_existing_log_forwarders populates step_metadata and returns existing_lfo or None."""
 
-    def test_one_lfo_populates_step_metadata_and_returns_exactly_one_and_metadata(self):
-        """With one existing LFO, step_metadata gets one payload and we return (True, that LfoMetadata)."""
+    def test_one_lfo_populates_step_metadata_and_returns_metadata(self):
+        """With one existing LFO, step_metadata gets one payload and we return that LfoMetadata."""
         metadata = _make_metadata()
         step_metadata = {}
         with mock_patch(
             "azure_integration_quickstart.quickstart_shared.check_existing_lfo",
             return_value={"lfo-id": metadata},
         ):
-            exactly_one, existing_lfo = report_existing_log_forwarders(
-                [], step_metadata, include_monitored_scopes=True
-            )
-        self.assertTrue(exactly_one)
+            existing_lfo = report_existing_log_forwarders([], step_metadata, include_monitored_scopes=True)
         self.assertIs(existing_lfo, metadata)
         self.assertEqual(len(step_metadata["log_forwarders"]), 1)
         self.assertEqual(step_metadata["log_forwarders"][0]["controlPlaneSubscriptionId"], "cp-sub")
 
-    def test_no_existing_lfos_returns_false_none_and_empty_list_so_quickstart_creates_new(self):
-        """When there are zero LFOs in the tenant, return (False, None) and write []."""
+    def test_no_existing_lfos_returns_none_and_empty_list_so_quickstart_creates_new(self):
+        """When there are zero LFOs in the tenant, return None and write []."""
         step_metadata = {}
         with mock_patch(
             "azure_integration_quickstart.quickstart_shared.check_existing_lfo",
             return_value={},
         ):
-            exactly_one, existing_lfo = report_existing_log_forwarders(
-                [], step_metadata, include_monitored_scopes=True
-            )
-        self.assertFalse(exactly_one)
+            existing_lfo = report_existing_log_forwarders([], step_metadata, include_monitored_scopes=True)
         self.assertIsNone(existing_lfo)
         self.assertEqual(step_metadata["log_forwarders"], [])
