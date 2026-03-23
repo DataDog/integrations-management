@@ -59,6 +59,20 @@ class Config:
         """Azure subscription scopes for role assignments."""
         return [f"/subscriptions/{s}" for s in self.all_subscriptions]
 
+    def with_merged(self, locations: list[str], subscriptions_to_scan: list[str]) -> "Config":
+        """Return a copy with merged locations and subscriptions."""
+        return Config(
+            api_key=self.api_key,
+            app_key=self.app_key,
+            site=self.site,
+            workflow_id=self.workflow_id,
+            scanner_subscription=self.scanner_subscription,
+            locations=locations,
+            subscriptions_to_scan=subscriptions_to_scan,
+            resource_group=self.resource_group,
+            state_storage_account=self.state_storage_account,
+        )
+
 
 def parse_config() -> Config:
     """Parse configuration from environment variables.

@@ -10,10 +10,12 @@ import threading
 
 from .config import parse_config
 from .errors import DatadogCredentialsError, SetupError
+from .metadata import read_metadata, write_metadata, merge_with_config, terraform_state_exists
 from .preflight import run_preflight_checks, validate_datadog_api_key, validate_datadog_app_key
 from .reporter import Reporter
 from .secrets import ensure_api_key_secret, get_key_vault_name
 from .state_storage import ensure_state_storage
+from .terraform import TerraformRunner
 
 
 # Total number of steps in the deploy process:
@@ -162,7 +164,7 @@ def cmd_deploy() -> None:
             marker = " (scanner)" if s == config.scanner_subscription else ""
             print(f"    - {s}{marker}")
 
-        # Step 1: Preflight checks
+        # Step 1: Preflight checks (on current run inputs first)
         run_preflight_checks(config, reporter)
 
         # Step 2: Create state storage (Storage Account + blob container)
@@ -179,16 +181,58 @@ def cmd_deploy() -> None:
             reporter=reporter,
         )
 
-        # Step 4-6: Terraform generate, init, apply
-        # TODO: implement in next PR (terraform.py)
+        # Read existing metadata and merge with current inputs
+        existing_metadata, metadata_etag = read_metadata(storage_account)
+
+        if existing_metadata is None and terraform_state_exists(storage_account):
+            reporter.warning(
+                "Terraform state exists but no deployment metadata. "
+                "Recovering metadata from current inputs."
+            )
+            metadata_etag = None
+
+        merged_metadata = merge_with_config(existing_metadata, config)
+        merged_config = config.with_merged(
+            locations=merged_metadata.locations,
+            subscriptions_to_scan=merged_metadata.subscriptions_to_scan,
+        )
+
+        if existing_metadata:
+            new_locations = set(config.locations) - set(existing_metadata.locations)
+            new_subs = set(config.all_subscriptions) - set(existing_metadata.subscriptions_to_scan)
+            print()
+            print("Merged with existing deployment:")
+            print(f"  Total locations:       {len(merged_config.locations)}")
+            for loc in merged_config.locations:
+                marker = " (new)" if loc in new_locations else ""
+                print(f"    - {loc}{marker}")
+            print(f"  Total subscriptions:   {len(merged_config.all_subscriptions)}")
+            for s in merged_config.all_subscriptions:
+                marker = " (new)" if s in new_subs else ""
+                if s == config.scanner_subscription:
+                    marker += " (scanner)"
+                print(f"    - {s}{marker}")
+
+        # Steps 4-6: Run Terraform (with merged config)
+        tf_runner = TerraformRunner(merged_config, storage_account, api_key_secret_id, reporter)
+        tf_runner.run()
+
+        # Write metadata only after successful apply
+        write_metadata(storage_account, merged_metadata, metadata_etag, config)
 
         reporter.complete()
-        reporter.summary(config.scanner_subscription, config.locations, config.all_subscriptions)
+        reporter.summary(merged_config.scanner_subscription, merged_config.locations, merged_config.all_subscriptions)
 
         print()
         print("Next Steps:")
         print("  1. Go to Datadog Security → Cloud Security → Vulnerabilities")
         print("  2. Your Azure resources should appear shortly")
+        print()
+        print("Tip: To view only vulnerabilities detected by Agentless Scanning,")
+        print('     use the filter: origin:"Agentless scanner" in the search bar.')
+        print()
+        print("To update or destroy this deployment, run Terraform commands in:")
+        print(f"  {tf_runner.work_dir}")
         print()
 
         timer.cancel()
