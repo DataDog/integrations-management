@@ -9,6 +9,7 @@ The azurerm backend requires: storage_account_name, container_name, key.
 
 import hashlib
 import json
+import subprocess
 import time
 
 from az_shared.execute_cmd import execute
@@ -189,20 +190,22 @@ def _wait_for_blob_access(account_name: str, reporter: Reporter) -> None:
     Probes actual blob data-plane access instead of sleeping a fixed
     duration. Listing containers with --auth-mode login exercises the
     same Azure AD path that Terraform will use.
+
+    Uses subprocess directly instead of execute() to avoid noisy
+    log.error output on every expected retry attempt.
     """
+    probe_cmd = str(
+        Cmd(["az", "storage", "container", "list"])
+        .param("--account-name", account_name)
+        .param("--auth-mode", "login")
+        .param("--query", "length(@)")
+        .param("--output", "tsv")
+    )
+
     for attempt in range(RBAC_PROPAGATION_RETRIES):
-        try:
-            execute(
-                Cmd(["az", "storage", "container", "list"])
-                .param("--account-name", account_name)
-                .param("--auth-mode", "login")
-                .param("--query", "length(@)")
-                .param("--output", "tsv"),
-                can_fail=True,
-            )
+        result = subprocess.run(probe_cmd, shell=True, capture_output=True, text=True)
+        if result.returncode == 0:
             return
-        except Exception:
-            pass
 
         remaining = RBAC_PROPAGATION_RETRIES - attempt - 1
         if remaining > 0:

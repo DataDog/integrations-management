@@ -139,6 +139,8 @@ def _upload_metadata_cas(storage_account: str, content: str, etag: Optional[str]
         )
         if etag:
             cmd = cmd.param("--if-match", etag)
+        else:
+            cmd = cmd.param("--if-none-match", "*")
 
         execute(cmd)
         return True
