@@ -23,7 +23,8 @@ from .reporter import Reporter, AgentlessStep
 
 TERRAFORM_PARALLELISM = 10
 
-MODULE_VERSION = "0.12.1"
+# TODO: replace with a release tag once terraform-module-datadog-agentless-scanner cuts one
+MODULE_VERSION = "fbc0d0bb425ae4084433834e68d3b23e566fba0d"
 MODULE_BASE = f"git::https://github.com/DataDog/terraform-module-datadog-agentless-scanner//azure/modules"
 
 
@@ -144,68 +145,29 @@ def generate_terraform_config(
 }}
 '''
 
-    # Per-location resources: VNet (inlined because the upstream module
-    # hardcodes resource names which collide in multi-location deployments)
-    # and VM (module supports a name variable).
+    # Per-location resources: VNet + VM
     location_modules_tf = ""
     for location in config.locations:
         loc_id = _sanitize_name(location)
         location_modules_tf += f'''
 # --- {location} ---
 
-resource "azurerm_virtual_network" "vnet_{loc_id}" {{
-  name                = "vnet-{location}"
+module "virtual_network_{loc_id}" {{
+  source              = "{_module_source("virtual-network")}"
   location            = "{location}"
   resource_group_name = data.azurerm_resource_group.scanner.name
-  address_space       = ["10.0.0.0/16"]
-  tags                = {{ Datadog = "true", DatadogAgentlessScanner = "true" }}
-}}
-
-resource "azurerm_subnet" "subnet_{loc_id}" {{
-  name                 = "default"
-  resource_group_name  = data.azurerm_resource_group.scanner.name
-  virtual_network_name = azurerm_virtual_network.vnet_{loc_id}.name
-  address_prefixes     = ["10.0.0.0/18"]
-}}
-
-resource "azurerm_nat_gateway" "natgw_{loc_id}" {{
-  name                = "natgw-{location}"
-  location            = "{location}"
-  resource_group_name = data.azurerm_resource_group.scanner.name
-  sku_name            = "Standard"
-  tags                = {{ Datadog = "true", DatadogAgentlessScanner = "true" }}
-}}
-
-resource "azurerm_public_ip" "natgw_ip_{loc_id}" {{
-  name                = "natgw-ip-{location}"
-  location            = "{location}"
-  resource_group_name = data.azurerm_resource_group.scanner.name
-  sku                 = "Standard"
-  sku_tier            = "Regional"
-  ip_version          = "IPv4"
-  allocation_method   = "Static"
-  tags                = {{ Datadog = "true", DatadogAgentlessScanner = "true" }}
-}}
-
-resource "azurerm_nat_gateway_public_ip_association" "natgw_ip_assoc_{loc_id}" {{
-  nat_gateway_id       = azurerm_nat_gateway.natgw_{loc_id}.id
-  public_ip_address_id = azurerm_public_ip.natgw_ip_{loc_id}.id
-}}
-
-resource "azurerm_subnet_nat_gateway_association" "subnet_natgw_assoc_{loc_id}" {{
-  subnet_id      = azurerm_subnet.subnet_{loc_id}.id
-  nat_gateway_id = azurerm_nat_gateway.natgw_{loc_id}.id
+  unique_suffix       = "{location}"
 }}
 
 module "virtual_machine_{loc_id}" {{
   source                 = "{_module_source("virtual-machine")}"
-  depends_on             = [azurerm_subnet_nat_gateway_association.subnet_natgw_assoc_{loc_id}]
+  depends_on             = [module.virtual_network_{loc_id}]
   name                   = "DatadogAgentlessScanner-{location}"
   location               = "{location}"
   resource_group_name    = data.azurerm_resource_group.scanner.name
   admin_ssh_key          = var.admin_ssh_key
   custom_data            = module.custom_data.install_sh
-  subnet_id              = azurerm_subnet.subnet_{loc_id}.id
+  subnet_id              = module.virtual_network_{loc_id}.subnet.id
   user_assigned_identity = module.managed_identity.identity.id
 }}
 '''

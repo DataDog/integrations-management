@@ -111,59 +111,22 @@ module "custom_data" {{
 
 # --- eastus ---
 
-resource "azurerm_virtual_network" "vnet_eastus" {{
-  name                = "vnet-eastus"
+module "virtual_network_eastus" {{
+  source              = "{MODULE_SOURCE}/virtual-network?ref={MODULE_VERSION}"
   location            = "eastus"
   resource_group_name = data.azurerm_resource_group.scanner.name
-  address_space       = ["10.0.0.0/16"]
-  tags                = {{ Datadog = "true", DatadogAgentlessScanner = "true" }}
-}}
-
-resource "azurerm_subnet" "subnet_eastus" {{
-  name                 = "default"
-  resource_group_name  = data.azurerm_resource_group.scanner.name
-  virtual_network_name = azurerm_virtual_network.vnet_eastus.name
-  address_prefixes     = ["10.0.0.0/18"]
-}}
-
-resource "azurerm_nat_gateway" "natgw_eastus" {{
-  name                = "natgw-eastus"
-  location            = "eastus"
-  resource_group_name = data.azurerm_resource_group.scanner.name
-  sku_name            = "Standard"
-  tags                = {{ Datadog = "true", DatadogAgentlessScanner = "true" }}
-}}
-
-resource "azurerm_public_ip" "natgw_ip_eastus" {{
-  name                = "natgw-ip-eastus"
-  location            = "eastus"
-  resource_group_name = data.azurerm_resource_group.scanner.name
-  sku                 = "Standard"
-  sku_tier            = "Regional"
-  ip_version          = "IPv4"
-  allocation_method   = "Static"
-  tags                = {{ Datadog = "true", DatadogAgentlessScanner = "true" }}
-}}
-
-resource "azurerm_nat_gateway_public_ip_association" "natgw_ip_assoc_eastus" {{
-  nat_gateway_id       = azurerm_nat_gateway.natgw_eastus.id
-  public_ip_address_id = azurerm_public_ip.natgw_ip_eastus.id
-}}
-
-resource "azurerm_subnet_nat_gateway_association" "subnet_natgw_assoc_eastus" {{
-  subnet_id      = azurerm_subnet.subnet_eastus.id
-  nat_gateway_id = azurerm_nat_gateway.natgw_eastus.id
+  unique_suffix       = "eastus"
 }}
 
 module "virtual_machine_eastus" {{
   source                 = "{MODULE_SOURCE}/virtual-machine?ref={MODULE_VERSION}"
-  depends_on             = [azurerm_subnet_nat_gateway_association.subnet_natgw_assoc_eastus]
+  depends_on             = [module.virtual_network_eastus]
   name                   = "DatadogAgentlessScanner-eastus"
   location               = "eastus"
   resource_group_name    = data.azurerm_resource_group.scanner.name
   admin_ssh_key          = var.admin_ssh_key
   custom_data            = module.custom_data.install_sh
-  subnet_id              = azurerm_subnet.subnet_eastus.id
+  subnet_id              = module.virtual_network_eastus.subnet.id
   user_assigned_identity = module.managed_identity.identity.id
 }}
 
@@ -238,117 +201,43 @@ module "custom_data" {{
 
 # --- eastus ---
 
-resource "azurerm_virtual_network" "vnet_eastus" {{
-  name                = "vnet-eastus"
+module "virtual_network_eastus" {{
+  source              = "{MODULE_SOURCE}/virtual-network?ref={MODULE_VERSION}"
   location            = "eastus"
   resource_group_name = data.azurerm_resource_group.scanner.name
-  address_space       = ["10.0.0.0/16"]
-  tags                = {{ Datadog = "true", DatadogAgentlessScanner = "true" }}
-}}
-
-resource "azurerm_subnet" "subnet_eastus" {{
-  name                 = "default"
-  resource_group_name  = data.azurerm_resource_group.scanner.name
-  virtual_network_name = azurerm_virtual_network.vnet_eastus.name
-  address_prefixes     = ["10.0.0.0/18"]
-}}
-
-resource "azurerm_nat_gateway" "natgw_eastus" {{
-  name                = "natgw-eastus"
-  location            = "eastus"
-  resource_group_name = data.azurerm_resource_group.scanner.name
-  sku_name            = "Standard"
-  tags                = {{ Datadog = "true", DatadogAgentlessScanner = "true" }}
-}}
-
-resource "azurerm_public_ip" "natgw_ip_eastus" {{
-  name                = "natgw-ip-eastus"
-  location            = "eastus"
-  resource_group_name = data.azurerm_resource_group.scanner.name
-  sku                 = "Standard"
-  sku_tier            = "Regional"
-  ip_version          = "IPv4"
-  allocation_method   = "Static"
-  tags                = {{ Datadog = "true", DatadogAgentlessScanner = "true" }}
-}}
-
-resource "azurerm_nat_gateway_public_ip_association" "natgw_ip_assoc_eastus" {{
-  nat_gateway_id       = azurerm_nat_gateway.natgw_eastus.id
-  public_ip_address_id = azurerm_public_ip.natgw_ip_eastus.id
-}}
-
-resource "azurerm_subnet_nat_gateway_association" "subnet_natgw_assoc_eastus" {{
-  subnet_id      = azurerm_subnet.subnet_eastus.id
-  nat_gateway_id = azurerm_nat_gateway.natgw_eastus.id
+  unique_suffix       = "eastus"
 }}
 
 module "virtual_machine_eastus" {{
   source                 = "{MODULE_SOURCE}/virtual-machine?ref={MODULE_VERSION}"
-  depends_on             = [azurerm_subnet_nat_gateway_association.subnet_natgw_assoc_eastus]
+  depends_on             = [module.virtual_network_eastus]
   name                   = "DatadogAgentlessScanner-eastus"
   location               = "eastus"
   resource_group_name    = data.azurerm_resource_group.scanner.name
   admin_ssh_key          = var.admin_ssh_key
   custom_data            = module.custom_data.install_sh
-  subnet_id              = azurerm_subnet.subnet_eastus.id
+  subnet_id              = module.virtual_network_eastus.subnet.id
   user_assigned_identity = module.managed_identity.identity.id
 }}
 
 # --- westeurope ---
 
-resource "azurerm_virtual_network" "vnet_westeurope" {{
-  name                = "vnet-westeurope"
+module "virtual_network_westeurope" {{
+  source              = "{MODULE_SOURCE}/virtual-network?ref={MODULE_VERSION}"
   location            = "westeurope"
   resource_group_name = data.azurerm_resource_group.scanner.name
-  address_space       = ["10.0.0.0/16"]
-  tags                = {{ Datadog = "true", DatadogAgentlessScanner = "true" }}
-}}
-
-resource "azurerm_subnet" "subnet_westeurope" {{
-  name                 = "default"
-  resource_group_name  = data.azurerm_resource_group.scanner.name
-  virtual_network_name = azurerm_virtual_network.vnet_westeurope.name
-  address_prefixes     = ["10.0.0.0/18"]
-}}
-
-resource "azurerm_nat_gateway" "natgw_westeurope" {{
-  name                = "natgw-westeurope"
-  location            = "westeurope"
-  resource_group_name = data.azurerm_resource_group.scanner.name
-  sku_name            = "Standard"
-  tags                = {{ Datadog = "true", DatadogAgentlessScanner = "true" }}
-}}
-
-resource "azurerm_public_ip" "natgw_ip_westeurope" {{
-  name                = "natgw-ip-westeurope"
-  location            = "westeurope"
-  resource_group_name = data.azurerm_resource_group.scanner.name
-  sku                 = "Standard"
-  sku_tier            = "Regional"
-  ip_version          = "IPv4"
-  allocation_method   = "Static"
-  tags                = {{ Datadog = "true", DatadogAgentlessScanner = "true" }}
-}}
-
-resource "azurerm_nat_gateway_public_ip_association" "natgw_ip_assoc_westeurope" {{
-  nat_gateway_id       = azurerm_nat_gateway.natgw_westeurope.id
-  public_ip_address_id = azurerm_public_ip.natgw_ip_westeurope.id
-}}
-
-resource "azurerm_subnet_nat_gateway_association" "subnet_natgw_assoc_westeurope" {{
-  subnet_id      = azurerm_subnet.subnet_westeurope.id
-  nat_gateway_id = azurerm_nat_gateway.natgw_westeurope.id
+  unique_suffix       = "westeurope"
 }}
 
 module "virtual_machine_westeurope" {{
   source                 = "{MODULE_SOURCE}/virtual-machine?ref={MODULE_VERSION}"
-  depends_on             = [azurerm_subnet_nat_gateway_association.subnet_natgw_assoc_westeurope]
+  depends_on             = [module.virtual_network_westeurope]
   name                   = "DatadogAgentlessScanner-westeurope"
   location               = "westeurope"
   resource_group_name    = data.azurerm_resource_group.scanner.name
   admin_ssh_key          = var.admin_ssh_key
   custom_data            = module.custom_data.install_sh
-  subnet_id              = azurerm_subnet.subnet_westeurope.id
+  subnet_id              = module.virtual_network_westeurope.subnet.id
   user_assigned_identity = module.managed_identity.identity.id
 }}
 
