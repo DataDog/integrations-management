@@ -49,6 +49,28 @@ def key_vault_exists(vault_name: str, resource_group: str) -> bool:
         return False
 
 
+def _is_soft_deleted(vault_name: str, location: str) -> bool:
+    """Check if a Key Vault exists in soft-deleted state."""
+    try:
+        result = execute(
+            Cmd(["az", "keyvault", "show-deleted"])
+            .param("--name", vault_name)
+            .param("--location", location),
+            can_fail=True,
+        )
+        return bool(result)
+    except Exception:
+        return False
+
+
+def _recover_soft_deleted(vault_name: str) -> None:
+    """Recover a soft-deleted Key Vault."""
+    execute(
+        Cmd(["az", "keyvault", "recover"])
+        .param("--name", vault_name)
+    )
+
+
 def create_key_vault(
     vault_name: str,
     resource_group: str,
@@ -56,6 +78,9 @@ def create_key_vault(
     subscription: str,
 ) -> None:
     """Create an Azure Key Vault for storing the Datadog API key.
+
+    If a soft-deleted vault with the same name exists, recovers it
+    instead of requiring a manual purge (which can take several minutes).
 
     Uses RBAC authorization (--enable-rbac-authorization) so that the
     Terraform roles module can grant access via role assignments rather
@@ -65,6 +90,10 @@ def create_key_vault(
         KeyVaultError: If the Key Vault cannot be created.
     """
     try:
+        if _is_soft_deleted(vault_name, location):
+            _recover_soft_deleted(vault_name)
+            return
+
         execute(
             Cmd(["az", "keyvault", "create"])
             .param("--name", vault_name)
@@ -72,6 +101,7 @@ def create_key_vault(
             .param("--location", location)
             .param("--subscription", subscription)
             .param("--enable-rbac-authorization", "true")
+            .param("--retention-days", "7")
             .param_list("--tags", ["Datadog=true", "DatadogAgentlessScanner=true"])
         )
     except Exception as e:
