@@ -77,7 +77,7 @@ def create_storage_account(
             .param("--kind", "StorageV2")
             .param("--min-tls-version", "TLS1_2")
             .param("--allow-blob-public-access", "false")
-            .param("--tags", "Datadog=true", "DatadogAgentlessScanner=true")
+            .param_list("--tags", ["Datadog=true", "DatadogAgentlessScanner=true"])
         )
     except Exception as e:
         raise StorageAccountError(
@@ -142,7 +142,7 @@ def ensure_resource_group(resource_group: str, location: str, subscription: str)
             .param("--name", resource_group)
             .param("--location", location)
             .param("--subscription", subscription)
-            .param("--tags", "Datadog=true", "DatadogAgentlessScanner=true")
+            .param_list("--tags", ["Datadog=true", "DatadogAgentlessScanner=true"])
         )
     except Exception as e:
         raise StorageAccountError(

@@ -72,7 +72,7 @@ def create_key_vault(
             .param("--location", location)
             .param("--subscription", subscription)
             .param("--enable-rbac-authorization", "true")
-            .param("--tags", "Datadog=true", "DatadogAgentlessScanner=true")
+            .param_list("--tags", ["Datadog=true", "DatadogAgentlessScanner=true"])
         )
     except Exception as e:
         raise KeyVaultError(
