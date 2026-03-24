@@ -113,18 +113,20 @@ def _collect_subscriptions_from_children(node: dict) -> list[Subscription]:
 
 
 def get_management_group_from_list_result(list_result: ManagementGroupListResult) -> ManagementGroup:
-    response = execute_json(
-        Cmd(["az", "account", "management-group", "show"])
-        .param("--name", list_result.az_name)
-        .flag("-e")
-        .flag("-r")
-        .param("-o", "json")
+    response = (
+        execute_json(
+            Cmd(["az", "account", "management-group", "show"])
+            .param("--name", list_result.az_name)
+            .flag("-e")
+            .flag("-r")
+            .param("-o", "json")
+        )
+        or {}
     )
     # CLI command may expose children at top level or under properties - normalize response to always have children at top level
     if response and "children" not in response:
-        response["children"] = (response.get("properties") or {}).get("children", [])
-    subscriptions = _collect_subscriptions_from_children(response or {})
-    return ManagementGroup(list_result.id, list_result.name, subscriptions)
+        response["children"] = (response.get("properties") or {}).get("children") or []
+    return ManagementGroup(list_result.id, list_result.name, _collect_subscriptions_from_children(response))
 
 
 def get_management_group_scopes(tenant_id: str) -> list[ManagementGroup]:
