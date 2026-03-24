@@ -109,7 +109,7 @@ def _collect_subscriptions_from_children(node: dict) -> list[Subscription]:
     if (node_id := node.get("id") or "").startswith("/subscriptions/"):
         sub_id = node_id.removeprefix("/subscriptions/")
         return [Subscription(id=sub_id, name=node.get("displayName") or node.get("name") or sub_id)]
-    return [s for child in node.get("children", []) for s in _collect_subscriptions_from_children(child)]
+    return [s for child in node.get("children") or [] for s in _collect_subscriptions_from_children(child)]
 
 
 def get_management_group_from_list_result(list_result: ManagementGroupListResult) -> ManagementGroup:
