@@ -6,11 +6,12 @@
 
 from unittest.mock import patch as mock_patch
 
+from azure_logging_install.existing_lfo import LfoControlPlane, LfoMetadata
+
 from azure_integration_quickstart.quickstart_shared import (
     build_log_forwarder_payload,
     report_existing_log_forwarders,
 )
-from azure_logging_install.existing_lfo import LfoControlPlane, LfoMetadata
 
 from integration_quickstart.tests.dd_test_case import DDTestCase
 

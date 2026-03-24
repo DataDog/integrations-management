@@ -254,7 +254,7 @@ class TestMain(TestCase):
             existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(mock_config, existing_lfo)
 
-            # Tag filter changed: full env var update
+            # Verify function app environment variables are updated due to new tag filter
             self.assertEqual(mock_set_env_vars.call_count, 3)
             mock_set_env_vars.assert_any_call(mock_config, RESOURCE_TASK_NAME)
             mock_set_env_vars.assert_any_call(mock_config, SCALING_TASK_NAME)

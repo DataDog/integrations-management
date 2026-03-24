@@ -32,6 +32,9 @@ RESOURCE_NOT_FOUND_ERROR = "ResourceNotFound"
 POLICY_ERROR = "RequestDisallowedByPolicy"
 DISABLED_SUBSCRIPTION_ERROR = "DisabledSubscription"
 
+# Known noisy stderr from `az role assignment list --assignee` when Graph lags; log at DEBUG only.
+GRAPH_ASSIGNEE_NOT_IN_DIRECTORY = "Cannot find user or service principal in graph database"
+
 INITIAL_RETRY_DELAY = 2  # seconds
 RETRY_DELAY_MULTIPLIER = 2
 MAX_RETRIES = 7
@@ -57,6 +60,14 @@ def check_access_error(stderr: str) -> Optional[str]:
     return f"Insufficient permissions for {client} to perform {action} on {scope}"
 
 
+def _log_cli_process_failure(full_command: str, stderr: str) -> None:
+    if GRAPH_ASSIGNEE_NOT_IN_DIRECTORY in stderr:
+        log.debug("Command failed: %s\n%s", full_command, stderr)
+    else:
+        log.error(f"Command failed: {full_command}")
+        log.error(stderr)
+
+
 def execute(cmd: Cmd, can_fail: bool = False) -> str:
     """Run an Azure CLI command and return output or raise error."""
 
@@ -68,8 +79,7 @@ def execute(cmd: Cmd, can_fail: bool = False) -> str:
         try:
             result = subprocess.run(full_command, shell=True, check=True, capture_output=True, text=True)
             if result.returncode != 0 and not can_fail:
-                log.error(f"Command failed: {full_command}")
-                log.error(result.stderr)
+                _log_cli_process_failure(full_command, result.stderr or "")
                 raise RuntimeError(
                     f"Command failed: {full_command}\nstdout: {result.stdout}\nstderr: {result.stderr}{get_az_and_python_version()}"
                 )
@@ -117,8 +127,7 @@ def execute(cmd: Cmd, can_fail: bool = False) -> str:
                 raise DisabledSubscriptionError(stderr) from e
             if can_fail:
                 return ""
-            log.error(f"Command failed: {full_command}")
-            log.error(stderr)
+            _log_cli_process_failure(full_command, stderr)
             raise RuntimeError(
                 f"Command failed: {full_command}\nstdout: {stdout}\nstderr: {stderr}{get_az_and_python_version()}"
             ) from e

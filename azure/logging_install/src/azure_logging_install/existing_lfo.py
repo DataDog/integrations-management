@@ -163,7 +163,7 @@ def update_existing_lfo(config: Configuration, existing_lfo: LfoMetadata):
     new_monitored_sub_ids = set(config.monitored_subscriptions)
     sub_ids_that_need_permissions = new_monitored_sub_ids - existing_monitored_sub_ids
     sub_ids_to_remove = existing_monitored_sub_ids - new_monitored_sub_ids
-
+    
     if sub_ids_that_need_permissions and sub_ids_to_remove:
         log_header("STEP 2: Grant and revoke permissions for log forwarding scopes")
     elif sub_ids_that_need_permissions:
@@ -174,16 +174,13 @@ def update_existing_lfo(config: Configuration, existing_lfo: LfoMetadata):
         log_header("STEP 2: Skipping permission changes for log forwarding scopes")
 
     if sub_ids_that_need_permissions:
-        grant_subscriptions_permissions(config, sub_ids_that_need_permissions)
+        grant_subscriptions_permissions(config, sub_ids_that_need_permissions)        
 
     if sub_ids_to_remove:
         revoke_subscriptions_permissions(config, sub_ids_to_remove)
 
     if not sub_ids_that_need_permissions and not sub_ids_to_remove:
         log.info("No modified subscription selections - skipping permission updates")
-
-    if sub_ids_to_remove:
-        revoke_subscriptions_permissions(config, sub_ids_to_remove)
 
     log_header("STEP 3: Updating settings for control plane tasks")
     existing_tag_filters = existing_lfo.tag_filter

@@ -107,7 +107,11 @@ def role_exists(role_id: str, scope: str, principal_id: str) -> bool:
 
         return int(output.strip()) > 0
     except (RuntimeError, ValueError) as e:
-        log.error(f"Failed to check if role assignment exists: {e}")
+        # Graph lag on list --assignee; omit error log (create path still runs).
+        if not (
+            "Cannot find user or service principal in graph database" in str(e) and principal_id in str(e)
+        ):
+            log.error(f"Failed to check if role assignment exists: {e}")
         return False
 
 
