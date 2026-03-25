@@ -51,7 +51,7 @@ class TestFindOrCreateServiceAccount(unittest.TestCase):
         self.assertEqual(len(actual_commands), 1)
         self.assertEqual(
             actual_commands[0],
-            "iam service-accounts list --project test-project '--filter=email~'\"'\"'test-account'\"'\"''",
+            "iam service-accounts list --project test-project '--filter=email='\"'\"'test-account@test-project.iam.gserviceaccount.com'\"'\"''",
         )
         self.assertEqual(result, "test@project.iam.gserviceaccount.com")
 
@@ -74,7 +74,7 @@ class TestFindOrCreateServiceAccount(unittest.TestCase):
         self.assertEqual(len(actual_commands), 2)
         self.assertEqual(
             actual_commands[0],
-            "iam service-accounts list --project test-project '--filter=email~'\"'\"'test-account'\"'\"''",
+            "iam service-accounts list --project test-project '--filter=email='\"'\"'test-account@test-project.iam.gserviceaccount.com'\"'\"''",
         )
         self.assertEqual(
             actual_commands[1],
