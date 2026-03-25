@@ -20,7 +20,7 @@ def find_or_create_service_account(
     service_account_search = gcloud(
         GcloudCmd("iam service-accounts", "list")
         .param("--project", project_id)
-        .param_equals("--filter", f"email~'{name}'"),
+        .param_equals("--filter", f"email='{name}@{project_id}.iam.gserviceaccount.com'"),
         "email",
     )
     if service_account_search and len(service_account_search) > 0:
