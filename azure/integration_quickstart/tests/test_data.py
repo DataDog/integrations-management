@@ -165,12 +165,12 @@ LFO_SELECTION_RESPONSE = make_lfo_selections_response(
     log_forwarding_options=EXAMPLE_LOG_FORWARDER_JSON,
 )
 LFO_SELECTION = LogForwardingUserSelections(
-    add_scopes=[EXAMPLE_SUBSCRIPTION_SCOPES[0], EXAMPLE_SUBSCRIPTION_SCOPES[1]],
-    remove_scopes=[],
+    add_subscriptions={EXAMPLE_SUBSCRIPTION_SCOPES[0], EXAMPLE_SUBSCRIPTION_SCOPES[1]},
+    remove_subscriptions=set(),
     log_forwarding_config=EXAMPLE_LOG_FORWARDER,
 )
 
-# Overlapping: add_subscriptions and add_management_groups both include sub0/sub1 -> unique add_scopes
+# Overlapping: add_subscriptions and add_management_groups both include sub0/sub1 -> unique add_subscriptions
 LFO_SELECTION_OVERLAPPING_ADD_RESPONSE = make_lfo_selections_response(
     add_subscriptions=[EXAMPLE_SUBSCRIPTIONS[0], EXAMPLE_SUBSCRIPTIONS[1]],
     add_management_groups=[EXAMPLE_MANAGEMENT_GROUP],
@@ -179,8 +179,8 @@ LFO_SELECTION_OVERLAPPING_ADD_RESPONSE = make_lfo_selections_response(
     log_forwarding_options=EXAMPLE_LOG_FORWARDER_JSON,
 )
 LFO_SELECTION_OVERLAPPING_ADD = LogForwardingUserSelections(
-    add_scopes=[EXAMPLE_SUBSCRIPTION_SCOPES[0], EXAMPLE_SUBSCRIPTION_SCOPES[1]],
-    remove_scopes=[],
+    add_subscriptions={EXAMPLE_SUBSCRIPTION_SCOPES[0], EXAMPLE_SUBSCRIPTION_SCOPES[1]},
+    remove_subscriptions=set(),
     log_forwarding_config=EXAMPLE_LOG_FORWARDER,
 )
 

@@ -165,7 +165,7 @@ def finish_collecting_scopes(tenant_id: str, subscriptions: list[Scope], step_me
     step_metadata["regions"] = regions
 
 
-def flatten_scopes(scopes: Sequence[Scope]) -> set[Subscription]:
+def flatten_scopes_to_unique_subscriptions(scopes: Sequence[Scope]) -> set[Subscription]:
     """Convert a list of scopes into a set of subscriptions, with management groups represented as their constituent subscriptions"""
     return set(
         [s for s in scopes if isinstance(s, Subscription)]

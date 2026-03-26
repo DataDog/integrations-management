@@ -12,7 +12,7 @@ from azure_integration_quickstart.scopes import (
     Subscription,
     _collect_subscriptions_from_children,
     filter_scopes_by_permission,
-    flatten_scopes,
+    flatten_scopes_to_unique_subscriptions,
     get_available_regions,
     get_management_group_from_list_result,
 )
@@ -82,8 +82,8 @@ class TestFilterScopesByPermission(DDTestCase):
                 self.assertListEqual(actual, expected_result)
 
 
-class TestFlattenScopes(DDTestCase):
-    def test_flatten_scopes(self):
+class TestFlattenScopesToUniqueSubscriptions(DDTestCase):
+    def test_flatten_scopes_to_unique_subscriptions(self):
         test_cases: list[tuple[str, Sequence[Scope], set[Subscription]]] = [
             ("empty", [], set()),
             (
@@ -114,7 +114,7 @@ class TestFlattenScopes(DDTestCase):
         ]
         for name, scopes, expected_result in test_cases:
             with self.subTest(msg=name):
-                actual = flatten_scopes(scopes)
+                actual = flatten_scopes_to_unique_subscriptions(scopes)
                 self.assert_same_scopes(actual, expected_result)
 
 

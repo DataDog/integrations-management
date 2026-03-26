@@ -83,12 +83,12 @@ class TestReceiveLogForwardingSelections(DDTestCase):
         self, selections1: LogForwardingUserSelections, selections2: LogForwardingUserSelections
     ):
         """Assert that two LogForwardingUserSelections objects are equal."""
-        self.assert_same_scopes(selections1.add_scopes, selections2.add_scopes)
-        self.assert_same_scopes(selections1.remove_scopes, selections2.remove_scopes)
+        self.assert_same_scopes(selections1.add_subscriptions, selections2.add_subscriptions)
+        self.assert_same_scopes(selections1.remove_subscriptions, selections2.remove_subscriptions)
         self.assertEqual(selections1.log_forwarding_config, selections2.log_forwarding_config)
 
     def test_receive_log_forwarding_selections(self):
-        """Test that log forwarding selections returns LogForwardingUserSelections with add_scopes and remove_scopes."""
+        """Test that log forwarding selections returns LogForwardingUserSelections with add_subscriptions and remove_subscriptions."""
         self.dd_request_mock.return_value = (LFO_SELECTION_RESPONSE, 200)
         selections = receive_log_forwarding_selections(EXAMPLE_WORKFLOW_ID)
         self.assertIsInstance(selections, LogForwardingUserSelections)
@@ -96,8 +96,8 @@ class TestReceiveLogForwardingSelections(DDTestCase):
         self.assertIsNotNone(selections.log_forwarding_config)
 
     def test_receive_log_forwarding_selections_dedupes_add(self):
-        """Add_subscriptions and add_management_groups can overlap; add_scopes must be unique by subscription id."""
+        """Add_subscriptions and add_management_groups can overlap; add_subscriptions must be unique by subscription id."""
         self.dd_request_mock.return_value = (LFO_SELECTION_OVERLAPPING_ADD_RESPONSE, 200)
         selections = receive_log_forwarding_selections(EXAMPLE_WORKFLOW_ID)
         self.assert_selections_equal(selections, LFO_SELECTION_OVERLAPPING_ADD)
-        self.assertEqual(len(selections.add_scopes), 2)
+        self.assertEqual(len(selections.add_subscriptions), 2)
