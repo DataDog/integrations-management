@@ -90,21 +90,13 @@ def make_selections_response(
 
 
 def make_lfo_selections_response(
-    add_subscriptions=None,
-    add_management_groups=None,
-    remove_subscriptions=None,
-    remove_management_groups=None,
+    add_subscriptions=[],
+    add_management_groups=[],
+    remove_subscriptions=[],
+    remove_management_groups=[],
     log_forwarding_options=EXAMPLE_LOG_FORWARDER_JSON,
 ):
     """Create a selections response for LFO workflow (log forwarding flow uses add_/remove_ explicitly)."""
-    if add_subscriptions is None:
-        add_subscriptions = []
-    if add_management_groups is None:
-        add_management_groups = []
-    if remove_subscriptions is None:
-        remove_subscriptions = []
-    if remove_management_groups is None:
-        remove_management_groups = []
     result = {
         "data": {
             "id": "example-lfo-integration-id",
