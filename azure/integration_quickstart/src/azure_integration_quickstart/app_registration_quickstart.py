@@ -25,7 +25,7 @@ from azure_integration_quickstart.quickstart_shared import (
     validate_environment_variables,
 )
 from azure_integration_quickstart.role_assignments import can_current_user_create_applications
-from azure_integration_quickstart.scopes import Scope, Subscription, flatten_scopes, report_available_scopes
+from azure_integration_quickstart.scopes import Scope, Subscription, flatten_scopes_to_unique_subscriptions, report_available_scopes
 from azure_integration_quickstart.script_status import Status, StatusReporter
 from azure_integration_quickstart.user_selections import receive_app_registration_selections
 from azure_integration_quickstart.util import dd_request
@@ -124,9 +124,7 @@ def main():
     with status.report_step(
         "log_forwarders", loading_message="Collecting existing Log Forwarders", required=False
     ) as step_metadata:
-        exactly_one_log_forwarder = report_existing_log_forwarders(
-        subscriptions, step_metadata, False
-    )
+        existing_lfo = report_existing_log_forwarders(subscriptions, step_metadata, False)
     with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
         selections = receive_app_registration_selections(workflow_id)
     with status.report_step("app_registration", "Creating app registration in Azure"):
@@ -140,12 +138,24 @@ def main():
         }
     if selections.app_registration_config.get("is_agent_enabled"):
         with status.report_step("agent", "Installing the Datadog Agent"):
-            set_extension_latest(list_vms_for_subscriptions([s.id for s in flatten_scopes(selections.scopes)]))
+            set_extension_latest(
+                list_vms_for_subscriptions([s.id for s in flatten_scopes_to_unique_subscriptions(selections.scopes)])
+            )
     if selections.log_forwarding_config:
         with status.report_step(
-            "upsert_log_forwarder", f"{'Updating' if exactly_one_log_forwarder else 'Creating'} Log Forwarder"
+            "upsert_log_forwarder", f"{'Updating' if existing_lfo else 'Creating'} Log Forwarder"
         ):
-            upsert_log_forwarder(selections.log_forwarding_config, flatten_scopes(selections.scopes))
+            selected_subs = flatten_scopes_to_unique_subscriptions(selections.scopes)
+            # App registration flow is add-only: when an LFO exists, monitored scopes becomes existing ∪ selected.
+            if existing_lfo:
+                existing_subs = {
+                    Subscription(id=sub_id, name=name)
+                    for sub_id, name in existing_lfo.monitored_subs.items()
+                }
+                final_scopes = existing_subs | selected_subs
+            else:
+                final_scopes = selected_subs
+            upsert_log_forwarder(selections.log_forwarding_config, final_scopes)
 
     print("Script succeeded. You may exit this shell.")
 

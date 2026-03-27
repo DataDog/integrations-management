@@ -90,9 +90,13 @@ def make_selections_response(
 
 
 def make_lfo_selections_response(
-    subscriptions=[], management_groups=[], log_forwarding_options=EXAMPLE_LOG_FORWARDER_JSON
+    add_subscriptions=[],
+    add_management_groups=[],
+    remove_subscriptions=[],
+    remove_management_groups=[],
+    log_forwarding_options=EXAMPLE_LOG_FORWARDER_JSON,
 ):
-    """Create a selections response for LFO workflow (no config_options)."""
+    """Create a selections response for LFO workflow (log forwarding flow uses add_/remove_ explicitly)."""
     result = {
         "data": {
             "id": "example-lfo-integration-id",
@@ -100,8 +104,10 @@ def make_lfo_selections_response(
             "attributes": {
                 "metadata": {
                     "selections": {
-                        "management_groups": management_groups,
-                        "subscriptions": subscriptions,
+                        "add_subscriptions": add_subscriptions,
+                        "add_management_groups": add_management_groups,
+                        "remove_subscriptions": remove_subscriptions,
+                        "remove_management_groups": remove_management_groups,
                         "log_forwarding_options": log_forwarding_options,
                     }
                 }
@@ -147,12 +153,27 @@ SELECTIONS_WITH_LOG_FORWARDING = AppRegistrationUserSelections(
 
 
 LFO_SELECTION_RESPONSE = make_lfo_selections_response(
-    subscriptions=[EXAMPLE_SUBSCRIPTIONS[0], EXAMPLE_SUBSCRIPTIONS[1]],
+    add_subscriptions=[EXAMPLE_SUBSCRIPTIONS[0], EXAMPLE_SUBSCRIPTIONS[1]],
     log_forwarding_options=EXAMPLE_LOG_FORWARDER_JSON,
 )
 LFO_SELECTION = LogForwardingUserSelections(
+    add_subscriptions={EXAMPLE_SUBSCRIPTION_SCOPES[0], EXAMPLE_SUBSCRIPTION_SCOPES[1]},
+    remove_subscriptions=set(),
     log_forwarding_config=EXAMPLE_LOG_FORWARDER,
-    scopes=[EXAMPLE_SUBSCRIPTION_SCOPES[0], EXAMPLE_SUBSCRIPTION_SCOPES[1]],
+)
+
+# Overlapping: add_subscriptions and add_management_groups both include sub0/sub1 -> unique add_subscriptions
+LFO_SELECTION_OVERLAPPING_ADD_RESPONSE = make_lfo_selections_response(
+    add_subscriptions=[EXAMPLE_SUBSCRIPTIONS[0], EXAMPLE_SUBSCRIPTIONS[1]],
+    add_management_groups=[EXAMPLE_MANAGEMENT_GROUP],
+    remove_subscriptions=[],
+    remove_management_groups=[],
+    log_forwarding_options=EXAMPLE_LOG_FORWARDER_JSON,
+)
+LFO_SELECTION_OVERLAPPING_ADD = LogForwardingUserSelections(
+    add_subscriptions={EXAMPLE_SUBSCRIPTION_SCOPES[0], EXAMPLE_SUBSCRIPTION_SCOPES[1]},
+    remove_subscriptions=set(),
+    log_forwarding_config=EXAMPLE_LOG_FORWARDER,
 )
 
 FLAT_PERMISSION_EMPTY = FlatPermission([], [])

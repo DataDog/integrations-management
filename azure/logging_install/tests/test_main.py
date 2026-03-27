@@ -247,7 +247,9 @@ class TestMain(TestCase):
 
         with (
             mock_patch("azure_logging_install.existing_lfo.set_function_app_env_vars") as mock_set_env_vars,
+            mock_patch("azure_logging_install.existing_lfo.set_monitored_subscriptions") as mock_set_monitored_subs,
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
+            mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
         ):
             existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(mock_config, existing_lfo)

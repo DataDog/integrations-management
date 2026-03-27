@@ -103,15 +103,17 @@ def build_log_forwarder_payload(metadata: LfoMetadata, include_monitored_scopes:
 
 def report_existing_log_forwarders(
     subscriptions: list[Scope], step_metadata: dict, include_monitored_scopes: bool
-) -> bool:
-    """Send Datadog any existing Log Forwarders in the tenant and return whether we found exactly 1 Forwarder, in which case we will potentially update it.
-    When step_id is 'scopes_and_log_forwarders', each payload includes monitoredSubscriptions."""
+) -> Optional[LfoMetadata]:
+    """Send Datadog any existing Log Forwarders in the tenant. Returns existing LFO metadata when exactly one is found, else None.
+    When include_monitored_scopes is True, each payload includes monitoredSubscriptions."""
     scope_id_to_name = {s.id: s.name for s in subscriptions}
     forwarders = check_existing_lfo(set(scope_id_to_name.keys()), scope_id_to_name)
     step_metadata["log_forwarders"] = [
         build_log_forwarder_payload(forwarder, include_monitored_scopes) for forwarder in forwarders.values()
     ]
-    return len(forwarders) == 1
+    if len(forwarders) != 1:
+        return None
+    return list(forwarders.values())[0]
 
 
 def upsert_log_forwarder(config: dict, subscriptions: set[Scope]):

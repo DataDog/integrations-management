@@ -13,7 +13,7 @@ from azure_integration_quickstart.quickstart_shared import (
     upsert_log_forwarder,
     validate_environment_variables,
 )
-from azure_integration_quickstart.scopes import finish_collecting_scopes, flatten_scopes, get_tenant_and_subscriptions
+from azure_integration_quickstart.scopes import Subscription, finish_collecting_scopes, get_tenant_and_subscriptions
 from azure_integration_quickstart.script_status import StatusReporter
 from azure_integration_quickstart.user_selections import receive_log_forwarding_selections
 
@@ -35,20 +35,39 @@ def main():
         with ThreadPoolExecutor() as executor:
             scopes_future = executor.submit(finish_collecting_scopes, tenant_id, subscriptions, step_metadata)
             lfo_future = executor.submit(
-            report_existing_log_forwarders,
-            subscriptions,
-            step_metadata,
-            True,
-        )
-        scopes_future.result()
-        exactly_one_log_forwarder = lfo_future.result()
+                report_existing_log_forwarders,
+                subscriptions,
+                step_metadata,
+                True,
+            )
+            scopes_future.result()
+            existing_lfo = lfo_future.result()
     with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
         selections = receive_log_forwarding_selections(workflow_id)
+        if selections.log_forwarding_config:
+            add_ids = {s.id for s in selections.add_subscriptions}
+
+            if existing_lfo:
+                remove_ids = {s.id for s in selections.remove_subscriptions}
+                # Safeguard against removing the control plane subscription
+                remove_ids.discard(existing_lfo.control_plane.sub_id)
+                final_sub_ids = (set(existing_lfo.monitored_subs.keys()) | add_ids) - remove_ids
+            else:
+                final_sub_ids = add_ids
+
+            id_to_name = {s.id: s.name for s in selections.add_subscriptions}
+            if existing_lfo:
+                id_to_name.update(existing_lfo.monitored_subs)
+            final_subscriptions = {
+                Subscription(id=sub_id, name=id_to_name.get(sub_id, "Unknown"))
+                for sub_id in final_sub_ids
+            }
+
     if selections.log_forwarding_config:
         with status.report_step(
-            "upsert_log_forwarder", f"{'Updating' if exactly_one_log_forwarder else 'Creating'} Log Forwarder"
+            "upsert_log_forwarder", f"{'Updating' if existing_lfo else 'Creating'} Log Forwarder"
         ):
-            upsert_log_forwarder(selections.log_forwarding_config, flatten_scopes(selections.scopes))
+            upsert_log_forwarder(selections.log_forwarding_config, final_subscriptions)
 
     print("Script succeeded. You may exit this shell.")
 

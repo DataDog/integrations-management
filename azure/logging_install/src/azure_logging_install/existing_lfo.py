@@ -11,8 +11,13 @@ from az_shared.logs import log, log_header
 
 from .az_cmd import AzCmd
 from .configuration import Configuration
-from .resource_setup import set_function_app_env_vars
-from .role_setup import grant_subscriptions_permissions
+from .resource_setup import (
+    set_function_app_env_vars,
+    set_monitored_subscriptions,
+    set_pii_scrubber_rules,
+    set_resource_tag_filters,
+)
+from .role_setup import grant_subscriptions_permissions, revoke_subscriptions_permissions
 
 RESOURCES_TASK_PREFIX: Final = "resources-task-"
 SCALING_TASK_PREFIX: Final = "scaling-task-"
@@ -154,15 +159,28 @@ def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) 
 def update_existing_lfo(config: Configuration, existing_lfo: LfoMetadata):
     """Update an existing LFO for the given configuration"""
 
-    log_header("STEP 2: Grant permissions to any new scopes added for log forwarding")
     existing_monitored_sub_ids = set(existing_lfo.monitored_subs.keys())
     new_monitored_sub_ids = set(config.monitored_subscriptions)
     sub_ids_that_need_permissions = new_monitored_sub_ids - existing_monitored_sub_ids
+    sub_ids_to_remove = existing_monitored_sub_ids - new_monitored_sub_ids
+    
+    if sub_ids_that_need_permissions and sub_ids_to_remove:
+        log_header("STEP 2: Grant and revoke permissions for log forwarding scopes")
+    elif sub_ids_that_need_permissions:
+        log_header("STEP 2: Grant permissions to any new scopes added for log forwarding")
+    elif sub_ids_to_remove:
+        log_header("STEP 2: Revoke permissions for removed log forwarding scopes")
+    else:
+        log_header("STEP 2: Skipping permission changes for log forwarding scopes")
 
     if sub_ids_that_need_permissions:
-        grant_subscriptions_permissions(config, sub_ids_that_need_permissions)
-    else:
-        log.info("No new subscriptions added - skipping permission grant")
+        grant_subscriptions_permissions(config, sub_ids_that_need_permissions)        
+
+    if sub_ids_to_remove:
+        revoke_subscriptions_permissions(config, sub_ids_to_remove)
+
+    if not sub_ids_that_need_permissions and not sub_ids_to_remove:
+        log.info("No modified subscription selections - skipping permission updates")
 
     log_header("STEP 3: Updating settings for control plane tasks")
     existing_tag_filters = existing_lfo.tag_filter
@@ -170,15 +188,24 @@ def update_existing_lfo(config: Configuration, existing_lfo: LfoMetadata):
     new_tag_filters = config.resource_tag_filters
     new_pii_rules = config.pii_scrubber_rules
 
-    if existing_tag_filters == new_tag_filters and existing_pii_rules == new_pii_rules:
+    tag_filter_changed = existing_tag_filters != new_tag_filters
+    pii_rules_changed = existing_pii_rules != new_pii_rules
+    monitored_subs_changed = existing_monitored_sub_ids != new_monitored_sub_ids
+    change_count = sum((tag_filter_changed, pii_rules_changed, monitored_subs_changed))
+
+    # If two or more changes are detected, update all settings in one call. Otherwise, only update the changed setting.
+    if change_count >= 2:
+        for function_app_name in config.control_plane_function_app_names:
+            log.info(f"Updating settings for function app {function_app_name}")
+            set_function_app_env_vars(config, function_app_name)
+    elif tag_filter_changed:
+        set_resource_tag_filters(config)
+    elif pii_rules_changed:
+        set_pii_scrubber_rules(config)
+    elif monitored_subs_changed:
+        set_monitored_subscriptions(config)
+    else:
         log.info("No changes to settings detected - skipping update")
         return
-
-    for function_app_name in config.control_plane_function_app_names:
-        # Updating env vars will overwrite values for monitored subs, tag filters, and PII rules
-        # LFO will auto-adjust behavior based on these settings
-        # If the user is removing a sub from the existing monitored subs, LFO will automatically cease log forwarding for the removed sub
-        log.info(f"Updating settings for function app {function_app_name}")
-        set_function_app_env_vars(config, function_app_name)
 
     log_header("Success! Azure Automated Log Forwarding installation updated!")
