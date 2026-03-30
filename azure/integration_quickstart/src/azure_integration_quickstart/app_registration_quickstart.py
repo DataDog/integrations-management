@@ -14,7 +14,7 @@ from az_shared.errors import (
     AppRegistrationCreationPermissionsError,
     InteractiveAuthenticationRequiredError,
 )
-from az_shared.execute_cmd import execute_json
+from az_shared.execute_cmd import execute, execute_json
 from azure_integration_quickstart.constants import APP_REGISTRATION_WORKFLOW_TYPE
 from azure_integration_quickstart.extension.vm_extension import list_vms_for_subscriptions, set_extension_latest
 from azure_integration_quickstart.quickstart_shared import (
@@ -49,7 +49,15 @@ class AppRegistration:
 APP_REGISTRATION_NAME_PREFIX = "datadog-azure-integration"
 APP_REGISTRATION_CLIENT_SECRET_TTL_YEARS = 2
 APP_REGISTRATION_ROLE = "Monitoring Reader"
+
 FEDERATED_AUTH_SECRET_PLACEHOLDER = "SECRETLESS_AUTH"
+FEDERATED_CREDENTIAL_NAME = "datadog"
+FEDERATED_AUTH_ISSUER = "https://ticino-sandbox.identity-sandbox.local-cluster.local-dc.fabric.dog:8443/v1/issuer/pine"
+FEDERATED_AUTH_SUBJECT = "datadog-oidc"
+FEDERATED_CREDENTIAL_DESCRIPTION = (
+    "Federated credential that permits Datadog to authenticate without storing a client secret"
+)
+FEDERATED_AUTH_AUDIENCE = "api://AzureADTokenExchange"
 
 
 def get_app_registration_name() -> str:
@@ -75,7 +83,22 @@ def create_app_registration_with_permissions(scopes: Iterable[Scope], use_secret
         .param_list("--scopes", [s.scope for s in scopes])
     )
     if use_secretless_auth:
-        run_app_reg_create_cmd(cmd)
+        result = run_app_reg_create_cmd(cmd)
+        execute(
+            Cmd(["az", "ad", "app", "federated-credential", "create"])
+            .param("--id", result["appId"])
+            .param(
+                "--parameters",
+                f"""{{
+                    "name": "{FEDERATED_CREDENTIAL_NAME}",
+                    "issuer": "{FEDERATED_AUTH_ISSUER}",
+                    "subject": "{FEDERATED_AUTH_SUBJECT}",
+                    "description": "{FEDERATED_CREDENTIAL_DESCRIPTION}",
+                    "audiences": ["{FEDERATED_AUTH_AUDIENCE}"]
+                }}""",
+            )
+        )
+
     else:
         try:
             # Try setting the TTL to the max of 2 years.
