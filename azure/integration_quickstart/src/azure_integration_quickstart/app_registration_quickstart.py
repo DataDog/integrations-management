@@ -169,7 +169,9 @@ def main():
     with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
         selections = receive_app_registration_selections(workflow_id)
     with status.report_step("app_registration", "Creating app registration in Azure"):
-        app_registration = create_app_registration_with_permissions(selections.scopes)
+        app_registration = create_app_registration_with_permissions(
+            selections.scopes, selections.app_registration_config.get("secretless_auth_enabled", False)
+        )
     with status.report_step("integration_config", "Submitting new configuration to Datadog"):
         submit_integration_config(app_registration, selections.app_registration_config)
     with status.report_step("config_identifier", "Submitting new configuration identifier to Datadog") as step_metadata:
