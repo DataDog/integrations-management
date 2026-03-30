@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 from common.shell import Cmd
 
+from az_shared.constants import GRAPH_ASSIGNEE_NOT_IN_DIRECTORY
 from az_shared.util import get_az_and_python_version
 
 from .errors import (
@@ -31,9 +32,6 @@ REFRESH_TOKEN_EXPIRED_ERROR = "AADSTS700082"
 RESOURCE_NOT_FOUND_ERROR = "ResourceNotFound"
 POLICY_ERROR = "RequestDisallowedByPolicy"
 DISABLED_SUBSCRIPTION_ERROR = "DisabledSubscription"
-
-# Known noisy stderr from `az role assignment list --assignee` when Graph lags; log at DEBUG only.
-GRAPH_ASSIGNEE_NOT_IN_DIRECTORY = "Cannot find user or service principal in graph database"
 
 INITIAL_RETRY_DELAY = 2  # seconds
 RETRY_DELAY_MULTIPLIER = 2
