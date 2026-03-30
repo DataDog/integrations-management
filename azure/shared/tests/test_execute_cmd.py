@@ -195,6 +195,23 @@ ERROR: (RequestDisallowedByPolicy) {EXAMPLE_POLICY_ERROR}"""
             execute(cmd)
         self.assert_has_az_version(e.exception)
 
+    def test_execute_role_list_graph_assignee_logs_debug_not_error(self):
+        """Graph lag stderr is DEBUG-only; RuntimeError still raised."""
+        cmd = Cmd(["az", "role", "assignment", "list"])
+        error = CalledProcessError(1, "az")
+        error.stderr = (
+            "ERROR: Cannot find user or service principal in graph database for "
+            "'0318928d-ee41-4ecb-a9a0-9dc7b40299c2'. If the assignee is an appId, "
+            "make sure the corresponding service principal is created."
+        )
+        self.subprocess_mock.side_effect = error
+
+        with mock_patch("az_shared.execute_cmd.log") as log_mock:
+            with self.assertRaises(RuntimeError):
+                execute(cmd)
+        log_mock.error.assert_not_called()
+        log_mock.debug.assert_called()
+
     def test_execute_permission_required_error(self):
         """Test execute handles permission required errors"""
         cmd = Cmd(["az", "functionapp", "create"])

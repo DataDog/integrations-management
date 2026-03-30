@@ -6,11 +6,16 @@ import json
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 from urllib.error import HTTPError
 
 from azure_integration_quickstart.constants import APP_REGISTRATION_WORKFLOW_TYPE, LOG_FORWARDING_WORKFLOW_TYPE
-from azure_integration_quickstart.scopes import ManagementGroup, Scope, Subscription, flatten_scopes_to_unique_subscriptions
+from azure_integration_quickstart.scopes import (
+    ManagementGroup,
+    Scope,
+    Subscription,
+    flatten_scopes_to_unique_subscriptions,
+)
 from azure_integration_quickstart.util import dd_request
 
 
@@ -35,7 +40,7 @@ class LogForwardingUserSelections:
 
 def _scopes_from_subscription_and_management_group_dicts(
     subscriptions: list[dict], management_groups: list[dict]
-) -> list[Scope]:
+) -> Sequence[Scope]:
     """Parse selection dicts into a combined list of subscription and management group scopes."""
     subs = [Subscription(**s) for s in subscriptions]
     mgs = [
@@ -47,10 +52,10 @@ def _scopes_from_subscription_and_management_group_dicts(
         )
         for mg in management_groups
     ]
-    return subs + mgs
+    return [*subs, *mgs]
 
 
-def _poll_and_parse_selections(workflow_type: str, workflow_id: str) -> tuple[dict, tuple[Sequence[Scope], ...]]:
+def _poll_and_parse_selections(workflow_type: str, workflow_id: str) -> tuple[dict[str, Any], Sequence[Scope]]:
     """Poll and wait for user selections, then parse and return both the selections and scopes."""
     while True:
         try:
@@ -70,10 +75,8 @@ def _poll_and_parse_selections(workflow_type: str, workflow_id: str) -> tuple[di
             continue
         selections = json_status_response["data"]["attributes"]["metadata"]["selections"]
 
-        scopes = tuple(
-            _scopes_from_subscription_and_management_group_dicts(
-                selections["subscriptions"], selections["management_groups"]
-            )
+        scopes = _scopes_from_subscription_and_management_group_dicts(
+            selections["subscriptions"], selections["management_groups"]
         )
 
         return selections, scopes

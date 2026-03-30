@@ -8,6 +8,7 @@ import tempfile
 import time
 from typing import Iterable
 
+from az_shared.constants import GRAPH_ASSIGNEE_NOT_IN_DIRECTORY
 from az_shared.errors import ExistenceCheckError, ResourceNotFoundError, TimeoutError
 from az_shared.execute_cmd import execute
 from az_shared.logs import log
@@ -107,7 +108,9 @@ def role_exists(role_id: str, scope: str, principal_id: str) -> bool:
 
         return int(output.strip()) > 0
     except (RuntimeError, ValueError) as e:
-        log.error(f"Failed to check if role assignment exists: {e}")
+        # Graph lag on list --assignee; omit error log (create path still runs).
+        if not (GRAPH_ASSIGNEE_NOT_IN_DIRECTORY in str(e) and principal_id in str(e)):
+            log.error(f"Failed to check if role assignment exists: {e}")
         return False
 
 
@@ -253,7 +256,7 @@ def remove_role(scope: str, principal_id: str, role_id: str) -> None:
     """Remove a role assignment for a principal at a given scope."""
 
     log.debug(f"Removing role assignment for role {role_id} from principal {principal_id} at scope {scope}")
-    
+
     output = execute(
         AzCmd("role", "assignment list")
         .param("--scope", scope)
@@ -264,10 +267,7 @@ def remove_role(scope: str, principal_id: str, role_id: str) -> None:
     )
     assignment_ids = [aid.strip() for aid in output.strip().split() if aid.strip()]
     if assignment_ids:
-        execute(
-            AzCmd("role", "assignment delete")
-            .param("--ids", assignment_ids[0])
-        )
+        execute(AzCmd("role", "assignment delete").param("--ids", assignment_ids[0]))
 
 
 def _get_lfo_task_principal_ids(config: Configuration) -> tuple[str, str, str]:
@@ -342,7 +342,9 @@ def revoke_subscriptions_permissions(config: Configuration, sub_ids: Iterable[st
         subscription_scope = f"/subscriptions/{sub_id}"
         resource_group_scope = f"{subscription_scope}/resourceGroups/{config.control_plane_rg}"
 
-        log.info(f"Revoking permissions and deleting resource group {config.control_plane_rg} in subscription: {sub_id}")
+        log.info(
+            f"Revoking permissions and deleting resource group {config.control_plane_rg} in subscription: {sub_id}"
+        )
         for scope, principal_id, role_id in [
             (subscription_scope, resource_principal_id, MONITORING_READER_ID),
             (resource_group_scope, scaling_principal_id, SCALING_CONTRIBUTOR_ID),
