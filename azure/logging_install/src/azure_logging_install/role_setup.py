@@ -359,6 +359,10 @@ def revoke_subscriptions_permissions(config: Configuration, sub_ids: Iterable[st
                 .param("--name", config.control_plane_rg)
                 .param("--subscription", sub_id)
                 .flag("--yes")
+                .flag("--no-wait")
+            )
+            log.info(
+                "Resource group deletion was started and will continue in the background in Azure; completion may take some time."
             )
         except RuntimeError as e:
             if "could not be found" in str(e).lower() or "ResourceGroupNotFound" in str(e):
