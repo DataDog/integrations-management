@@ -52,7 +52,7 @@ APP_REGISTRATION_ROLE = "Monitoring Reader"
 
 FEDERATED_AUTH_SECRET_PLACEHOLDER = "SECRETLESS_AUTH"
 FEDERATED_CREDENTIAL_NAME = "datadog"
-FEDERATED_AUTH_ISSUER = "https://ticino-sandbox.identity-sandbox.local-cluster.local-dc.fabric.dog:8443/v1/issuer/pine"
+FEDERATED_AUTH_ISSUER = "https://jjmc4r9f5i.execute-api.us-east-1.amazonaws.com/pine"
 FEDERATED_AUTH_SUBJECT = "datadog-oidc"
 FEDERATED_CREDENTIAL_DESCRIPTION = (
     "Federated credential that permits Datadog to authenticate without storing a client secret"
