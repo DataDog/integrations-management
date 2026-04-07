@@ -9,13 +9,21 @@ import time
 from typing import Iterable
 
 from az_shared.constants import GRAPH_ASSIGNEE_NOT_IN_DIRECTORY
-from az_shared.errors import ExistenceCheckError, ResourceNotFoundError, TimeoutError
+from az_shared.errors import (
+    ExistenceCheckError,
+    ResourceGroupDeletionWaitTimeoutError,
+    ResourceGroupNotFoundError,
+    ResourceNotFoundError,
+    TimeoutError,
+)
 from az_shared.execute_cmd import execute
 from az_shared.logs import log
 
 from .az_cmd import AzCmd, set_subscription
 from .configuration import Configuration
 from .constants import (
+    GRANT_POLL_INTERVAL_SEC,
+    GRANT_POLL_MAX,
     INITIAL_DEPLOY_IDENTITY_NAME,
     MONITORING_CONTRIBUTOR_ID,
     MONITORING_READER_ID,
@@ -286,8 +294,36 @@ def _get_lfo_task_principal_ids(config: Configuration) -> tuple[str, str, str]:
     return resource_principal_id, scaling_principal_id, diagnostic_principal_id
 
 
+def ensure_control_plane_rg_not_deleting(config: Configuration, sub_ids: Iterable[str]) -> None:
+    """For each subscription, ensure the control-plane RG is not stuck in Deleting (poll until gone or stable); raise if still Deleting after max attempts."""
+    for sub_id in list(sub_ids):
+        for attempt in range(1, GRANT_POLL_MAX + 1):
+            try:
+                output = execute(
+                    AzCmd("group", "show")
+                    .param("--name", config.control_plane_rg)
+                    .param("--subscription", sub_id)
+                    .param("--output", "json")
+                )
+            except (ResourceGroupNotFoundError, ResourceNotFoundError):
+                break
+
+            state = json.loads(output).get("properties", {}).get("provisioningState")
+            if state == "Deleting":
+                if attempt >= GRANT_POLL_MAX:
+                    raise ResourceGroupDeletionWaitTimeoutError(config.control_plane_rg, sub_id)
+                log.info(
+                    f"Waiting for resource group {config.control_plane_rg} in subscription {sub_id} to finish deleting before creating it to avoid race condition. ({attempt}/{GRANT_POLL_MAX} checks)..."
+                )
+                time.sleep(GRANT_POLL_INTERVAL_SEC)
+                continue
+            break
+
+
 def grant_subscriptions_permissions(config: Configuration, sub_ids: Iterable[str]):
     """Grant permissions to a set of subscriptions."""
+
+    ensure_control_plane_rg_not_deleting(config, sub_ids)
 
     resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_lfo_task_principal_ids(config)
 
