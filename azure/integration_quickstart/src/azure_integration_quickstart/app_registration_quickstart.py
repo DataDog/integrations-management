@@ -12,6 +12,7 @@ from urllib.error import URLError
 from az_shared.errors import (
     AccessError,
     AppRegistrationCreationPermissionsError,
+    FederatedCredentialCreationPermissionsError,
     InteractiveAuthenticationRequiredError,
 )
 from az_shared.execute_cmd import execute, execute_json
@@ -84,20 +85,23 @@ def create_app_registration_with_permissions(scopes: Iterable[Scope], use_secret
     )
     if use_secretless_auth:
         result = run_app_reg_create_cmd(cmd)
-        execute(
-            Cmd(["az", "ad", "app", "federated-credential", "create"])
-            .param("--id", result["appId"])
-            .param(
-                "--parameters",
-                f"""{{
-                    "name": "{FEDERATED_CREDENTIAL_NAME}",
-                    "issuer": "{FEDERATED_AUTH_ISSUER}",
-                    "subject": "{FEDERATED_AUTH_SUBJECT}",
-                    "description": "{FEDERATED_CREDENTIAL_DESCRIPTION}",
-                    "audiences": ["{FEDERATED_AUTH_AUDIENCE}"]
-                }}""",
+        try:
+            execute(
+                Cmd(["az", "ad", "app", "federated-credential", "create"])
+                .param("--id", result["appId"])
+                .param(
+                    "--parameters",
+                    f"""{{
+                        "name": "{FEDERATED_CREDENTIAL_NAME}",
+                        "issuer": "{FEDERATED_AUTH_ISSUER}",
+                        "subject": "{FEDERATED_AUTH_SUBJECT}",
+                        "description": "{FEDERATED_CREDENTIAL_DESCRIPTION}",
+                        "audiences": ["{FEDERATED_AUTH_AUDIENCE}"]
+                    }}""",
+                )
             )
-        )
+        except AccessError as e:
+            raise FederatedCredentialCreationPermissionsError(str(e)) from e
 
     else:
         try:
