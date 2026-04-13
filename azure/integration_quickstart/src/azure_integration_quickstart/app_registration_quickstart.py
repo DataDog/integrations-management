@@ -12,9 +12,10 @@ from urllib.error import URLError
 from az_shared.errors import (
     AccessError,
     AppRegistrationCreationPermissionsError,
+    FederatedCredentialCreationPermissionsError,
     InteractiveAuthenticationRequiredError,
 )
-from az_shared.execute_cmd import execute_json
+from az_shared.execute_cmd import execute, execute_json
 from azure_integration_quickstart.constants import APP_REGISTRATION_WORKFLOW_TYPE
 from azure_integration_quickstart.extension.vm_extension import list_vms_for_subscriptions, set_extension_latest
 from azure_integration_quickstart.quickstart_shared import (
@@ -25,7 +26,12 @@ from azure_integration_quickstart.quickstart_shared import (
     validate_environment_variables,
 )
 from azure_integration_quickstart.role_assignments import can_current_user_create_applications
-from azure_integration_quickstart.scopes import Scope, Subscription, flatten_scopes_to_unique_subscriptions, report_available_scopes
+from azure_integration_quickstart.scopes import (
+    Scope,
+    Subscription,
+    flatten_scopes_to_unique_subscriptions,
+    report_available_scopes,
+)
 from azure_integration_quickstart.script_status import Status, StatusReporter
 from azure_integration_quickstart.user_selections import receive_app_registration_selections
 from azure_integration_quickstart.util import dd_request
@@ -45,12 +51,31 @@ APP_REGISTRATION_NAME_PREFIX = "datadog-azure-integration"
 APP_REGISTRATION_CLIENT_SECRET_TTL_YEARS = 2
 APP_REGISTRATION_ROLE = "Monitoring Reader"
 
+FEDERATED_AUTH_SECRET_PLACEHOLDER = "SECRETLESS_AUTH"
+FEDERATED_CREDENTIAL_NAME = "datadog"
+FEDERATED_AUTH_ISSUER = "https://jjmc4r9f5i.execute-api.us-east-1.amazonaws.com/pine"
+FEDERATED_AUTH_SUBJECT = "datadog-oidc"
+FEDERATED_CREDENTIAL_DESCRIPTION = (
+    "Federated credential that permits Datadog to authenticate without storing a client secret"
+)
+FEDERATED_AUTH_AUDIENCE = "api://AzureADTokenExchange"
+
 
 def get_app_registration_name() -> str:
     return f"{APP_REGISTRATION_NAME_PREFIX}-{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}"
 
 
-def create_app_registration_with_permissions(scopes: Iterable[Scope]) -> AppRegistration:
+def run_app_reg_create_cmd(cmd: Cmd):
+    try:
+        return execute_json(cmd)
+    except AccessError as e:
+        raise AppRegistrationCreationPermissionsError(str(e)) from e
+    except InteractiveAuthenticationRequiredError as e:
+        # TODO: Run the auth commands in the background and prompt the user in the setup UI.
+        raise InteractiveAuthenticationRequiredError(e.commands, str(e))
+
+
+def create_app_registration_with_permissions(scopes: Iterable[Scope], use_secretless_auth=False) -> AppRegistration:
     """Create an app registration with the necessary permissions for Datadog to function over the given scopes."""
     cmd = (
         Cmd(["az", "ad", "sp", "create-for-rbac"])
@@ -58,20 +83,40 @@ def create_app_registration_with_permissions(scopes: Iterable[Scope]) -> AppRegi
         .param("--role", APP_REGISTRATION_ROLE)
         .param_list("--scopes", [s.scope for s in scopes])
     )
-    try:
-        # Try setting the TTL to the max of 2 years.
-        result = execute_json(cmd.param("--years", f"{APP_REGISTRATION_CLIENT_SECRET_TTL_YEARS}"))
-        # If it fails, just use the default TTL.
-    except Exception:
+    if use_secretless_auth:
+        result = run_app_reg_create_cmd(cmd)
         try:
-            result = execute_json(cmd)
+            execute(
+                Cmd(["az", "ad", "app", "federated-credential", "create"])
+                .param("--id", result["appId"])
+                .param(
+                    "--parameters",
+                    f"""{{
+                        "name": "{FEDERATED_CREDENTIAL_NAME}",
+                        "issuer": "{FEDERATED_AUTH_ISSUER}",
+                        "subject": "{FEDERATED_AUTH_SUBJECT}",
+                        "description": "{FEDERATED_CREDENTIAL_DESCRIPTION}",
+                        "audiences": ["{FEDERATED_AUTH_AUDIENCE}"]
+                    }}""",
+                )
+            )
         except AccessError as e:
-            raise AppRegistrationCreationPermissionsError(str(e)) from e
-        except InteractiveAuthenticationRequiredError as e:
-            # TODO: Run the auth commands in the background and prompt the user in the setup UI.
-            raise InteractiveAuthenticationRequiredError(e.commands, str(e))
+            raise FederatedCredentialCreationPermissionsError(str(e)) from e
 
-    return AppRegistration(result["tenant"], result["appId"], result["password"])
+    else:
+        try:
+            # Try setting the TTL to the max of 2 years.
+            result = execute_json(cmd.param("--years", f"{APP_REGISTRATION_CLIENT_SECRET_TTL_YEARS}"))
+            # If it fails, just use the default TTL.
+        except Exception:
+            result = run_app_reg_create_cmd(cmd)
+
+    return AppRegistration(
+        result["tenant"],
+        result["appId"],
+        # replace client secret with a placeholder if the user has opted for secretless auth
+        FEDERATED_AUTH_SECRET_PLACEHOLDER if use_secretless_auth else result["password"],
+    )
 
 
 def submit_integration_config(app_registration: AppRegistration, config: dict) -> None:
@@ -128,7 +173,9 @@ def main():
     with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
         selections = receive_app_registration_selections(workflow_id)
     with status.report_step("app_registration", "Creating app registration in Azure"):
-        app_registration = create_app_registration_with_permissions(selections.scopes)
+        app_registration = create_app_registration_with_permissions(
+            selections.scopes, selections.app_registration_config.get("secretless_auth_enabled", False)
+        )
     with status.report_step("integration_config", "Submitting new configuration to Datadog"):
         submit_integration_config(app_registration, selections.app_registration_config)
     with status.report_step("config_identifier", "Submitting new configuration identifier to Datadog") as step_metadata:
@@ -142,15 +189,12 @@ def main():
                 list_vms_for_subscriptions([s.id for s in flatten_scopes_to_unique_subscriptions(selections.scopes)])
             )
     if selections.log_forwarding_config:
-        with status.report_step(
-            "upsert_log_forwarder", f"{'Updating' if existing_lfo else 'Creating'} Log Forwarder"
-        ):
+        with status.report_step("upsert_log_forwarder", f"{'Updating' if existing_lfo else 'Creating'} Log Forwarder"):
             selected_subs = flatten_scopes_to_unique_subscriptions(selections.scopes)
             # App registration flow is add-only: when an LFO exists, monitored scopes becomes existing ∪ selected.
             if existing_lfo:
                 existing_subs = {
-                    Subscription(id=sub_id, name=name)
-                    for sub_id, name in existing_lfo.monitored_subs.items()
+                    Subscription(id=sub_id, name=name) for sub_id, name in existing_lfo.monitored_subs.items()
                 }
                 final_scopes = existing_subs | selected_subs
             else:
