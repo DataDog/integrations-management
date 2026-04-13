@@ -162,15 +162,6 @@ class AzCliNotAuthenticatedError(UserRetriableError):
         super().__init__(error_message, error_message)
 
 
-class ResourceGroupDeletionWaitTimeoutError(UserActionRequiredError):
-    """Resource group is still deleting after a short poll; user must wait or use a different name."""
-
-    def __init__(self, resource_group_name: str, subscription_id: str):
-        error_message = f"Resource group '{resource_group_name}' in subscription {subscription_id} is still in provisioningState Deleting from the previous scope removal."
-        user_action_message = f"Wait until Azure finishes deleting resource group {resource_group_name} in subscription {subscription_id}. Then, refresh the page and run the script again. Alternatively, configure a different resource group name for the control plane and retry."
-        super().__init__(error_message, user_action_message)
-
-
 # Expected Errors
 class RateLimitExceededError(AzIntegrationError):
     """We have exceeded the rate limit for the Azure API. Script will retry until MAX_RETRIES are reached."""

@@ -6,11 +6,11 @@ import json
 from unittest import TestCase
 from unittest.mock import patch as mock_patch
 
-from az_shared.errors import ResourceGroupDeletionWaitTimeoutError, ResourceGroupNotFoundError
+from az_shared.errors import ResourceGroupNotFoundError
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.role_setup import ensure_control_plane_rg_not_deleting
 
-from logging_install.tests.test_data import CONTROL_PLANE_REGION, CONTROL_PLANE_RESOURCE_GROUP
+from tests.test_data import CONTROL_PLANE_REGION, CONTROL_PLANE_RESOURCE_GROUP
 
 
 class TestWaitUntilControlPlaneRgReadyForGrant(TestCase):
@@ -49,11 +49,15 @@ class TestWaitUntilControlPlaneRgReadyForGrant(TestCase):
         self.assertEqual(self.execute_mock.call_count, 2)
         self.sleep_mock.assert_called_once()
 
-    def test_deleting_three_times_raises(self):
-        self.execute_mock.return_value = self._deleting_json()
-        with self.assertRaises(ResourceGroupDeletionWaitTimeoutError) as ctx:
-            ensure_control_plane_rg_not_deleting(self.config, ["sub-a"])
-        self.assertIn(CONTROL_PLANE_RESOURCE_GROUP, str(ctx.exception))
-        self.assertIn("sub-a", str(ctx.exception))
-        self.assertEqual(self.execute_mock.call_count, 3)
-        self.assertEqual(self.sleep_mock.call_count, 2)
+    def test_many_deleting_then_not_found(self):
+        n_deleting = 10
+        self.execute_mock.side_effect = [self._deleting_json()] * n_deleting + [ResourceGroupNotFoundError("gone")]
+        ensure_control_plane_rg_not_deleting(self.config, ["sub-a"])
+        self.assertEqual(self.execute_mock.call_count, n_deleting + 1)
+        self.assertEqual(self.sleep_mock.call_count, n_deleting)
+
+    def test_succeeded_breaks_without_sleep(self):
+        self.execute_mock.return_value = json.dumps({"properties": {"provisioningState": "Succeeded"}})
+        ensure_control_plane_rg_not_deleting(self.config, ["sub-a"])
+        self.execute_mock.assert_called_once()
+        self.sleep_mock.assert_not_called()

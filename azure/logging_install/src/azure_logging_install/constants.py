@@ -18,9 +18,8 @@ REQUIRED_RESOURCE_PROVIDERS = [
 RESOURCE_PROVIDER_REGISTERED_STATUS = "Registered"
 MAX_THREAD_POOL_WORKERS = 100
 
-# Short poll for checking if the control-plane resource group is still deleting.
-GRANT_POLL_MAX = 3
-GRANT_POLL_INTERVAL_SEC = 20
+# Seconds between az group show polls while the resource group is Deleting.
+RG_DELETING_POLL_INTERVAL = 20
 
 NIL_UUID = "00000000-0000-0000-0000-000000000000"
 MONITORING_READER_ID = "43d0d8ad-25c7-4714-9337-8ba259a9fe05"
