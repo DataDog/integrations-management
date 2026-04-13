@@ -48,6 +48,7 @@ class TestWaitUntilControlPlaneRgReadyForGrant(TestCase):
         ensure_control_plane_rg_not_deleting(self.config, ["sub-a"])
         self.assertEqual(self.execute_mock.call_count, 2)
         self.sleep_mock.assert_called_once()
+        self.log_mock.info.assert_called_once()
 
     def test_many_deleting_then_not_found(self):
         n_deleting = 10
@@ -55,6 +56,7 @@ class TestWaitUntilControlPlaneRgReadyForGrant(TestCase):
         ensure_control_plane_rg_not_deleting(self.config, ["sub-a"])
         self.assertEqual(self.execute_mock.call_count, n_deleting + 1)
         self.assertEqual(self.sleep_mock.call_count, n_deleting)
+        self.log_mock.info.assert_called_once()
 
     def test_succeeded_breaks_without_sleep(self):
         self.execute_mock.return_value = json.dumps({"properties": {"provisioningState": "Succeeded"}})

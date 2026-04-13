@@ -295,6 +295,7 @@ def _get_lfo_task_principal_ids(config: Configuration) -> tuple[str, str, str]:
 def ensure_control_plane_rg_not_deleting(config: Configuration, sub_ids: Iterable[str]) -> None:
     """For each subscription, poll while the control-plane resource group is Deleting until it is gone or no longer Deleting."""
     for sub_id in list(sub_ids):
+        logged_waiting_for_delete = False
         while True:
             try:
                 output = execute(
@@ -308,9 +309,11 @@ def ensure_control_plane_rg_not_deleting(config: Configuration, sub_ids: Iterabl
 
             state = json.loads(output).get("properties", {}).get("provisioningState")
             if state == "Deleting":
-                log.info(
-                    f"Waiting for resource group {config.control_plane_rg} in subscription {sub_id} to finish deleting before creating it to avoid race condition..."
-                )
+                if not logged_waiting_for_delete:
+                    log.info(
+                        f"Waiting for resource group {config.control_plane_rg} in subscription {sub_id} to finish deleting before creating it to avoid race condition..."
+                    )
+                    logged_waiting_for_delete = True
                 time.sleep(RG_DELETING_POLL_INTERVAL)
                 continue
             break
