@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass
-from typing import Literal, Optional
+from typing import Literal, Optional, cast
 
 from az_shared.errors import AccessError
 from az_shared.execute_cmd import execute_json
@@ -152,11 +152,11 @@ def get_management_group_scopes(tenant_id: str) -> list[ManagementGroup]:
 def get_tenant_and_subscriptions() -> tuple[str, list[Subscription]]:
     """Get tenant ID and subscriptions the user has permission to assign roles on. Used to start scope collection before running the rest in parallel with LFO."""
     tenant_id = execute_json(Cmd(["az", "account", "show"]).param("--query", "tenantId"))
-    subscriptions = filter_scopes_by_permission(get_subscription_scopes(tenant_id))
+    subscriptions = cast(list[Subscription], filter_scopes_by_permission(get_subscription_scopes(tenant_id)))
     return tenant_id, subscriptions
 
 
-def finish_collecting_scopes(tenant_id: str, subscriptions: list[Scope], step_metadata: dict) -> None:
+def finish_collecting_scopes(tenant_id: str, subscriptions: Sequence[Scope], step_metadata: dict) -> None:
     """Finish scope collection: management groups, regions, and write all three to step_metadata."""
     management_groups = filter_scopes_by_permission(get_management_group_scopes(tenant_id))
     regions = get_available_regions()

@@ -8,6 +8,7 @@ import os
 import signal
 import sys
 import threading
+from collections.abc import Sequence, Set
 from typing import Optional, TypedDict
 
 try:
@@ -102,7 +103,7 @@ def build_log_forwarder_payload(metadata: LfoMetadata, include_monitored_scopes:
 
 
 def report_existing_log_forwarders(
-    subscriptions: list[Scope], step_metadata: dict, include_monitored_scopes: bool
+    subscriptions: Sequence[Scope], step_metadata: dict, include_monitored_scopes: bool
 ) -> Optional[LfoMetadata]:
     """Send Datadog any existing Log Forwarders in the tenant. Returns existing LFO metadata when exactly one is found, else None.
     When include_monitored_scopes is True, each payload includes monitoredSubscriptions."""
@@ -116,7 +117,7 @@ def report_existing_log_forwarders(
     return list(forwarders.values())[0]
 
 
-def upsert_log_forwarder(config: dict, subscriptions: set[Scope]):
+def upsert_log_forwarder(config: dict, subscriptions: Set[Scope]):
     install_log_forwarder(
         Configuration(
             control_plane_region=config["controlPlaneRegion"],
