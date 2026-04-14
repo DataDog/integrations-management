@@ -14,7 +14,7 @@ from .configuration import Configuration
 from .deploy import deploy_control_plane, run_initial_deploy
 from .existing_lfo import update_existing_lfo
 from .resource_setup import create_resource_group
-from .role_setup import grant_permissions
+from .role_setup import ensure_control_plane_rg_not_deleting, grant_permissions
 from .validation import check_fresh_install, validate_az_cli, validate_singleton_lfo, validate_user_parameters
 
 SKIP_SINGLETON_CHECK = False
@@ -110,6 +110,8 @@ def parse_arguments():
 
 def create_new_lfo(config: Configuration):
     """Create a new LFO for the given configuration"""
+
+    ensure_control_plane_rg_not_deleting(config, config.all_subscriptions)
 
     log_header("STEP 2: Creating control plane resource group...")
     set_subscription(config.control_plane_sub_id)

@@ -21,6 +21,7 @@ from .errors import (
     PolicyError,
     RateLimitExceededError,
     RefreshTokenError,
+    ResourceGroupNotFoundError,
     ResourceNotFoundError,
 )
 from .logs import log
@@ -30,6 +31,7 @@ PERMISSION_REQUIRED_ERROR = "permission is needed"
 AZURE_THROTTLING_ERRORS = ["TooManyRequests", "Too Many Requests", "ResourceCollectionRequestsThrottled"]
 REFRESH_TOKEN_EXPIRED_ERROR = "AADSTS700082"
 RESOURCE_NOT_FOUND_ERROR = "ResourceNotFound"
+RESOURCE_GROUP_NOT_FOUND_ERROR = "ResourceGroupNotFound"
 POLICY_ERROR = "RequestDisallowedByPolicy"
 DISABLED_SUBSCRIPTION_ERROR = "DisabledSubscription"
 
@@ -85,6 +87,10 @@ def execute(cmd: Cmd, can_fail: bool = False) -> str:
         except subprocess.CalledProcessError as e:
             stderr = str(e.stderr)
             stdout = str(e.stdout)
+            if RESOURCE_GROUP_NOT_FOUND_ERROR in stderr:
+                raise ResourceGroupNotFoundError(
+                    f"Resource group not found when executing '{full_command}'\nstdout: {stdout}\nstderr: {stderr}"
+                ) from e
             if RESOURCE_NOT_FOUND_ERROR in stderr:
                 raise ResourceNotFoundError(
                     f"Resource not found when executing '{full_command}'\nstdout: {stdout}\nstderr: {stderr}"

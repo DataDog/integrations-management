@@ -169,3 +169,7 @@ class RateLimitExceededError(AzIntegrationError):
 
 class ResourceNotFoundError(AzIntegrationError):
     """Azure resource was not found. This gets thrown during some resource existence checks."""
+
+
+class ResourceGroupNotFoundError(AzIntegrationError):
+    """Azure resource group was not found. This gets thrown when Azure Resource Manager (ARM) cannot find the resource group specified in a request."""

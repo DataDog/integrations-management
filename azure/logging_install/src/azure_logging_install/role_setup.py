@@ -9,7 +9,12 @@ import time
 from typing import Iterable
 
 from az_shared.constants import GRAPH_ASSIGNEE_NOT_IN_DIRECTORY
-from az_shared.errors import ExistenceCheckError, ResourceNotFoundError, TimeoutError
+from az_shared.errors import (
+    ExistenceCheckError,
+    ResourceGroupNotFoundError,
+    ResourceNotFoundError,
+    TimeoutError,
+)
 from az_shared.execute_cmd import execute
 from az_shared.logs import log
 
@@ -19,6 +24,7 @@ from .constants import (
     INITIAL_DEPLOY_IDENTITY_NAME,
     MONITORING_CONTRIBUTOR_ID,
     MONITORING_READER_ID,
+    RG_DELETING_POLL_INTERVAL,
     SCALING_CONTRIBUTOR_ID,
     STORAGE_READER_AND_DATA_ACCESS_ID,
     WEBSITE_CONTRIBUTOR_ID,
@@ -286,8 +292,37 @@ def _get_lfo_task_principal_ids(config: Configuration) -> tuple[str, str, str]:
     return resource_principal_id, scaling_principal_id, diagnostic_principal_id
 
 
+def ensure_control_plane_rg_not_deleting(config: Configuration, sub_ids: Iterable[str]) -> None:
+    """For each subscription, poll while the control-plane resource group is Deleting until it is gone or no longer Deleting."""
+    for sub_id in list(sub_ids):
+        logged_waiting_for_delete = False
+        while True:
+            try:
+                output = execute(
+                    AzCmd("group", "show")
+                    .param("--name", config.control_plane_rg)
+                    .param("--subscription", sub_id)
+                    .param("--output", "json")
+                )
+            except (ResourceGroupNotFoundError, ResourceNotFoundError):
+                break
+
+            state = json.loads(output).get("properties", {}).get("provisioningState")
+            if state == "Deleting":
+                if not logged_waiting_for_delete:
+                    log.info(
+                        f"Waiting for resource group {config.control_plane_rg} in subscription {sub_id} to finish deleting before creating it to avoid race condition..."
+                    )
+                    logged_waiting_for_delete = True
+                time.sleep(RG_DELETING_POLL_INTERVAL)
+                continue
+            break
+
+
 def grant_subscriptions_permissions(config: Configuration, sub_ids: Iterable[str]):
     """Grant permissions to a set of subscriptions."""
+
+    ensure_control_plane_rg_not_deleting(config, sub_ids)
 
     resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_lfo_task_principal_ids(config)
 
@@ -359,6 +394,10 @@ def revoke_subscriptions_permissions(config: Configuration, sub_ids: Iterable[st
                 .param("--name", config.control_plane_rg)
                 .param("--subscription", sub_id)
                 .flag("--yes")
+                .flag("--no-wait")
+            )
+            log.info(
+                "Resource group deletion was started and will continue in the background in Azure; completion may take some time."
             )
         except RuntimeError as e:
             if "could not be found" in str(e).lower() or "ResourceGroupNotFound" in str(e):

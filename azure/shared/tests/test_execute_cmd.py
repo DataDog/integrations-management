@@ -15,6 +15,7 @@ from az_shared.errors import (
     PolicyError,
     RateLimitExceededError,
     RefreshTokenError,
+    ResourceGroupNotFoundError,
     ResourceNotFoundError,
     UserActionRequiredError,
 )
@@ -23,6 +24,7 @@ from az_shared.execute_cmd import (
     MAX_RETRIES,
     PERMISSION_REQUIRED_ERROR,
     REFRESH_TOKEN_EXPIRED_ERROR,
+    RESOURCE_GROUP_NOT_FOUND_ERROR,
     RESOURCE_NOT_FOUND_ERROR,
     execute,
 )
@@ -106,6 +108,21 @@ class TestExecuteCmd(CmdExecutionTestCase):
         self.subprocess_mock.side_effect = error
 
         with self.assertRaises(ResourceNotFoundError) as e:
+            execute(cmd)
+        self.assert_has_az_version(e.exception)
+
+    def test_execute_resource_group_not_found_error(self):
+        """Test execute maps Azure CLI ResourceGroupNotFound to ResourceGroupNotFoundError"""
+        cmd = Cmd(["az", "group", "show"])
+
+        error = CalledProcessError(1, "az")
+        error.stderr = (
+            f"ERROR: ({RESOURCE_GROUP_NOT_FOUND_ERROR}) Resource group 'rg' could not be found.\n"
+            f"Code: {RESOURCE_GROUP_NOT_FOUND_ERROR}\n"
+        )
+        self.subprocess_mock.side_effect = error
+
+        with self.assertRaises(ResourceGroupNotFoundError) as e:
             execute(cmd)
         self.assert_has_az_version(e.exception)
 
