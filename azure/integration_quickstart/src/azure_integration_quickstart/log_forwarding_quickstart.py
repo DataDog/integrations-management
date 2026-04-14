@@ -67,7 +67,7 @@ def main():
         with status.report_step(
             "upsert_log_forwarder", f"{'Updating' if existing_lfo else 'Creating'} Log Forwarder"
         ):
-            upsert_log_forwarder(selections.log_forwarding_config, final_subscriptions)
+            upsert_log_forwarder(selections.log_forwarding_config, final_subscriptions, status)
 
     print("Script succeeded. You may exit this shell.")
 

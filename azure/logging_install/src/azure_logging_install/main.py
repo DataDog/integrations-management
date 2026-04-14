@@ -4,7 +4,9 @@
 
 import argparse
 import logging
+from collections.abc import Callable
 from logging import basicConfig
+from typing import Optional
 
 from az_shared.errors import InputParamValidationError
 from az_shared.logs import log, log_header
@@ -108,10 +110,14 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def create_new_lfo(config: Configuration):
+def create_new_lfo(
+    config: Configuration,
+    on_rg_waiting_start: Optional[Callable[[], None]] = None,
+    on_rg_waiting_end: Optional[Callable[[], None]] = None,
+):
     """Create a new LFO for the given configuration"""
 
-    ensure_control_plane_rg_not_deleting(config, config.all_subscriptions)
+    ensure_control_plane_rg_not_deleting(config, config.all_subscriptions, on_rg_waiting_start, on_rg_waiting_end)
 
     log_header("STEP 2: Creating control plane resource group...")
     set_subscription(config.control_plane_sub_id)
@@ -136,7 +142,11 @@ def create_new_lfo(config: Configuration):
     log_header("Success! Azure Automated Log Forwarding installation completed!")
 
 
-def install_log_forwarder(config: Configuration):
+def install_log_forwarder(
+    config: Configuration,
+    on_rg_waiting_start: Optional[Callable[[], None]] = None,
+    on_rg_waiting_end: Optional[Callable[[], None]] = None,
+):
     try:
         basicConfig(level=getattr(logging, config.log_level))
 
@@ -156,11 +166,11 @@ def install_log_forwarder(config: Configuration):
             log.info("Updating existing installation...")
 
             existing_lfo = next(iter(existing_lfos.values()))
-            update_existing_lfo(config, existing_lfo)
+            update_existing_lfo(config, existing_lfo, on_rg_waiting_start, on_rg_waiting_end)
         else:
             log.info("Validation completed - no existing log forwarding installation found")
             log.info("Creating new installation...")
-            create_new_lfo(config)
+            create_new_lfo(config, on_rg_waiting_start, on_rg_waiting_end)
 
     except Exception as e:
         log.error(f"Failed with error: {e}")

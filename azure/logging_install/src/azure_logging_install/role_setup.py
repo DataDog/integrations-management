@@ -6,7 +6,8 @@ import json
 import os
 import tempfile
 import time
-from typing import Iterable
+from collections.abc import Callable
+from typing import Iterable, Optional
 
 from az_shared.constants import GRAPH_ASSIGNEE_NOT_IN_DIRECTORY
 from az_shared.errors import (
@@ -292,8 +293,14 @@ def _get_lfo_task_principal_ids(config: Configuration) -> tuple[str, str, str]:
     return resource_principal_id, scaling_principal_id, diagnostic_principal_id
 
 
-def ensure_control_plane_rg_not_deleting(config: Configuration, sub_ids: Iterable[str]) -> None:
+def ensure_control_plane_rg_not_deleting(
+    config: Configuration,
+    sub_ids: Iterable[str],
+    on_rg_waiting_start: Optional[Callable[[], None]] = None,
+    on_rg_waiting_end: Optional[Callable[[], None]] = None,
+) -> None:
     """For each subscription, poll while the control-plane resource group is Deleting until it is gone or no longer Deleting."""
+    started_waiting = False
     for sub_id in list(sub_ids):
         logged_waiting_for_delete = False
         while True:
@@ -309,6 +316,10 @@ def ensure_control_plane_rg_not_deleting(config: Configuration, sub_ids: Iterabl
 
             state = json.loads(output).get("properties", {}).get("provisioningState")
             if state == "Deleting":
+                if not started_waiting:
+                    if on_rg_waiting_start:
+                        on_rg_waiting_start()
+                    started_waiting = True
                 if not logged_waiting_for_delete:
                     log.info(
                         f"Waiting for resource group {config.control_plane_rg} in subscription {sub_id} to finish deleting before creating it to avoid race condition..."
@@ -317,12 +328,19 @@ def ensure_control_plane_rg_not_deleting(config: Configuration, sub_ids: Iterabl
                 time.sleep(RG_DELETING_POLL_INTERVAL)
                 continue
             break
+    if started_waiting and on_rg_waiting_end:
+        on_rg_waiting_end()
 
 
-def grant_subscriptions_permissions(config: Configuration, sub_ids: Iterable[str]):
+def grant_subscriptions_permissions(
+    config: Configuration,
+    sub_ids: Iterable[str],
+    on_rg_waiting_start: Optional[Callable[[], None]] = None,
+    on_rg_waiting_end: Optional[Callable[[], None]] = None,
+):
     """Grant permissions to a set of subscriptions."""
 
-    ensure_control_plane_rg_not_deleting(config, sub_ids)
+    ensure_control_plane_rg_not_deleting(config, sub_ids, on_rg_waiting_start, on_rg_waiting_end)
 
     resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_lfo_task_principal_ids(config)
 

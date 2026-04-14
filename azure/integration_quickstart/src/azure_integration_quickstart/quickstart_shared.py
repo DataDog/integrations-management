@@ -11,10 +11,10 @@ import threading
 from collections.abc import Sequence, Set
 from typing import Optional, TypedDict
 
-try:
+if sys.version_info >= (3, 11):
     from typing import NotRequired
-except ImportError:
-    from typing_extensions import NotRequired  # type: ignore[import-untyped]
+else:
+    from typing_extensions import NotRequired
 
 from az_shared.auth import check_login
 from az_shared.errors import AzCliNotAuthenticatedError, AzCliNotInstalledError
@@ -117,7 +117,23 @@ def report_existing_log_forwarders(
     return list(forwarders.values())[0]
 
 
-def upsert_log_forwarder(config: dict, subscriptions: Set[Scope]):
+def upsert_log_forwarder(config: dict, subscriptions: Set[Scope], status: Optional[StatusReporter] = None):
+    rg_waiting_started = False
+
+    def on_rg_waiting_start():
+        nonlocal rg_waiting_started
+        if status:
+            status.report(
+                "wait_for_rg_delete",
+                Status.IN_PROGRESS,
+                "Waiting for existing resource group deletion to complete before recreating it.",
+            )
+            rg_waiting_started = True
+
+    def on_rg_waiting_end():
+        if status and rg_waiting_started:
+            status.report("wait_for_rg_delete", Status.FINISHED, "Resource group deletion complete.")
+
     install_log_forwarder(
         Configuration(
             control_plane_region=config["controlPlaneRegion"],
@@ -128,5 +144,7 @@ def upsert_log_forwarder(config: dict, subscriptions: Set[Scope]):
             datadog_site=os.environ["DD_SITE"],
             resource_tag_filters=config.get("tagFilters", ""),
             pii_scrubber_rules=config.get("piiFilters", ""),
-        )
+        ),
+        on_rg_waiting_start=on_rg_waiting_start,
+        on_rg_waiting_end=on_rg_waiting_end,
     )

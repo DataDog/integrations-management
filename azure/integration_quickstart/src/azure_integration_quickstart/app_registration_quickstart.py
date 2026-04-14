@@ -199,7 +199,7 @@ def main():
                 final_scopes = existing_subs | selected_subs
             else:
                 final_scopes = selected_subs
-            upsert_log_forwarder(selections.log_forwarding_config, final_scopes)
+            upsert_log_forwarder(selections.log_forwarding_config, final_scopes, status)
 
     print("Script succeeded. You may exit this shell.")
 

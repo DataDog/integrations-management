@@ -2,6 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from json import JSONDecodeError, loads
 from typing import Final, Optional
@@ -156,14 +157,19 @@ def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) 
     }
 
 
-def update_existing_lfo(config: Configuration, existing_lfo: LfoMetadata):
+def update_existing_lfo(
+    config: Configuration,
+    existing_lfo: LfoMetadata,
+    on_rg_waiting_start: Optional[Callable[[], None]] = None,
+    on_rg_waiting_end: Optional[Callable[[], None]] = None,
+):
     """Update an existing LFO for the given configuration"""
 
     existing_monitored_sub_ids = set(existing_lfo.monitored_subs.keys())
     new_monitored_sub_ids = set(config.monitored_subscriptions)
     sub_ids_that_need_permissions = new_monitored_sub_ids - existing_monitored_sub_ids
     sub_ids_to_remove = existing_monitored_sub_ids - new_monitored_sub_ids
-    
+
     if sub_ids_that_need_permissions and sub_ids_to_remove:
         log_header("STEP 2: Grant and revoke permissions for log forwarding scopes")
     elif sub_ids_that_need_permissions:
@@ -174,7 +180,7 @@ def update_existing_lfo(config: Configuration, existing_lfo: LfoMetadata):
         log_header("STEP 2: Skipping permission changes for log forwarding scopes")
 
     if sub_ids_that_need_permissions:
-        grant_subscriptions_permissions(config, sub_ids_that_need_permissions)        
+        grant_subscriptions_permissions(config, sub_ids_that_need_permissions, on_rg_waiting_start, on_rg_waiting_end)
 
     if sub_ids_to_remove:
         revoke_subscriptions_permissions(config, sub_ids_to_remove)
