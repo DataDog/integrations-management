@@ -261,7 +261,7 @@ class TestMain(TestCase):
             mock_set_env_vars.assert_any_call(mock_config, DIAGNOSTIC_SETTINGS_TASK_NAME)
 
             # Verify permissions are granted only for new subscription
-            mock_grant_subs_perms.assert_called_once_with(mock_config, {SUB_3_ID})
+            mock_grant_subs_perms.assert_called_once_with(mock_config, {SUB_3_ID}, None, None)
 
     def test_install_log_forwarder_new_installation(self):
         """Test install_log_forwarder flow for new installation"""
@@ -287,7 +287,7 @@ class TestMain(TestCase):
             mock_check_fresh.assert_called_once_with(test_config, SUB_ID_TO_NAME)
 
             # Verify new installation path is taken
-            mock_create_new.assert_called_once_with(test_config)
+            mock_create_new.assert_called_once_with(test_config, None, None)
 
     def test_install_log_forwarder_existing_installation(self):
         """Test install_log_forwarder flow for existing installation"""
@@ -330,7 +330,7 @@ class TestMain(TestCase):
 
             # Verify existing installation path is taken
             expected_lfo = next(iter(existing_lfos.values()))
-            mock_update_existing.assert_called_once_with(test_config, expected_lfo)
+            mock_update_existing.assert_called_once_with(test_config, expected_lfo, None, None)
 
     def test_install_log_forwarder_handles_exceptions(self):
         """Test install_log_forwarder handles exceptions properly"""

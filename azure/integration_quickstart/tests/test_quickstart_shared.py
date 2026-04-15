@@ -4,14 +4,17 @@
 
 """Tests for quickstart_shared: build_log_forwarder_payload and report_existing_log_forwarders (Section 7: optional monitoredSubscriptions)."""
 
+import os
+from unittest.mock import MagicMock
 from unittest.mock import patch as mock_patch
-
-from azure_logging_install.existing_lfo import LfoControlPlane, LfoMetadata
 
 from azure_integration_quickstart.quickstart_shared import (
     build_log_forwarder_payload,
     report_existing_log_forwarders,
+    upsert_log_forwarder,
 )
+from azure_integration_quickstart.script_status import Status
+from azure_logging_install.existing_lfo import LfoControlPlane, LfoMetadata
 
 from integration_quickstart.tests.dd_test_case import DDTestCase
 
@@ -51,6 +54,50 @@ class TestBuildLogForwarderPayload(DDTestCase):
         payload = build_log_forwarder_payload(metadata, include_monitored_scopes=False)
         self.assertNotIn("monitoredSubscriptions", payload)
         self.assertEqual(payload["resourceGroupName"], "lfo-rg")
+
+
+class TestUpsertLogForwarderWaitForRgDelete(DDTestCase):
+    """wait_for_rg_delete step is reported only when on_rg_waiting callbacks fire."""
+
+    def setUp(self):
+        self.install_mock = self.patch("azure_integration_quickstart.quickstart_shared.install_log_forwarder")
+        env_patcher = mock_patch.dict(os.environ, {"DD_API_KEY": "key", "DD_SITE": "datadoghq.com"})
+        self.addCleanup(env_patcher.stop)
+        env_patcher.start()
+        self.config = {
+            "controlPlaneRegion": "eastus",
+            "controlPlaneSubscriptionId": "cp-sub",
+            "resourceGroupName": "lfo-rg",
+        }
+        self.status = MagicMock()
+
+    def _capture_callbacks(self):
+        """Return the on_rg_waiting_start and on_rg_waiting_end kwargs captured by install_log_forwarder."""
+        _, kwargs = self.install_mock.call_args
+        return kwargs["on_rg_waiting_start"], kwargs["on_rg_waiting_end"]
+
+    def test_wait_for_rg_delete_reported_when_callbacks_fire(self):
+        upsert_log_forwarder(self.config, set(), self.status)
+        on_start, on_end = self._capture_callbacks()
+
+        on_start()
+        self.status.report.assert_called_once_with(
+            "wait_for_rg_delete",
+            Status.IN_PROGRESS,
+            "Waiting for existing resource group deletion to complete before recreating it.",
+        )
+
+        on_end()
+        self.status.report.assert_called_with(
+            "wait_for_rg_delete", Status.FINISHED, "Resource group deletion complete."
+        )
+
+    def test_on_end_does_nothing_if_on_start_never_fired(self):
+        upsert_log_forwarder(self.config, set(), self.status)
+        _, on_end = self._capture_callbacks()
+
+        on_end()
+        self.status.report.assert_not_called()
 
 
 class TestReportExistingLogForwarders(DDTestCase):

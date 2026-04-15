@@ -4,6 +4,7 @@
 
 import json
 from unittest import TestCase
+from unittest.mock import MagicMock
 from unittest.mock import patch as mock_patch
 
 from az_shared.errors import ResourceGroupNotFoundError
@@ -63,3 +64,36 @@ class TestWaitUntilControlPlaneRgReadyForGrant(TestCase):
         ensure_control_plane_rg_not_deleting(self.config, ["sub-a"])
         self.execute_mock.assert_called_once()
         self.sleep_mock.assert_not_called()
+
+    def test_callbacks_not_called_when_rg_not_found(self):
+        self.execute_mock.side_effect = ResourceGroupNotFoundError("not found")
+        on_start = MagicMock()
+        on_end = MagicMock()
+        ensure_control_plane_rg_not_deleting(self.config, ["sub-a"], on_start, on_end)
+        on_start.assert_not_called()
+        on_end.assert_not_called()
+
+    def test_on_start_called_once_when_deleting(self):
+        self.execute_mock.side_effect = [
+            self._deleting_json(),
+            self._deleting_json(),
+            ResourceGroupNotFoundError("gone"),
+        ]
+        on_start = MagicMock()
+        on_end = MagicMock()
+        ensure_control_plane_rg_not_deleting(self.config, ["sub-a"], on_start, on_end)
+        on_start.assert_called_once()
+        on_end.assert_called_once()
+
+    def test_on_start_called_once_across_multiple_deleting_subscriptions(self):
+        self.execute_mock.side_effect = [
+            self._deleting_json(),
+            ResourceGroupNotFoundError("gone"),  # sub-a done
+            self._deleting_json(),
+            ResourceGroupNotFoundError("gone"),  # sub-b done
+        ]
+        on_start = MagicMock()
+        on_end = MagicMock()
+        ensure_control_plane_rg_not_deleting(self.config, ["sub-a", "sub-b"], on_start, on_end)
+        on_start.assert_called_once()
+        on_end.assert_called_once()
