@@ -163,8 +163,14 @@ class MigrationContext:
     new_scaling_principal: str = ""
     new_diagnostic_principal: str = ""
 
+    # Old principal IDs (for cleanup of old role assignments)
+    old_resources_principal: str = ""
+    old_scaling_principal: str = ""
+    old_diagnostic_principal: str = ""
+
     # Rollback tracking
     created_jobs: list[str] = field(default_factory=list)
+    assigned_roles: list[tuple[str, str, str]] = field(default_factory=list)  # (scope, principal_id, role_id)
     function_apps_stopped: bool = False
     deployer_paused: bool = False
     deployer_original_cron: str = ""
@@ -233,6 +239,19 @@ def container_app_job_exists(job_name: str, rg: str) -> bool:
     return bool(output)
 
 
+def get_function_app_principal_id(name: str, rg: str, sub_id: str) -> str:
+    """Get the system-assigned managed identity principal ID of a Function App."""
+    output = az(
+        f"functionapp identity show"
+        f" --name {shlex.quote(name)}"
+        f" --resource-group {shlex.quote(rg)}"
+        f" --subscription {shlex.quote(sub_id)}"
+        f" --query principalId"
+        f" --output tsv"
+    )
+    return output.strip()
+
+
 def get_function_app_env_vars(name: str, rg: str, sub_id: str) -> dict[str, str]:
     """Read all app settings from a Function App."""
     output = az(
@@ -285,6 +304,18 @@ def discover(ctx: MigrationContext):
     monitored_subs_str = ctx.resources_task_env.get("MONITORED_SUBSCRIPTIONS", "[]")
     ctx.monitored_subscriptions = json.loads(monitored_subs_str)
     log.info("Discovered %d monitored subscriptions", len(ctx.monitored_subscriptions))
+
+    # Capture old principal IDs for role cleanup during delete phase
+    log.info("Capturing existing Function App principal IDs...")
+    ctx.old_resources_principal = get_function_app_principal_id(
+        ctx.resources_task_name, ctx.control_plane_rg, ctx.control_plane_sub_id
+    )
+    ctx.old_scaling_principal = get_function_app_principal_id(
+        ctx.scaling_task_name, ctx.control_plane_rg, ctx.control_plane_sub_id
+    )
+    ctx.old_diagnostic_principal = get_function_app_principal_id(
+        ctx.diagnostic_settings_task_name, ctx.control_plane_rg, ctx.control_plane_sub_id
+    )
 
     log.info("Discovery complete.")
 
@@ -449,6 +480,24 @@ def role_exists(role_id: str, scope: str, principal_id: str) -> bool:
         return False
 
 
+def remove_role(scope: str, principal_id: str, role_id: str):
+    """Remove a role assignment for a principal at a given scope."""
+    output = az(
+        f"role assignment list"
+        f" --assignee {shlex.quote(principal_id)}"
+        f" --role {shlex.quote(role_id)}"
+        f" --scope {shlex.quote(scope)}"
+        f" --query [].id"
+        f" --output tsv",
+        can_fail=True,
+    )
+    for assignment_id in output.strip().splitlines():
+        assignment_id = assignment_id.strip()
+        if assignment_id:
+            log.info("Removing role assignment: %s", assignment_id)
+            az(f"role assignment delete --ids {shlex.quote(assignment_id)}", can_fail=True)
+
+
 def assign_role(ctx: MigrationContext, scope: str, principal_id: str, role_id: str):
     """Assign a role to a principal. Idempotent — skips if already assigned."""
     if role_exists(role_id, scope, principal_id):
@@ -464,6 +513,7 @@ def assign_role(ctx: MigrationContext, scope: str, principal_id: str, role_id: s
         f" --scope {shlex.quote(scope)}"
         f" --description {shlex.quote(f'ddlfo{ctx.control_plane_id}')}"
     )
+    ctx.assigned_roles.append((scope, principal_id, role_id))
 
 
 def assign_roles(ctx: MigrationContext):
@@ -651,14 +701,21 @@ def activate_jobs(ctx: MigrationContext):
 
 
 def delete_old_resources(ctx: MigrationContext):
-    """Phase 7: Delete old Function Apps, ASP, and file shares.
-
-    Role assignments for system-assigned managed identities are automatically
-    cleaned up by Azure when the resource is deleted.
-    """
+    """Phase 7: Delete old Function Apps, their role assignments, ASP, and file shares."""
     log.info("=" * 60)
     log.info("PHASE 7: Delete Old Resources")
     log.info("=" * 60)
+
+    # Remove old Function App role assignments
+    log.info("Removing old Function App role assignments...")
+    for sub_id in ctx.all_subscriptions:
+        subscription_scope = f"/subscriptions/{sub_id}"
+        resource_group_scope = f"{subscription_scope}/resourceGroups/{ctx.control_plane_rg}"
+
+        remove_role(subscription_scope, ctx.old_resources_principal, MONITORING_READER_ID)
+        remove_role(resource_group_scope, ctx.old_scaling_principal, SCALING_CONTRIBUTOR_ID)
+        remove_role(subscription_scope, ctx.old_diagnostic_principal, MONITORING_CONTRIBUTOR_ID)
+        remove_role(resource_group_scope, ctx.old_diagnostic_principal, STORAGE_READER_AND_DATA_ACCESS_ID)
 
     # Delete Function Apps
     for name in [ctx.resources_task_name, ctx.scaling_task_name, ctx.diagnostic_settings_task_name]:
@@ -749,8 +806,12 @@ def rollback(ctx: MigrationContext):
         log.info("Re-starting Function Apps...")
         start_function_apps(ctx)
 
-    # Delete any Container App Jobs we created — this also cleans up their
-    # system-assigned managed identities and associated role assignments.
+    # Remove any role assignments we created for the new jobs
+    for scope, principal_id, role_id in reversed(ctx.assigned_roles):
+        log.info("Rolling back role assignment: role=%s principal=%s scope=%s", role_id, principal_id, scope)
+        remove_role(scope, principal_id, role_id)
+
+    # Delete any Container App Jobs we created
     for job_name in reversed(ctx.created_jobs):
         log.info("Rolling back Container App Job: %s", job_name)
         az(
