@@ -24,6 +24,7 @@ from azure_integration_quickstart.quickstart_shared import (
     setup_cancellation_handlers,
     upsert_log_forwarder,
     validate_environment_variables,
+    wait_for_rg_delete_if_needed,
 )
 from azure_integration_quickstart.role_assignments import can_current_user_create_applications
 from azure_integration_quickstart.scopes import (
@@ -189,17 +190,23 @@ def main():
                 list_vms_for_subscriptions([s.id for s in flatten_scopes_to_unique_subscriptions(selections.scopes)])
             )
     if selections.log_forwarding_config:
+        selected_subs = flatten_scopes_to_unique_subscriptions(selections.scopes)
+        # App registration flow is add-only: when an LFO exists, monitored scopes becomes existing ∪ selected.
+        if existing_lfo:
+            existing_subs = {
+                Subscription(id=sub_id, name=name) for sub_id, name in existing_lfo.monitored_subs.items()
+            }
+            final_scopes = existing_subs | selected_subs
+        else:
+            final_scopes = selected_subs
+        existing_monitored = set(existing_lfo.monitored_subs.keys()) if existing_lfo else set()
+        wait_for_rg_delete_if_needed(
+            selections.log_forwarding_config["resourceGroupName"],
+            {s.id for s in selected_subs} - existing_monitored,
+            status,
+        )
         with status.report_step("upsert_log_forwarder", f"{'Updating' if existing_lfo else 'Creating'} Log Forwarder"):
-            selected_subs = flatten_scopes_to_unique_subscriptions(selections.scopes)
-            # App registration flow is add-only: when an LFO exists, monitored scopes becomes existing ∪ selected.
-            if existing_lfo:
-                existing_subs = {
-                    Subscription(id=sub_id, name=name) for sub_id, name in existing_lfo.monitored_subs.items()
-                }
-                final_scopes = existing_subs | selected_subs
-            else:
-                final_scopes = selected_subs
-            upsert_log_forwarder(selections.log_forwarding_config, final_scopes, status)
+            upsert_log_forwarder(selections.log_forwarding_config, final_scopes)
 
     print("Script succeeded. You may exit this shell.")
 

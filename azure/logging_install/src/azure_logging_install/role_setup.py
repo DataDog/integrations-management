@@ -294,10 +294,9 @@ def _get_lfo_task_principal_ids(config: Configuration) -> tuple[str, str, str]:
 
 
 def ensure_control_plane_rg_not_deleting(
-    config: Configuration,
+    rg_name: str,
     sub_ids: Iterable[str],
     on_rg_waiting_start: Optional[Callable[[], None]] = None,
-    on_rg_waiting_end: Optional[Callable[[], None]] = None,
 ) -> None:
     """For each subscription, poll while the control-plane resource group is Deleting until it is gone or no longer Deleting."""
     started_waiting = False
@@ -307,7 +306,7 @@ def ensure_control_plane_rg_not_deleting(
             try:
                 output = execute(
                     AzCmd("group", "show")
-                    .param("--name", config.control_plane_rg)
+                    .param("--name", rg_name)
                     .param("--subscription", sub_id)
                     .param("--output", "json")
                 )
@@ -322,25 +321,16 @@ def ensure_control_plane_rg_not_deleting(
                     started_waiting = True
                 if not logged_waiting_for_delete:
                     log.info(
-                        f"Waiting for resource group {config.control_plane_rg} in subscription {sub_id} to finish deleting before creating it to avoid race condition..."
+                        f"Waiting for resource group {rg_name} in subscription {sub_id} to finish deleting before creating it to avoid race condition..."
                     )
                     logged_waiting_for_delete = True
                 time.sleep(RG_DELETING_POLL_INTERVAL)
                 continue
             break
-    if started_waiting and on_rg_waiting_end:
-        on_rg_waiting_end()
 
 
-def grant_subscriptions_permissions(
-    config: Configuration,
-    sub_ids: Iterable[str],
-    on_rg_waiting_start: Optional[Callable[[], None]] = None,
-    on_rg_waiting_end: Optional[Callable[[], None]] = None,
-):
+def grant_subscriptions_permissions(config: Configuration, sub_ids: Iterable[str]):
     """Grant permissions to a set of subscriptions."""
-
-    ensure_control_plane_rg_not_deleting(config, sub_ids, on_rg_waiting_start, on_rg_waiting_end)
 
     resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_lfo_task_principal_ids(config)
 

@@ -11,7 +11,7 @@ from unittest.mock import patch as mock_patch
 from azure_integration_quickstart.quickstart_shared import (
     build_log_forwarder_payload,
     report_existing_log_forwarders,
-    upsert_log_forwarder,
+    wait_for_rg_delete_if_needed,
 )
 from azure_integration_quickstart.script_status import Status
 from azure_logging_install.existing_lfo import LfoControlPlane, LfoMetadata
@@ -56,47 +56,45 @@ class TestBuildLogForwarderPayload(DDTestCase):
         self.assertEqual(payload["resourceGroupName"], "lfo-rg")
 
 
-class TestUpsertLogForwarderWaitForRgDelete(DDTestCase):
-    """wait_for_rg_delete step is reported only when on_rg_waiting callbacks fire."""
+class TestWaitForRgDeleteIfNeeded(DDTestCase):
+    """wait_for_rg_delete step is reported only when an RG is actually found in Deleting state."""
 
     def setUp(self):
-        self.install_mock = self.patch("azure_integration_quickstart.quickstart_shared.install_log_forwarder")
-        env_patcher = mock_patch.dict(os.environ, {"DD_API_KEY": "key", "DD_SITE": "datadoghq.com"})
-        self.addCleanup(env_patcher.stop)
-        env_patcher.start()
-        self.config = {
-            "controlPlaneRegion": "eastus",
-            "controlPlaneSubscriptionId": "cp-sub",
-            "resourceGroupName": "lfo-rg",
-        }
+        self.ensure_mock = self.patch(
+            "azure_integration_quickstart.quickstart_shared.ensure_control_plane_rg_not_deleting"
+        )
         self.status = MagicMock()
 
-    def _capture_callbacks(self):
-        """Return the on_rg_waiting_start and on_rg_waiting_end kwargs captured by install_log_forwarder."""
-        _, kwargs = self.install_mock.call_args
-        return kwargs["on_rg_waiting_start"], kwargs["on_rg_waiting_end"]
+    def test_empty_subs_skips_check_and_reports_nothing(self):
+        wait_for_rg_delete_if_needed("lfo-rg", set(), self.status)
+        self.ensure_mock.assert_not_called()
+        self.status.report.assert_not_called()
 
-    def test_wait_for_rg_delete_reported_when_callbacks_fire(self):
-        upsert_log_forwarder(self.config, set(), self.status)
-        on_start, on_end = self._capture_callbacks()
+    def test_in_progress_reported_when_on_start_fires(self):
+        def fire_on_start(rg_name, subs, on_rg_waiting_start):
+            on_rg_waiting_start()
 
-        on_start()
-        self.status.report.assert_called_once_with(
+        self.ensure_mock.side_effect = fire_on_start
+        wait_for_rg_delete_if_needed("lfo-rg", {"sub-1"}, self.status)
+        self.status.report.assert_any_call(
             "wait_for_rg_delete",
             Status.IN_PROGRESS,
             "Waiting for existing resource group deletion to complete before recreating it.",
         )
 
-        on_end()
+    def test_finished_reported_after_wait_when_on_start_fired(self):
+        def fire_on_start(rg_name, subs, on_rg_waiting_start):
+            on_rg_waiting_start()
+
+        self.ensure_mock.side_effect = fire_on_start
+        wait_for_rg_delete_if_needed("lfo-rg", {"sub-1"}, self.status)
         self.status.report.assert_called_with(
             "wait_for_rg_delete", Status.FINISHED, "Resource group deletion complete."
         )
 
-    def test_on_end_does_nothing_if_on_start_never_fired(self):
-        upsert_log_forwarder(self.config, set(), self.status)
-        _, on_end = self._capture_callbacks()
-
-        on_end()
+    def test_no_step_reported_when_on_start_never_fires(self):
+        self.ensure_mock.return_value = None  # on_start never called
+        wait_for_rg_delete_if_needed("lfo-rg", {"sub-1"}, self.status)
         self.status.report.assert_not_called()
 
 

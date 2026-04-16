@@ -23,6 +23,7 @@ from azure_integration_quickstart.script_status import Status, StatusReporter
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
 from azure_logging_install.main import install_log_forwarder
+from azure_logging_install.role_setup import ensure_control_plane_rg_not_deleting
 
 # Required environment variables for both quickstart variants
 REQUIRED_ENVIRONMENT_VARS = {"DD_API_KEY", "DD_APP_KEY", "DD_SITE", "WORKFLOW_ID"}
@@ -117,23 +118,26 @@ def report_existing_log_forwarders(
     return list(forwarders.values())[0]
 
 
-def upsert_log_forwarder(config: dict, subscriptions: Set[Scope], status: Optional[StatusReporter] = None):
-    rg_waiting_started = False
+def wait_for_rg_delete_if_needed(rg_name: str, subs_to_check: set[str], status: StatusReporter) -> None:
+    if not subs_to_check:
+        return
+    rg_wait_started = False
 
     def on_rg_waiting_start():
-        nonlocal rg_waiting_started
-        if status:
-            status.report(
-                "wait_for_rg_delete",
-                Status.IN_PROGRESS,
-                "Waiting for existing resource group deletion to complete before recreating it.",
-            )
-            rg_waiting_started = True
+        nonlocal rg_wait_started
+        status.report(
+            "wait_for_rg_delete",
+            Status.IN_PROGRESS,
+            "Waiting for existing resource group deletion to complete before recreating it.",
+        )
+        rg_wait_started = True
 
-    def on_rg_waiting_end():
-        if status and rg_waiting_started:
-            status.report("wait_for_rg_delete", Status.FINISHED, "Resource group deletion complete.")
+    ensure_control_plane_rg_not_deleting(rg_name, subs_to_check, on_rg_waiting_start)
+    if rg_wait_started:
+        status.report("wait_for_rg_delete", Status.FINISHED, "Resource group deletion complete.")
 
+
+def upsert_log_forwarder(config: dict, subscriptions: Set[Scope]):
     install_log_forwarder(
         Configuration(
             control_plane_region=config["controlPlaneRegion"],
@@ -144,7 +148,5 @@ def upsert_log_forwarder(config: dict, subscriptions: Set[Scope], status: Option
             datadog_site=os.environ["DD_SITE"],
             resource_tag_filters=config.get("tagFilters", ""),
             pii_scrubber_rules=config.get("piiFilters", ""),
-        ),
-        on_rg_waiting_start=on_rg_waiting_start,
-        on_rg_waiting_end=on_rg_waiting_end,
+        )
     )
