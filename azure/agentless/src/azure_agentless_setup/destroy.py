@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from az_shared.execute_cmd import execute
+from common.requests import dd_request
 from common.shell import Cmd
 
 from .config import Config, CONFIG_BASE_DIR, DEFAULT_RESOURCE_GROUP, get_config_dir
@@ -101,8 +102,7 @@ def get_credentials_from_env() -> tuple:
     if errors:
         raise SetupError(
             "Missing credentials",
-            "\n".join(f"  - {e}" for e in errors)
-            + "\n\nThese are required because the local config folder doesn't exist.",
+            "\n".join(f"  - {e}" for e in errors),
         )
 
     return api_key, app_key, site
@@ -258,6 +258,28 @@ def run_terraform_destroy(work_dir: Path) -> None:
         os.chdir(original_dir)
 
 
+def disable_scan_options(subscriptions: list[str]) -> None:
+    """Disable agentless scan options for each subscription via the Datadog API."""
+    print(f"Disabling scan options for {len(subscriptions)} subscription(s)...")
+    errors = []
+    for sub_id in subscriptions:
+        try:
+            dd_request("DELETE", f"/api/v2/agentless_scanning/accounts/azure/{sub_id}")
+            print(f"  ✅ {sub_id}")
+        except Exception as e:
+            errors.append(sub_id)
+            print(f"  ⚠️  {sub_id}: {e}")
+
+    if errors:
+        print()
+        print(f"⚠️  Failed to disable scan options for {len(errors)} subscription(s).")
+        print("   You can disable them manually from the Datadog UI:")
+        print("   Security → Cloud Security → Settings → Azure")
+    else:
+        print("  Scan options disabled successfully.")
+    print()
+
+
 def delete_key_vault(vault_name: str) -> bool:
     """Delete the Key Vault.
 
@@ -337,13 +359,26 @@ def cmd_destroy() -> None:
     print()
 
     try:
+        get_credentials_from_env()
+
         scanner_subscription = get_scanner_subscription()
         resource_group = os.environ.get("SCANNER_RESOURCE_GROUP", "").strip() or DEFAULT_RESOURCE_GROUP
         storage_account = get_storage_account(scanner_subscription, resource_group)
 
+        # Read metadata before destroy to get the subscriptions list
+        metadata, _ = read_metadata(storage_account)
+        subscriptions_to_scan = metadata.subscriptions_to_scan if metadata else []
+
         work_dir = get_working_directory(scanner_subscription, storage_account, resource_group)
 
         run_terraform_destroy(work_dir)
+
+        if subscriptions_to_scan:
+            disable_scan_options(subscriptions_to_scan)
+        else:
+            print("⚠️  No subscriptions found in metadata — skipping scan options cleanup.")
+            print("   You can disable them manually from the Datadog UI.")
+            print()
 
         if delete_metadata(storage_account):
             print("Deployment metadata removed.")
