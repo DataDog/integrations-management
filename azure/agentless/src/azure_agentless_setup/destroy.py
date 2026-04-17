@@ -70,7 +70,7 @@ def get_scanner_subscription() -> str:
     )
 
 
-def get_storage_account(scanner_subscription: str, resource_group: str) -> str:
+def get_storage_account(scanner_subscription: str) -> str:
     """Determine the storage account name from env var or default."""
     custom = os.environ.get("TF_STATE_STORAGE_ACCOUNT", "").strip()
     if custom:
@@ -201,7 +201,7 @@ def get_working_directory(
         print("Using existing configuration...")
         return config_folder
 
-    if not storage_account_exists(storage_account, resource_group):
+    if not storage_account_exists(storage_account, resource_group, scanner_subscription):
         print(f"❌ No installation found for subscription: {scanner_subscription}")
         print()
         print("The Terraform state storage account does not exist.")
@@ -375,16 +375,25 @@ def cmd_destroy() -> None:
         # Storage account name is derived from the subscription and does not
         # depend on the resource group, so we can look up metadata first and
         # then resolve the resource group with metadata as a fallback.
-        storage_account = get_storage_account(scanner_subscription, resource_group="")
+        storage_account = get_storage_account(scanner_subscription)
 
         metadata, _ = read_metadata(storage_account)
         subscriptions_to_scan = metadata.subscriptions_to_scan if metadata else []
 
-        resource_group = (
-            os.environ.get("SCANNER_RESOURCE_GROUP", "").strip()
-            or (metadata.resource_group if metadata else None)
-            or DEFAULT_RESOURCE_GROUP
-        )
+        env_rg = os.environ.get("SCANNER_RESOURCE_GROUP", "").strip()
+        if env_rg:
+            resource_group = env_rg
+        elif metadata and metadata.resource_group:
+            resource_group = metadata.resource_group
+        elif metadata:
+            raise SetupError(
+                "Resource group required",
+                "This deployment's metadata does not include the resource group "
+                "(installations created before this field was added).\n"
+                "Set SCANNER_RESOURCE_GROUP to the resource group used at deploy time.",
+            )
+        else:
+            resource_group = DEFAULT_RESOURCE_GROUP
 
         work_dir = get_working_directory(scanner_subscription, storage_account, resource_group)
 
