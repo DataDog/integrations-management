@@ -258,8 +258,12 @@ def run_terraform_destroy(work_dir: Path) -> None:
         os.chdir(original_dir)
 
 
-def disable_scan_options(subscriptions: list[str]) -> None:
-    """Disable agentless scan options for each subscription via the Datadog API."""
+def disable_scan_options(subscriptions: list[str]) -> bool:
+    """Disable agentless scan options for each subscription via the Datadog API.
+
+    Returns:
+        True if every subscription was cleaned up, False if at least one failed.
+    """
     print(f"Disabling scan options for {len(subscriptions)} subscription(s)...")
     errors = []
     for sub_id in subscriptions:
@@ -275,23 +279,25 @@ def disable_scan_options(subscriptions: list[str]) -> None:
         print(f"⚠️  Failed to disable scan options for {len(errors)} subscription(s).")
         print("   You can disable them manually from the Datadog UI:")
         print("   Security → Cloud Security → Settings → Azure")
-    else:
-        print("  Scan options disabled successfully.")
+        print()
+        return False
+
+    print("  Scan options disabled successfully.")
     print()
+    return True
 
 
 def delete_key_vault(vault_name: str) -> bool:
     """Delete the Key Vault.
 
     Returns:
-        True if deleted, False if failed.
+        True if deleted, False if the az CLI reported failure.
     """
     try:
         execute(
             Cmd(["az", "keyvault", "delete"])
             .param("--name", vault_name)
             .flag("--no-wait"),
-            can_fail=True,
         )
         return True
     except Exception:
@@ -359,31 +365,48 @@ def cmd_destroy() -> None:
     print()
 
     try:
+        # Fail fast if Datadog credentials aren't set — they're required
+        # below for scan options cleanup and for regenerate_terraform_config.
+        # The returned values are re-read by the callers that actually use them.
         get_credentials_from_env()
 
         scanner_subscription = get_scanner_subscription()
-        resource_group = os.environ.get("SCANNER_RESOURCE_GROUP", "").strip() or DEFAULT_RESOURCE_GROUP
-        storage_account = get_storage_account(scanner_subscription, resource_group)
 
-        # Read metadata before destroy to get the subscriptions list
+        # Storage account name is derived from the subscription and does not
+        # depend on the resource group, so we can look up metadata first and
+        # then resolve the resource group with metadata as a fallback.
+        storage_account = get_storage_account(scanner_subscription, resource_group="")
+
         metadata, _ = read_metadata(storage_account)
         subscriptions_to_scan = metadata.subscriptions_to_scan if metadata else []
+
+        resource_group = (
+            os.environ.get("SCANNER_RESOURCE_GROUP", "").strip()
+            or (metadata.resource_group if metadata else None)
+            or DEFAULT_RESOURCE_GROUP
+        )
 
         work_dir = get_working_directory(scanner_subscription, storage_account, resource_group)
 
         run_terraform_destroy(work_dir)
 
+        scan_options_fully_cleaned = True
         if subscriptions_to_scan:
-            disable_scan_options(subscriptions_to_scan)
+            scan_options_fully_cleaned = disable_scan_options(subscriptions_to_scan)
         else:
             print("⚠️  No subscriptions found in metadata — skipping scan options cleanup.")
             print("   You can disable them manually from the Datadog UI.")
             print()
 
-        if delete_metadata(storage_account):
-            print("Deployment metadata removed.")
+        # Keep the metadata blob around on partial scan options failure so a
+        # retry of `destroy` can still find the subscription list.
+        if scan_options_fully_cleaned:
+            if delete_metadata(storage_account):
+                print("Deployment metadata removed.")
+            else:
+                print("⚠️  Could not remove deployment metadata from storage account.")
         else:
-            print("⚠️  Could not remove deployment metadata from storage account.")
+            print("⚠️  Keeping deployment metadata so you can re-run `destroy` to retry.")
 
         prompt_key_vault_cleanup(scanner_subscription)
         print_final_notes(storage_account, resource_group)

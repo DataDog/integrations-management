@@ -46,11 +46,13 @@ class DeploymentMetadata:
     subscriptions_to_scan: list[str]
     created_at: str
     modified_at: str
+    resource_group: Optional[str] = None
 
     def to_dict(self) -> dict:
         return {
             "version": METADATA_VERSION,
             "scanner_subscription": self.scanner_subscription,
+            "resource_group": self.resource_group,
             "locations": sorted(self.locations),
             "subscriptions_to_scan": sorted(self.subscriptions_to_scan),
             "created_at": self.created_at,
@@ -61,6 +63,7 @@ class DeploymentMetadata:
     def from_dict(data: dict) -> "DeploymentMetadata":
         return DeploymentMetadata(
             scanner_subscription=data["scanner_subscription"],
+            resource_group=data.get("resource_group"),
             locations=sorted(data.get("locations", [])),
             subscriptions_to_scan=sorted(data.get("subscriptions_to_scan", [])),
             created_at=data.get("created_at", ""),
@@ -228,7 +231,11 @@ def terraform_state_exists(storage_account: str) -> bool:
 
 
 def delete_metadata(storage_account: str) -> bool:
-    """Delete config.json from blob storage."""
+    """Delete config.json from blob storage.
+
+    Returns:
+        True if deleted, False if the az CLI reported failure.
+    """
     try:
         execute(
             Cmd(["az", "storage", "blob", "delete"])
@@ -236,7 +243,6 @@ def delete_metadata(storage_account: str) -> bool:
             .param("--container-name", CONTAINER_NAME)
             .param("--name", METADATA_BLOB)
             .param("--auth-mode", "login"),
-            can_fail=True,
         )
         return True
     except Exception:
@@ -257,6 +263,7 @@ def merge_with_config(
     if existing is None:
         return DeploymentMetadata(
             scanner_subscription=config.scanner_subscription,
+            resource_group=config.resource_group,
             locations=list(config.locations),
             subscriptions_to_scan=list(config.all_subscriptions),
             created_at=now,
@@ -276,6 +283,7 @@ def merge_with_config(
 
     return DeploymentMetadata(
         scanner_subscription=config.scanner_subscription,
+        resource_group=existing.resource_group or config.resource_group,
         locations=merged_locations,
         subscriptions_to_scan=merged_subs,
         created_at=existing.created_at,
