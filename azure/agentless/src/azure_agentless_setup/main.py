@@ -9,6 +9,7 @@ import sys
 import threading
 
 from .config import parse_config
+from .destroy import cmd_destroy
 from .errors import DatadogCredentialsError, SetupError
 from .metadata import read_metadata, write_metadata, merge_with_config, terraform_state_exists
 from .preflight import run_preflight_checks, validate_datadog_api_key, validate_datadog_app_key
@@ -29,7 +30,7 @@ TOTAL_STEPS = 6
 
 SESSION_TIMEOUT_MINUTES = 30
 
-COMMANDS = ["deploy", "help"]
+COMMANDS = ["deploy", "destroy", "help"]
 
 
 def print_help() -> None:
@@ -42,6 +43,7 @@ def print_help() -> None:
     print()
     print("Commands:")
     print("  deploy    Deploy the Agentless Scanner infrastructure")
+    print("  destroy   Destroy the Agentless Scanner infrastructure")
     print("  help      Show this help message")
     print()
     print("=" * 60)
@@ -67,6 +69,26 @@ def print_help() -> None:
     print("  SCANNER_SUBSCRIPTION=<subscription-id> SCANNER_LOCATIONS=eastus \\")
     print("  SUBSCRIPTIONS_TO_SCAN=sub1,sub2 \\")
     print("  python azure_agentless_setup.pyz deploy")
+    print()
+    print("=" * 60)
+    print("DESTROY - Environment Variables:")
+    print("=" * 60)
+    print()
+    print("Required:")
+    print("  DD_API_KEY              Datadog API key")
+    print("  DD_APP_KEY              Datadog Application key")
+    print("  DD_SITE                 Datadog site (e.g., datadoghq.com, datadoghq.eu)")
+    print("  SCANNER_SUBSCRIPTION    Azure subscription where the scanner was deployed")
+    print("                          (inferred if only one installation exists)")
+    print()
+    print("Optional:")
+    print("  SCANNER_RESOURCE_GROUP      Resource group name (default: datadog-agentless-scanner)")
+    print("  TF_STATE_STORAGE_ACCOUNT    Custom Azure Storage Account for Terraform state")
+    print()
+    print("Example:")
+    print("  DD_API_KEY=xxx DD_APP_KEY=xxx DD_SITE=datadoghq.com \\")
+    print("  SCANNER_SUBSCRIPTION=<subscription-id> \\")
+    print("  python azure_agentless_setup.pyz destroy")
     print()
 
 
@@ -269,6 +291,10 @@ def main() -> None:
 
     if command == "deploy":
         cmd_deploy()
+        return
+
+    if command == "destroy":
+        cmd_destroy()
         return
 
     print(f"❌ Unknown command: {command}")

@@ -11,6 +11,7 @@ import hashlib
 import json
 import subprocess
 import time
+from typing import Optional
 
 from az_shared.execute_cmd import execute
 from common.shell import Cmd
@@ -41,15 +42,25 @@ def get_storage_account_name(scanner_subscription: str) -> str:
     return f"datadog{digest}"
 
 
-def storage_account_exists(account_name: str, resource_group: str) -> bool:
-    """Check if a Storage Account exists in the resource group."""
+def storage_account_exists(
+    account_name: str,
+    resource_group: str,
+    subscription: Optional[str] = None,
+) -> bool:
+    """Check if a Storage Account exists in the resource group.
+
+    Pass ``subscription`` so the check uses the correct subscription when the
+    Azure CLI default account differs (e.g. Cloud Shell).
+    """
     try:
-        result = execute(
+        cmd = (
             Cmd(["az", "storage", "account", "show"])
             .param("--name", account_name)
-            .param("--resource-group", resource_group),
-            can_fail=True,
+            .param("--resource-group", resource_group)
         )
+        if subscription:
+            cmd = cmd.param("--subscription", subscription)
+        result = execute(cmd, can_fail=True)
         return bool(result)
     except Exception:
         return False
@@ -268,7 +279,7 @@ def ensure_state_storage(config: Config, reporter: Reporter) -> str:
 
     if config.state_storage_account:
         account_name = config.state_storage_account
-        if not storage_account_exists(account_name, config.resource_group):
+        if not storage_account_exists(account_name, config.resource_group, config.scanner_subscription):
             reporter.fatal(
                 f"Custom storage account does not exist: {account_name}",
                 f"Create the storage account in resource group '{config.resource_group}' first,\n"
@@ -281,7 +292,7 @@ def ensure_state_storage(config: Config, reporter: Reporter) -> str:
         # Ensure the resource group exists before creating the storage account
         ensure_resource_group(config.resource_group, config.locations[0], config.scanner_subscription)
 
-        if storage_account_exists(account_name, config.resource_group):
+        if storage_account_exists(account_name, config.resource_group, config.scanner_subscription):
             reporter.success(f"Using existing storage account: {account_name}")
         else:
             reporter.info(f"Creating storage account: {account_name}")
