@@ -12,6 +12,7 @@ from azure_integration_quickstart.quickstart_shared import (
     setup_cancellation_handlers,
     upsert_log_forwarder,
     validate_environment_variables,
+    wait_for_rg_delete_if_needed,
 )
 from azure_integration_quickstart.scopes import Subscription, finish_collecting_scopes, get_tenant_and_subscriptions
 from azure_integration_quickstart.script_status import StatusReporter
@@ -42,6 +43,7 @@ def main():
             )
             scopes_future.result()
             existing_lfo = lfo_future.result()
+    final_sub_ids: set[str] = set()
     with status.report_step("selections", "Waiting for user selections in the Datadog UI"):
         selections = receive_log_forwarding_selections(workflow_id)
         if selections.log_forwarding_config:
@@ -64,6 +66,12 @@ def main():
             }
 
     if selections.log_forwarding_config:
+        existing_monitored = set(existing_lfo.monitored_subs.keys()) if existing_lfo else set()
+        wait_for_rg_delete_if_needed(
+            selections.log_forwarding_config["resourceGroupName"],
+            final_sub_ids - existing_monitored,
+            status,
+        )
         with status.report_step(
             "upsert_log_forwarder", f"{'Updating' if existing_lfo else 'Creating'} Log Forwarder"
         ):

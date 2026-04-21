@@ -8,12 +8,13 @@ import os
 import signal
 import sys
 import threading
+from collections.abc import Sequence, Set
 from typing import Optional, TypedDict
 
-try:
+if sys.version_info >= (3, 11):
     from typing import NotRequired
-except ImportError:
-    from typing_extensions import NotRequired  # type: ignore[import-untyped]
+else:
+    from typing_extensions import NotRequired
 
 from az_shared.auth import check_login
 from az_shared.errors import AzCliNotAuthenticatedError, AzCliNotInstalledError
@@ -22,6 +23,7 @@ from azure_integration_quickstart.script_status import Status, StatusReporter
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
 from azure_logging_install.main import install_log_forwarder
+from azure_logging_install.role_setup import ensure_control_plane_rg_not_deleting
 
 # Required environment variables for both quickstart variants
 REQUIRED_ENVIRONMENT_VARS = {"DD_API_KEY", "DD_APP_KEY", "DD_SITE", "WORKFLOW_ID"}
@@ -102,7 +104,7 @@ def build_log_forwarder_payload(metadata: LfoMetadata, include_monitored_scopes:
 
 
 def report_existing_log_forwarders(
-    subscriptions: list[Scope], step_metadata: dict, include_monitored_scopes: bool
+    subscriptions: Sequence[Scope], step_metadata: dict, include_monitored_scopes: bool
 ) -> Optional[LfoMetadata]:
     """Send Datadog any existing Log Forwarders in the tenant. Returns existing LFO metadata when exactly one is found, else None.
     When include_monitored_scopes is True, each payload includes monitoredSubscriptions."""
@@ -116,7 +118,26 @@ def report_existing_log_forwarders(
     return list(forwarders.values())[0]
 
 
-def upsert_log_forwarder(config: dict, subscriptions: set[Scope]):
+def wait_for_rg_delete_if_needed(rg_name: str, subs_to_check: set[str], status: StatusReporter) -> None:
+    if not subs_to_check:
+        return
+    rg_wait_started = False
+
+    def on_rg_waiting_start():
+        nonlocal rg_wait_started
+        status.report(
+            "wait_for_rg_delete",
+            Status.IN_PROGRESS,
+            "Waiting for existing resource group deletion to complete before recreating it.",
+        )
+        rg_wait_started = True
+
+    ensure_control_plane_rg_not_deleting(rg_name, subs_to_check, on_rg_waiting_start)
+    if rg_wait_started:
+        status.report("wait_for_rg_delete", Status.FINISHED, "Resource group deletion complete.")
+
+
+def upsert_log_forwarder(config: dict, subscriptions: Set[Scope]):
     install_log_forwarder(
         Configuration(
             control_plane_region=config["controlPlaneRegion"],
