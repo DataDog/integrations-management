@@ -1,0 +1,18 @@
+dist:
+  name: otelcol-audit-trail
+  description: OpenTelemetry Collector for Scaleway Audit Trail
+  output_path: /out
+
+exporters:
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/exporter/datadogexporter v0.118.0
+
+processors:
+  - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.118.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/transformprocessor v0.118.0
+
+receivers:
+  - gomod: github.com/scaleway/opentelemetry-collector-scaleway/receiver/scwaudittrail v0.1.0
+
+providers:
+  - gomod: go.opentelemetry.io/collector/confmap/provider/envprovider v1.24.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/fileprovider v1.24.0
