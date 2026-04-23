@@ -27,10 +27,6 @@ class ExistenceCheckError(FatalError):
     """Error occurred when checking if a resource exists."""
 
 
-def format_error_details(error_message: str) -> str:
-    return f"\n\nError Details:\n{error_message}"
-
-
 # Errors users can resolve through manual action
 class UserActionRequiredError(AzIntegrationError):
     """An error that requires user action to resolve."""
@@ -45,7 +41,6 @@ class AppRegistrationCreationPermissionsError(UserActionRequiredError):
 
     def __init__(self, error_message: str):
         user_action_message = "Please ensure that you have the permissions necessary to create an App Registration, as described here: https://docs.datadoghq.com/getting_started/integrations/azure/?tab=createanappregistration#permission-to-create-an-app-registration. If you have recently been granted these permissions, please allow up to an hour for them to propagate."
-        user_action_message += format_error_details(error_message)
         super().__init__(error_message, user_action_message)
 
 
@@ -54,7 +49,6 @@ class FederatedCredentialCreationPermissionsError(UserActionRequiredError):
 
     def __init__(self, error_message: str):
         user_action_message = "Please ensure that you have the permissions necessary to create a Federated Credential, as described here: https://docs.datadoghq.com/getting_started/integrations/azure/?tab=createanappregistration#permission-to-create-an-app-registration. If you have recently been granted these permissions, please allow up to an hour for them to propagate."
-        user_action_message += format_error_details(error_message)
         super().__init__(error_message, user_action_message)
 
 
@@ -64,7 +58,6 @@ class AccessError(UserActionRequiredError):
     def __init__(self, error_message: str):
         user_action_message = "You don't have the necessary Azure permissions to access, create, or perform an action on a required resource."
         user_action_message += "\nPlease review the Datadog documentation at https://docs.datadoghq.com/getting_started/integrations/azure/ and contact your Azure administrator if necessary."
-        user_action_message += format_error_details(error_message)
         super().__init__(error_message, user_action_message)
 
 
@@ -73,7 +66,6 @@ class InputParamValidationError(UserActionRequiredError):
 
     def __init__(self, error_message: str):
         user_action_message = "Invalid input parameter. Please check your input(s) and try again."
-        user_action_message += format_error_details(error_message)
         super().__init__(error_message, user_action_message)
 
 
@@ -86,7 +78,6 @@ class ResourceProviderRegistrationValidationError(UserActionRequiredError):
         user_action_message += (
             "\nPlease register the missing resource providers in the Azure Portal or contact your Azure administrator."
         )
-        user_action_message += format_error_details(error_message)
         super().__init__(error_message, user_action_message)
 
 
@@ -95,7 +86,6 @@ class DatadogAccessValidationError(UserActionRequiredError):
 
     def __init__(self, error_message: str):
         user_action_message = "Unable to authenticate with Datadog. Please verify the Datadog API key and Datadog site are configured correctly."
-        user_action_message += format_error_details(error_message)
         super().__init__(error_message, user_action_message)
 
 
@@ -104,8 +94,8 @@ class InteractiveAuthenticationRequiredError(UserActionRequiredError):
 
     def __init__(self, commands: list[str], error_message: str) -> None:
         self.commands = commands
-        user_action_message = '{}. Run the following Azure CLI commands and then try again: "{}"'.format(
-            error_message, " && ".join(commands)
+        user_action_message = 'Run the following Azure CLI commands and then try again: "{}"'.format(
+            " && ".join(commands)
         )
         super().__init__(error_message, user_action_message)
 
@@ -117,7 +107,6 @@ class RefreshTokenError(UserActionRequiredError):
         user_action_message = (
             "Azure auth token is expired. Reauthenticate with `az login` or restart your cloud shell and try again."
         )
-        user_action_message += format_error_details(error_message)
         super().__init__(error_message, user_action_message)
 
 
@@ -128,7 +117,6 @@ class PolicyError(UserActionRequiredError):
         policy_name_match = search(r'"policyDefinition":{"name":"([^"]*)"', error_message)
         policy_name = policy_name_match.group(1) if policy_name_match else ""
         user_action_message = f"Unable to create Datadog integration due to your policy {policy_name}. In order to install the Datadog integration you will have to modify this policy or select scopes where it does not apply."
-        user_action_message += format_error_details(error_message)
         super().__init__(error_message, user_action_message)
 
 
@@ -151,7 +139,6 @@ class AzCliNotInstalledError(UserRetriableError):
 
     def __init__(self, error_message: str):
         user_action_message = "You must install and log in to Azure CLI to run this script"
-        user_action_message += format_error_details(error_message)
         super().__init__(error_message, user_action_message)
 
 
@@ -159,7 +146,7 @@ class AzCliNotAuthenticatedError(UserRetriableError):
     """Azure CLI is not authenticated. User needs to run 'az login'."""
 
     def __init__(self, error_message: str):
-        super().__init__(error_message, error_message)
+        super().__init__(error_message, "Azure CLI is not authenticated. Please run `az login` and try again.")
 
 
 # Expected Errors
