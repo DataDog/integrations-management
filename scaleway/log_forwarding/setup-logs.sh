@@ -128,7 +128,7 @@ IAM_ACCESS_KEY=""   # set by provision_iam_application
 IAM_SECRET_KEY=""   # set by provision_iam_application
 
 # ── Logging helpers ───────────────────────────────────────────────────────────
-_ts()    { date -u +%H:%M:%S; }
+_ts()    { printf '%(%H:%M:%S)T' -1; }
 log()    { printf '\033[0;34m[%s]\033[0m  %s\n'    "$(_ts)" "$*"; }
 ok()     { printf '\033[0;32m[%s] ✓\033[0m  %s\n' "$(_ts)" "$*"; }
 warn()   { printf '\033[0;33m[%s] ⚠\033[0m  %s\n' "$(_ts)" "$*" >&2; }
@@ -141,110 +141,51 @@ dryrun() { printf '\033[0;35m[%s] ~\033[0m  %s\n' "$(_ts)" "$*" >&2; }
 _DRY_RUN_STUB='{"id":"dry-run-id","access_key":"DRY_RUN_ACCESS_KEY","secret_key":"DRY_RUN_SECRET_KEY","status":"active","applications":[],"policies":[],"data_sources":[],"exporters":[],"data":[]}'
 
 # ── Scaleway API helpers ──────────────────────────────────────────────────────
-scw_get() {
+scw_request() {
+  local method="$1" path="$2" body="${3:-}"
   if [[ "$DRY_RUN" == "true" ]]; then
-    dryrun "GET  ${SCW_API}${1}"
+    dryrun "${method} ${SCW_API}${path}"
+    [[ -n "$body" ]] && dryrun "body ${body}"
     echo "$_DRY_RUN_STUB"; return
   fi
-  curl -fsSL \
-    -H "X-Auth-Token: $SCW_SECRET_KEY" \
-    "${SCW_API}${1}"
-}
-
-scw_post() {
-  if [[ "$DRY_RUN" == "true" ]]; then
-    dryrun "POST ${SCW_API}${1}"
-    dryrun "body ${2}"
-    echo "$_DRY_RUN_STUB"; return
-  fi
-  local body http_code resp
-  resp=$(curl -sS -X POST \
-    -H "X-Auth-Token: $SCW_SECRET_KEY" \
-    -H "Content-Type: application/json" \
-    -d "$2" \
-    -w '\n%{http_code}' \
-    "${SCW_API}${1}")
-  http_code=$(tail -n1 <<< "$resp")
-  body=$(sed '$d' <<< "$resp")
+  local args=(-sS -w $'\n%{http_code}' -H "X-Auth-Token: $SCW_SECRET_KEY")
+  [[ "$method" != "GET" ]] && args+=(-X "$method" -H "Content-Type: application/json" -d "$body")
+  local resp
+  resp=$(curl "${args[@]}" "${SCW_API}${path}")
+  local http_code="${resp##*$'\n'}" body_out="${resp%$'\n'*}"
   if [[ "$http_code" -ge 400 ]]; then
-    echo "$body" >&2
-    return 1
+    printf '%s\n' "$body_out" >&2; return 1
   fi
-  echo "$body"
+  printf '%s\n' "$body_out"
 }
 
-# ── Datadog endpoint ──────────────────────────────────────────────────────────
-# Maps DD_SITE to the Datadog logs intake HTTP endpoint.
-dd_logs_endpoint() {
-  echo "https://http-intake.logs.${DD_SITE}"
-}
+scw_get()  { scw_request GET  "$1"; }
+scw_post() { scw_request POST "$1" "$2"; }
 
 # ── Datadog API helpers ───────────────────────────────────────────────────────
-dd_get() {
+dd_request() {
+  local method="$1" path="$2" body="${3:-}"
   if [[ "$DRY_RUN" == "true" ]]; then
-    dryrun "GET  https://api.${DD_SITE}${1}"
+    dryrun "${method} https://api.${DD_SITE}${path}"
+    [[ -n "$body" ]] && dryrun "body ${body}"
     echo "$_DRY_RUN_STUB"; return
   fi
-  local http_code resp body
-  resp=$(curl -sS \
-    -H "DD-API-KEY: $DD_API_KEY" \
-    -H "DD-APPLICATION-KEY: $DD_APP_KEY" \
-    -w '\n%{http_code}' \
-    "https://api.${DD_SITE}${1}")
-  http_code=$(tail -n1 <<< "$resp")
-  body=$(sed '$d' <<< "$resp")
+  local args=(-sS -w $'\n%{http_code}'
+    -H "DD-API-KEY: $DD_API_KEY"
+    -H "DD-APPLICATION-KEY: $DD_APP_KEY")
+  [[ "$method" != "GET" ]] && args+=(-X "$method" -H "Content-Type: application/json" -d "$body")
+  local resp
+  resp=$(curl "${args[@]}" "https://api.${DD_SITE}${path}")
+  local http_code="${resp##*$'\n'}" body_out="${resp%$'\n'*}"
   if [[ "$http_code" -ge 400 ]]; then
-    echo "$body" >&2
-    return 1
+    printf '%s\n' "$body_out" >&2; return 1
   fi
-  echo "$body"
+  printf '%s\n' "$body_out"
 }
 
-dd_post() {
-  if [[ "$DRY_RUN" == "true" ]]; then
-    dryrun "POST https://api.${DD_SITE}${1}"
-    dryrun "body ${2}"
-    echo "$_DRY_RUN_STUB"; return
-  fi
-  local http_code resp body
-  resp=$(curl -sS -X POST \
-    -H "DD-API-KEY: $DD_API_KEY" \
-    -H "DD-APPLICATION-KEY: $DD_APP_KEY" \
-    -H "Content-Type: application/json" \
-    -d "$2" \
-    -w '\n%{http_code}' \
-    "https://api.${DD_SITE}${1}")
-  http_code=$(tail -n1 <<< "$resp")
-  body=$(sed '$d' <<< "$resp")
-  if [[ "$http_code" -ge 400 ]]; then
-    echo "$body" >&2
-    return 1
-  fi
-  echo "$body"
-}
-
-dd_patch() {
-  if [[ "$DRY_RUN" == "true" ]]; then
-    dryrun "PATCH https://api.${DD_SITE}${1}"
-    dryrun "body  ${2}"
-    echo "$_DRY_RUN_STUB"; return
-  fi
-  local http_code resp body
-  resp=$(curl -sS -X PATCH \
-    -H "DD-API-KEY: $DD_API_KEY" \
-    -H "DD-APPLICATION-KEY: $DD_APP_KEY" \
-    -H "Content-Type: application/json" \
-    -d "$2" \
-    -w '\n%{http_code}' \
-    "https://api.${DD_SITE}${1}")
-  http_code=$(tail -n1 <<< "$resp")
-  body=$(sed '$d' <<< "$resp")
-  if [[ "$http_code" -ge 400 ]]; then
-    echo "$body" >&2
-    return 1
-  fi
-  echo "$body"
-}
+dd_get()   { dd_request GET   "$1"; }
+dd_post()  { dd_request POST  "$1" "$2"; }
+dd_patch() { dd_request PATCH "$1" "$2"; }
 
 # ── Prerequisites check ───────────────────────────────────────────────────────
 check_prereqs() {
@@ -259,7 +200,8 @@ check_prereqs() {
     command -v ssh    &>/dev/null || audit_missing+=(ssh)
     command -v scp    &>/dev/null || audit_missing+=(scp)
     if [[ ${#audit_missing[@]} -gt 0 ]]; then
-      die "Audit trail setup requires: ${audit_missing[*]}. Install them and re-run, or set ENABLE_AUDIT_TRAIL=false to skip Part 2."
+      warn "Audit trail requires: ${audit_missing[*]} — skipping Part 2. Install them and re-run, or set ENABLE_AUDIT_TRAIL=false to suppress this warning."
+      ENABLE_AUDIT_TRAIL="false"
     fi
   fi
 
@@ -281,13 +223,12 @@ provision_iam_application() {
   : "${SCW_ORGANIZATION_ID:?SCW_ORGANIZATION_ID not found. Run 'scw init' or set SCW_ORGANIZATION_ID.}"
   : "${SCW_PROJECT_ID:?SCW_PROJECT_ID is required. Set it to your Scaleway project ID.}"
 
-  # ── Find or create the IAM application ──────────────────────────────────────
   log "Checking for existing IAM application '${IAM_APP_NAME}'..."
   local apps_resp app_id
   apps_resp=$(scw_get "/iam/v1alpha1/applications?organization_id=${SCW_ORGANIZATION_ID}&name=${IAM_APP_NAME}&page_size=100") \
     || die "Failed to list IAM applications"
   app_id=$(jq -r --arg name "$IAM_APP_NAME" \
-    '.applications[] | select(.name == $name) | .id' <<< "$apps_resp" | head -n1)
+    'first(.applications[] | select(.name == $name) | .id) // empty' <<< "$apps_resp")
 
   if [[ -n "$app_id" ]]; then
     ok "Reusing existing IAM application '${IAM_APP_NAME}' (id=${app_id})"
@@ -304,13 +245,12 @@ provision_iam_application() {
     ok "Created IAM application '${IAM_APP_NAME}' (id=${app_id})"
   fi
 
-  # ── Find or create the IAM policy ─────────────────────────────────────────
   log "Checking for existing IAM policy '${IAM_POLICY_NAME}'..."
   local policies_resp policy_id
   policies_resp=$(scw_get "/iam/v1alpha1/policies?organization_id=${SCW_ORGANIZATION_ID}&application_id=${app_id}&page_size=100") \
     || die "Failed to list IAM policies"
   policy_id=$(jq -r --arg name "$IAM_POLICY_NAME" --arg app_id "$app_id" \
-    '.policies[] | select(.name == $name and .application_id == $app_id) | .id' <<< "$policies_resp" | head -n1)
+    'first(.policies[] | select(.name == $name and .application_id == $app_id) | .id) // empty' <<< "$policies_resp")
 
   if [[ -n "$policy_id" ]]; then
     ok "IAM policy '${IAM_POLICY_NAME}' already exists (id=${policy_id})"
@@ -343,7 +283,6 @@ provision_iam_application() {
     ok "Created IAM policy '${IAM_POLICY_NAME}' (id=${policy_id})"
   fi
 
-  # ── Generate a new API key for the application ────────────────────────────
   log "Generating API key for application '${IAM_APP_NAME}'..."
   local key_body key_resp
   key_body=$(jq -n \
@@ -351,11 +290,10 @@ provision_iam_application() {
     '{"application_id": $app_id, "description": "Datadog integration setup"}')
   key_resp=$(scw_post "/iam/v1alpha1/api-keys" "$key_body") \
     || die "Failed to create API key"
-  IAM_ACCESS_KEY=$(jq -r '.access_key' <<< "$key_resp")
-  IAM_SECRET_KEY=$(jq -r '.secret_key'  <<< "$key_resp")
+  IFS=$'\t' read -r IAM_ACCESS_KEY IAM_SECRET_KEY \
+    < <(jq -r '[.access_key, .secret_key] | @tsv' <<< "$key_resp")
   ok "Generated API key (access_key=${IAM_ACCESS_KEY})"
 
-  # ── Switch to application credentials for all subsequent calls ───────────
   SCW_ACCESS_KEY="$IAM_ACCESS_KEY"
   SCW_SECRET_KEY="$IAM_SECRET_KEY"
   log "Switched to application credentials for remaining setup."
@@ -411,26 +349,25 @@ register_datadog_account() {
       }
     }')
 
-  # Check for an existing account with this name
   log "Checking for existing Datadog Scaleway account '${account_name}'..."
   local accounts_resp account_id
   accounts_resp=$(dd_get "/api/v2/web-integrations/scaleway/accounts") \
     || die "Failed to list Datadog Scaleway accounts"
   account_id=$(jq -r --arg name "$account_name" \
-    '.data[] | select(.name == $name) | .id' <<< "$accounts_resp" | head -n1)
+    'first(.data[] | select(.attributes.name == $name) | .id) // empty' <<< "$accounts_resp")
 
   local action_resp
   if [[ -n "$account_id" ]]; then
     log "Account exists — updating (id=${account_id})..."
     action_resp=$(dd_patch "/api/v2/web-integrations/scaleway/accounts/${account_id}" "$payload") \
       || die "Failed to update Datadog Scaleway account"
-    account_id=$(jq -r '.data.id // "dry-run-id"' <<< "$action_resp")
+    account_id=$(jq -r '.data.id // .id // "dry-run-id"' <<< "$action_resp")
     ok "Updated Datadog Scaleway account '${account_name}' (id=${account_id})"
   else
     log "Creating Datadog Scaleway account '${account_name}'..."
     action_resp=$(dd_post "/api/v2/web-integrations/scaleway/accounts" "$payload") \
       || die "Failed to create Datadog Scaleway account"
-    account_id=$(jq -r '.data.id // "dry-run-id"' <<< "$action_resp")
+    account_id=$(jq -r '.data.id // .id // "dry-run-id"' <<< "$action_resp")
     ok "Created Datadog Scaleway account '${account_name}' (id=${account_id})"
   fi
 
@@ -442,11 +379,6 @@ register_datadog_account() {
 # ─────────────────────────────────────────────────────────────────────────────
 # Part 1: Cockpit Native Data Exports
 # ─────────────────────────────────────────────────────────────────────────────
-
-get_project_id() {
-  [[ -n "$SCW_PROJECT_ID" ]] || die "SCW_PROJECT_ID is required. Set it to your Scaleway project ID."
-  echo "$SCW_PROJECT_ID"
-}
 
 # Lists the IDs of Scaleway-managed log data sources for a project in a region.
 # Scaleway creates these automatically for each project where Cockpit products
@@ -482,7 +414,7 @@ create_exporter() {
     --arg  name     "$EXPORTER_NAME" \
     --arg  ds_id    "$datasource_id" \
     --arg  api_key  "$DD_API_KEY" \
-    --arg  endpoint "$(dd_logs_endpoint)" \
+    --arg  endpoint "https://http-intake.logs.${DD_SITE}" \
     --argjson prods "$products_json" \
     '{
       name:              $name,
@@ -510,12 +442,9 @@ create_exporter() {
 setup_cockpit_exports() {
   log "━━━ Part 1: Cockpit Native Data Exports ━━━"
 
-  local project
-  project=$(get_project_id)
-
   IFS=',' read -ra regions <<< "$SCALEWAY_REGIONS"
 
-  log "Project: $project | Regions: ${regions[*]} | Products: $SCALEWAY_PRODUCTS"
+  log "Project: $SCW_PROJECT_ID | Regions: ${regions[*]} | Products: $SCALEWAY_PRODUCTS"
   echo
 
   local created=0 skipped=0 failed=0
@@ -527,19 +456,19 @@ setup_cockpit_exports() {
     done < <(get_log_datasource_ids "$project" "$region" 2>/dev/null || true)
 
     if [[ ${#datasource_ids[@]} -eq 0 ]]; then
-      warn "No Scaleway log data sources found  project=$project  region=$region — skipping"
-      ((skipped++)) || true
+      warn "No Scaleway log data sources found  project=$SCW_PROJECT_ID  region=$region — skipping"
+      skipped=$((skipped + 1))
       continue
     fi
 
     for ds_id in "${datasource_ids[@]}"; do
-      if exporter_exists "$ds_id" "$region" "$project" 2>/dev/null; then
-        ok "Already exported  project=$project  region=$region  datasource=$ds_id"
-        ((skipped++)) || true
-      elif create_exporter "$ds_id" "$region" "$project"; then
-        ((created++)) || true
+      if exporter_exists "$ds_id" "$region" "$SCW_PROJECT_ID" 2>/dev/null; then
+        ok "Already exported  project=$SCW_PROJECT_ID  region=$region  datasource=$ds_id"
+        skipped=$((skipped + 1))
+      elif create_exporter "$ds_id" "$region" "$SCW_PROJECT_ID"; then
+        created=$((created + 1))
       else
-        ((failed++)) || true
+        failed=$((failed + 1))
       fi
     done
   done
@@ -587,11 +516,10 @@ setup_audit_trail() {
   ssh-keyscan -T 10 "$SCW_INSTANCE_IP" > "$work_dir/known_hosts" 2>/dev/null \
     || { warn "Could not fetch SSH host key from ${SCW_INSTANCE_IP} — skipping audit trail"; return 1; }
 
-  local ssh_opts="-o BatchMode=yes -o ConnectTimeout=10 -o UserKnownHostsFile=${work_dir}/known_hosts"
+  local -a ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10 -o "UserKnownHostsFile=${work_dir}/known_hosts")
 
   log "Verifying SSH access to ${SCW_INSTANCE_IP}..."
-  # shellcheck disable=SC2086
-  if ! ssh $ssh_opts "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}" true 2>/dev/null; then
+  if ! ssh "${ssh_opts[@]}" "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}" true 2>/dev/null; then
     warn "Cannot reach ${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP} via SSH."
     warn "Make sure your public SSH key is registered in your Scaleway account and re-run:"
     warn "  https://www.scaleway.com/en/docs/organizations-and-projects/how-to/create-ssh-key/"
@@ -625,8 +553,7 @@ setup_audit_trail() {
 
   # Detect remote CPU architecture to build the correct binary
   local remote_arch goarch
-  # shellcheck disable=SC2086
-  remote_arch=$(ssh $ssh_opts "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}" "uname -m")
+  remote_arch=$(ssh "${ssh_opts[@]}" "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}" "uname -m")
   case "$remote_arch" in
     x86_64)         goarch="amd64" ;;
     aarch64|arm64)  goarch="arm64" ;;
@@ -657,29 +584,23 @@ EOF
   # Deploy to Instance
   log "Deploying to Instance at ${SCW_INSTANCE_IP}..."
 
-  # shellcheck disable=SC2086
-  ssh $ssh_opts "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}" \
+  ssh "${ssh_opts[@]}" "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}" \
     "systemctl stop opentelemetry-collector 2>/dev/null || true && mkdir -p /etc/opentelemetry-collector /usr/local/bin"
 
-  # shellcheck disable=SC2086
-  scp $ssh_opts \
+  scp "${ssh_opts[@]}" \
     "$work_dir/otelcol-audit-trail" \
     "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}:/usr/local/bin/otelcol-audit-trail"
 
-  # shellcheck disable=SC2086
-  scp $ssh_opts \
+  scp "${ssh_opts[@]}" \
     "$work_dir/config.yaml" \
     "$work_dir/collector.env" \
     "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}:/etc/opentelemetry-collector/"
 
-  # shellcheck disable=SC2086
-  scp $ssh_opts \
+  scp "${ssh_opts[@]}" \
     "$work_dir/opentelemetry-collector.service" \
     "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}:/etc/systemd/system/opentelemetry-collector.service"
 
-  # Set permissions and start service
-  # shellcheck disable=SC2086
-  ssh $ssh_opts "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}" \
+  ssh "${ssh_opts[@]}" "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}" \
     "chmod +x /usr/local/bin/otelcol-audit-trail && \
      chmod 600 /etc/opentelemetry-collector/collector.env && \
      systemctl daemon-reload && \
