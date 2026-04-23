@@ -69,6 +69,8 @@
 #                         Use "all" to export every Cockpit-integrated product.
 #                         Example: "kubernetes,rdb,object-storage"
 #   ENABLE_AUDIT_TRAIL    Set up the audit trail collector             [default: true]
+#   SCW_INSTANCE_IP       IP of the Scaleway Instance for audit trail  [required for Part 2]
+#   SCW_INSTANCE_USER     SSH user for the Instance                    [default: root]
 #   SCW_ACCOUNT_NAME      Name for the Datadog integration account     [default: SCW_PROJECT_ID]
 #
 # ─────────────────────────────────────────────────────────────────────────────
@@ -110,11 +112,12 @@ _scw_cockpit_regions() {
     || echo "fr-par,nl-ams,pl-waw"
 }
 SCALEWAY_REGIONS="${SCALEWAY_REGIONS:-$(_scw_cockpit_regions)}"
-SCALEWAY_PRODUCTS="${SCALEWAY_PRODUCTS:-all}"            # "all" or CSV of product names
+SCALEWAY_PRODUCTS="${SCALEWAY_PRODUCTS:-all}"            # "all" or CSV of Cockpit product names (e.g. "kubernetes,rdb")
 ENABLE_AUDIT_TRAIL="${ENABLE_AUDIT_TRAIL:-true}"
 SCW_REGION="${SCW_REGION:-$(scw_config_get default-region)}"
 SCW_REGION="${SCW_REGION:-fr-par}"        # fallback if not configured
-SCW_INSTANCE_IP="${SCW_INSTANCE_IP:-}"    # IP of the Scaleway Instance for audit trail
+SCW_INSTANCE_IP="${SCW_INSTANCE_IP:-}"       # IP of the Scaleway Instance for audit trail
+SCW_INSTANCE_USER="${SCW_INSTANCE_USER:-root}" # SSH user for the Instance (default: root)
 SCW_ACCOUNT_NAME="${SCW_ACCOUNT_NAME:-}" # defaults to SCW_PROJECT_ID at registration time
 
 SCW_API="https://api.scaleway.com"
@@ -256,8 +259,7 @@ check_prereqs() {
     command -v ssh    &>/dev/null || audit_missing+=(ssh)
     command -v scp    &>/dev/null || audit_missing+=(scp)
     if [[ ${#audit_missing[@]} -gt 0 ]]; then
-      warn "Audit trail requires: ${audit_missing[*]} — Part 2 will be skipped"
-      ENABLE_AUDIT_TRAIL="false"
+      die "Audit trail setup requires: ${audit_missing[*]}. Install them and re-run, or set ENABLE_AUDIT_TRAIL=false to skip Part 2."
     fi
   fi
 
@@ -326,8 +328,12 @@ provision_iam_application() {
         application_id:  $app_id,
         rules: [
           {
-            permission_set_names: ["ObservabilityFullAccess"],
+            permission_set_names: ["ObservabilityFullAccess", "AllProductsReadOnly"],
             project_ids:          [$project_id]
+          },
+          {
+            permission_set_names: ["AuditTrailReadOnly"],
+            organization_id:      $org
           }
         ]
       }')
@@ -515,8 +521,10 @@ setup_cockpit_exports() {
   local created=0 skipped=0 failed=0
 
   for region in "${regions[@]}"; do
-    local datasource_ids
-    mapfile -t datasource_ids < <(get_log_datasource_ids "$project" "$region" 2>/dev/null || true)
+    local datasource_ids=()
+    while IFS= read -r _id; do
+      [[ -n "$_id" ]] && datasource_ids+=("$_id")
+    done < <(get_log_datasource_ids "$project" "$region" 2>/dev/null || true)
 
     if [[ ${#datasource_ids[@]} -eq 0 ]]; then
       warn "No Scaleway log data sources found  project=$project  region=$region — skipping"
@@ -565,42 +573,41 @@ setup_audit_trail() {
     return 1
   fi
 
-  # Check for a local SSH key before spending time on the Docker build
-  local ssh_key_found=false
-  for _key in ~/.ssh/id_ed25519 ~/.ssh/id_rsa ~/.ssh/id_ecdsa; do
-    [[ -f "$_key" ]] && { ssh_key_found=true; break; }
-  done
-  if [[ "$ssh_key_found" == "false" ]]; then
-    warn "No SSH private key found (~/.ssh/id_ed25519, id_rsa, or id_ecdsa)."
-    warn "Generate one and register the public key at:"
-    warn "  https://www.scaleway.com/en/docs/organizations-and-projects/how-to/create-ssh-key/"
-    warn "Then re-run the script — skipping audit trail"
-    return 1
-  fi
+  log "Using SSH user '${SCW_INSTANCE_USER}' for Instance access (override with SCW_INSTANCE_USER)"
 
-  local ssh_opts="-o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=10"
+  # Create work_dir early — single trap handles both container and dir cleanup
+  local work_dir cid=""
+  work_dir=$(mktemp -d /tmp/scw-audit-trail-XXXXXX)
+  trap '[[ -n "${cid:-}" ]] && docker rm -f "$cid" >/dev/null 2>&1 || true; rm -rf "${work_dir:?}"' RETURN
+
+  # Fetch and pin the instance's host key so we never skip verification.
+  # StrictHostKeyChecking=no would open a MITM window on a script that deploys
+  # credentials to root — we accept the key once here instead.
+  log "Fetching SSH host key from ${SCW_INSTANCE_IP}..."
+  ssh-keyscan -T 10 "$SCW_INSTANCE_IP" > "$work_dir/known_hosts" 2>/dev/null \
+    || { warn "Could not fetch SSH host key from ${SCW_INSTANCE_IP} — skipping audit trail"; return 1; }
+
+  local ssh_opts="-o BatchMode=yes -o ConnectTimeout=10 -o UserKnownHostsFile=${work_dir}/known_hosts"
+
   log "Verifying SSH access to ${SCW_INSTANCE_IP}..."
   # shellcheck disable=SC2086
-  if ! ssh $ssh_opts "root@${SCW_INSTANCE_IP}" true 2>/dev/null; then
-    warn "Cannot reach Instance at ${SCW_INSTANCE_IP} via SSH."
-    warn "Make sure your public SSH key is registered in your Scaleway account:"
+  if ! ssh $ssh_opts "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}" true 2>/dev/null; then
+    warn "Cannot reach ${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP} via SSH."
+    warn "Make sure your public SSH key is registered in your Scaleway account and re-run:"
     warn "  https://www.scaleway.com/en/docs/organizations-and-projects/how-to/create-ssh-key/"
-    warn "And that the key was added to the instance at creation time — skipping audit trail"
     return 1
   fi
   ok "SSH access verified"
 
-  local work_dir
-  work_dir=$(mktemp -d /tmp/scw-audit-trail-XXXXXX)
-  # Always clean up temp dir containing credentials, even on failure
-  trap 'rm -rf "${work_dir:?}"' RETURN
-
-  # Locate static files — on disk when running from a clone, downloaded otherwise
+  # Locate static files — on disk when running from a clone, downloaded otherwise.
+  # AUDIT_TRAIL_REF defaults to main; pin to a commit SHA before GA to prevent
+  # a future breaking change (or a push to main) from affecting deployed instances.
   local script_dir audit_dir
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   audit_dir="${script_dir}/audit-trail"
 
-  local _audit_base="https://raw.githubusercontent.com/DataDog/integrations-management/main/scaleway/log_forwarding/audit-trail"
+  local _audit_ref="${AUDIT_TRAIL_REF:-main}"
+  local _audit_base="https://raw.githubusercontent.com/DataDog/integrations-management/${_audit_ref}/scaleway/log_forwarding/audit-trail"
   local _audit_files=(builder-config.yaml Dockerfile config.yaml opentelemetry-collector.service)
 
   if [[ -d "$audit_dir" ]]; then
@@ -608,7 +615,7 @@ setup_audit_trail() {
       cp "${audit_dir}/${f}" "$work_dir/${f}"
     done
   else
-    log "audit-trail/ not found locally — downloading from GitHub..."
+    log "audit-trail/ not found locally — downloading from GitHub (ref=${_audit_ref})..."
     for f in "${_audit_files[@]}"; do
       curl -fsSL "${_audit_base}/${f}" -o "$work_dir/${f}" \
         || { warn "Failed to download audit-trail/${f} — skipping"; return 1; }
@@ -619,7 +626,7 @@ setup_audit_trail() {
   # Detect remote CPU architecture to build the correct binary
   local remote_arch goarch
   # shellcheck disable=SC2086
-  remote_arch=$(ssh $ssh_opts "root@${SCW_INSTANCE_IP}" "uname -m")
+  remote_arch=$(ssh $ssh_opts "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}" "uname -m")
   case "$remote_arch" in
     x86_64)         goarch="amd64" ;;
     aarch64|arm64)  goarch="arm64" ;;
@@ -631,12 +638,10 @@ setup_audit_trail() {
   docker build --no-cache --build-arg "GOARCH=${goarch}" -t scw-audit-trail-builder "$work_dir" \
     || { warn "Docker build failed — skipping audit trail"; return 1; }
 
-  # Extract binary from image
-  local cid
+  # Extract binary from image; cid is set so the trap cleans it up on any failure
   cid=$(docker create scw-audit-trail-builder)
-  trap 'docker rm -f "$cid" >/dev/null 2>&1 || true; rm -rf "${work_dir:?}"' RETURN
   docker cp "$cid:/out/otelcol-audit-trail" "$work_dir/otelcol-audit-trail"
-  docker rm "$cid" >/dev/null
+  docker rm "$cid" >/dev/null && cid=""
   ok "Binary built"
 
   # Credentials env file — written at deploy time, chmod 600 on Instance
@@ -653,28 +658,28 @@ EOF
   log "Deploying to Instance at ${SCW_INSTANCE_IP}..."
 
   # shellcheck disable=SC2086
-  ssh $ssh_opts "root@${SCW_INSTANCE_IP}" \
+  ssh $ssh_opts "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}" \
     "systemctl stop opentelemetry-collector 2>/dev/null || true && mkdir -p /etc/opentelemetry-collector /usr/local/bin"
 
   # shellcheck disable=SC2086
   scp $ssh_opts \
     "$work_dir/otelcol-audit-trail" \
-    "root@${SCW_INSTANCE_IP}:/usr/local/bin/otelcol-audit-trail"
+    "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}:/usr/local/bin/otelcol-audit-trail"
 
   # shellcheck disable=SC2086
   scp $ssh_opts \
     "$work_dir/config.yaml" \
     "$work_dir/collector.env" \
-    "root@${SCW_INSTANCE_IP}:/etc/opentelemetry-collector/"
+    "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}:/etc/opentelemetry-collector/"
 
   # shellcheck disable=SC2086
   scp $ssh_opts \
     "$work_dir/opentelemetry-collector.service" \
-    "root@${SCW_INSTANCE_IP}:/etc/systemd/system/opentelemetry-collector.service"
+    "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}:/etc/systemd/system/opentelemetry-collector.service"
 
   # Set permissions and start service
   # shellcheck disable=SC2086
-  ssh $ssh_opts "root@${SCW_INSTANCE_IP}" \
+  ssh $ssh_opts "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}" \
     "chmod +x /usr/local/bin/otelcol-audit-trail && \
      chmod 600 /etc/opentelemetry-collector/collector.env && \
      systemctl daemon-reload && \
@@ -682,7 +687,7 @@ EOF
      systemctl restart opentelemetry-collector"
 
   ok "Audit trail collector deployed and running on ${SCW_INSTANCE_IP}"
-  ok "Verify: ssh root@${SCW_INSTANCE_IP} journalctl -fu opentelemetry-collector"
+  ok "Verify: ssh ${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP} journalctl -fu opentelemetry-collector"
   ok "Logs will appear in Datadog > Logs within ~1 minute."
 }
 
