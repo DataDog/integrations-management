@@ -114,6 +114,7 @@ class TestStatusReporter(DDTestCase):
         self.assertEqual(self.report_mock.call_count, 2)
 
     def test_unexpected_error_consent_approved(self):
+        """User approves sending logs: reports FAILING_AWAITING_USER_DECISION then FAILED with traceback message."""
         self.status_reporter._poll_for_user_decision = MagicMock(return_value=True)
         error_message = "Azure has been deleted forever."
         with self.assertRaises(Exception) as e:
@@ -132,6 +133,7 @@ class TestStatusReporter(DDTestCase):
         self.assertIsNotNone(calls[2][0][2])
 
     def test_unexpected_error_consent_declined(self):
+        """User declines sending logs: reports FAILING_AWAITING_USER_DECISION then FAILED with no message."""
         self.status_reporter._poll_for_user_decision = MagicMock(return_value=False)
         error_message = "Azure has been deleted forever."
         with self.assertRaises(Exception) as e:
@@ -148,6 +150,7 @@ class TestStatusReporter(DDTestCase):
         self.assertEqual(calls[2], ((EXAMPLE_STEP_ID, Status.FAILED, None), {}))
 
     def test_unexpected_error_timeout(self):
+        """Decision poll times out: reports FAILING_AWAITING_USER_DECISION only, no FAILED report is made."""
         self.status_reporter._poll_for_user_decision = MagicMock(return_value=None)
         error_message = "Azure has been deleted forever."
         with self.assertRaises(Exception) as e:
