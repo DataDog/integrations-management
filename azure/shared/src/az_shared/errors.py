@@ -27,10 +27,6 @@ class ExistenceCheckError(FatalError):
     """Error occurred when checking if a resource exists."""
 
 
-def format_error_details(error_message: str) -> str:
-    return f"\n\nError Details:\n{error_message}"
-
-
 # Errors users can resolve through manual action
 class UserActionRequiredError(AzIntegrationError):
     """An error that requires user action to resolve."""
