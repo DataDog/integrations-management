@@ -113,7 +113,8 @@ class TestStatusReporter(DDTestCase):
         self.report_mock.assert_called_with(EXAMPLE_STEP_ID, Status.WARN, e.exception.user_action_message)
         self.assertEqual(self.report_mock.call_count, 2)
 
-    def test_unexpected_error(self):
+    def test_unexpected_error_consent_approved(self):
+        self.status_reporter._poll_for_user_decision = MagicMock(return_value=True)
         error_message = "Azure has been deleted forever."
         with self.assertRaises(Exception) as e:
             with self.status_reporter.report_step(EXAMPLE_STEP_ID):
@@ -123,5 +124,40 @@ class TestStatusReporter(DDTestCase):
                 raise Exception(error_message)
 
         self.assertEqual(str(e.exception), error_message)
-        self.report_mock.assert_called_with(EXAMPLE_STEP_ID, Status.FAILED, ANY)
-        self.assertEqual(self.report_mock.call_count, 2)
+        calls = self.report_mock.call_args_list
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(calls[1], ((EXAMPLE_STEP_ID, Status.FAILING_AWAITING_USER_DECISION, None), {}))
+        self.assertEqual(calls[2][0][0], EXAMPLE_STEP_ID)
+        self.assertEqual(calls[2][0][1], Status.FAILED)
+        self.assertIsNotNone(calls[2][0][2])
+
+    def test_unexpected_error_consent_declined(self):
+        self.status_reporter._poll_for_user_decision = MagicMock(return_value=False)
+        error_message = "Azure has been deleted forever."
+        with self.assertRaises(Exception) as e:
+            with self.status_reporter.report_step(EXAMPLE_STEP_ID):
+                self.report_mock.assert_called_once_with(
+                    EXAMPLE_STEP_ID, Status.IN_PROGRESS, f"{EXAMPLE_STEP_ID}: {Status.IN_PROGRESS}"
+                )
+                raise Exception(error_message)
+
+        self.assertEqual(str(e.exception), error_message)
+        calls = self.report_mock.call_args_list
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(calls[1], ((EXAMPLE_STEP_ID, Status.FAILING_AWAITING_USER_DECISION, None), {}))
+        self.assertEqual(calls[2], ((EXAMPLE_STEP_ID, Status.FAILED, None), {}))
+
+    def test_unexpected_error_timeout(self):
+        self.status_reporter._poll_for_user_decision = MagicMock(return_value=None)
+        error_message = "Azure has been deleted forever."
+        with self.assertRaises(Exception) as e:
+            with self.status_reporter.report_step(EXAMPLE_STEP_ID):
+                self.report_mock.assert_called_once_with(
+                    EXAMPLE_STEP_ID, Status.IN_PROGRESS, f"{EXAMPLE_STEP_ID}: {Status.IN_PROGRESS}"
+                )
+                raise Exception(error_message)
+
+        self.assertEqual(str(e.exception), error_message)
+        calls = self.report_mock.call_args_list
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[1], ((EXAMPLE_STEP_ID, Status.FAILING_AWAITING_USER_DECISION, None), {}))
