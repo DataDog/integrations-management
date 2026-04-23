@@ -13,6 +13,7 @@ from typing import Generator, Optional
 from urllib.error import HTTPError
 
 from az_shared.errors import UserActionRequiredError, UserRetriableError
+from az_shared.logs import log
 from azure_integration_quickstart.util import Json, dd_request
 
 
@@ -121,7 +122,7 @@ class StatusReporter:
                 self.report(step_id, Status.FAILING_AWAITING_USER_DECISION, None)
                 decision = self._poll_for_user_decision()
                 if decision is None:
-                    print("Approval wait period expired, no error logs sent to Datadog.")
+                    log.info("Approval wait period expired, no error logs sent to Datadog.")
                 elif decision:
                     self.report(step_id, Status.FAILED, traceback_message)
                 else:
