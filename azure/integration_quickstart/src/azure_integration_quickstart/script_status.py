@@ -77,7 +77,7 @@ class StatusReporter:
                 self.report(
                     step_id,
                     Status.WARN,
-                    f"{Status.WARN}: {traceback.format_exc()}",
+                    e.user_action_message,
                 )
             elif isinstance(e, UserActionRequiredError):
                 self.report(

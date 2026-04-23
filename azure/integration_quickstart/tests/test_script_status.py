@@ -92,7 +92,6 @@ class TestStatusReporter(DDTestCase):
         expected_user_action_message = (
             "You don't have the necessary Azure permissions to access, create, or perform an action on a required resource."
             + "\nPlease review the Datadog documentation at https://docs.datadoghq.com/getting_started/integrations/azure/ and contact your Azure administrator if necessary."
-            + f"\n\nError Details:\n{error_message}"
         )
 
         self.assertEqual(e.exception.user_action_message, expected_user_action_message)
@@ -108,12 +107,10 @@ class TestStatusReporter(DDTestCase):
                 )
                 raise AzCliNotInstalledError(error_message)
 
-        expected_user_action_message = (
-            f"You must install and log in to Azure CLI to run this script\n\nError Details:\n{error_message}"
-        )
+        expected_user_action_message = "You must install and log in to Azure CLI to run this script"
 
         self.assertEqual(e.exception.user_action_message, expected_user_action_message)
-        self.report_mock.assert_called_with(EXAMPLE_STEP_ID, Status.WARN, ANY)
+        self.report_mock.assert_called_with(EXAMPLE_STEP_ID, Status.WARN, e.exception.user_action_message)
         self.assertEqual(self.report_mock.call_count, 2)
 
     def test_unexpected_error(self):
