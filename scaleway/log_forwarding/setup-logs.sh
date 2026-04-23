@@ -30,8 +30,9 @@
 #             No manual tile entry required.
 #
 # Prerequisites:
-#   scw CLI            (configured with credentials that have IAM Manager or
-#                       Org Owner permissions — used only for Step 0)
+#   scw CLI            must be installed and configured before running this
+#                       script ('scw init'). Credentials must have IAM Manager
+#                       or Org Owner permissions (used only for Step 0).
 #   curl, jq           (required for Part 1)
 #   Docker             (required for Part 2)
 #
@@ -94,6 +95,11 @@ SCW_ORGANIZATION_ID="${SCW_ORGANIZATION_ID:-$(scw_config_get default-organizatio
 
 # ── Optional / defaults ───────────────────────────────────────────────────────
 SCW_PROJECT_ID="${SCW_PROJECT_ID:-$(scw_config_get default-project-id)}"
+# Parses supported Cockpit regions from the scw CLI help text so new regions
+# are picked up automatically when the CLI is updated, without needing changes
+# here.  Relies on the "(fr-par | nl-ams | ...)" format of the help output —
+# if Scaleway changes that format the parse silently falls back to the
+# hardcoded list below.
 _scw_cockpit_regions() {
   scw cockpit data-source list --help 2>&1 \
     | grep 'region=' \
@@ -400,13 +406,13 @@ register_datadog_account() {
     log "Account exists — updating (id=${account_id})..."
     action_resp=$(dd_patch "/api/v2/web-integrations/scaleway/accounts/${account_id}" "$payload") \
       || die "Failed to update Datadog Scaleway account"
-    account_id=$(jq -r '.data.id' <<< "$action_resp")
+    account_id=$(jq -r '.data.id // "dry-run-id"' <<< "$action_resp")
     ok "Updated Datadog Scaleway account '${account_name}' (id=${account_id})"
   else
     log "Creating Datadog Scaleway account '${account_name}'..."
     action_resp=$(dd_post "/api/v2/web-integrations/scaleway/accounts" "$payload") \
       || die "Failed to create Datadog Scaleway account"
-    account_id=$(jq -r '.data.id' <<< "$action_resp")
+    account_id=$(jq -r '.data.id // "dry-run-id"' <<< "$action_resp")
     ok "Created Datadog Scaleway account '${account_name}' (id=${account_id})"
   fi
 
@@ -581,9 +587,10 @@ setup_audit_trail() {
   docker build --no-cache --build-arg "GOARCH=${goarch}" -t scw-audit-trail-builder "$work_dir" \
     || { warn "Docker build failed — skipping audit trail"; return 1; }
 
-  # Extract binary from image
+  # Extract binary from image; extend trap to remove container on any failure
   local cid
   cid=$(docker create scw-audit-trail-builder)
+  trap 'docker rm -f "$cid" >/dev/null 2>&1 || true; rm -rf "${work_dir:?}"' RETURN
   docker cp "$cid:/out/otelcol-audit-trail" "$work_dir/otelcol-audit-trail"
   docker rm "$cid" >/dev/null
   ok "Binary built"
