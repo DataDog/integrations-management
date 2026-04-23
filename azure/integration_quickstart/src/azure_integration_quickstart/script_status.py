@@ -23,7 +23,7 @@ class Status(Enum):
     CANCELLED = "cancelled"
     FINISHED = "finished"
     WARN = "warn"
-    USER_ACTIONABLE_ERROR = "USER_ACTIONABLE_ERROR"
+    USER_ACTIONABLE_ERROR = "user_actionable_error"
     FAILING_AWAITING_USER_DECISION = "failing_awaiting_user_decision"
 
 
