@@ -138,7 +138,7 @@ dryrun() { printf '\033[0;35m[%s] ~\033[0m  %s\n' "$(_ts)" "$*" >&2; }
 # Stub JSON returned by all API helpers in dry-run mode.  Contains enough
 # fields to satisfy every jq query in this script; empty arrays mean "nothing
 # found" so create-or-update paths always take the create branch.
-_DRY_RUN_STUB='{"id":"dry-run-id","access_key":"DRY_RUN_ACCESS_KEY","secret_key":"DRY_RUN_SECRET_KEY","status":"active","applications":[],"policies":[],"data_sources":[],"exporters":[],"data":[]}'
+_DRY_RUN_STUB='{"id":"dry-run-id","access_key":"DRY_RUN_ACCESS_KEY","secret_key":"DRY_RUN_SECRET_KEY","status":"active","applications":[],"policies":[],"api_keys":[],"total_count":0,"data_sources":[],"exporters":[],"data":[]}'
 
 # ── Scaleway API helpers ──────────────────────────────────────────────────────
 scw_request() {
@@ -278,12 +278,12 @@ provision_iam_application() {
   if [[ -n "$policy_id" ]]; then
     log "Updating IAM policy '${IAM_POLICY_NAME}' (id=${policy_id})..."
     policy_resp=$(scw_request PATCH "/iam/v1alpha1/policies/${policy_id}" "$policy_body") \
-      || die "Failed to update IAM policy"
+      || die "Failed to update IAM policy — fix the error above and re-run the script"
     ok "Updated IAM policy '${IAM_POLICY_NAME}' (id=${policy_id})"
   else
     log "Creating IAM policy '${IAM_POLICY_NAME}'..."
     policy_resp=$(scw_post "/iam/v1alpha1/policies" "$policy_body") \
-      || die "Failed to create IAM policy"
+      || die "Failed to create IAM policy — fix the error above and re-run the script"
     policy_id=$(jq -r '.id' <<< "$policy_resp")
     ok "Created IAM policy '${IAM_POLICY_NAME}' (id=${policy_id})"
   fi
@@ -421,7 +421,7 @@ create_exporter() {
   if [[ "$SCALEWAY_PRODUCTS" == "all" ]]; then
     products_json='["all"]'
   else
-    products_json=$(jq -Rcs 'split(",") | map(ltrimstr(" ") | rtrimstr(" "))' <<< "$SCALEWAY_PRODUCTS")
+    products_json=$(printf '%s' "$SCALEWAY_PRODUCTS" | jq -Rcs 'split(",") | map(ltrimstr(" ") | rtrimstr(" "))')
   fi
 
   local body
@@ -468,7 +468,7 @@ setup_cockpit_exports() {
     local datasource_ids=()
     while IFS= read -r _id; do
       [[ -n "$_id" ]] && datasource_ids+=("$_id")
-    done < <(get_log_datasource_ids "$project" "$region" 2>/dev/null || true)
+    done < <(get_log_datasource_ids "$SCW_PROJECT_ID" "$region" 2>/dev/null || true)
 
     if [[ ${#datasource_ids[@]} -eq 0 ]]; then
       warn "No Scaleway log data sources found  project=$SCW_PROJECT_ID  region=$region — skipping"
