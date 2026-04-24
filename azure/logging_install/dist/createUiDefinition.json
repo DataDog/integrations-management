@@ -150,6 +150,10 @@
                     {
                       "label": "US1-FED",
                       "value": "ddog-gov.com"
+                    },
+                    {
+                      "label": "US2-FED",
+                      "value": "us2.ddog-gov.com"
                     }
                   ],
                   "required": false

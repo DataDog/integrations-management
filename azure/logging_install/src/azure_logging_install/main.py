@@ -69,6 +69,7 @@ def parse_arguments():
             "us3.datadoghq.com",
             "us5.datadoghq.com",
             "ddog-gov.com",
+            "us2.ddog-gov.com",
         ],
         default="datadoghq.com",
         help="Datadog site (default: datadoghq.com)",

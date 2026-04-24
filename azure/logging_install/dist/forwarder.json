@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.40.2.10011",
-      "templateHash": "92527606607557234"
+      "version": "0.39.26.7824",
+      "templateHash": "1916183813398758036"
     }
   },
   "parameters": {
@@ -79,7 +79,8 @@
         "ap2.datadoghq.com",
         "us3.datadoghq.com",
         "us5.datadoghq.com",
-        "ddog-gov.com"
+        "ddog-gov.com",
+        "us2.ddog-gov.com"
       ]
     }
   },

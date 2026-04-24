@@ -35,7 +35,7 @@ usage:
   --control-plane-resource-group CONTROL_PLANE_RESOURCE_GROUP \
   --monitored-subscriptions MONITORED_SUBSCRIPTIONS \
   --datadog-api-key DATADOG_API_KEY \
-  [--datadog-site {datadoghq.com,datadoghq.eu,ap1.datadoghq.com,ap2.datadoghq.com,us3.datadoghq.com,us5.datadoghq.com,ddog-gov.com}] \
+  [--datadog-site {datadoghq.com,datadoghq.eu,ap1.datadoghq.com,ap2.datadoghq.com,us3.datadoghq.com,us5.datadoghq.com,ddog-gov.com,us2.ddog-gov.com}] \
   [--resource-tag-filters RESOURCE_TAG_FILTERS] \
   [--pii-scrubber-rules PII_SCRUBBER_RULES] \
   [--datadog-telemetry] \
@@ -55,7 +55,7 @@ options:
                         Comma-separated list of subscription IDs to monitor for log forwarding (required)
   --datadog-api-key DATADOG_API_KEY
                         Datadog API key (required)
-  --datadog-site {datadoghq.com,datadoghq.eu,ap1.datadoghq.com,ap2.datadoghq.com,us3.datadoghq.com,us5.datadoghq.com,ddog-gov.com}
+  --datadog-site {datadoghq.com,datadoghq.eu,ap1.datadoghq.com,ap2.datadoghq.com,us3.datadoghq.com,us5.datadoghq.com,ddog-gov.com,us2.ddog-gov.com}
                         Datadog site (default: datadoghq.com)
   --resource-tag-filters RESOURCE_TAG_FILTERS
                         Comma separated list of tags to filter resources by

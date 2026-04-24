@@ -48,6 +48,7 @@ param datadogApiKey string
   'us3.datadoghq.com'
   'us5.datadoghq.com'
   'ddog-gov.com'
+  'us2.ddog-gov.com'
 ])
 param datadogSite string = 'datadoghq.com'
 
