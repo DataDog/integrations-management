@@ -289,12 +289,16 @@ provision_iam_application() {
   fi
 
   local existing_keys_resp existing_key_count
-  existing_keys_resp=$(scw_get "/iam/v1alpha1/api-keys?application_id=${app_id}&page_size=100") \
-    || die "Failed to list API keys"
-  existing_key_count=$(jq '.total_count' <<< "$existing_keys_resp")
+  if [[ "$DRY_RUN" == "true" ]]; then
+    existing_keys_resp="[]"
+  else
+    existing_keys_resp=$(scw iam api-key list "bearer-id=${app_id}" bearer-type=application "organization-id=${SCW_ORGANIZATION_ID}" --output json 2>/dev/null) \
+      || die "Failed to list API keys"
+  fi
+  existing_key_count=$(jq 'length' <<< "$existing_keys_resp")
 
   if [[ "$existing_key_count" -gt 0 ]]; then
-    IAM_ACCESS_KEY=$(jq -r '.api_keys[0].access_key' <<< "$existing_keys_resp")
+    IAM_ACCESS_KEY=$(jq -r '.[0].access_key' <<< "$existing_keys_resp")
     ok "Reusing existing API key (access_key=${IAM_ACCESS_KEY}) — collector.env on instance unchanged"
   else
     log "Generating API key for application '${IAM_APP_NAME}'..."
