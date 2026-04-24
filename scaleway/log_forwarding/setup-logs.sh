@@ -252,51 +252,66 @@ provision_iam_application() {
   policy_id=$(jq -r --arg name "$IAM_POLICY_NAME" --arg app_id "$app_id" \
     'first(.policies[] | select(.name == $name and .application_id == $app_id) | .id) // empty' <<< "$policies_resp")
 
+  local policy_body
+  policy_body=$(jq -n \
+    --arg name       "$IAM_POLICY_NAME" \
+    --arg org        "$SCW_ORGANIZATION_ID" \
+    --arg app_id     "$app_id" \
+    --arg project_id "$SCW_PROJECT_ID" \
+    '{
+      name:            $name,
+      organization_id: $org,
+      application_id:  $app_id,
+      rules: [
+        {
+          permission_set_names: ["ObservabilityFullAccess", "AllProductsReadOnly"],
+          project_ids:          [$project_id]
+        },
+        {
+          permission_set_names: ["AuditTrailReadOnly"],
+          organization_id:      $org
+        }
+      ]
+    }')
+
+  local policy_resp
   if [[ -n "$policy_id" ]]; then
-    ok "IAM policy '${IAM_POLICY_NAME}' already exists (id=${policy_id})"
+    log "Updating IAM policy '${IAM_POLICY_NAME}' (id=${policy_id})..."
+    policy_resp=$(scw_request PATCH "/iam/v1alpha1/policies/${policy_id}" "$policy_body") \
+      || die "Failed to update IAM policy"
+    ok "Updated IAM policy '${IAM_POLICY_NAME}' (id=${policy_id})"
   else
     log "Creating IAM policy '${IAM_POLICY_NAME}'..."
-    local policy_body policy_resp
-    policy_body=$(jq -n \
-      --arg name       "$IAM_POLICY_NAME" \
-      --arg org        "$SCW_ORGANIZATION_ID" \
-      --arg app_id     "$app_id" \
-      --arg project_id "$SCW_PROJECT_ID" \
-      '{
-        name:            $name,
-        organization_id: $org,
-        application_id:  $app_id,
-        rules: [
-          {
-            permission_set_names: ["ObservabilityFullAccess", "AllProductsReadOnly"],
-            project_ids:          [$project_id]
-          },
-          {
-            permission_set_names: ["AuditTrailReadOnly"],
-            organization_id:      $org
-          }
-        ]
-      }')
     policy_resp=$(scw_post "/iam/v1alpha1/policies" "$policy_body") \
       || die "Failed to create IAM policy"
     policy_id=$(jq -r '.id' <<< "$policy_resp")
     ok "Created IAM policy '${IAM_POLICY_NAME}' (id=${policy_id})"
   fi
 
-  log "Generating API key for application '${IAM_APP_NAME}'..."
-  local key_body key_resp
-  key_body=$(jq -n \
-    --arg app_id "$app_id" \
-    '{"application_id": $app_id, "description": "Datadog integration setup"}')
-  key_resp=$(scw_post "/iam/v1alpha1/api-keys" "$key_body") \
-    || die "Failed to create API key"
-  IFS=$'\t' read -r IAM_ACCESS_KEY IAM_SECRET_KEY \
-    < <(jq -r '[.access_key, .secret_key] | @tsv' <<< "$key_resp")
-  ok "Generated API key (access_key=${IAM_ACCESS_KEY})"
+  local existing_keys_resp existing_key_count
+  existing_keys_resp=$(scw_get "/iam/v1alpha1/api-keys?application_id=${app_id}&page_size=100") \
+    || die "Failed to list API keys"
+  existing_key_count=$(jq '.total_count' <<< "$existing_keys_resp")
 
-  SCW_ACCESS_KEY="$IAM_ACCESS_KEY"
-  SCW_SECRET_KEY="$IAM_SECRET_KEY"
-  log "Switched to application credentials for remaining setup."
+  if [[ "$existing_key_count" -gt 0 ]]; then
+    IAM_ACCESS_KEY=$(jq -r '.api_keys[0].access_key' <<< "$existing_keys_resp")
+    ok "Reusing existing API key (access_key=${IAM_ACCESS_KEY}) — collector.env on instance unchanged"
+  else
+    log "Generating API key for application '${IAM_APP_NAME}'..."
+    local key_body key_resp
+    key_body=$(jq -n \
+      --arg app_id "$app_id" \
+      '{"application_id": $app_id, "description": "Datadog integration setup"}')
+    key_resp=$(scw_post "/iam/v1alpha1/api-keys" "$key_body") \
+      || die "Failed to create API key"
+    IFS=$'\t' read -r IAM_ACCESS_KEY IAM_SECRET_KEY \
+      < <(jq -r '[.access_key, .secret_key] | @tsv' <<< "$key_resp")
+    ok "Generated API key (access_key=${IAM_ACCESS_KEY})"
+
+    SCW_ACCESS_KEY="$IAM_ACCESS_KEY"
+    SCW_SECRET_KEY="$IAM_SECRET_KEY"
+    log "Switched to application credentials for remaining setup."
+  fi
   echo
 }
 
@@ -505,9 +520,10 @@ setup_audit_trail() {
   log "Using SSH user '${SCW_INSTANCE_USER}' for Instance access (override with SCW_INSTANCE_USER)"
 
   # Create work_dir early — single trap handles both container and dir cleanup
-  local work_dir cid=""
-  work_dir=$(mktemp -d /tmp/scw-audit-trail-XXXXXX)
-  trap '[[ -n "${cid:-}" ]] && docker rm -f "$cid" >/dev/null 2>&1 || true; rm -rf "${work_dir:?}"' RETURN
+  local work_dir="" cid=""
+  work_dir=$(mktemp -d /tmp/scw-audit-trail-XXXXXX) \
+    || { warn "Failed to create temp dir — skipping audit trail setup"; return 1; }
+  trap '[[ -n "${cid:-}" ]] && docker rm -f "$cid" >/dev/null 2>&1 || true; [[ -n "${work_dir:-}" ]] && rm -rf "$work_dir"' RETURN
 
   # Fetch and pin the instance's host key so we never skip verification.
   # StrictHostKeyChecking=no would open a MITM window on a script that deploys
@@ -571,16 +587,6 @@ setup_audit_trail() {
   docker rm "$cid" >/dev/null && cid=""
   ok "Binary built"
 
-  # Credentials env file — written at deploy time, chmod 600 on Instance
-  cat > "$work_dir/collector.env" <<EOF
-SCW_ACCESS_KEY=${SCW_ACCESS_KEY}
-SCW_SECRET_KEY=${SCW_SECRET_KEY}
-SCW_ORGANIZATION_ID=${SCW_ORGANIZATION_ID}
-SCW_REGION=${SCW_REGION}
-DD_API_KEY=${DD_API_KEY}
-DD_SITE=${DD_SITE}
-EOF
-
   # Deploy to Instance
   log "Deploying to Instance at ${SCW_INSTANCE_IP}..."
 
@@ -593,8 +599,23 @@ EOF
 
   scp "${ssh_opts[@]}" \
     "$work_dir/config.yaml" \
-    "$work_dir/collector.env" \
     "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}:/etc/opentelemetry-collector/"
+
+  # Only write collector.env when we have fresh credentials (new key).
+  # If reusing an existing key, the instance already has valid credentials.
+  if [[ -n "$IAM_SECRET_KEY" ]]; then
+    cat > "$work_dir/collector.env" <<EOF
+SCW_ACCESS_KEY=${SCW_ACCESS_KEY}
+SCW_SECRET_KEY=${SCW_SECRET_KEY}
+SCW_ORGANIZATION_ID=${SCW_ORGANIZATION_ID}
+SCW_REGION=${SCW_REGION}
+DD_API_KEY=${DD_API_KEY}
+DD_SITE=${DD_SITE}
+EOF
+    scp "${ssh_opts[@]}" \
+      "$work_dir/collector.env" \
+      "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}:/etc/opentelemetry-collector/"
+  fi
 
   scp "${ssh_opts[@]}" \
     "$work_dir/opentelemetry-collector.service" \
