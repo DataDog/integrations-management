@@ -9,6 +9,10 @@ to Container App Jobs hosted in the existing deployer Container App Environment.
 Designed to run in Azure Cloud Shell. Requires Azure CLI (`az`) to be available and authenticated.
 
 Usage:
+    # Auto-discover the LFO control plane in the tenant (errors if multiple exist):
+    python migrate_to_container_apps.py
+
+    # Or specify the control plane explicitly:
     python migrate_to_container_apps.py \
         --control-plane-subscription-id <sub-id> \
         --control-plane-resource-group <rg-name>
@@ -98,6 +102,39 @@ def az_json(args: str, can_fail: bool = False):
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
+
+
+def ensure_resource_graph_extension():
+    """Make sure the Azure CLI resource-graph extension is installed."""
+    if not az("extension show --name resource-graph", can_fail=True):
+        log.info("Installing Azure CLI 'resource-graph' extension...")
+        az("extension add --name resource-graph --yes")
+
+
+def find_lfo_control_planes() -> list[dict]:
+    """Find all LFO control planes across accessible subscriptions via Azure Resource Graph.
+
+    Returns a list of dicts with keys: control_plane_id, sub_id, resource_group, region.
+    """
+    ensure_resource_graph_extension()
+
+    query = (
+        "Resources | where type == 'microsoft.web/sites' and kind contains 'functionapp'"
+        " and name startswith 'resources-task-'"
+        " | project name, resourceGroup, subscriptionId, location"
+    )
+    output = az(f"graph query -q {shlex.quote(query)} --output json")
+    response = json.loads(output)
+
+    control_planes = []
+    for row in response.get("data", []):
+        control_planes.append({
+            "control_plane_id": row["name"].removeprefix("resources-task-"),
+            "sub_id": row["subscriptionId"],
+            "resource_group": row["resourceGroup"],
+            "region": row["location"],
+        })
+    return control_planes
 
 
 def discover_control_plane_id(sub_id: str, rg: str) -> str:
@@ -841,15 +878,54 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--control-plane-subscription-id",
-        required=True,
-        help="Azure subscription ID hosting the control plane.",
+        help="Azure subscription ID hosting the control plane. Auto-discovered if omitted.",
     )
     parser.add_argument(
         "--control-plane-resource-group",
-        required=True,
-        help="Resource group containing the control plane resources.",
+        help="Resource group containing the control plane resources. Auto-discovered if omitted.",
     )
     return parser.parse_args()
+
+
+def resolve_control_plane(args: argparse.Namespace) -> dict:
+    """Resolve which LFO control plane to migrate.
+
+    If both --control-plane-subscription-id and --control-plane-resource-group are provided,
+    use them. Otherwise, search the tenant via Azure Resource Graph.
+    """
+    if args.control_plane_subscription_id and args.control_plane_resource_group:
+        sub_id = args.control_plane_subscription_id
+        rg = args.control_plane_resource_group
+        return {
+            "control_plane_id": discover_control_plane_id(sub_id, rg),
+            "sub_id": sub_id,
+            "resource_group": rg,
+            "region": discover_resource_group_region(sub_id, rg),
+        }
+
+    log.info("Searching for LFO control planes across accessible subscriptions...")
+    control_planes = find_lfo_control_planes()
+
+    if args.control_plane_subscription_id:
+        control_planes = [cp for cp in control_planes if cp["sub_id"] == args.control_plane_subscription_id]
+    if args.control_plane_resource_group:
+        control_planes = [cp for cp in control_planes if cp["resource_group"] == args.control_plane_resource_group]
+
+    if not control_planes:
+        log.error("No LFO control planes found in accessible subscriptions.")
+        sys.exit(1)
+
+    if len(control_planes) > 1:
+        log.error("Found %d LFO control planes. Please specify which one to migrate:", len(control_planes))
+        for cp in control_planes:
+            log.error(
+                "  - control_plane_id=%s  subscription=%s  resource_group=%s  region=%s",
+                cp["control_plane_id"], cp["sub_id"], cp["resource_group"], cp["region"],
+            )
+        log.error("Re-run with --control-plane-subscription-id and --control-plane-resource-group.")
+        sys.exit(1)
+
+    return control_planes[0]
 
 
 def main():
@@ -857,20 +933,18 @@ def main():
 
     validate_azure_cli()
 
-    sub_id = args.control_plane_subscription_id
-    rg = args.control_plane_resource_group
-
-    log.info("Discovering control plane ID and region...")
-    control_plane_id = discover_control_plane_id(sub_id, rg)
-    control_plane_region = discover_resource_group_region(sub_id, rg)
-    log.info("Discovered control plane ID: %s", control_plane_id)
-    log.info("Discovered control plane region: %s", control_plane_region)
+    cp = resolve_control_plane(args)
+    log.info("Migrating LFO control plane:")
+    log.info("  control_plane_id: %s", cp["control_plane_id"])
+    log.info("  subscription:     %s", cp["sub_id"])
+    log.info("  resource_group:   %s", cp["resource_group"])
+    log.info("  region:           %s", cp["region"])
 
     ctx = MigrationContext(
-        control_plane_sub_id=sub_id,
-        control_plane_rg=rg,
-        control_plane_region=control_plane_region,
-        control_plane_id=control_plane_id,
+        control_plane_sub_id=cp["sub_id"],
+        control_plane_rg=cp["resource_group"],
+        control_plane_region=cp["region"],
+        control_plane_id=cp["control_plane_id"],
     )
 
     try:
