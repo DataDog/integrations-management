@@ -4,9 +4,11 @@
 """Destroy command for the Azure Agentless Scanner Cloud Shell setup."""
 
 import os
+import shutil
 import signal
 import sys
 from pathlib import Path
+from typing import Optional, Tuple
 
 from az_shared.execute_cmd import execute
 from common.shell import Cmd
@@ -17,10 +19,7 @@ from .errors import SetupError
 from .metadata import read_metadata, delete_metadata, terraform_state_exists
 from .secrets import API_KEY_SECRET_NAME, get_key_vault_name
 from .state_storage import get_storage_account_name, storage_account_exists
-from .terraform import generate_terraform_config, generate_tfvars
-
-
-DUMMY_SSH_KEY = "ssh-rsa AAAA-destroy-placeholder"
+from .terraform import generate_ssh_key, generate_terraform_config, generate_tfvars
 
 
 def sigint_handler(signum, frame) -> None:
@@ -113,12 +112,20 @@ def regenerate_terraform_config(
     storage_account: str,
     resource_group: str,
     config_folder: Path,
-) -> None:
+) -> Path:
     """Regenerate Terraform configuration when local folder doesn't exist.
 
     Reads deployment metadata from Azure Blob Storage to discover all
     locations and subscriptions. Falls back to requiring environment
     variables if metadata is not available.
+
+    Generates a throwaway SSH key pair with :func:`terraform.generate_ssh_key` (same as
+    deploy): Azure only needs a decodable public key in ``terraform.tfvars`` for refresh/destroy;
+    the value need not match the key used at apply time.
+
+    Returns:
+        Path to a temp directory containing the key pair. The caller should
+        :func:`shutil.rmtree` it after ``terraform destroy`` finishes.
     """
     print("Local config not found, but Terraform state exists in storage account.")
 
@@ -165,27 +172,36 @@ def regenerate_terraform_config(
     vault_name = get_key_vault_name(scanner_subscription)
     api_key_secret_id = f"/subscriptions/{scanner_subscription}/resourceGroups/{resource_group}/providers/Microsoft.KeyVault/vaults/{vault_name}/secrets/{API_KEY_SECRET_NAME}"
 
-    main_tf = config_folder / "main.tf"
-    main_tf.write_text(
-        generate_terraform_config(config, storage_account, api_key_secret_id, DUMMY_SSH_KEY)
-    )
+    public_key, ssh_tmp_dir = generate_ssh_key()
+    try:
+        main_tf = config_folder / "main.tf"
+        main_tf.write_text(
+            generate_terraform_config(config, storage_account, api_key_secret_id, public_key)
+        )
 
-    tfvars = config_folder / "terraform.tfvars"
-    tfvars.write_text(generate_tfvars(DUMMY_SSH_KEY))
+        tfvars = config_folder / "terraform.tfvars"
+        tfvars.write_text(generate_tfvars(public_key))
+    except Exception:
+        shutil.rmtree(ssh_tmp_dir, ignore_errors=True)
+        raise
 
     print(f"Configuration written to {config_folder}")
     print()
+    return ssh_tmp_dir
 
 
 def get_working_directory(
     scanner_subscription: str,
     storage_account: str,
     resource_group: str,
-) -> Path:
+) -> Tuple[Path, Optional[Path]]:
     """Get the working directory for Terraform, regenerating config if needed.
 
     Returns:
-        Path to the working directory containing main.tf.
+        ``(work_dir, ssh_key_temp_dir)``. The second item is a directory to remove
+        after destroy (only set when config was regenerated and contains a
+        throwaway key pair from :func:`terraform.generate_ssh_key`); otherwise
+        ``None``.
     """
     config_folder = get_config_dir(scanner_subscription)
     folder_exists = config_folder.exists() and (config_folder / "main.tf").exists()
@@ -199,7 +215,7 @@ def get_working_directory(
 
     if folder_exists:
         print("Using existing configuration...")
-        return config_folder
+        return config_folder, None
 
     if not storage_account_exists(storage_account, resource_group, scanner_subscription):
         print(f"❌ No installation found for subscription: {scanner_subscription}")
@@ -214,8 +230,10 @@ def get_working_directory(
         print("There is nothing to destroy.")
         sys.exit(1)
 
-    regenerate_terraform_config(scanner_subscription, storage_account, resource_group, config_folder)
-    return config_folder
+    ssh_tmp = regenerate_terraform_config(
+        scanner_subscription, storage_account, resource_group, config_folder
+    )
+    return config_folder, ssh_tmp
 
 
 def run_terraform_destroy(work_dir: Path) -> None:
@@ -366,9 +384,15 @@ def cmd_destroy() -> None:
         else:
             resource_group = DEFAULT_RESOURCE_GROUP
 
-        work_dir = get_working_directory(scanner_subscription, storage_account, resource_group)
+        work_dir, destroy_ssh_key_dir = get_working_directory(
+            scanner_subscription, storage_account, resource_group
+        )
 
-        run_terraform_destroy(work_dir)
+        try:
+            run_terraform_destroy(work_dir)
+        finally:
+            if destroy_ssh_key_dir is not None:
+                shutil.rmtree(destroy_ssh_key_dir, ignore_errors=True)
 
         scan_options_fully_cleaned = True
         if subscriptions_to_scan:
