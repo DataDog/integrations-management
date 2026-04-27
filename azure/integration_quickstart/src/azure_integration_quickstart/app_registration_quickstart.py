@@ -33,7 +33,7 @@ from azure_integration_quickstart.scopes import (
     flatten_scopes_to_unique_subscriptions,
     report_available_scopes,
 )
-from azure_integration_quickstart.script_status import Status, StatusReporter
+from az_shared.script_status import Status, StatusReporter
 from azure_integration_quickstart.user_selections import receive_app_registration_selections
 from azure_integration_quickstart.util import dd_request
 from common.shell import Cmd

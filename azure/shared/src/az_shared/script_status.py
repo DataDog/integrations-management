@@ -2,6 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
+import json
 import threading
 import time
 import traceback
@@ -10,8 +11,14 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Generator, Optional
 
-from az_shared.errors import UserActionRequiredError, UserRetriableError
-from azure_integration_quickstart.util import Json, dd_request
+from az_shared.auth import check_login
+from az_shared.errors import (
+    AzCliNotAuthenticatedError,
+    AzCliNotInstalledError,
+    UserActionRequiredError,
+    UserRetriableError,
+)
+from common.requests import Json, dd_request
 
 
 class Status(Enum):

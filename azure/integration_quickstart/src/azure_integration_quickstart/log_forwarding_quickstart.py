@@ -15,7 +15,7 @@ from azure_integration_quickstart.quickstart_shared import (
     wait_for_rg_delete_if_needed,
 )
 from azure_integration_quickstart.scopes import Subscription, finish_collecting_scopes, get_tenant_and_subscriptions
-from azure_integration_quickstart.script_status import StatusReporter
+from az_shared.script_status import StatusReporter
 from azure_integration_quickstart.user_selections import receive_log_forwarding_selections
 
 
