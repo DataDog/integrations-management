@@ -261,18 +261,16 @@ def cmd_deploy() -> None:
 
         # Step 7: Activate scan options via the Agentless Scanning API. Soft-fails:
         # the infra is already deployed and metadata is persisted, so a partial
-        # API failure leaves a recoverable state — the user can fix it from the
-        # Datadog UI or by re-running deploy (POST→409→PATCH converges).
+        # API failure leaves a recoverable state. The workflow step is always
+        # marked FINISHED (deployment is the workflow's exit criterion); users
+        # fix activation gaps from the Datadog UI.
         reporter.start_step("Activating scan options", AgentlessStep.ACTIVATE_SCAN_OPTIONS)
-        activated = activate_scan_options(merged_config.all_subscriptions)
-        if activated:
-            reporter.finish_step()
-        else:
+        if not activate_scan_options(merged_config.all_subscriptions):
             reporter.warning(
                 "Some subscriptions could not be activated. "
-                "Re-run deploy or activate them from the Datadog UI."
+                "Enable them in the Datadog UI: Security → Cloud Security → Settings → Azure."
             )
-            reporter.finish_step()
+        reporter.finish_step()
 
         reporter.complete()
         reporter.summary(merged_config.scanner_subscription, merged_config.locations, merged_config.all_subscriptions)
