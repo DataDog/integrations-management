@@ -64,6 +64,7 @@
 #   SCW_ACCESS_KEY        Scaleway IAM access key  [default: from scw config]
 #
 #   SCW_PROJECT_ID        Scaleway project ID to set up exports for    [default: from scw config]
+#                         Only set this to target a non-default project.
 #   SCALEWAY_REGIONS      Comma-separated Cockpit regions              [default: fr-par,nl-ams,pl-waw]
 #   SCALEWAY_PRODUCTS     Comma-separated Scaleway products to export  [default: all]
 #                         Use "all" to export every Cockpit-integrated product.
@@ -88,7 +89,19 @@ SCW_SECRET_KEY="${SCW_SECRET_KEY:-$(scw_config_get secret-key)}"
 SCW_ACCESS_KEY="${SCW_ACCESS_KEY:-$(scw_config_get access-key)}"
 SCW_ORGANIZATION_ID="${SCW_ORGANIZATION_ID:-$(scw_config_get default-organization-id)}"
 
-: "${SCW_SECRET_KEY:?SCW_SECRET_KEY not found. Run 'scw init' or set SCW_SECRET_KEY.}"
+if [[ -z "${SCW_SECRET_KEY:-}" ]]; then
+  if ! command -v scw &>/dev/null; then
+    printf '\033[0;31m[error]\033[0m  scw CLI not found.\n' >&2
+    printf '  Install it first:\n' >&2
+    printf '    macOS:  brew install scw\n' >&2
+    printf '    Linux:  https://www.scaleway.com/en/docs/developer-tools/scaleway-cli/reference-content/install-cli/\n' >&2
+    printf '  Then run: scw init\n' >&2
+    exit 1
+  fi
+  printf '\033[0;31m[error]\033[0m  Scaleway credentials not found.\n' >&2
+  printf '  Run '\''scw init'\'' to configure the CLI, then re-run this script.\n' >&2
+  exit 1
+fi
 
 # ── Datadog — must be set explicitly ─────────────────────────────────────────
 : "${DD_API_KEY:?DD_API_KEY is required (your Datadog API key)}"
@@ -121,11 +134,15 @@ SCW_INSTANCE_USER="${SCW_INSTANCE_USER:-root}" # SSH user for the Instance (defa
 SCW_ACCOUNT_NAME="${SCW_ACCOUNT_NAME:-}" # defaults to SCW_PROJECT_ID at registration time
 
 SCW_API="https://api.scaleway.com"
-EXPORTER_NAME="datadog-logs-dd-setup"                   # stable name for idempotency
+EXPORTER_NAME="${EXPORTER_NAME:-datadog-logs-dd-setup}" # override for multi-site testing
 IAM_APP_NAME="datadog-integration"                      # stable IAM application name
 IAM_POLICY_NAME="datadog-integration-policy"            # stable IAM policy name
 IAM_ACCESS_KEY=""   # set by provision_iam_application
 IAM_SECRET_KEY=""   # set by provision_iam_application
+# Internal: skip IAM provisioning when credentials are supplied externally (multi-site testing).
+SKIP_IAM="${SKIP_IAM:-false}"
+# Internal: if set, write generated IAM credentials to this file for multi-site reuse.
+MULTISITE_CREDS_FILE="${MULTISITE_CREDS_FILE:-}"
 
 # ── Logging helpers ───────────────────────────────────────────────────────────
 _ts()    { printf '%(%H:%M:%S)T' -1; }
@@ -192,7 +209,13 @@ check_prereqs() {
   local missing=()
   command -v curl &>/dev/null || missing+=(curl)
   command -v jq   &>/dev/null || missing+=(jq)
-  [[ ${#missing[@]} -eq 0 ]] || die "Missing required tools: ${missing[*]}"
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    die "Missing required tools: ${missing[*]}
+  Install with:
+    macOS:   brew install ${missing[*]}
+    Linux:   apt-get install -y ${missing[*]}   (or your distro's equivalent)
+  Then re-run this script."
+  fi
 
   if [[ "$ENABLE_AUDIT_TRAIL" == "true" ]]; then
     local audit_missing=()
@@ -200,7 +223,14 @@ check_prereqs() {
     command -v ssh    &>/dev/null || audit_missing+=(ssh)
     command -v scp    &>/dev/null || audit_missing+=(scp)
     if [[ ${#audit_missing[@]} -gt 0 ]]; then
-      warn "Audit trail requires: ${audit_missing[*]} — skipping Part 2. Install them and re-run, or set ENABLE_AUDIT_TRAIL=false to suppress this warning."
+      warn "Audit trail (Part 2) requires: ${audit_missing[*]}"
+      for tool in "${audit_missing[@]}"; do
+        case "$tool" in
+          docker) warn "  docker: https://docs.docker.com/get-docker/" ;;
+          ssh|scp) warn "  ssh/scp: install OpenSSH (macOS: built-in, Linux: apt-get install openssh-client)" ;;
+        esac
+      done
+      warn "  Set ENABLE_AUDIT_TRAIL=false to skip Part 2 and suppress this warning."
       ENABLE_AUDIT_TRAIL="false"
     fi
   fi
@@ -221,7 +251,7 @@ provision_iam_application() {
   log "━━━ Step 0: Provisioning IAM Application ━━━"
 
   : "${SCW_ORGANIZATION_ID:?SCW_ORGANIZATION_ID not found. Run 'scw init' or set SCW_ORGANIZATION_ID.}"
-  : "${SCW_PROJECT_ID:?SCW_PROJECT_ID is required. Set it to your Scaleway project ID.}"
+  : "${SCW_PROJECT_ID:?SCW_PROJECT_ID not set. Run 'scw init' to set a default project, or set SCW_PROJECT_ID explicitly.}"
 
   log "Checking for existing IAM application '${IAM_APP_NAME}'..."
   local apps_resp app_id
@@ -288,33 +318,36 @@ provision_iam_application() {
     ok "Created IAM policy '${IAM_POLICY_NAME}' (id=${policy_id})"
   fi
 
-  local existing_keys_resp existing_key_count
-  if [[ "$DRY_RUN" == "true" ]]; then
-    existing_keys_resp="[]"
-  else
-    existing_keys_resp=$(scw iam api-key list "bearer-id=${app_id}" bearer-type=application "organization-id=${SCW_ORGANIZATION_ID}" --output json 2>/dev/null) \
-      || die "Failed to list API keys"
-  fi
-  existing_key_count=$(jq 'length' <<< "$existing_keys_resp")
+  log "Generating API key for application '${IAM_APP_NAME}'..."
+  local key_body key_resp
+  key_body=$(jq -n \
+    --arg app_id "$app_id" \
+    '{"application_id": $app_id, "description": "Datadog integration setup"}')
+  key_resp=$(scw_post "/iam/v1alpha1/api-keys" "$key_body") \
+    || die "Failed to create API key"
+  IFS=$'\t' read -r IAM_ACCESS_KEY IAM_SECRET_KEY \
+    < <(jq -r '[.access_key, .secret_key] | @tsv' <<< "$key_resp")
+  ok "Generated API key (access_key=${IAM_ACCESS_KEY})"
 
-  if [[ "$existing_key_count" -gt 0 ]]; then
-    IAM_ACCESS_KEY=$(jq -r '.[0].access_key' <<< "$existing_keys_resp")
-    ok "Reusing existing API key (access_key=${IAM_ACCESS_KEY}) — collector.env on instance unchanged"
-  else
-    log "Generating API key for application '${IAM_APP_NAME}'..."
-    local key_body key_resp
-    key_body=$(jq -n \
-      --arg app_id "$app_id" \
-      '{"application_id": $app_id, "description": "Datadog integration setup"}')
-    key_resp=$(scw_post "/iam/v1alpha1/api-keys" "$key_body") \
-      || die "Failed to create API key"
-    IFS=$'\t' read -r IAM_ACCESS_KEY IAM_SECRET_KEY \
-      < <(jq -r '[.access_key, .secret_key] | @tsv' <<< "$key_resp")
-    ok "Generated API key (access_key=${IAM_ACCESS_KEY})"
+  # Best-effort cleanup of previous keys for this application.
+  local old_keys old_key
+  old_keys=$(scw iam api-key list "bearer-id=${app_id}" bearer-type=application \
+    "organization-id=${SCW_ORGANIZATION_ID}" --output json 2>/dev/null \
+    | jq -r --arg new_key "$IAM_ACCESS_KEY" '.[] | select(.access_key != $new_key) | .access_key' \
+    2>/dev/null) || true
+  while IFS= read -r old_key; do
+    [[ -z "$old_key" ]] && continue
+    scw iam api-key delete "access-key=${old_key}" 2>/dev/null \
+      && log "Deleted old API key ${old_key}" \
+      || warn "Could not delete old API key ${old_key} — remove it manually from the Scaleway console"
+  done <<< "$old_keys"
 
-    SCW_ACCESS_KEY="$IAM_ACCESS_KEY"
-    SCW_SECRET_KEY="$IAM_SECRET_KEY"
-    log "Switched to application credentials for remaining setup."
+  SCW_ACCESS_KEY="$IAM_ACCESS_KEY"
+  SCW_SECRET_KEY="$IAM_SECRET_KEY"
+  log "Switched to application credentials for remaining setup."
+
+  if [[ -n "$MULTISITE_CREDS_FILE" ]]; then
+    printf 'SCW_ACCESS_KEY=%s\nSCW_SECRET_KEY=%s\n' "$IAM_ACCESS_KEY" "$IAM_SECRET_KEY" > "$MULTISITE_CREDS_FILE"
   fi
   echo
 }
@@ -346,11 +379,12 @@ register_datadog_account() {
 
   local payload
   payload=$(jq -n \
-    --arg name "$account_name" \
-    --arg proj "$SCW_PROJECT_ID" \
-    --arg org  "$SCW_ORGANIZATION_ID" \
-    --arg ak   "$IAM_ACCESS_KEY" \
-    --arg sk   "$IAM_SECRET_KEY" \
+    --arg name        "$account_name" \
+    --arg proj        "$SCW_PROJECT_ID" \
+    --arg org         "$SCW_ORGANIZATION_ID" \
+    --arg instance_ip "${SCW_INSTANCE_IP:-}" \
+    --arg ak          "$IAM_ACCESS_KEY" \
+    --arg sk          "$IAM_SECRET_KEY" \
     '{
       data: {
         type: "Account",
@@ -358,7 +392,8 @@ register_datadog_account() {
           name: $name,
           settings: {
             project_id:      $proj,
-            organization_id: $org
+            organization_id: $org,
+            instance_ip:     $instance_ip
           },
           secrets: {
             access_key: $ak,
@@ -534,7 +569,15 @@ setup_audit_trail() {
   # credentials to root — we accept the key once here instead.
   log "Fetching SSH host key from ${SCW_INSTANCE_IP}..."
   ssh-keyscan -T 10 "$SCW_INSTANCE_IP" > "$work_dir/known_hosts" 2>/dev/null \
-    || { warn "Could not fetch SSH host key from ${SCW_INSTANCE_IP} — skipping audit trail"; return 1; }
+    || {
+      warn "Could not reach ${SCW_INSTANCE_IP} on port 22 — skipping audit trail."
+      warn "  Check that:"
+      warn "    1. The instance is running and SCW_INSTANCE_IP is correct"
+      warn "    2. Port 22 is open in the instance's security group"
+      warn "    3. Your SSH key is registered in Scaleway:"
+      warn "       https://www.scaleway.com/en/docs/organizations-and-projects/how-to/create-ssh-key/"
+      return 1
+    }
 
   local -a ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10 -o "UserKnownHostsFile=${work_dir}/known_hosts")
 
@@ -605,10 +648,7 @@ setup_audit_trail() {
     "$work_dir/config.yaml" \
     "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}:/etc/opentelemetry-collector/"
 
-  # Only write collector.env when we have fresh credentials (new key).
-  # If reusing an existing key, the instance already has valid credentials.
-  if [[ -n "$IAM_SECRET_KEY" ]]; then
-    cat > "$work_dir/collector.env" <<EOF
+  cat > "$work_dir/collector.env" <<EOF
 SCW_ACCESS_KEY=${SCW_ACCESS_KEY}
 SCW_SECRET_KEY=${SCW_SECRET_KEY}
 SCW_ORGANIZATION_ID=${SCW_ORGANIZATION_ID}
@@ -616,10 +656,9 @@ SCW_REGION=${SCW_REGION}
 DD_API_KEY=${DD_API_KEY}
 DD_SITE=${DD_SITE}
 EOF
-    scp "${ssh_opts[@]}" \
-      "$work_dir/collector.env" \
-      "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}:/etc/opentelemetry-collector/"
-  fi
+  scp "${ssh_opts[@]}" \
+    "$work_dir/collector.env" \
+    "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}:/etc/opentelemetry-collector/"
 
   scp "${ssh_opts[@]}" \
     "$work_dir/opentelemetry-collector.service" \
@@ -651,7 +690,13 @@ main() {
   check_prereqs
   echo
 
-  provision_iam_application
+  if [[ "$SKIP_IAM" == "true" ]]; then
+    log "Skipping IAM provisioning (SKIP_IAM=true) — using provided credentials."
+    IAM_ACCESS_KEY="$SCW_ACCESS_KEY"
+    IAM_SECRET_KEY="$SCW_SECRET_KEY"
+  else
+    provision_iam_application
+  fi
 
   setup_cockpit_exports
   echo
