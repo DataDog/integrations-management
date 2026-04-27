@@ -137,7 +137,7 @@ class TestEnsureStateStorage:
         result = ensure_state_storage(config, reporter)
 
         assert result == "mycustomacct"
-        mock_sa_exists.assert_called_once_with("mycustomacct", "my-rg")
+        mock_sa_exists.assert_called_once_with("mycustomacct", "my-rg", "sub-scanner")
 
     @patch("azure_agentless_setup.state_storage.storage_account_exists", return_value=False)
     def test_custom_account_not_found_raises(self, mock_sa_exists):

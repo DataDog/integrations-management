@@ -110,3 +110,95 @@ class TestStatusReporter(unittest.TestCase):
         self.report_mock.assert_called_with(STEP_ID, Status.FAILED, ANY)
         self.assertEqual(self.report_mock.call_count, 2)
 
+
+def _workflow_response(statuses: list[dict]) -> str:
+    return json.dumps({"data": {"attributes": {"statuses": statuses}}})
+
+
+class TestIsValidWorkflowId(unittest.TestCase):
+    def setUp(self) -> None:
+        self.reporter = StatusReporter(WORKFLOW_TYPE, WORKFLOW_ID)
+
+    @patch("az_shared.script_status.dd_request")
+    def test_404_is_valid(self, dd_request_mock):
+        dd_request_mock.return_value = ("", 404)
+        self.assertTrue(self.reporter.is_valid_workflow_id(FINAL_STEP))
+
+    @patch("az_shared.script_status.dd_request")
+    def test_transient_error_is_valid(self, dd_request_mock):
+        dd_request_mock.side_effect = RuntimeError("boom")
+        self.assertTrue(self.reporter.is_valid_workflow_id(FINAL_STEP))
+
+    @patch("az_shared.script_status.dd_request")
+    def test_unexpected_status_is_invalid(self, dd_request_mock):
+        dd_request_mock.return_value = ("", 500)
+        self.assertFalse(self.reporter.is_valid_workflow_id(FINAL_STEP))
+
+    @patch("az_shared.script_status.dd_request")
+    def test_failed_non_login_step_is_invalid(self, dd_request_mock):
+        dd_request_mock.return_value = (
+            _workflow_response([{"step": "preflight_checks", "status": Status.FAILED.value}]),
+            200,
+        )
+        self.assertFalse(self.reporter.is_valid_workflow_id(FINAL_STEP))
+
+    @patch("az_shared.script_status.dd_request")
+    def test_failed_login_step_is_valid(self, dd_request_mock):
+        dd_request_mock.return_value = (
+            _workflow_response([{"step": "login", "status": Status.FAILED.value}]),
+            200,
+        )
+        self.assertTrue(self.reporter.is_valid_workflow_id(FINAL_STEP))
+
+    @patch("az_shared.script_status.dd_request")
+    def test_finished_final_step_is_invalid(self, dd_request_mock):
+        dd_request_mock.return_value = (
+            _workflow_response([{"step": FINAL_STEP, "status": Status.FINISHED.value}]),
+            200,
+        )
+        self.assertFalse(self.reporter.is_valid_workflow_id(FINAL_STEP))
+
+    @patch("az_shared.script_status.dd_request")
+    def test_in_progress_workflow_is_valid(self, dd_request_mock):
+        dd_request_mock.return_value = (
+            _workflow_response([
+                {"step": "login", "status": Status.FINISHED.value},
+                {"step": "preflight_checks", "status": Status.IN_PROGRESS.value},
+            ]),
+            200,
+        )
+        self.assertTrue(self.reporter.is_valid_workflow_id(FINAL_STEP))
+
+
+class TestHandleLoginStep(unittest.TestCase):
+    def setUp(self) -> None:
+        self.reporter = StatusReporter(WORKFLOW_TYPE, WORKFLOW_ID)
+        self.reporter.report = MagicMock()
+
+    @patch("az_shared.script_status.check_login")
+    def test_success_reports_finished(self, check_login_mock):
+        self.reporter.handle_login_step()
+        check_login_mock.assert_called_once()
+        statuses = [call.args[1] for call in self.reporter.report.call_args_list]
+        self.assertEqual(statuses, [Status.IN_PROGRESS, Status.FINISHED])
+
+    @patch("az_shared.script_status.check_login")
+    def test_cli_not_installed_exits_after_reporting(self, check_login_mock):
+        check_login_mock.side_effect = AzCliNotInstalledError("not found")
+        with self.assertRaises(SystemExit) as cm:
+            self.reporter.handle_login_step()
+        self.assertEqual(cm.exception.code, 1)
+        # AzCliNotInstalledError is a UserRetriableError -> reported as WARN.
+        final_call = self.reporter.report.call_args_list[-1]
+        self.assertEqual(final_call.args[0], "login")
+        self.assertEqual(final_call.args[1], Status.WARN)
+
+    @patch("az_shared.script_status.check_login")
+    def test_cli_not_authenticated_exits_after_reporting(self, check_login_mock):
+        check_login_mock.side_effect = AzCliNotAuthenticatedError("not logged in")
+        with self.assertRaises(SystemExit) as cm:
+            self.reporter.handle_login_step()
+        self.assertEqual(cm.exception.code, 1)
+        final_call = self.reporter.report.call_args_list[-1]
+        self.assertEqual(final_call.args[0], "login")
+        self.assertEqual(final_call.args[1], Status.WARN)

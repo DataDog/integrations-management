@@ -106,6 +106,78 @@ class StatusReporter:
                 print("\r", end="")
             self.report(step_id, Status.FINISHED, f"{step_id}: {Status.FINISHED}", step_metadata or None)
 
+    def is_valid_workflow_id(self, final_step: str) -> bool:
+        """Return True if the workflow ID can be used to start a new workflow.
+
+        A workflow ID is rejected if any non-login step has already failed, or
+        if the given ``final_step`` has already been marked finished. Transient
+        errors contacting the API are treated as "valid" so the caller can
+        proceed; step reporting will surface real connectivity issues.
+        """
+        try:
+            response, http_status = dd_request(
+                "GET",
+                f"/api/unstable/integration/azure/workflow/{self.workflow_type}/{self.workflow_id}",
+            )
+        except Exception:
+            return True
+
+        if http_status == 404:
+            return True
+
+        if http_status != 200:
+            return False
+
+        json_response = json.loads(response)
+        statuses: list[dict] = (
+            json_response.get("data", {}).get("attributes", {}).get("statuses", [])
+        )
+
+        if any(
+            step.get("status", "") == Status.FAILED.value
+            for step in statuses
+            if step.get("step", "") != "login"
+        ):
+            return False
+
+        if any(
+            step.get("step", "") == final_step and step.get("status", "") == Status.FINISHED.value
+            for step in statuses
+        ):
+            return False
+
+        return True
+
+    def handle_login_step(self) -> None:
+        """Verify Azure CLI auth and report the login step to the workflow API.
+
+        Wraps ``check_login()`` inside ``report_step("login")`` so the step is
+        reported as IN_PROGRESS / FINISHED / (WARN|USER_ACTIONABLE_ERROR|FAILED)
+        via the standard path. Exits with code 1 on authentication failures
+        after reporting so the Datadog UI reflects the terminal state.
+        """
+        try:
+            with self.report_step("login"):
+                check_login()
+        except AzCliNotInstalledError:
+            print(
+                "You must install the Azure CLI and log in to run this script.\n"
+                "https://learn.microsoft.com/cli/azure/install-azure-cli"
+            )
+            raise SystemExit(1)
+        except AzCliNotAuthenticatedError:
+            print("You must be logged in to Azure CLI to run this script.")
+            print("Run: az login")
+            raise SystemExit(1)
+        except Exception:
+            print("You must be logged in to Azure CLI to run this script.")
+            print("Run: az login")
+            raise SystemExit(1)
+        else:
+            print(
+                "Connected! Leave this shell running and go back to the Datadog UI to continue."
+            )
+
 
 def loading_spinner(message: str, done: threading.Event):
     spinner_chars = ["|", "/", "-", "\\"]
