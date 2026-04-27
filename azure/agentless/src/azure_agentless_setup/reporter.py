@@ -50,6 +50,19 @@ class Reporter:
 
         self.console = ConsoleReporter(total_steps=total_steps)
         self.status = StatusReporter(workflow_type=WORKFLOW_TYPE, workflow_id=workflow_id)
+        # Make status reporting best-effort for the agentless flow: workflow
+        # telemetry outages must not abort the local setup (Terraform, Azure
+        # CLI). We wrap on the instance so internal calls from ``report_step``
+        # (used by ``handle_login_step``) are also covered.
+        original_report = self.status.report
+
+        def _best_effort_report(*args: Any, **kwargs: Any) -> None:
+            try:
+                original_report(*args, **kwargs)
+            except Exception:
+                pass
+
+        self.status.report = _best_effort_report  # type: ignore[method-assign]
 
     def handle_login_step(self) -> None:
         """Verify Azure CLI auth and report the login step to the workflow API."""

@@ -173,10 +173,6 @@ class StatusReporter:
             print("You must be logged in to Azure CLI to run this script.")
             print("Run: az login")
             raise SystemExit(1)
-        else:
-            print(
-                "Connected! Leave this shell running and go back to the Datadog UI to continue."
-            )
 
 
 def loading_spinner(message: str, done: threading.Event):
