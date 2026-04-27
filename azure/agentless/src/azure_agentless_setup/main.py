@@ -7,11 +7,12 @@ import os
 import signal
 import sys
 import threading
+from typing import Optional
 
-from .config import parse_config
+from .config import Config, parse_config
 from .destroy import cmd_destroy
 from .errors import DatadogCredentialsError, SetupError
-from .metadata import read_metadata, write_metadata, merge_with_config, terraform_state_exists
+from .metadata import DeploymentMetadata, read_metadata, write_metadata, merge_with_config, terraform_state_exists
 from .preflight import run_preflight_checks, validate_datadog_api_key, validate_datadog_app_key
 from .reporter import Reporter
 from .secrets import ensure_api_key_secret, get_key_vault_name
@@ -21,7 +22,7 @@ from .terraform import TerraformRunner
 
 # Total number of steps in the deploy process:
 #   1. Preflight checks
-#   2. Create state storage (Storage Account + Key Vault)
+#   2. Create state storage (resource group, Storage Account, tfstate blob container)
 #   3. Store API key in Key Vault
 #   4. Generate Terraform configuration
 #   5. Terraform init
@@ -102,7 +103,7 @@ def sigint_handler(signum, frame) -> None:
 
 def session_timeout_handler() -> None:
     """Handle session timeout."""
-    print("\n\n⚠️  Session expired after 30 minutes.")
+    print(f"\n\n⚠️  Session expired after {SESSION_TIMEOUT_MINUTES} minutes.")
     print("   If you still wish to complete the setup, re-run the command.")
     print("   Terraform state is persisted, so it will continue where it left off.")
     os._exit(1)
@@ -149,6 +150,50 @@ def validate_credentials_and_workflow(config, reporter: Reporter) -> None:
     reporter.handle_login_step()
 
 
+def _print_current_run_inputs(config: Config) -> None:
+    print()
+    print("Current run inputs:")
+    print(f"  Datadog Site:          {config.site}")
+    print(f"  Scanner Subscription:  {config.scanner_subscription}")
+    print(f"  Resource Group:        {config.resource_group}")
+    if len(config.locations) == 1:
+        print(f"  Location:              {config.locations[0]}")
+    else:
+        print(f"  Locations:             {len(config.locations)}")
+        for loc in config.locations:
+            print(f"    - {loc}")
+    if config.state_storage_account:
+        print(f"  State Storage Account: {config.state_storage_account} (custom)")
+    print(f"  Subscriptions to Scan: {len(config.all_subscriptions)}")
+    for s in config.all_subscriptions:
+        marker = " (scanner)" if s == config.scanner_subscription else ""
+        print(f"    - {s}{marker}")
+
+
+def _print_merged_deployment(
+    config: Config,
+    existing_metadata: Optional[DeploymentMetadata],
+    merged_config: Config,
+) -> None:
+    if not existing_metadata:
+        return
+
+    new_locations = set(config.locations) - set(existing_metadata.locations)
+    new_subs = set(config.all_subscriptions) - set(existing_metadata.subscriptions_to_scan)
+    print()
+    print("Merged with existing deployment:")
+    print(f"  Total locations:       {len(merged_config.locations)}")
+    for loc in merged_config.locations:
+        marker = " (new)" if loc in new_locations else ""
+        print(f"    - {loc}{marker}")
+    print(f"  Total subscriptions:   {len(merged_config.all_subscriptions)}")
+    for s in merged_config.all_subscriptions:
+        marker = " (new)" if s in new_subs else ""
+        if s == config.scanner_subscription:
+            marker += " (scanner)"
+        print(f"    - {s}{marker}")
+
+
 def cmd_deploy() -> None:
     """Deploy the Agentless Scanner infrastructure."""
     signal.signal(signal.SIGINT, sigint_handler)
@@ -168,23 +213,7 @@ def cmd_deploy() -> None:
 
         validate_credentials_and_workflow(config, reporter)
 
-        print()
-        print("Current run inputs:")
-        print(f"  Datadog Site:          {config.site}")
-        print(f"  Scanner Subscription:  {config.scanner_subscription}")
-        print(f"  Resource Group:        {config.resource_group}")
-        if len(config.locations) == 1:
-            print(f"  Location:              {config.locations[0]}")
-        else:
-            print(f"  Locations:             {len(config.locations)}")
-            for loc in config.locations:
-                print(f"    - {loc}")
-        if config.state_storage_account:
-            print(f"  State Storage Account: {config.state_storage_account} (custom)")
-        print(f"  Subscriptions to Scan: {len(config.all_subscriptions)}")
-        for s in config.all_subscriptions:
-            marker = " (scanner)" if s == config.scanner_subscription else ""
-            print(f"    - {s}{marker}")
+        _print_current_run_inputs(config)
 
         # Step 1: Preflight checks (on current run inputs first)
         run_preflight_checks(config, reporter)
@@ -219,21 +248,7 @@ def cmd_deploy() -> None:
             subscriptions_to_scan=merged_metadata.subscriptions_to_scan,
         )
 
-        if existing_metadata:
-            new_locations = set(config.locations) - set(existing_metadata.locations)
-            new_subs = set(config.all_subscriptions) - set(existing_metadata.subscriptions_to_scan)
-            print()
-            print("Merged with existing deployment:")
-            print(f"  Total locations:       {len(merged_config.locations)}")
-            for loc in merged_config.locations:
-                marker = " (new)" if loc in new_locations else ""
-                print(f"    - {loc}{marker}")
-            print(f"  Total subscriptions:   {len(merged_config.all_subscriptions)}")
-            for s in merged_config.all_subscriptions:
-                marker = " (new)" if s in new_subs else ""
-                if s == config.scanner_subscription:
-                    marker += " (scanner)"
-                print(f"    - {s}{marker}")
+        _print_merged_deployment(config, existing_metadata, merged_config)
 
         # Steps 4-6: Run Terraform (with merged config)
         tf_runner = TerraformRunner(merged_config, storage_account, api_key_secret_id, reporter)
