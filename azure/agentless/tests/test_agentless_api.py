@@ -4,7 +4,10 @@
 from unittest.mock import patch
 from urllib.error import HTTPError
 
-from azure_agentless_setup.agentless_api import activate_scan_options
+from azure_agentless_setup.agentless_api import (
+    activate_scan_options,
+    deactivate_scan_options,
+)
 
 
 def _http_error(code: int) -> HTTPError:
@@ -49,3 +52,41 @@ class TestActivateScanOptions:
             assert activate_scan_options([sub]) is False
 
         assert [c.args[0] for c in m.call_args_list] == ["POST"]
+
+
+class TestDeactivateScanOptions:
+    def test_404_treated_as_success_and_other_errors_soft_fail(self):
+        """One sub deletes cleanly, one is already absent (404 → success), one fails (500 → error)."""
+        sub_ok = "00000000-0000-0000-0000-aaaaaaaaaaaa"
+        sub_absent = "00000000-0000-0000-0000-bbbbbbbbbbbb"
+        sub_err = "00000000-0000-0000-0000-cccccccccccc"
+
+        def fake_dd_request(method, path, body=None):
+            assert method == "DELETE"
+            if path.endswith(sub_ok):
+                return ("", 204)
+            if path.endswith(sub_absent):
+                raise _http_error(404)
+            if path.endswith(sub_err):
+                raise _http_error(500)
+            raise AssertionError(f"unexpected call: {method} {path}")
+
+        with patch("azure_agentless_setup.agentless_api.dd_request", side_effect=fake_dd_request) as m:
+            assert deactivate_scan_options([sub_ok, sub_absent, sub_err]) is False
+
+        called_paths = [c.args[1] for c in m.call_args_list]
+        assert called_paths == [
+            f"/api/v2/agentless_scanning/accounts/azure/{sub_ok}",
+            f"/api/v2/agentless_scanning/accounts/azure/{sub_absent}",
+            f"/api/v2/agentless_scanning/accounts/azure/{sub_err}",
+        ]
+
+    def test_all_success_returns_true(self):
+        sub_a = "00000000-0000-0000-0000-aaaaaaaaaaaa"
+        sub_b = "00000000-0000-0000-0000-bbbbbbbbbbbb"
+
+        with patch(
+            "azure_agentless_setup.agentless_api.dd_request",
+            return_value=("", 204),
+        ):
+            assert deactivate_scan_options([sub_a, sub_b]) is True
