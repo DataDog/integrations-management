@@ -41,6 +41,8 @@ python gcp_agentless_setup.pyz deploy
 | `PROJECTS_TO_SCAN` | Yes | Comma-separated list of GCP projects to scan |
 | `TF_STATE_BUCKET` | No | Custom GCS bucket for Terraform state (see below) |
 
+Re-running `deploy` with new `SCANNER_REGIONS` or `PROJECTS_TO_SCAN` values merges them with the existing deployment (stored in the Terraform state bucket) instead of replacing it.
+
 ### Destroy
 
 To remove the scanner infrastructure:
