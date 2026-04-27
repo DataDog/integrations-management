@@ -9,9 +9,9 @@ import sys
 from pathlib import Path
 
 from az_shared.execute_cmd import execute
-from common.requests import dd_request
 from common.shell import Cmd
 
+from .agentless_api import deactivate_scan_options
 from .config import Config, CONFIG_BASE_DIR, DEFAULT_RESOURCE_GROUP, get_config_dir
 from .errors import SetupError
 from .metadata import read_metadata, delete_metadata, terraform_state_exists
@@ -258,35 +258,6 @@ def run_terraform_destroy(work_dir: Path) -> None:
         os.chdir(original_dir)
 
 
-def disable_scan_options(subscriptions: list[str]) -> bool:
-    """Disable agentless scan options for each subscription via the Datadog API.
-
-    Returns:
-        True if every subscription was cleaned up, False if at least one failed.
-    """
-    print(f"Disabling scan options for {len(subscriptions)} subscription(s)...")
-    errors = []
-    for sub_id in subscriptions:
-        try:
-            dd_request("DELETE", f"/api/v2/agentless_scanning/accounts/azure/{sub_id}")
-            print(f"  ✅ {sub_id}")
-        except Exception as e:
-            errors.append(sub_id)
-            print(f"  ⚠️  {sub_id}: {e}")
-
-    if errors:
-        print()
-        print(f"⚠️  Failed to disable scan options for {len(errors)} subscription(s).")
-        print("   You can disable them manually from the Datadog UI:")
-        print("   Security → Cloud Security → Settings → Azure")
-        print()
-        return False
-
-    print("  Scan options disabled successfully.")
-    print()
-    return True
-
-
 def delete_key_vault(vault_name: str) -> bool:
     """Delete the Key Vault.
 
@@ -401,7 +372,7 @@ def cmd_destroy() -> None:
 
         scan_options_fully_cleaned = True
         if subscriptions_to_scan:
-            scan_options_fully_cleaned = disable_scan_options(subscriptions_to_scan)
+            scan_options_fully_cleaned = deactivate_scan_options(subscriptions_to_scan)
         else:
             print("⚠️  No subscriptions found in metadata — skipping scan options cleanup.")
             print("   You can disable them manually from the Datadog UI.")

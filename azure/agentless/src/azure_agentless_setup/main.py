@@ -9,12 +9,13 @@ import sys
 import threading
 from typing import Optional
 
+from .agentless_api import activate_scan_options
 from .config import Config, parse_config
 from .destroy import cmd_destroy
 from .errors import DatadogCredentialsError, SetupError
 from .metadata import DeploymentMetadata, read_metadata, write_metadata, merge_with_config, terraform_state_exists
 from .preflight import run_preflight_checks, validate_datadog_api_key, validate_datadog_app_key
-from .reporter import Reporter
+from .reporter import AgentlessStep, Reporter
 from .secrets import ensure_api_key_secret, get_key_vault_name
 from .state_storage import ensure_state_storage
 from .terraform import TerraformRunner
@@ -27,7 +28,8 @@ from .terraform import TerraformRunner
 #   4. Generate Terraform configuration
 #   5. Terraform init
 #   6. Deploy infrastructure (Terraform apply)
-TOTAL_STEPS = 6
+#   7. Activate scan options for each subscription via the Agentless Scanning API
+TOTAL_STEPS = 7
 
 SESSION_TIMEOUT_MINUTES = 30
 
@@ -256,6 +258,21 @@ def cmd_deploy() -> None:
 
         # Write metadata only after successful apply
         write_metadata(storage_account, merged_metadata, metadata_etag, config)
+
+        # Step 7: Activate scan options via the Agentless Scanning API. Soft-fails:
+        # the infra is already deployed and metadata is persisted, so a partial
+        # API failure leaves a recoverable state — the user can fix it from the
+        # Datadog UI or by re-running deploy (POST→409→PATCH converges).
+        reporter.start_step("Activating scan options", AgentlessStep.ACTIVATE_SCAN_OPTIONS)
+        activated = activate_scan_options(merged_config.all_subscriptions)
+        if activated:
+            reporter.finish_step()
+        else:
+            reporter.warning(
+                "Some subscriptions could not be activated. "
+                "Re-run deploy or activate them from the Datadog UI."
+            )
+            reporter.finish_step()
 
         reporter.complete()
         reporter.summary(merged_config.scanner_subscription, merged_config.locations, merged_config.all_subscriptions)

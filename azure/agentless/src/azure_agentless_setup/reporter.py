@@ -25,9 +25,10 @@ class AgentlessStep(str, Enum):
     GENERATE_TERRAFORM_CONFIG = "generate_terraform_config"
     TERRAFORM_INIT = "terraform_init"
     DEPLOY_INFRASTRUCTURE = "deploy_infrastructure"
+    ACTIVATE_SCAN_OPTIONS = "activate_scan_options"
 
 
-FINAL_STEP = AgentlessStep.DEPLOY_INFRASTRUCTURE
+FINAL_STEP = AgentlessStep.ACTIVATE_SCAN_OPTIONS
 
 
 class Reporter:
