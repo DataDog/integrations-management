@@ -19,7 +19,7 @@ else:
 from az_shared.auth import check_login
 from az_shared.errors import AzCliNotAuthenticatedError, AzCliNotInstalledError
 from azure_integration_quickstart.scopes import Scope
-from azure_integration_quickstart.script_status import Status, StatusReporter
+from az_shared.script_status import Status, StatusReporter
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
 from azure_logging_install.main import install_log_forwarder

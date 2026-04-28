@@ -13,7 +13,7 @@ from azure_integration_quickstart.quickstart_shared import (
     report_existing_log_forwarders,
     wait_for_rg_delete_if_needed,
 )
-from azure_integration_quickstart.script_status import Status
+from az_shared.script_status import Status
 from azure_logging_install.existing_lfo import LfoControlPlane, LfoMetadata
 
 from integration_quickstart.tests.dd_test_case import DDTestCase
