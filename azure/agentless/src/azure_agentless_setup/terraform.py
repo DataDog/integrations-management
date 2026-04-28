@@ -12,7 +12,6 @@ resource group.
 
 import os
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -37,26 +36,28 @@ def _sanitize_name(name: str) -> str:
     return name.replace("-", "_")
 
 
-def generate_ssh_key() -> tuple[str, Path]:
-    """Generate a temporary SSH key pair for the scanner VMSS.
+def generate_ssh_key() -> str:
+    """Generate an SSH public key for the scanner VMSS.
 
     Azure requires an SSH public key for VMSS instances. The key is only
     used during provisioning — scanner VMs are not accessed via SSH.
-
-    Returns:
-        Tuple of (public_key_content, temp_dir_path). The caller should
-        clean up temp_dir after Terraform apply completes.
+    The private key is discarded and never written to disk.
     """
-    tmp_dir = Path(tempfile.mkdtemp(prefix="dd-agentless-ssh-"))
-    key_path = tmp_dir / "id_rsa"
-
-    subprocess.run(
-        ["ssh-keygen", "-t", "rsa", "-b", "2048", "-f", str(key_path), "-N", "", "-q"],
+    pubpem = subprocess.run(
+        ["openssl", "genpkey", "-algorithm", "RSA",
+         "-out", "/dev/null", "-outpubkey", "-"],
+        capture_output=True,
         check=True,
     )
 
-    public_key = (key_path.with_suffix(".pub")).read_text().strip()
-    return public_key, tmp_dir
+    pubkey = subprocess.run(
+        ["ssh-keygen", "-i", "-m", "PKCS8", "-f", "/dev/stdin"],
+        input=pubpem.stdout,
+        capture_output=True,
+        check=True,
+    )
+
+    return pubkey.stdout.decode("ascii").strip()
 
 
 def generate_terraform_config(
@@ -217,11 +218,10 @@ class TerraformRunner:
         self.api_key_secret_id = api_key_secret_id
         self.reporter = reporter
         self.work_dir: Optional[Path] = None
-        self._ssh_tmp_dir: Optional[Path] = None
 
     def setup_working_directory(self) -> Path:
         """Create and populate the Terraform working directory."""
-        ssh_public_key, self._ssh_tmp_dir = generate_ssh_key()
+        ssh_public_key = generate_ssh_key()
 
         work_dir = get_config_dir(self.config.scanner_subscription)
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -241,13 +241,6 @@ class TerraformRunner:
 
         self.work_dir = work_dir
         return work_dir
-
-    def cleanup_ssh_key(self) -> None:
-        """Remove the temporary SSH key pair."""
-        if self._ssh_tmp_dir and self._ssh_tmp_dir.exists():
-            import shutil
-            shutil.rmtree(self._ssh_tmp_dir, ignore_errors=True)
-            self._ssh_tmp_dir = None
 
     def init(self) -> None:
         """Run terraform init.
@@ -321,4 +314,3 @@ class TerraformRunner:
 
         finally:
             os.chdir(original_dir)
-            self.cleanup_ssh_key()
