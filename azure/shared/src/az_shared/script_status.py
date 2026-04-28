@@ -36,25 +36,33 @@ class StatusReporter:
 
     workflow_type: str
     workflow_id: str
+    # When True, ``report`` swallows transport errors so workflow-status API
+    # outages cannot abort local setup. Callers that treat reporting as a
+    # hard requirement (e.g. quickstart) should leave this False.
+    best_effort: bool = False
 
     def report(self, step_id: str, status: Status, message: str, metadata: Optional[Json] = None) -> None:
         """Report the status of a step in a workflow to Datadog."""
-        dd_request(
-            "POST",
-            f"/api/unstable/integration/azure/workflow/{self.workflow_type}",
-            {
-                "data": {
-                    "id": self.workflow_id,
-                    "type": "integration_setup_status",
-                    "attributes": {
-                        "status": status.value,
-                        "step": step_id,
-                        "message": message,
-                        "metadata": metadata,
-                    },
-                }
-            },
-        )
+        try:
+            dd_request(
+                "POST",
+                f"/api/unstable/integration/azure/workflow/{self.workflow_type}",
+                {
+                    "data": {
+                        "id": self.workflow_id,
+                        "type": "integration_setup_status",
+                        "attributes": {
+                            "status": status.value,
+                            "step": step_id,
+                            "message": message,
+                            "metadata": metadata,
+                        },
+                    }
+                },
+            )
+        except Exception:
+            if not self.best_effort:
+                raise
 
     @contextmanager
     def report_step(

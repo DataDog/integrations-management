@@ -9,6 +9,8 @@ import sys
 import threading
 from typing import Optional
 
+from az_shared.script_status import Status
+
 from .agentless_api import activate_scan_options
 from .config import Config, parse_config
 from .destroy import cmd_destroy
@@ -261,16 +263,18 @@ def cmd_deploy() -> None:
 
         # Step 7: Activate scan options via the Agentless Scanning API. Soft-fails:
         # the infra is already deployed and metadata is persisted, so a partial
-        # API failure leaves a recoverable state. The workflow step is always
-        # marked FINISHED (deployment is the workflow's exit criterion); users
-        # fix activation gaps from the Datadog UI.
+        # API failure leaves a recoverable state. We report WARN (not FAILED)
+        # on partial failure so the UI surfaces it while keeping the workflow
+        # ID valid for retries (is_valid_workflow_id only blocks on FAILED).
         reporter.start_step("Activating scan options", AgentlessStep.ACTIVATE_SCAN_OPTIONS)
-        if not activate_scan_options(merged_config.all_subscriptions):
+        if activate_scan_options(merged_config.all_subscriptions):
+            reporter.finish_step()
+        else:
             reporter.warning(
                 "Some subscriptions could not be activated. "
                 "Enable them in the Datadog UI: Security → Cloud Security → Settings → Azure."
             )
-        reporter.finish_step()
+            reporter.finish_step(outcome=Status.WARN)
 
         reporter.complete()
         reporter.summary(merged_config.scanner_subscription, merged_config.locations, merged_config.all_subscriptions)

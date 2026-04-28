@@ -21,6 +21,24 @@ _DEFAULT_ATTRIBUTES = {"vuln_host_os": True, "vuln_containers_os": True}
 _DOCS_UI_PATH = "Security → Cloud Security → Settings → Azure"
 
 
+def _format_error(e: Exception) -> str:
+    """Render an exception for per-subscription console warnings.
+
+    For ``HTTPError`` we include the response body when present (the default
+    ``str(HTTPError)`` only shows the status code, e.g. ``"HTTP Error 500: 500"``,
+    which hides the server-side reason).
+    """
+    if not isinstance(e, HTTPError):
+        return str(e)
+    body = ""
+    try:
+        raw = e.read()
+        body = raw.decode("utf-8", errors="replace").strip() if raw else ""
+    except Exception:
+        pass
+    return f"HTTP {e.code}: {body}" if body else f"HTTP {e.code}"
+
+
 def _build_payload(subscription_id: str) -> dict[str, Any]:
     return {
         "data": {
@@ -63,7 +81,7 @@ def activate_scan_options(subscription_ids: list[str]) -> bool:
             print(f"  ✅ {sub_id}")
         except Exception as e:
             errors.append(sub_id)
-            print(f"  ⚠️  {sub_id}: {e}")
+            print(f"  ⚠️  {sub_id}: {_format_error(e)}")
 
     if errors:
         print()
@@ -98,10 +116,10 @@ def deactivate_scan_options(subscription_ids: list[str]) -> bool:
                 print(f"  ✅ {sub_id} (already deactivated)")
                 continue
             errors.append(sub_id)
-            print(f"  ⚠️  {sub_id}: {e}")
+            print(f"  ⚠️  {sub_id}: {_format_error(e)}")
         except Exception as e:
             errors.append(sub_id)
-            print(f"  ⚠️  {sub_id}: {e}")
+            print(f"  ⚠️  {sub_id}: {_format_error(e)}")
 
     if errors:
         print()
