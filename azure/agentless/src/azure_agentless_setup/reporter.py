@@ -16,9 +16,12 @@ WORKFLOW_TYPE = "azure-agentless-setup"
 
 
 class AgentlessStep(str, Enum):
-    """Step identifiers for the Azure agentless setup workflow."""
+    """Step identifiers for the Azure agentless setup workflow.
 
-    LOGIN = "login"
+    The ``login`` step is reported by the shared ``StatusReporter.report_step``
+    so it has no entry here.
+    """
+
     PREFLIGHT_CHECKS = "preflight_checks"
     CREATE_STATE_STORAGE = "create_state_storage"
     STORE_API_KEY = "store_api_key"
