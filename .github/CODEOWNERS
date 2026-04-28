@@ -12,3 +12,6 @@ azure/storage_monitoring/    @DataDog/new-workloads
 
 # Agentless Scanning
 gcp/agentless/  @DataDog/k9-agentless
+
+# Scaleway
+scaleway/   @DataDog/emerging-cloud-integrations

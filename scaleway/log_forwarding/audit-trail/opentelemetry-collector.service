@@ -1,0 +1,13 @@
+[Unit]
+Description=OpenTelemetry Collector - Scaleway Audit Trail
+After=multi-user.target
+
+[Service]
+EnvironmentFile=/etc/opentelemetry-collector/collector.env
+ExecStart=/usr/local/bin/otelcol-audit-trail --config /etc/opentelemetry-collector/config.yaml
+Type=simple
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
