@@ -77,6 +77,13 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
+# printf '%(%H:%M:%S)T' requires bash 4.2+; macOS ships bash 3.2 by default.
+if [[ "${BASH_VERSINFO[0]}" -lt 4 ]] || { [[ "${BASH_VERSINFO[0]}" -eq 4 ]] && [[ "${BASH_VERSINFO[1]}" -lt 2 ]]; }; then
+  printf 'bash 4.2 or later is required (you have %s).\n' "$BASH_VERSION" >&2
+  printf 'Install it with: brew install bash\n' >&2
+  exit 1
+fi
+
 # ── Flags ─────────────────────────────────────────────────────────────────────
 DRY_RUN=false
 for _arg in "$@"; do [[ "$_arg" == "--dry-run" ]] && DRY_RUN=true; done
@@ -139,6 +146,7 @@ IAM_APP_NAME="datadog-integration"                      # stable IAM application
 IAM_POLICY_NAME="datadog-integration-policy"            # stable IAM policy name
 IAM_ACCESS_KEY=""   # set by provision_iam_application
 IAM_SECRET_KEY=""   # set by provision_iam_application
+_IAM_OLD_KEYS=""    # old keys staged for cleanup after account registration
 # Internal: skip IAM provisioning when credentials are supplied externally (multi-site testing).
 SKIP_IAM="${SKIP_IAM:-false}"
 # Internal: if set, write generated IAM credentials to this file for multi-site reuse.
@@ -329,18 +337,12 @@ provision_iam_application() {
     < <(jq -r '[.access_key, .secret_key] | @tsv' <<< "$key_resp")
   ok "Generated API key (access_key=${IAM_ACCESS_KEY})"
 
-  # Best-effort cleanup of previous keys for this application.
-  local old_keys old_key
-  old_keys=$(scw iam api-key list "bearer-id=${app_id}" bearer-type=application \
+  # Stage old keys for cleanup — deleted only after account registration succeeds
+  # so a failed registration doesn't revoke the key Datadog was already using.
+  _IAM_OLD_KEYS=$(scw iam api-key list "bearer-id=${app_id}" bearer-type=application \
     "organization-id=${SCW_ORGANIZATION_ID}" --output json 2>/dev/null \
     | jq -r --arg new_key "$IAM_ACCESS_KEY" '.[] | select(.access_key != $new_key) | .access_key' \
     2>/dev/null) || true
-  while IFS= read -r old_key; do
-    [[ -z "$old_key" ]] && continue
-    scw iam api-key delete "access-key=${old_key}" 2>/dev/null \
-      && log "Deleted old API key ${old_key}" \
-      || warn "Could not delete old API key ${old_key} — remove it manually from the Scaleway console"
-  done <<< "$old_keys"
 
   SCW_ACCESS_KEY="$IAM_ACCESS_KEY"
   SCW_SECRET_KEY="$IAM_SECRET_KEY"
@@ -379,12 +381,11 @@ register_datadog_account() {
 
   local payload
   payload=$(jq -n \
-    --arg name        "$account_name" \
-    --arg proj        "$SCW_PROJECT_ID" \
-    --arg org         "$SCW_ORGANIZATION_ID" \
-    --arg instance_ip "${SCW_INSTANCE_IP:-}" \
-    --arg ak          "$IAM_ACCESS_KEY" \
-    --arg sk          "$IAM_SECRET_KEY" \
+    --arg name "$account_name" \
+    --arg proj "$SCW_PROJECT_ID" \
+    --arg org  "$SCW_ORGANIZATION_ID" \
+    --arg ak   "$IAM_ACCESS_KEY" \
+    --arg sk   "$IAM_SECRET_KEY" \
     '{
       data: {
         type: "Account",
@@ -392,8 +393,7 @@ register_datadog_account() {
           name: $name,
           settings: {
             project_id:      $proj,
-            organization_id: $org,
-            instance_ip:     $instance_ip
+            organization_id: $org
           },
           secrets: {
             access_key: $ak,
@@ -707,6 +707,15 @@ main() {
   fi
 
   register_datadog_account
+
+  # Clean up old IAM keys now that the new key is persisted in Datadog.
+  local old_key
+  while IFS= read -r old_key; do
+    [[ -z "$old_key" ]] && continue
+    scw iam api-key delete "access-key=${old_key}" 2>/dev/null \
+      && log "Deleted old API key ${old_key}" \
+      || warn "Could not delete old API key ${old_key} — remove it manually from the Scaleway console"
+  done <<< "$_IAM_OLD_KEYS"
 
   ok "Setup complete."
   print_datadog_credentials
