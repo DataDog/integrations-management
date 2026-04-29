@@ -38,11 +38,15 @@ class TestMain(TestCase):
         """Set up test fixtures and reset global settings"""
         self.configuration_mock = self.patch("azure_logging_install.main.Configuration")
         self.set_subscription_mock = self.patch("azure_logging_install.main.set_subscription")
+        self.validate_az_cli_mock = self.patch("azure_logging_install.main.validate_az_cli")
         self.validate_user_parameters_mock = self.patch("azure_logging_install.main.validate_user_parameters")
+        self.list_users_subscriptions_mock = self.patch("azure_logging_install.main.list_users_subscriptions")
+        self.check_fresh_install_mock = self.patch("azure_logging_install.main.check_fresh_install")
         self.create_resource_group_mock = self.patch("azure_logging_install.main.create_resource_group")
         self.grant_permissions_mock = self.patch("azure_logging_install.main.grant_permissions")
         self.deploy_control_plane_mock = self.patch("azure_logging_install.main.deploy_control_plane")
         self.run_initial_deploy_mock = self.patch("azure_logging_install.main.run_initial_deploy")
+        self.check_fresh_install_mock.return_value = {}
 
     def patch(self, path: str, **kwargs):
         """Helper method to patch and auto-cleanup"""
@@ -247,9 +251,9 @@ class TestMain(TestCase):
 
         with (
             mock_patch("azure_logging_install.existing_lfo.set_function_app_env_vars") as mock_set_env_vars,
-            mock_patch("azure_logging_install.existing_lfo.set_monitored_subscriptions") as mock_set_monitored_subs,
+            mock_patch("azure_logging_install.existing_lfo.set_monitored_subscriptions"),
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
-            mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
+            mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions"),
         ):
             existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(mock_config, existing_lfo)

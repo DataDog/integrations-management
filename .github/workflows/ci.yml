@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+          cache: pip
+          cache-dependency-path: |
+            azure/dev_requirements.txt
+            gcp/dev_requirements.txt
+      - name: Install ruff
+        run: pip install -r azure/dev_requirements.txt
+      - name: Lint azure
+        run: ruff check azure
+      - name: Lint gcp
+        run: ruff check gcp
+
+  test:
+    name: pytest (${{ matrix.cloud }}/${{ matrix.package }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { cloud: azure, package: shared }
+          - { cloud: azure, package: agentless }
+          - { cloud: azure, package: integration_quickstart }
+          - { cloud: azure, package: logging_install }
+          - { cloud: gcp, package: shared }
+          - { cloud: gcp, package: agentless }
+          - { cloud: gcp, package: integration_quickstart }
+          - { cloud: gcp, package: log_forwarding_quickstart }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+          cache: pip
+          cache-dependency-path: ${{ matrix.cloud }}/dev_requirements.txt
+      - name: Install dependencies
+        working-directory: ${{ matrix.cloud }}
+        run: pip install -r dev_requirements.txt
+      - name: Run pytest
+        working-directory: ${{ matrix.cloud }}
+        run: python -m pytest ${{ matrix.package }}/tests
+
+  build-check:
+    name: dist drift (${{ matrix.cloud }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cloud: [azure, gcp]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Install Azure CLI
+        if: matrix.cloud == 'azure'
+        run: curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+      - name: Verify dist artifacts match src
+        working-directory: ${{ matrix.cloud }}
+        run: |
+          set -e
+          shopt -s nullglob
+          before=$(mktemp -d)
+          after=$(mktemp -d)
+          snapshot() {
+            local outdir="$1"
+            for pkg_dist in */dist; do
+              for pyz in "$pkg_dist"/*.pyz; do
+                mkdir -p "$outdir/$pyz.contents"
+                unzip -qo "$pyz" -d "$outdir/$pyz.contents"
+              done
+              for f in "$pkg_dist"/*.json; do
+                mkdir -p "$outdir/$(dirname "$f")"
+                cp "$f" "$outdir/$f"
+              done
+            done
+          }
+          snapshot "$before"
+          # Force rebuild: agentless build.sh skips when dist mtime >= src mtime
+          find */dist -name '*.pyz' -delete
+          for build in */build.sh; do
+            echo "::group::$build"
+            bash "$build"
+            echo "::endgroup::"
+          done
+          snapshot "$after"
+          if ! diff -r "$before" "$after"; then
+            echo "::error::dist/ is out of sync with src/. Re-run the relevant build.sh from ${{ matrix.cloud }}/ and commit the result."
+            exit 1
+          fi

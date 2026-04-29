@@ -2,7 +2,6 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-import re
 from subprocess import CalledProcessError
 from unittest import TestCase
 from unittest.mock import Mock

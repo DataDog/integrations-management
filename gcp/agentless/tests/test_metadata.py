@@ -3,7 +3,7 @@
 
 import json
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from gcp_agentless_setup.config import Config
 from gcp_agentless_setup.errors import MetadataError

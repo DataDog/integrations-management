@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass
-from typing import Literal, Optional, cast
+from typing import Literal, cast
 
 from az_shared.errors import AccessError
 from az_shared.execute_cmd import execute_json

@@ -72,6 +72,7 @@ class TestTryGcloud(unittest.TestCase):
             check=False,
             text=True,
             capture_output=True,
+            input=None,
         )
         self.assertTrue(result.success)
 
