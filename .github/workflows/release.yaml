@@ -1,0 +1,145 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  # First job: figure out which packages actually changed in this push and emit
+  # a matrix containing only those. Keeps no-op release jobs from ever entering
+  # the per-package concurrency group, which would otherwise cancel a pending
+  # real release for that package (GH Actions concurrency keeps only one
+  # pending job per group).
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.compute.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: compute
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+        run: |
+          CHANGED_FILES=$(git diff --name-only "$BEFORE" "$AFTER")
+          MATRIX_ENTRIES=()
+
+          # Returns 0 (and appends to MATRIX_ENTRIES) iff this push touched any
+          # of the listed source paths for the given package.
+          check_package() {
+            local cloud="$1"
+            local package="$2"
+            local sources="$3"
+            local src pattern
+            for src in $sources; do
+              if [[ "$src" == */ ]]; then
+                pattern="^${cloud}/${src}"
+              else
+                pattern="^${cloud}/${src}\$"
+              fi
+              if echo "$CHANGED_FILES" | grep -qE "$pattern"; then
+                MATRIX_ENTRIES+=("{\"cloud\":\"$cloud\",\"package\":\"$package\"}")
+                return 0
+              fi
+            done
+          }
+
+          # `sources` mirrors what each build.sh actually copies into the zipapp,
+          # plus the build script itself. Tests, READMEs, terraform/, etc. are
+          # intentionally excluded so doc-only and test-only PRs are no-ops.
+          check_package azure agentless                "agentless/src/ agentless/build.sh shared/src/ dev_requirements.txt"
+          check_package azure integration_quickstart   "integration_quickstart/src/ integration_quickstart/build.sh logging_install/src/ shared/src/ dev_requirements.txt"
+          check_package azure logging_install          "logging_install/src/ logging_install/bicep/ logging_install/build.sh shared/src/ dev_requirements.txt"
+          check_package gcp   agentless                "agentless/src/ agentless/build.sh shared/src/ dev_requirements.txt"
+          check_package gcp   integration_quickstart   "integration_quickstart/src/ integration_quickstart/build.sh shared/src/ dev_requirements.txt"
+          check_package gcp   log_forwarding_quickstart "log_forwarding_quickstart/src/ log_forwarding_quickstart/build.sh shared/src/ dev_requirements.txt"
+
+          if [ ${#MATRIX_ENTRIES[@]} -eq 0 ]; then
+            MATRIX="[]"
+          else
+            MATRIX="[$(IFS=,; printf '%s' "${MATRIX_ENTRIES[*]}")]"
+          fi
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.matrix != '[]'
+    name: release (${{ matrix.cloud }}/${{ matrix.package }})
+    runs-on: ubuntu-latest
+    # Serialize per-package so two pushes touching the same package don't both
+    # compute the same next-patch version and collide on `gh release create`.
+    # Different packages still release in parallel.
+    concurrency:
+      group: release-${{ matrix.cloud }}-${{ matrix.package }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so git tag --list sees every release
+          fetch-tags: true # need every release tag for version computation
+
+      - uses: DataDog/dd-octo-sts-action@acaa02eee7e3bb0839e4272dacb37b8f3b58ba80 # v1.0.3
+        id: octo-sts
+        with:
+          scope: DataDog/integrations-management
+          policy: self.release.create-release
+
+      - name: Compute next version
+        id: version
+        run: |
+          PREFIX="${{ matrix.cloud }}-${{ matrix.package }}-v"
+          # Use local git tags (fetched via fetch-tags: true) so we don't pay
+          # the gh-release-list pagination tax and don't miss a tag because an
+          # unrelated package has churned out hundreds of releases since.
+          LATEST=$(git tag --list "${PREFIX}*" | sed "s|^${PREFIX}||" | sort -V | tail -1)
+          if [ -z "$LATEST" ]; then
+            NEXT="0.1.0"
+          else
+            MAJOR=$(echo "$LATEST" | cut -d. -f1)
+            MINOR=$(echo "$LATEST" | cut -d. -f2)
+            PATCH=$(echo "$LATEST" | cut -d. -f3)
+            NEXT="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          fi
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "tag=${PREFIX}${NEXT}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+          cache: pip
+          cache-dependency-path: ${{ matrix.cloud }}/dev_requirements.txt
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.cloud }}
+        run: pip install -r dev_requirements.txt
+
+      - name: Build
+        working-directory: ${{ matrix.cloud }}
+        run: bash ${{ matrix.package }}/build.sh
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ steps.octo-sts.outputs.token }}
+          # Pin the tag to the SHA we built, so it doesn't drift to whatever's
+          # on main if another commit lands while this job is running.
+          TARGET_SHA: ${{ github.event.after }}
+        working-directory: ${{ matrix.cloud }}/${{ matrix.package }}/dist
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --repo DataDog/integrations-management \
+            --target "$TARGET_SHA" \
+            --title "${{ matrix.cloud }}/${{ matrix.package }} v${{ steps.version.outputs.version }}" \
+            --generate-notes \
+            *
