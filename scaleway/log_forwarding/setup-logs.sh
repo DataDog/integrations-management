@@ -141,7 +141,7 @@ SCW_INSTANCE_USER="${SCW_INSTANCE_USER:-root}" # SSH user for the Instance (defa
 SCW_ACCOUNT_NAME="${SCW_ACCOUNT_NAME:-}" # defaults to SCW_PROJECT_ID at registration time
 
 SCW_API="https://api.scaleway.com"
-EXPORTER_NAME="${EXPORTER_NAME:-datadog-logs-dd-setup}" # override for multi-site testing
+EXPORTER_NAME="${EXPORTER_NAME:-datadog-logs-${DD_SITE}}" # one exporter per Datadog datacenter
 IAM_APP_NAME="datadog-integration"                      # stable IAM application name
 IAM_POLICY_NAME="datadog-integration-policy"            # stable IAM policy name
 IAM_ACCESS_KEY=""   # set by provision_iam_application
