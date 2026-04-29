@@ -5,6 +5,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint:
     name: ruff
@@ -19,7 +23,7 @@ jobs:
             azure/dev_requirements.txt
             gcp/dev_requirements.txt
       - name: Install ruff
-        run: pip install -r azure/dev_requirements.txt
+        run: pip install -r azure/dev_requirements.txt -r gcp/dev_requirements.txt
       - name: Lint azure
         run: ruff check azure
       - name: Lint gcp
