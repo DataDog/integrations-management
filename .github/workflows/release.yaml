@@ -180,16 +180,29 @@ jobs:
 
           # Rolling "latest" release per package, so consumers can curl a stable URL
           # (releases/download/<cloud>-<package>-latest/<file>) without pinning a
-          # version. Delete the previous latest release + tag, then re-create.
-          # --latest=false keeps it from competing with versioned releases for the
-          # repo-wide "Latest release" badge on the GitHub UI.
-          gh release delete "$LATEST_TAG" \
-            --repo DataDog/integrations-management \
-            --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$LATEST_TAG" \
-            --repo DataDog/integrations-management \
-            --target "$TARGET_SHA" \
-            --title "${{ matrix.cloud }}/${{ matrix.package }} (latest)" \
-            --notes "Rolling pointer to ${{ steps.version.outputs.tag }}." \
-            --latest=false \
-            *
+          # version. Update assets in place rather than delete-then-recreate so
+          # the URL never 404s if a step fails partway. --latest=false keeps it
+          # from competing with versioned releases for the repo-wide "Latest
+          # release" badge on the GitHub UI.
+          if gh release view "$LATEST_TAG" --repo DataDog/integrations-management >/dev/null 2>&1; then
+            # Overwrite assets in place, then move the underlying tag to the
+            # new SHA. The release never disappears between iterations.
+            gh release upload "$LATEST_TAG" \
+              --repo DataDog/integrations-management \
+              --clobber \
+              *
+            git tag -f "$LATEST_TAG" "$TARGET_SHA"
+            # Force-push the moved tag using the dd-octo-sts token (the
+            # default origin remote was set up with GITHUB_TOKEN, which won't
+            # have contents:write).
+            git push --force "https://x-access-token:${GH_TOKEN}@github.com/DataDog/integrations-management.git" "$LATEST_TAG"
+          else
+            # First time for this package: create the rolling release.
+            gh release create "$LATEST_TAG" \
+              --repo DataDog/integrations-management \
+              --target "$TARGET_SHA" \
+              --title "${{ matrix.cloud }}/${{ matrix.package }} (latest)" \
+              --notes "Rolling pointer to ${{ steps.version.outputs.tag }}." \
+              --latest=false \
+              *
+          fi
