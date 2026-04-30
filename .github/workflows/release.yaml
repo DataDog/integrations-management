@@ -167,11 +167,29 @@ jobs:
           # github.event.after is set on push; falls back to github.sha for
           # workflow_dispatch (which has no commit range).
           TARGET_SHA: ${{ github.event.after || github.sha }}
+          LATEST_TAG: ${{ matrix.cloud }}-${{ matrix.package }}-latest
         working-directory: ${{ matrix.cloud }}/${{ matrix.package }}/dist
         run: |
+          # Immutable, versioned release for audit/rollback.
           gh release create "${{ steps.version.outputs.tag }}" \
             --repo DataDog/integrations-management \
             --target "$TARGET_SHA" \
             --title "${{ matrix.cloud }}/${{ matrix.package }} v${{ steps.version.outputs.version }}" \
             --generate-notes \
+            *
+
+          # Rolling "latest" release per package, so consumers can curl a stable URL
+          # (releases/download/<cloud>-<package>-latest/<file>) without pinning a
+          # version. Delete the previous latest release + tag, then re-create.
+          # --latest=false keeps it from competing with versioned releases for the
+          # repo-wide "Latest release" badge on the GitHub UI.
+          gh release delete "$LATEST_TAG" \
+            --repo DataDog/integrations-management \
+            --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$LATEST_TAG" \
+            --repo DataDog/integrations-management \
+            --target "$TARGET_SHA" \
+            --title "${{ matrix.cloud }}/${{ matrix.package }} (latest)" \
+            --notes "Rolling pointer to ${{ steps.version.outputs.tag }}." \
+            --latest=false \
             *
