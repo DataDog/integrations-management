@@ -23,26 +23,29 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # `sources` declares every path whose changes must trigger a rebuild.
-          # Mirrors what each build.sh actually copies into the zipapp; keep them in sync.
+          # `sources` lists only paths whose changes affect the built artifact:
+          # the package's src/, its build.sh, anything else that build.sh copies
+          # in (e.g. logging_install/src for the azure quickstart, bicep/ for
+          # logging_install), shared/src, and dev_requirements.txt. Tests, READMEs,
+          # and other adjacent files do not bump the version.
           - cloud: azure
             package: agentless
-            sources: "agentless/ shared/ dev_requirements.txt"
+            sources: "agentless/src/ agentless/build.sh shared/src/ dev_requirements.txt"
           - cloud: azure
             package: integration_quickstart
-            sources: "integration_quickstart/ logging_install/src/ shared/ dev_requirements.txt"
+            sources: "integration_quickstart/src/ integration_quickstart/build.sh logging_install/src/ shared/src/ dev_requirements.txt"
           - cloud: azure
             package: logging_install
-            sources: "logging_install/ shared/ dev_requirements.txt"
+            sources: "logging_install/src/ logging_install/bicep/ logging_install/build.sh shared/src/ dev_requirements.txt"
           - cloud: gcp
             package: agentless
-            sources: "agentless/ shared/ dev_requirements.txt"
+            sources: "agentless/src/ agentless/build.sh shared/src/ dev_requirements.txt"
           - cloud: gcp
             package: integration_quickstart
-            sources: "integration_quickstart/ shared/ dev_requirements.txt"
+            sources: "integration_quickstart/src/ integration_quickstart/build.sh shared/src/ dev_requirements.txt"
           - cloud: gcp
             package: log_forwarding_quickstart
-            sources: "log_forwarding_quickstart/ shared/ dev_requirements.txt"
+            sources: "log_forwarding_quickstart/src/ log_forwarding_quickstart/build.sh shared/src/ dev_requirements.txt"
     steps:
       - uses: actions/checkout@v4
         with:
