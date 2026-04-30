@@ -245,6 +245,18 @@ jobs:
           # pinning a version. --latest=false keeps it from competing with
           # versioned releases for the repo-wide "Latest release" badge on the
           # GitHub UI.
+          #
+          # Gate the rolling update on this version being the current highest
+          # for the package. Without this guard, rerunning an old failed build
+          # after a newer release has already shipped would silently roll
+          # consumers backward to the older artifact.
+          PREFIX="${{ matrix.cloud }}-${{ matrix.package }}-v"
+          HIGHEST=$(git tag --list "${PREFIX}*" | sed "s|^${PREFIX}||" | sort -V | tail -1)
+          if [ "$HIGHEST" != "${{ steps.version.outputs.version }}" ]; then
+            echo "Skipping rolling-latest update: $VERSIONED_TAG is not the highest version (highest is ${PREFIX}${HIGHEST})."
+            exit 0
+          fi
+
           if gh release view "$LATEST_TAG" --repo "$REPO" >/dev/null 2>&1; then
             sync_release_assets "$LATEST_TAG"
             git tag -f "$LATEST_TAG" "$TARGET_SHA"
