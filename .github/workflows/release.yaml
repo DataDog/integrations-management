@@ -178,23 +178,40 @@ jobs:
             --generate-notes \
             *
 
-          # Rolling "latest" release per package, so consumers can curl a stable URL
-          # (releases/download/<cloud>-<package>-latest/<file>) without pinning a
-          # version. Update assets in place rather than delete-then-recreate so
-          # the URL never 404s if a step fails partway. --latest=false keeps it
-          # from competing with versioned releases for the repo-wide "Latest
-          # release" badge on the GitHub UI.
+          # Rolling "latest" release per package, so consumers can curl a stable
+          # URL (releases/download/<cloud>-<package>-latest/<file>) without pinning
+          # a version. --latest=false keeps it from competing with versioned
+          # releases for the repo-wide "Latest release" badge on the GitHub UI.
+          #
+          # Caveat: `gh release upload --clobber` deletes the existing asset
+          # before re-uploading. If the upload fails after the delete, the asset
+          # is missing until a future workflow run replaces it. We retry to
+          # absorb transient API failures, which are the realistic risk; a hard
+          # failure across all retries surfaces as a workflow failure rather
+          # than going silent.
+          upload_with_retry() {
+            local attempt
+            for attempt in 1 2 3; do
+              if gh release upload "$LATEST_TAG" \
+                  --repo DataDog/integrations-management \
+                  --clobber \
+                  *; then
+                return 0
+              fi
+              echo "Upload attempt $attempt failed; retrying..." >&2
+              sleep $((attempt * 5))
+            done
+            return 1
+          }
+
           if gh release view "$LATEST_TAG" --repo DataDog/integrations-management >/dev/null 2>&1; then
             # Overwrite assets in place, then move the underlying tag to the
-            # new SHA. The release never disappears between iterations.
-            gh release upload "$LATEST_TAG" \
-              --repo DataDog/integrations-management \
-              --clobber \
-              *
+            # new SHA.
+            upload_with_retry
             git tag -f "$LATEST_TAG" "$TARGET_SHA"
-            # Force-push the moved tag using the dd-octo-sts token (the
-            # default origin remote was set up with GITHUB_TOKEN, which won't
-            # have contents:write).
+            # Force-push the moved tag using the dd-octo-sts token (the default
+            # origin remote was set up with GITHUB_TOKEN, which won't have
+            # contents:write).
             git push --force "https://x-access-token:${GH_TOKEN}@github.com/DataDog/integrations-management.git" "$LATEST_TAG"
           else
             # First time for this package: create the rolling release.
