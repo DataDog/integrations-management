@@ -137,13 +137,14 @@ jobs:
           # the SHA we're building, reuse it instead of minting a new version.
           # Otherwise a rerun (e.g. after a transient rolling-latest failure)
           # would publish another versioned release for an identical commit
-          # and inflate the version on every recovery attempt.
+          # and inflate the version on every recovery attempt. Whether the
+          # corresponding release was actually published with assets is
+          # checked separately downstream — the tag alone doesn't imply that.
           for tag in $(git tag --list "${PREFIX}*"); do
             if [ "$(git rev-list -n1 "$tag")" = "$TARGET_SHA" ]; then
               EXISTING="${tag#$PREFIX}"
               echo "version=$EXISTING" >> "$GITHUB_OUTPUT"
               echo "tag=$tag" >> "$GITHUB_OUTPUT"
-              echo "exists=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
           done
@@ -162,7 +163,6 @@ jobs:
           fi
           echo "version=$NEXT" >> "$GITHUB_OUTPUT"
           echo "tag=${PREFIX}${NEXT}" >> "$GITHUB_OUTPUT"
-          echo "exists=false" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@v5
         with:
@@ -189,62 +189,75 @@ jobs:
           LATEST_TAG: ${{ matrix.cloud }}-${{ matrix.package }}-latest
         working-directory: ${{ matrix.cloud }}/${{ matrix.package }}/dist
         run: |
-          # Immutable, versioned release for audit/rollback. Skip if an
-          # existing versioned tag already points at this SHA (recovery rerun
-          # for a previously-published version).
-          if [ "${{ steps.version.outputs.exists }}" = "false" ]; then
-            gh release create "${{ steps.version.outputs.tag }}" \
-              --repo DataDog/integrations-management \
-              --target "$TARGET_SHA" \
-              --title "${{ matrix.cloud }}/${{ matrix.package }} v${{ steps.version.outputs.version }}" \
-              --generate-notes \
-              *
-          else
-            echo "Versioned release ${{ steps.version.outputs.tag }} already exists for $TARGET_SHA; skipping create and proceeding to rolling-latest update."
-          fi
+          REPO=DataDog/integrations-management
+          VERSIONED_TAG="${{ steps.version.outputs.tag }}"
 
-          # Rolling "latest" release per package, so consumers can curl a stable
-          # URL (releases/download/<cloud>-<package>-latest/<file>) without pinning
-          # a version. --latest=false keeps it from competing with versioned
-          # releases for the repo-wide "Latest release" badge on the GitHub UI.
-          #
-          # Caveat: `gh release upload --clobber` deletes the existing asset
-          # before re-uploading. If the upload fails after the delete, the asset
-          # is missing until a future workflow run replaces it. We retry to
-          # absorb transient API failures, which are the realistic risk; a hard
-          # failure across all retries surfaces as a workflow failure rather
-          # than going silent.
-          upload_with_retry() {
+          # Reconcile a release's assets with the current dist/ contents:
+          #   1. Delete assets that no longer exist in the current dir
+          #      (handles renamed/removed files between versions).
+          #   2. Re-upload everything with --clobber, retried to absorb
+          #      transient API blips. --clobber is non-atomic per asset:
+          #      a hard failure across all retries surfaces as a workflow
+          #      failure rather than silently leaving a missing asset.
+          sync_release_assets() {
+            local tag="$1"
+            local current_files=(*)
+            local existing
+            existing=$(gh release view "$tag" --repo "$REPO" \
+              --json assets --jq '.assets[].name' 2>/dev/null || true)
+            for asset in $existing; do
+              if ! printf '%s\n' "${current_files[@]}" | grep -qxF "$asset"; then
+                echo "Removing stale asset $asset from $tag"
+                gh release delete-asset "$tag" "$asset" \
+                  --repo "$REPO" --yes
+              fi
+            done
             local attempt
             for attempt in 1 2 3; do
-              if gh release upload "$LATEST_TAG" \
-                  --repo DataDog/integrations-management \
-                  --clobber \
-                  *; then
+              if gh release upload "$tag" --repo "$REPO" --clobber \
+                  "${current_files[@]}"; then
                 return 0
               fi
-              echo "Upload attempt $attempt failed; retrying..." >&2
+              echo "Upload attempt $attempt for $tag failed; retrying..." >&2
               sleep $((attempt * 5))
             done
             return 1
           }
 
-          if gh release view "$LATEST_TAG" --repo DataDog/integrations-management >/dev/null 2>&1; then
-            # Overwrite assets in place, then move the underlying tag to the
-            # new SHA.
-            upload_with_retry
+          # Immutable, versioned release for audit/rollback. Idempotent on
+          # rerun: if the release already exists (e.g. a previous run created
+          # it but failed mid-upload, leaving the tag in place but assets
+          # missing), reconcile its assets instead of skipping or duplicating.
+          if gh release view "$VERSIONED_TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Versioned release $VERSIONED_TAG already exists; reconciling assets."
+            sync_release_assets "$VERSIONED_TAG"
+          else
+            gh release create "$VERSIONED_TAG" \
+              --repo "$REPO" \
+              --target "$TARGET_SHA" \
+              --title "${{ matrix.cloud }}/${{ matrix.package }} v${{ steps.version.outputs.version }}" \
+              --generate-notes \
+              *
+          fi
+
+          # Rolling "latest" release per package, so consumers can curl a stable
+          # URL (releases/download/<cloud>-<package>-latest/<file>) without
+          # pinning a version. --latest=false keeps it from competing with
+          # versioned releases for the repo-wide "Latest release" badge on the
+          # GitHub UI.
+          if gh release view "$LATEST_TAG" --repo "$REPO" >/dev/null 2>&1; then
+            sync_release_assets "$LATEST_TAG"
             git tag -f "$LATEST_TAG" "$TARGET_SHA"
             # Force-push the moved tag using the dd-octo-sts token (the default
             # origin remote was set up with GITHUB_TOKEN, which won't have
             # contents:write).
-            git push --force "https://x-access-token:${GH_TOKEN}@github.com/DataDog/integrations-management.git" "$LATEST_TAG"
+            git push --force "https://x-access-token:${GH_TOKEN}@github.com/$REPO.git" "$LATEST_TAG"
           else
-            # First time for this package: create the rolling release.
             gh release create "$LATEST_TAG" \
-              --repo DataDog/integrations-management \
+              --repo "$REPO" \
               --target "$TARGET_SHA" \
               --title "${{ matrix.cloud }}/${{ matrix.package }} (latest)" \
-              --notes "Rolling pointer to ${{ steps.version.outputs.tag }}." \
+              --notes "Rolling pointer to $VERSIONED_TAG." \
               --latest=false \
               *
           fi
