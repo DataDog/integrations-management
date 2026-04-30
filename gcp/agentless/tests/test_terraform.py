@@ -186,17 +186,13 @@ class TestGenerateTerraformConfig(unittest.TestCase):
 
         self.assertIn(f"ref={MODULE_VERSION}", tf)
 
-    def test_uses_api_key_secret_id_not_raw_key(self):
-        """Test that api_key_secret_id is used instead of raw api_key."""
+    def test_scanner_module_uses_api_key_secret_id(self):
+        """Scanner modules pull the API key from Secret Manager via api_key_secret_id."""
         tf = generate_terraform_config(self.config, "bucket", TEST_API_KEY_SECRET_ID)
 
-        # Should use api_key_secret_id in module
         self.assertIn(f'api_key_secret_id = "{TEST_API_KEY_SECRET_ID}"', tf)
 
-        # Should NOT have raw api_key variable
-        self.assertNotIn('variable "datadog_api_key"', tf)
-
-        # Should NOT have api_key in module
+        # Scanner module should not be passed a raw api_key (it reads from Secret Manager)
         self.assertNotIn("api_key  =", tf)
 
 
@@ -255,7 +251,7 @@ class TestGenerateTfvars(unittest.TestCase):
     """Test terraform.tfvars generation."""
 
     def test_generates_tfvars_with_credentials(self):
-        """Test that tfvars contains app_key and site but not api_key."""
+        """tfvars carries the credentials the Datadog TF provider needs at apply time."""
         config = Config(
             api_key="my-api-key",
             app_key="my-app-key",
@@ -268,11 +264,7 @@ class TestGenerateTfvars(unittest.TestCase):
 
         tfvars = generate_tfvars(config)
 
-        # API key should NOT be in tfvars (stored in Secret Manager)
-        self.assertNotIn("datadog_api_key", tfvars)
-        self.assertNotIn("my-api-key", tfvars)
-
-        # App key and site should still be present
+        self.assertIn('datadog_api_key = "my-api-key"', tfvars)
         self.assertIn('datadog_app_key = "my-app-key"', tfvars)
         self.assertIn('datadog_site    = "us5.datadoghq.com"', tfvars)
 

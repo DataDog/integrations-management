@@ -1,10 +1,7 @@
 # Unless explicitly stated otherwise all files in this repository are licensed under the Apache-2 License.
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-import os
-from unittest.mock import MagicMock, patch
 
-import pytest
 
 from azure_agentless_setup.config import Config
 from azure_agentless_setup.terraform import (
@@ -32,7 +29,7 @@ def _make_config(**overrides) -> Config:
 
 API_KEY_SECRET_ID = "/subscriptions/sub-scanner/resourceGroups/datadog-agentless-scanner/providers/Microsoft.KeyVault/vaults/datadog-abc123/secrets/datadog-api-key"
 
-MODULE_SOURCE = f"git::https://github.com/DataDog/terraform-module-datadog-agentless-scanner//azure/modules"
+MODULE_SOURCE = "git::https://github.com/DataDog/terraform-module-datadog-agentless-scanner//azure/modules"
 
 
 class TestSanitizeName:

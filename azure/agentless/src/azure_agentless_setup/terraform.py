@@ -25,7 +25,7 @@ TERRAFORM_PARALLELISM = 10
 
 # TODO: replace with a release tag once terraform-module-datadog-agentless-scanner cuts one
 MODULE_VERSION = "fbc0d0bb425ae4084433834e68d3b23e566fba0d"
-MODULE_BASE = f"git::https://github.com/DataDog/terraform-module-datadog-agentless-scanner//azure/modules"
+MODULE_BASE = "git::https://github.com/DataDog/terraform-module-datadog-agentless-scanner//azure/modules"
 
 
 def _module_source(module_name: str) -> str:

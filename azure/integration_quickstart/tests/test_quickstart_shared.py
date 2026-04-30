@@ -4,7 +4,6 @@
 
 """Tests for quickstart_shared: build_log_forwarder_payload and report_existing_log_forwarders (Section 7: optional monitoredSubscriptions)."""
 
-import os
 from unittest.mock import MagicMock
 from unittest.mock import patch as mock_patch
 

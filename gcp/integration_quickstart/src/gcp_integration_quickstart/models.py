@@ -4,7 +4,6 @@
 
 from dataclasses import dataclass, field
 from typing import Any
-from gcp_shared.dataflow_models import DataflowConfiguration, ExclusionFilter
 
 
 @dataclass

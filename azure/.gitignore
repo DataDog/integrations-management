@@ -30,3 +30,6 @@ build/
 
 # Allow agentless setup executables
 !agentless/dist/*.pyz
+
+# Allow logging install executable
+!logging_install/dist/*.pyz

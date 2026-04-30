@@ -7,7 +7,6 @@ import pytest
 
 from azure_agentless_setup.errors import KeyVaultError
 from azure_agentless_setup.secrets import (
-    API_KEY_SECRET_NAME,
     get_key_vault_name,
     ensure_api_key_secret,
 )

@@ -10,7 +10,6 @@ from dataclasses import asdict
 from az_shared.auth import check_login
 from az_shared.errors import (
     AccessError,
-    AzCliNotAuthenticatedError,
     DatadogAccessValidationError,
     ExistenceCheckError,
     InputParamValidationError,

@@ -22,6 +22,9 @@ mkdir -p agentless/dist/tmp
 cp -r shared/src/. agentless/dist/tmp
 cp -r agentless/src/. agentless/dist/tmp
 
+find agentless/dist/tmp \( -name __pycache__ -o -name .ruff_cache \) -type d -exec rm -rf {} +
+find agentless/dist/tmp -name .DS_Store -delete
+
 # Build zipapp
 if python -m zipapp agentless/dist/tmp \
   -o agentless/dist/gcp_agentless_setup.pyz \

@@ -32,7 +32,7 @@ from integration_quickstart.tests.test_data import (
 def make_flat_permissions_mock_impl(scopes_with_permissions: list[tuple[Scope, FlatPermission]]):
     result_dict = {scope.scope: permission for scope, permission in scopes_with_permissions}
 
-    def mock_impl(_auth_token: str, scope: str):
+    def mock_impl(scope: str):
         return result_dict[scope]
 
     return mock_impl

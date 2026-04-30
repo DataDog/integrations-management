@@ -6,6 +6,8 @@ from unittest.mock import patch as mock_patch
 
 from az_shared.util import AZ_VERS_TIMEOUT, get_az_and_python_version
 
+PYTHON_VERSION = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+
 
 class TestGetAzAndPythonVersion(TestCase):
     def patch(self, path: str, **kwargs):
@@ -37,7 +39,8 @@ class TestGetAzAndPythonVersion(TestCase):
         subprocess_mock = self.patch("az_shared.util.subprocess.run")
         subprocess_mock.side_effect = TimeoutExpired(cmd="az version", timeout=AZ_VERS_TIMEOUT)
         self.assertEqual(
-            get_az_and_python_version(), "\nCould not retrieve 'az version': timeout after 5s\npython version: 3.9.22"
+            get_az_and_python_version(),
+            f"\nCould not retrieve 'az version': timeout after 5s\npython version: {PYTHON_VERSION}",
         )
         subprocess_mock.assert_called_once_with(
             ["az", "version", "--output", "json"],
@@ -51,7 +54,10 @@ class TestGetAzAndPythonVersion(TestCase):
         """Test az version returns a message on unexpected exceptions and that python version is still returned."""
         subprocess_mock = self.patch("az_shared.util.subprocess.run")
         subprocess_mock.side_effect = ValueError("bad")
-        self.assertEqual(get_az_and_python_version(), "\nCould not retrieve 'az version': bad\npython version: 3.9.22")
+        self.assertEqual(
+            get_az_and_python_version(),
+            f"\nCould not retrieve 'az version': bad\npython version: {PYTHON_VERSION}",
+        )
         subprocess_mock.assert_called_once_with(
             ["az", "version", "--output", "json"],
             check=True,

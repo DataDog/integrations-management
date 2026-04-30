@@ -7,7 +7,6 @@ import pytest
 
 from azure_agentless_setup.errors import StorageAccountError
 from azure_agentless_setup.state_storage import (
-    CONTAINER_NAME,
     get_storage_account_name,
     ensure_resource_group,
     ensure_state_storage,
