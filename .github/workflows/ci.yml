@@ -72,7 +72,15 @@ jobs:
           python-version: '3.9'
       - name: Install Azure CLI
         if: matrix.cloud == 'azure'
-        run: curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+        # Pinned to a known-good version. The bicep version is pinned in
+        # azure/logging_install/build.sh (v0.40.2); bump alongside that if
+        # az ever drops compat with that bicep pin.
+        env:
+          AZ_CLI_VERSION: 2.85.0
+        run: |
+          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+          sudo apt-get install -y --allow-downgrades \
+            azure-cli="${AZ_CLI_VERSION}-1~$(lsb_release -cs)"
       - name: Verify dist artifacts match src
         working-directory: ${{ matrix.cloud }}
         run: |
