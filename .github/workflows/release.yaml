@@ -10,6 +10,12 @@ jobs:
   release:
     name: release (${{ matrix.cloud }}/${{ matrix.package }})
     runs-on: ubuntu-latest
+    # Serialize per-package so two pushes touching the same package don't both
+    # compute the same next-patch version and collide on `gh release create`.
+    # Different packages still release in parallel.
+    concurrency:
+      group: release-${{ matrix.cloud }}-${{ matrix.package }}
+      cancel-in-progress: false
     permissions:
       contents: write
       id-token: write
