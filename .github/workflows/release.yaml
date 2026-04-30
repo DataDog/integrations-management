@@ -128,8 +128,26 @@ jobs:
 
       - name: Compute next version
         id: version
+        env:
+          TARGET_SHA: ${{ github.event.after || github.sha }}
         run: |
           PREFIX="${{ matrix.cloud }}-${{ matrix.package }}-v"
+
+          # Idempotency: if a versioned tag for this package already points at
+          # the SHA we're building, reuse it instead of minting a new version.
+          # Otherwise a rerun (e.g. after a transient rolling-latest failure)
+          # would publish another versioned release for an identical commit
+          # and inflate the version on every recovery attempt.
+          for tag in $(git tag --list "${PREFIX}*"); do
+            if [ "$(git rev-list -n1 "$tag")" = "$TARGET_SHA" ]; then
+              EXISTING="${tag#$PREFIX}"
+              echo "version=$EXISTING" >> "$GITHUB_OUTPUT"
+              echo "tag=$tag" >> "$GITHUB_OUTPUT"
+              echo "exists=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+
           # Use local git tags (fetched via fetch-tags: true) so we don't pay
           # the gh-release-list pagination tax and don't miss a tag because an
           # unrelated package has churned out hundreds of releases since.
@@ -144,6 +162,7 @@ jobs:
           fi
           echo "version=$NEXT" >> "$GITHUB_OUTPUT"
           echo "tag=${PREFIX}${NEXT}" >> "$GITHUB_OUTPUT"
+          echo "exists=false" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@v5
         with:
@@ -170,13 +189,19 @@ jobs:
           LATEST_TAG: ${{ matrix.cloud }}-${{ matrix.package }}-latest
         working-directory: ${{ matrix.cloud }}/${{ matrix.package }}/dist
         run: |
-          # Immutable, versioned release for audit/rollback.
-          gh release create "${{ steps.version.outputs.tag }}" \
-            --repo DataDog/integrations-management \
-            --target "$TARGET_SHA" \
-            --title "${{ matrix.cloud }}/${{ matrix.package }} v${{ steps.version.outputs.version }}" \
-            --generate-notes \
-            *
+          # Immutable, versioned release for audit/rollback. Skip if an
+          # existing versioned tag already points at this SHA (recovery rerun
+          # for a previously-published version).
+          if [ "${{ steps.version.outputs.exists }}" = "false" ]; then
+            gh release create "${{ steps.version.outputs.tag }}" \
+              --repo DataDog/integrations-management \
+              --target "$TARGET_SHA" \
+              --title "${{ matrix.cloud }}/${{ matrix.package }} v${{ steps.version.outputs.version }}" \
+              --generate-notes \
+              *
+          else
+            echo "Versioned release ${{ steps.version.outputs.tag }} already exists for $TARGET_SHA; skipping create and proceeding to rolling-latest update."
+          fi
 
           # Rolling "latest" release per package, so consumers can curl a stable
           # URL (releases/download/<cloud>-<package>-latest/<file>) without pinning
