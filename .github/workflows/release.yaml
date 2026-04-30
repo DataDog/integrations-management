@@ -3,6 +3,9 @@ name: Release
 on:
   push:
     branches: [main]
+  # Manual trigger so we can re-release everything from current main if needed
+  # (botched merge, missing release for a package, etc).
+  workflow_dispatch:
 
 permissions: {}
 
@@ -20,21 +23,48 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true # we look at existing tags to decide what to bootstrap
 
       - id: compute
         env:
+          EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.event.after }}
         run: |
-          CHANGED_FILES=$(git diff --name-only "$BEFORE" "$AFTER")
+          # On workflow_dispatch we have no commit range, so include everything
+          # and let the per-package version step pick the right next tag.
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            CHANGED_FILES=""
+            FORCE_ALL=true
+          else
+            CHANGED_FILES=$(git diff --name-only "$BEFORE" "$AFTER")
+            FORCE_ALL=false
+          fi
+
           MATRIX_ENTRIES=()
 
-          # Returns 0 (and appends to MATRIX_ENTRIES) iff this push touched any
-          # of the listed source paths for the given package.
+          # Includes a package in the matrix if any of:
+          #   - workflow_dispatch (force all)
+          #   - no existing release tag for the package (bootstrap first release)
+          #   - this push touched a source path for the package
           check_package() {
             local cloud="$1"
             local package="$2"
             local sources="$3"
+            local entry="{\"cloud\":\"$cloud\",\"package\":\"$package\"}"
+
+            if [ "$FORCE_ALL" = "true" ]; then
+              MATRIX_ENTRIES+=("$entry")
+              return 0
+            fi
+
+            # Bootstrap: package has never been released, always include it on
+            # the first push the workflow sees.
+            if ! git tag --list "${cloud}-${package}-v*" | grep -q .; then
+              MATRIX_ENTRIES+=("$entry")
+              return 0
+            fi
+
             local src pattern
             for src in $sources; do
               if [[ "$src" == */ ]]; then
@@ -43,7 +73,7 @@ jobs:
                 pattern="^${cloud}/${src}\$"
               fi
               if echo "$CHANGED_FILES" | grep -qE "$pattern"; then
-                MATRIX_ENTRIES+=("{\"cloud\":\"$cloud\",\"package\":\"$package\"}")
+                MATRIX_ENTRIES+=("$entry")
                 return 0
               fi
             done
@@ -134,7 +164,9 @@ jobs:
           GH_TOKEN: ${{ steps.octo-sts.outputs.token }}
           # Pin the tag to the SHA we built, so it doesn't drift to whatever's
           # on main if another commit lands while this job is running.
-          TARGET_SHA: ${{ github.event.after }}
+          # github.event.after is set on push; falls back to github.sha for
+          # workflow_dispatch (which has no commit range).
+          TARGET_SHA: ${{ github.event.after || github.sha }}
         working-directory: ${{ matrix.cloud }}/${{ matrix.package }}/dist
         run: |
           gh release create "${{ steps.version.outputs.tag }}" \
