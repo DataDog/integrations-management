@@ -819,7 +819,7 @@ class TestCreateDataflowJob(unittest.TestCase):
             f"apiKeySecretId=projects/test-project/secrets/{SECRET_MANAGER_NAME}/versions/latest,"
             f"outputDeadletterTopic=projects/test-project/topics/{PUBSUB_DEAD_LETTER_TOPIC_ID},"
             f"batchCount=100,"
-            f"parallelism=1"
+            f"parallelism=32"
         )
 
         self.assertEqual(len(actual_commands), 3)
@@ -842,7 +842,7 @@ class TestCreateDataflowJob(unittest.TestCase):
 
         mock_gcloud.side_effect = [
             None,
-            [{"name": "pubsub-to-datadog-job", "state": "RUNNING"}],
+            [{"name": "pubsub-to-datadog-job", "state": "FAKE_STATE"}],
         ]
 
         step_reporter = Mock()
