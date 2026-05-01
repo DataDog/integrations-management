@@ -838,6 +838,7 @@ class TestCreateDataflowJob(unittest.TestCase):
 
     @patch("gcp_shared.dataflow_configuration.gcloud")
     def test_create_dataflow_job_uses_existing(self, mock_gcloud):
+        
         """Test skipping creation when job already exists."""
 
         mock_gcloud.side_effect = [
@@ -849,8 +850,7 @@ class TestCreateDataflowJob(unittest.TestCase):
 
         dataflow_config = DataflowConfiguration(is_dataflow_prime_enabled=False)
 
-        create_dataflow_job(
-            step_reporter,
+        create_dataflow_job(step_reporter,
             "test-project",
             "test-sa@project.iam.gserviceaccount.com",
             "us-central1",
