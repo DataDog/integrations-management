@@ -98,3 +98,25 @@ class TestResolveDestroyResourceGroup:
             scanner_subscription="sub-scanner",
         )
         assert rg == DEFAULT_RESOURCE_GROUP
+
+    def test_metadata_read_error_falls_back_to_env(self):
+        """When the metadata blob cannot be read (auth/network), destroy must
+        still pick an RG from the env var rather than aborting."""
+        rg = _resolve_destroy_resource_group(
+            metadata=None,
+            metadata_status=MetadataReadStatus.ERROR,
+            metadata_error_detail="throttled",
+            env_rg="rg-from-env",
+            scanner_subscription="sub-scanner",
+        )
+        assert rg == "rg-from-env"
+
+    def test_metadata_read_error_falls_back_to_default(self):
+        rg = _resolve_destroy_resource_group(
+            metadata=None,
+            metadata_status=MetadataReadStatus.ERROR,
+            metadata_error_detail="auth failed",
+            env_rg=None,
+            scanner_subscription="sub-scanner",
+        )
+        assert rg == DEFAULT_RESOURCE_GROUP
