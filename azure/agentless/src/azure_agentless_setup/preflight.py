@@ -30,6 +30,7 @@ from .errors import (
     SetupError,
 )
 from .reporter import AgentlessStep, Reporter
+from .state_storage import resource_group_exists
 
 
 MAX_PARALLEL_WORKERS = 10
@@ -43,20 +44,27 @@ REQUIRED_RESOURCE_PROVIDERS = [
     "Microsoft.Authorization",
 ]
 
-# Actions required on all subscriptions (scanner + scan targets) for cross-subscription role assignments.
+# Actions required on every subscription (scanner + scan targets) for
+# cross-subscription role assignments. Always probed at subscription scope.
 REQUIRED_ACTIONS_ALL_SUBSCRIPTIONS = [
     "Microsoft.Authorization/roleAssignments/write",
 ]
 
-# Additional actions required on the scanner subscription for resource creation.
-REQUIRED_ACTIONS_SCANNER_SUBSCRIPTION = [
-    "Microsoft.Resources/subscriptions/resourceGroups/write",
+# Resource-creation actions for the scanner subscription. These are probed at
+# the *resource-group* scope when the RG already exists, so users with only
+# RG-scoped Contributor (a common enterprise pattern when the RG is
+# pre-provisioned) pass preflight. Probing at the RG scope still observes
+# subscription-level grants because Azure permissions inherit downwards.
+REQUIRED_ACTIONS_SCANNER_RG_RESOURCES = [
     "Microsoft.Compute/virtualMachineScaleSets/write",
     "Microsoft.Network/virtualNetworks/write",
     "Microsoft.ManagedIdentity/userAssignedIdentities/write",
     "Microsoft.KeyVault/vaults/write",
     "Microsoft.Storage/storageAccounts/write",
 ]
+
+# Required at subscription scope only when the script must create the RG itself.
+REQUIRED_ACTION_RG_CREATE = "Microsoft.Resources/subscriptions/resourceGroups/write"
 
 
 def validate_datadog_api_key(reporter: Reporter, api_key: str, site: str) -> None:
@@ -117,27 +125,24 @@ def set_subscription(reporter: Reporter, subscription_id: str) -> None:
     reporter.success(f"Active subscription set to {subscription_id}")
 
 
-def _get_granted_actions(subscription_id: str) -> tuple[str, list[str]]:
-    """Fetch the granted actions for the current user on a subscription.
+def _get_granted_actions_at_scope(scope: str) -> list[str]:
+    """Fetch the actions granted to the current user that apply at ``scope``.
 
-    Uses the Azure permissions REST API, same approach as integration_quickstart.
-
-    Returns:
-        Tuple of (subscription_id, list_of_granted_action_patterns).
+    Azure's ``Microsoft.Authorization/permissions`` API at a given scope
+    returns the *effective* set of actions including those inherited from
+    higher scopes, so probing at the resource-group scope captures both
+    RG-level and subscription-level grants.
     """
-    scope = f"/subscriptions/{subscription_id}"
     url = f"https://management.azure.com{scope}/providers/Microsoft.Authorization/permissions?api-version=2022-04-01"
     try:
         result = execute_json(Cmd(["az", "rest", "-u", url, "--query", "value"]))
     except Exception:
-        return subscription_id, []
+        return []
 
     actions: list[str] = []
-    not_actions: list[str] = []
     for perm in (result or []):
         actions.extend(perm.get("actions", []))
-        not_actions.extend(perm.get("notActions", []))
-    return subscription_id, actions
+    return actions
 
 
 def _action_matches(required: str, granted_patterns: list[str]) -> bool:
@@ -160,50 +165,82 @@ def _action_matches(required: str, granted_patterns: list[str]) -> bool:
     return False
 
 
-def check_subscription_permissions(
-    subscription_id: str,
-    required_actions: list[str],
-) -> tuple[str, bool, list[str]]:
-    """Check if the current user has the required permissions on a subscription.
-
-    Returns:
-        Tuple of (subscription_id, all_granted, list_of_missing_actions).
-    """
-    _, granted = _get_granted_actions(subscription_id)
+def _missing_actions(scope: str, required: list[str]) -> list[str]:
+    """Return the actions in ``required`` that are not granted at ``scope``."""
+    granted = _get_granted_actions_at_scope(scope)
     if not granted:
-        return subscription_id, False, required_actions
+        return list(required)
+    return [a for a in required if not _action_matches(a, granted)]
 
-    missing = [a for a in required_actions if not _action_matches(a, granted)]
-    return subscription_id, len(missing) == 0, missing
+
+def _check_scanner_subscription(
+    scanner_subscription: str,
+    resource_group: str,
+    rg_exists: bool,
+) -> list[str]:
+    """Return the missing actions for the scanner subscription.
+
+    When ``rg_exists`` is True, the resource-creation actions are probed at
+    the RG scope (so users with RG-only Contributor pass) and
+    ``resourceGroups/write`` is dropped from the requirements. Otherwise
+    everything is probed at the subscription scope, which is what's needed
+    to create the RG and the resources within it.
+    """
+    sub_scope = f"/subscriptions/{scanner_subscription}"
+
+    if rg_exists:
+        rg_scope = f"{sub_scope}/resourceGroups/{resource_group}"
+        return (
+            _missing_actions(sub_scope, REQUIRED_ACTIONS_ALL_SUBSCRIPTIONS)
+            + _missing_actions(rg_scope, REQUIRED_ACTIONS_SCANNER_RG_RESOURCES)
+        )
+
+    return _missing_actions(
+        sub_scope,
+        REQUIRED_ACTIONS_ALL_SUBSCRIPTIONS
+        + [REQUIRED_ACTION_RG_CREATE]
+        + REQUIRED_ACTIONS_SCANNER_RG_RESOURCES,
+    )
+
+
+def _check_scan_subscription(scan_subscription: str) -> list[str]:
+    """Return the missing actions for a non-scanner scan subscription."""
+    return _missing_actions(
+        f"/subscriptions/{scan_subscription}", REQUIRED_ACTIONS_ALL_SUBSCRIPTIONS
+    )
 
 
 def check_subscriptions_permissions_parallel(
     reporter: Reporter,
     scanner_subscription: str,
     all_subscriptions: list[str],
+    resource_group: str,
+    scanner_rg_exists: bool,
 ) -> list[str]:
     """Check permissions on all subscriptions in parallel.
 
-    The scanner subscription is checked for both common and scanner-specific actions.
-    Scan-only subscriptions are checked for common actions only.
+    Scanner subscription: see :func:`_check_scanner_subscription` — probed at
+    RG scope when the RG already exists, subscription scope otherwise.
+    Scan-only subscriptions: probed at subscription scope for the
+    cross-subscription role-assignment write.
 
-    Returns:
-        List of subscription IDs that failed permission checks.
+    Returns the list of subscription IDs that failed permission checks.
     """
     failed = []
 
-    def _check(sub_id: str) -> tuple[str, bool, list[str]]:
-        required = list(REQUIRED_ACTIONS_ALL_SUBSCRIPTIONS)
+    def _check(sub_id: str) -> tuple[str, list[str]]:
         if sub_id == scanner_subscription:
-            required += REQUIRED_ACTIONS_SCANNER_SUBSCRIPTION
-        return check_subscription_permissions(sub_id, required)
+            return sub_id, _check_scanner_subscription(
+                sub_id, resource_group, scanner_rg_exists
+            )
+        return sub_id, _check_scan_subscription(sub_id)
 
     with ThreadPoolExecutor(max_workers=min(len(all_subscriptions), MAX_PARALLEL_WORKERS)) as executor:
         futures = {executor.submit(_check, s): s for s in all_subscriptions}
 
         for future in as_completed(futures):
-            sub_id, granted, missing = future.result()
-            if not granted:
+            sub_id, missing = future.result()
+            if missing:
                 detail = "\n".join(f"    - {a}" for a in missing)
                 reporter.error(f"Missing permissions on subscription: {sub_id}", f"Required actions:\n{detail}")
                 failed.append(sub_id)
@@ -332,9 +369,21 @@ def run_preflight_checks(config: Config, reporter: Reporter) -> None:
 
     validate_locations(reporter, config.locations)
 
+    # Determine whether the scanner RG exists so we can probe permissions at
+    # the RG scope (vs subscription scope) when it does, and drop the
+    # resourceGroups/write requirement that would otherwise block users with
+    # RG-scoped Contributor on a pre-provisioned resource group.
+    scanner_rg_exists = resource_group_exists(
+        config.resource_group, config.scanner_subscription
+    )
+
     reporter.info(f"Checking permissions on {len(config.all_subscriptions)} subscription(s)...")
     failed = check_subscriptions_permissions_parallel(
-        reporter, config.scanner_subscription, config.all_subscriptions,
+        reporter,
+        config.scanner_subscription,
+        config.all_subscriptions,
+        config.resource_group,
+        scanner_rg_exists,
     )
 
     if failed:

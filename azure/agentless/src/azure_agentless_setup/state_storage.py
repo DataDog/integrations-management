@@ -251,19 +251,27 @@ def _wait_for_blob_access(account_name: str, reporter: Reporter) -> None:
     reporter.info("Role propagation timeout — proceeding (Terraform will retry if needed)")
 
 
+def resource_group_exists(resource_group: str, subscription: str) -> bool:
+    """Check whether a resource group exists in the subscription."""
+    try:
+        result = execute(
+            Cmd(["az", "group", "show"])
+            .param("--name", resource_group)
+            .param("--subscription", subscription),
+            can_fail=True,
+        )
+        return bool(result)
+    except Exception:
+        return False
+
+
 def ensure_resource_group(resource_group: str, location: str, subscription: str) -> None:
     """Create the resource group if it doesn't exist.
 
     Raises:
         StorageAccountError: If the resource group cannot be created.
     """
-    result = execute(
-        Cmd(["az", "group", "show"])
-        .param("--name", resource_group)
-        .param("--subscription", subscription),
-        can_fail=True,
-    )
-    if result:
+    if resource_group_exists(resource_group, subscription):
         return
 
     try:
