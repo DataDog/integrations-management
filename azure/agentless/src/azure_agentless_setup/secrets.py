@@ -10,6 +10,7 @@ Secrets User" access so scanner VMs can retrieve the key at runtime.
 
 import hashlib
 import json
+import subprocess
 from time import sleep
 from typing import Optional
 
@@ -21,6 +22,9 @@ from .reporter import Reporter, AgentlessStep
 
 
 API_KEY_SECRET_NAME = "datadog-api-key"
+
+RBAC_PROPAGATION_RETRIES = 6
+RBAC_PROPAGATION_DELAY = 10  # seconds
 
 
 def get_key_vault_name(scanner_subscription: str) -> str:
@@ -178,11 +182,15 @@ def create_key_vault(
         ) from e
 
 
-def grant_current_user_secrets_officer(vault_name: str, subscription: str) -> None:
+def grant_current_user_secrets_officer(vault_name: str, subscription: str) -> bool:
     """Grant the current user 'Key Vault Secrets Officer' on the vault.
 
     With RBAC-enabled Key Vaults, the creator doesn't automatically get
     data-plane access. We need this role to set/get secrets.
+
+    Returns:
+        True if a new role assignment was created (caller should wait
+        for RBAC propagation), False if the role already existed.
 
     Raises:
         KeyVaultError: If the role assignment fails.
@@ -200,7 +208,6 @@ def grant_current_user_secrets_officer(vault_name: str, subscription: str) -> No
         )
         vault_resource_id = vault_info["id"]
 
-        # Check if assignment already exists to avoid errors on re-run
         existing = execute(
             Cmd(["az", "role", "assignment", "list"])
             .param("--assignee", user_object_id)
@@ -211,7 +218,7 @@ def grant_current_user_secrets_officer(vault_name: str, subscription: str) -> No
             can_fail=True,
         )
         if existing.strip() not in ("", "0"):
-            return
+            return False
 
         execute(
             Cmd(["az", "role", "assignment", "create"])
@@ -220,6 +227,7 @@ def grant_current_user_secrets_officer(vault_name: str, subscription: str) -> No
             .param("--role", "Key Vault Secrets Officer")
             .param("--scope", vault_resource_id)
         )
+        return True
     except KeyVaultError:
         raise
     except Exception as e:
@@ -227,6 +235,38 @@ def grant_current_user_secrets_officer(vault_name: str, subscription: str) -> No
             "Failed to grant Key Vault Secrets Officer role to current user",
             str(e),
         ) from e
+
+
+def wait_for_secret_access(vault_name: str, reporter: Reporter) -> None:
+    """Wait for Key Vault Secrets Officer role to propagate to the data plane.
+
+    Probes the actual data-plane secret listing instead of sleeping a fixed
+    duration; ``--query length(@)`` makes the response trivially small.
+    Uses subprocess directly (rather than ``execute()``) to avoid noisy
+    log.error output on every expected retry while RBAC is propagating.
+    """
+    probe_cmd = str(
+        Cmd(["az", "keyvault", "secret", "list"])
+        .param("--vault-name", vault_name)
+        .param("--query", "length(@)")
+        .param("--output", "tsv")
+    )
+
+    for attempt in range(RBAC_PROPAGATION_RETRIES):
+        result = subprocess.run(probe_cmd, shell=True, capture_output=True, text=True)
+        if result.returncode == 0:
+            return
+
+        remaining = RBAC_PROPAGATION_RETRIES - attempt - 1
+        if remaining > 0:
+            reporter.info(
+                f"Waiting for Key Vault data access to propagate ({RBAC_PROPAGATION_DELAY}s)..."
+            )
+            sleep(RBAC_PROPAGATION_DELAY)
+
+    reporter.info(
+        "Key Vault role propagation timeout — proceeding (set_secret will retry if needed)"
+    )
 
 
 def get_secret_value(vault_name: str) -> Optional[str]:
@@ -256,10 +296,6 @@ def get_secret_value(vault_name: str) -> Optional[str]:
             return None
         except Exception:
             return None
-
-
-RBAC_PROPAGATION_RETRIES = 6
-RBAC_PROPAGATION_DELAY = 10  # seconds
 
 
 def set_secret(vault_name: str, api_key: str) -> str:
@@ -327,6 +363,63 @@ def get_secret_resource_id(vault_name: str, resource_group: str) -> str:
         ) from e
 
 
+def prepare_key_vault(
+    vault_name: str,
+    resource_group: str,
+    location: str,
+    subscription: str,
+    reporter: Reporter,
+) -> bool:
+    """Ensure the Key Vault exists and the current user has Secrets Officer
+    on it.
+
+    Splitting this out from ``ensure_api_key_secret`` lets the orchestrator
+    run Key Vault preparation in parallel with Storage Account setup and
+    share a single RBAC propagation wait. Caller is responsible for waiting
+    for the role to propagate when the returned ``role_created`` is ``True``
+    before invoking :func:`set_or_update_secret`.
+
+    Returns ``role_created``.
+    """
+    if not key_vault_exists(vault_name, resource_group):
+        reporter.info(f"Creating Key Vault: {vault_name}")
+        create_key_vault(vault_name, resource_group, location, subscription)
+
+    reporter.info("Granting secrets access to current user...")
+    return grant_current_user_secrets_officer(vault_name, subscription)
+
+
+def set_or_update_secret(
+    config_api_key: str,
+    vault_name: str,
+    resource_group: str,
+    reporter: Reporter,
+) -> str:
+    """Create or update the API key secret and return the versionless secret
+    resource ID.
+
+    Caller must ensure the current user's Secrets Officer role has
+    propagated to the data plane (via :func:`wait_for_secret_access` or
+    the orchestrator's combined wait); the underlying ``set_secret`` and
+    ``get_secret_value`` helpers still retry defensively if propagation
+    is incomplete.
+    """
+    current_value = get_secret_value(vault_name)
+    if current_value == config_api_key:
+        reporter.success(
+            f"API key secret exists (unchanged): {vault_name}/{API_KEY_SECRET_NAME}"
+        )
+    else:
+        if current_value is None:
+            reporter.info(f"Storing API key secret: {API_KEY_SECRET_NAME}")
+        else:
+            reporter.info(f"Updating API key secret in {vault_name}...")
+        set_secret(vault_name, config_api_key)
+        reporter.success(f"API key secret stored: {vault_name}/{API_KEY_SECRET_NAME}")
+
+    return get_secret_resource_id(vault_name, resource_group)
+
+
 def ensure_api_key_secret(
     config_api_key: str,
     vault_name: str,
@@ -337,46 +430,23 @@ def ensure_api_key_secret(
 ) -> str:
     """Create or update the API key secret in Key Vault.
 
-    If the Key Vault doesn't exist, creates it with RBAC authorization.
-    If the secret doesn't exist or has a different value, creates/updates it.
-
-    Args:
-        config_api_key: Datadog API key to store.
-        vault_name: Key Vault name.
-        resource_group: Azure resource group name.
-        location: Azure location for creating the vault.
-        subscription: Azure subscription ID.
-        reporter: Reporter for progress output.
-
-    Returns:
-        The ARM resource ID of the secret (versionless), for passing to
-        the Terraform roles module as `api_key_secret_id`.
-
-    Raises:
-        KeyVaultError: If any Key Vault operation fails.
+    Sequential wrapper around :func:`prepare_key_vault` +
+    :func:`wait_for_secret_access` + :func:`set_or_update_secret`.
+    Kept for callers that want to provision the Key Vault independently
+    of the state Storage Account (the deploy command goes through the
+    parallel orchestrator in ``main.py`` instead).
     """
     reporter.start_step("Storing API key in Key Vault", AgentlessStep.STORE_API_KEY)
 
-    if not key_vault_exists(vault_name, resource_group):
-        reporter.info(f"Creating Key Vault: {vault_name}")
-        create_key_vault(vault_name, resource_group, location, subscription)
-        reporter.info("Granting secrets access to current user...")
-        grant_current_user_secrets_officer(vault_name, subscription)
-        reporter.info(f"Storing API key secret: {API_KEY_SECRET_NAME}")
-        set_secret(vault_name, config_api_key)
-        reporter.success(f"API key stored in Key Vault: {vault_name}")
-    else:
-        reporter.info("Granting secrets access to current user...")
-        grant_current_user_secrets_officer(vault_name, subscription)
+    role_created = prepare_key_vault(
+        vault_name, resource_group, location, subscription, reporter
+    )
 
-        current_value = get_secret_value(vault_name)
-        if current_value == config_api_key:
-            reporter.success(f"API key secret exists (unchanged): {vault_name}/{API_KEY_SECRET_NAME}")
-        else:
-            reporter.info(f"Updating API key secret in {vault_name}...")
-            set_secret(vault_name, config_api_key)
-            reporter.success(f"API key secret updated: {vault_name}/{API_KEY_SECRET_NAME}")
+    if role_created:
+        wait_for_secret_access(vault_name, reporter)
 
-    secret_resource_id = get_secret_resource_id(vault_name, resource_group)
+    secret_resource_id = set_or_update_secret(
+        config_api_key, vault_name, resource_group, reporter
+    )
     reporter.finish_step()
     return secret_resource_id

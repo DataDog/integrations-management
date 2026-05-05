@@ -109,7 +109,7 @@ class TestEnsureStateStorage:
         mock_create_c.assert_called_once()
         assert result == get_storage_account_name("sub-scanner")
 
-    @patch("azure_agentless_setup.state_storage._wait_for_blob_access")
+    @patch("azure_agentless_setup.state_storage.wait_for_blob_access")
     @patch("azure_agentless_setup.state_storage.create_container")
     @patch("azure_agentless_setup.state_storage.container_exists", return_value=False)
     @patch("azure_agentless_setup.state_storage.grant_current_user_blob_data_contributor", return_value=True)

@@ -218,7 +218,7 @@ def grant_current_user_blob_data_contributor(account_name: str, resource_group: 
         ) from e
 
 
-def _wait_for_blob_access(account_name: str, reporter: Reporter) -> None:
+def wait_for_blob_access(account_name: str, reporter: Reporter) -> None:
     """Wait for Storage Blob Data Contributor role to propagate.
 
     Probes actual blob data-plane access instead of sleeping a fixed
@@ -289,28 +289,27 @@ def ensure_resource_group(resource_group: str, location: str, subscription: str)
         ) from e
 
 
-def ensure_state_storage(config: Config, reporter: Reporter) -> str:
-    """Ensure the Terraform state storage infrastructure exists.
+def prepare_storage_account(config: Config, reporter: Reporter) -> tuple[str, bool]:
+    """Ensure the Terraform-state Storage Account exists and the current user
+    has Storage Blob Data Contributor on it.
 
-    Creates (if needed):
-    1. Resource group
-    2. Storage Account
-    3. Blob container
+    Splitting this out from ``ensure_state_storage`` lets the orchestrator
+    run the Storage Account and Key Vault control-plane work in parallel
+    and share a single RBAC propagation wait. Caller is responsible for:
 
-    If config.state_storage_account is set, uses that account (must already exist).
-    Otherwise, creates a default account named with a hash of the subscription ID.
+    * waiting for the role to propagate when the returned ``role_created``
+      is ``True``;
+    * creating the blob container afterwards via
+      :func:`finalize_storage_container` (the container is data-plane and
+      requires the role to have propagated).
 
-    Returns:
-        The storage account name.
-
-    Raises:
-        StorageAccountError: If any storage operation fails.
+    Returns ``(account_name, role_created)``.
     """
-    reporter.start_step("Setting up Terraform state storage", AgentlessStep.CREATE_STATE_STORAGE)
-
     if config.state_storage_account:
         account_name = config.state_storage_account
-        if not storage_account_exists(account_name, config.resource_group, config.scanner_subscription):
+        if not storage_account_exists(
+            account_name, config.resource_group, config.scanner_subscription
+        ):
             reporter.fatal(
                 f"Custom storage account does not exist: {account_name}",
                 f"Create the storage account in resource group '{config.resource_group}' first,\n"
@@ -319,11 +318,9 @@ def ensure_state_storage(config: Config, reporter: Reporter) -> str:
         reporter.success(f"Using custom storage account: {account_name}")
     else:
         account_name = get_storage_account_name(config.scanner_subscription)
-
-        # Ensure the resource group exists before creating the storage account
-        ensure_resource_group(config.resource_group, config.locations[0], config.scanner_subscription)
-
-        if storage_account_exists(account_name, config.resource_group, config.scanner_subscription):
+        if storage_account_exists(
+            account_name, config.resource_group, config.scanner_subscription
+        ):
             reporter.success(f"Using existing storage account: {account_name}")
         else:
             reporter.info(f"Creating storage account: {account_name}")
@@ -335,17 +332,45 @@ def ensure_state_storage(config: Config, reporter: Reporter) -> str:
             )
             reporter.success(f"Created storage account: {account_name}")
 
-    # Grant data-plane access for TF backend (use_azuread_auth = true)
     reporter.info("Granting blob data access to current user...")
     role_created = grant_current_user_blob_data_contributor(account_name, config.resource_group)
+    return account_name, role_created
 
-    if role_created:
-        _wait_for_blob_access(account_name, reporter)
 
-    # Ensure the blob container exists
+def finalize_storage_container(account_name: str, reporter: Reporter) -> None:
+    """Create the tfstate blob container if missing.
+
+    Must run after the current user's Storage Blob Data Contributor role
+    has propagated to the blob data plane (otherwise this fails with
+    AuthorizationPermissionMismatch).
+    """
     if not container_exists(account_name):
         reporter.info(f"Creating blob container: {CONTAINER_NAME}")
         create_container(account_name)
+
+
+def ensure_state_storage(config: Config, reporter: Reporter) -> str:
+    """Ensure the Terraform state storage infrastructure exists.
+
+    Sequential wrapper around :func:`prepare_storage_account` +
+    :func:`wait_for_blob_access` + :func:`finalize_storage_container`.
+    Kept for callers that want to provision state storage independently
+    of the Key Vault (the deploy command goes through the parallel
+    orchestrator in ``main.py`` instead).
+    """
+    reporter.start_step("Setting up Terraform state storage", AgentlessStep.CREATE_STATE_STORAGE)
+
+    if not config.state_storage_account:
+        ensure_resource_group(
+            config.resource_group, config.locations[0], config.scanner_subscription
+        )
+
+    account_name, role_created = prepare_storage_account(config, reporter)
+
+    if role_created:
+        wait_for_blob_access(account_name, reporter)
+
+    finalize_storage_container(account_name, reporter)
 
     reporter.finish_step()
     return account_name
