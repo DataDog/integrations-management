@@ -270,73 +270,51 @@ def wait_for_secret_access(vault_name: str, reporter: Reporter) -> None:
 
 
 def get_secret_value(vault_name: str) -> Optional[str]:
-    """Get the current value of the API key secret.
+    """Return the current value of the API key secret, or ``None`` if it
+    does not exist.
 
-    Retries on failure to handle Azure RBAC propagation delay after
-    granting Key Vault Secrets Officer role.
-
-    Returns:
-        The secret value, or None if the secret doesn't exist.
+    Single-shot: callers must have already waited for Secrets Officer RBAC
+    propagation (via :func:`wait_for_secret_access`) when the role was
+    newly created. When the role pre-existed, propagation is implicit (the
+    role has been live for the full propagation window already), so this
+    avoids burning the old defensive 60s retry budget on every re-deploy.
     """
-    cmd = (
-        Cmd(["az", "keyvault", "secret", "show"])
-        .param("--vault-name", vault_name)
-        .param("--name", API_KEY_SECRET_NAME)
-    )
-    for attempt in range(RBAC_PROPAGATION_RETRIES):
-        try:
-            raw = execute(cmd, can_fail=True)
-            if raw:
-                data = json.loads(raw)
-                return data.get("value")
-            if attempt < RBAC_PROPAGATION_RETRIES - 1:
-                print(f"      Waiting for role assignment to propagate ({RBAC_PROPAGATION_DELAY}s)...")
-                sleep(RBAC_PROPAGATION_DELAY)
-                continue
-            return None
-        except Exception:
-            return None
+    try:
+        raw = execute(
+            Cmd(["az", "keyvault", "secret", "show"])
+            .param("--vault-name", vault_name)
+            .param("--name", API_KEY_SECRET_NAME),
+            can_fail=True,
+        )
+    except Exception:
+        return None
+    if not raw:
+        return None
+    return json.loads(raw).get("value")
 
 
 def set_secret(vault_name: str, api_key: str) -> str:
-    """Create or update the API key secret in Key Vault.
+    """Create or update the API key secret in Key Vault and return the
+    secret's data-plane URL.
 
-    Retries on failure to handle Azure RBAC propagation delay after
-    granting Key Vault Secrets Officer role.
-
-    Returns:
-        The secret data-plane URL (https://<vault>.vault.azure.net/secrets/<name>/<version>).
-
-    Raises:
-        KeyVaultError: If the secret cannot be set after all retries.
+    Single-shot: see :func:`get_secret_value` for the propagation
+    contract. If RBAC has somehow not propagated yet, the underlying
+    ``az keyvault secret set`` raises a clear AuthorizationPermissionMismatch
+    rather than this function silently sleeping for a minute.
     """
-    cmd = (
-        Cmd(["az", "keyvault", "secret", "set"])
-        .param("--vault-name", vault_name)
-        .param("--name", API_KEY_SECRET_NAME)
-        .param("--value", api_key)
-    )
-    for attempt in range(RBAC_PROPAGATION_RETRIES):
-        try:
-            raw = execute(cmd, can_fail=True)
-            if raw:
-                data = json.loads(raw)
-                return data["id"]
-            if attempt < RBAC_PROPAGATION_RETRIES - 1:
-                print(f"      Waiting for role assignment to propagate ({RBAC_PROPAGATION_DELAY}s)...")
-                sleep(RBAC_PROPAGATION_DELAY)
-                continue
-        except Exception as e:
-            raise KeyVaultError(
-                f"Failed to store API key in Key Vault: {vault_name}",
-                str(e),
-            ) from e
-
-    raise KeyVaultError(
-        f"Failed to store API key in Key Vault: {vault_name}",
-        "Timed out waiting for Key Vault RBAC role assignment to propagate.\n"
-        "Please wait a few minutes and re-run the command.",
-    )
+    try:
+        raw = execute(
+            Cmd(["az", "keyvault", "secret", "set"])
+            .param("--vault-name", vault_name)
+            .param("--name", API_KEY_SECRET_NAME)
+            .param("--value", api_key)
+        )
+    except Exception as e:
+        raise KeyVaultError(
+            f"Failed to store API key in Key Vault: {vault_name}",
+            str(e),
+        ) from e
+    return json.loads(raw)["id"]
 
 
 def get_secret_resource_id(vault_name: str, resource_group: str) -> str:
