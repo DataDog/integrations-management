@@ -7,6 +7,7 @@ import os
 import signal
 import sys
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from az_shared.script_status import Status
@@ -27,11 +28,19 @@ from .metadata import (
 )
 from .preflight import run_preflight_checks, validate_datadog_api_key, validate_datadog_app_key
 from .reporter import AgentlessStep, Reporter
-from .secrets import ensure_api_key_secret, get_key_vault_name
+from .secrets import (
+    get_key_vault_name,
+    prepare_key_vault,
+    set_or_update_secret,
+    wait_for_secret_access,
+)
 from .state_storage import (
-    ensure_state_storage,
+    ensure_resource_group,
+    finalize_storage_container,
     find_storage_account_rg,
     get_storage_account_name,
+    prepare_storage_account,
+    wait_for_blob_access,
 )
 from .terraform import TerraformRunner
 
@@ -251,6 +260,94 @@ def _check_existing_deployment(
     return result
 
 
+def ensure_scanner_resources(config: Config, reporter: Reporter) -> tuple[str, str]:
+    """Provision the scanner-side state Storage Account and Key Vault and
+    store the Datadog API key, with control-plane work parallelised across
+    the two resources.
+
+    Layout of the deploy flow this replaces (Cloud Shell, first deploy):
+
+    * sequential:  ~12s SA create + ~30s blob RBAC propagation
+    * sequential:  ~20s KV create + ~30s secret RBAC propagation
+    * total:       ~90s
+
+    With the parallel orchestrator the control-plane creates run
+    concurrently and the two RBAC propagation waits overlap, cutting
+    first-deploy time roughly in half. Each path emits its own progress
+    messages — the lines may interleave, but they are line-buffered so
+    Cloud Shell's UX stays readable.
+
+    Reporter steps are preserved (CREATE_STATE_STORAGE, STORE_API_KEY) so
+    the workflow API contract / Datadog UI percentage display is
+    unchanged. The "create state storage" step is renamed to reflect
+    that it now also provisions the Key Vault.
+
+    Returns ``(storage_account_name, api_key_secret_resource_id)``.
+    """
+    reporter.start_step(
+        "Setting up Terraform state storage and Key Vault",
+        AgentlessStep.CREATE_STATE_STORAGE,
+    )
+
+    # Resource group is the parent of both the SA and the KV, so it must
+    # exist before either path runs. Idempotent when the RG already exists.
+    ensure_resource_group(
+        config.resource_group, config.locations[0], config.scanner_subscription
+    )
+
+    vault_name = get_key_vault_name(config.scanner_subscription)
+
+    # Run the two control-plane paths in parallel: each does its own
+    # existence check + create-if-missing + role grant. Letting the SA and
+    # KV existence checks overlap also covers the "parallelise existence
+    # probes" optimisation.
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        sa_future = executor.submit(prepare_storage_account, config, reporter)
+        kv_future = executor.submit(
+            prepare_key_vault,
+            vault_name,
+            config.resource_group,
+            config.locations[0],
+            config.scanner_subscription,
+            reporter,
+        )
+        storage_account, sa_role_created = sa_future.result()
+        kv_role_created = kv_future.result()
+
+    # Combined RBAC propagation wait: each plane has its own retry loop,
+    # but running them concurrently means the total wait is max(blob, kv)
+    # rather than blob + kv. Skipped entirely when neither role was newly
+    # created (re-runs by the same user on an existing deployment).
+    if sa_role_created or kv_role_created:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            wait_futures = []
+            if sa_role_created:
+                wait_futures.append(
+                    executor.submit(wait_for_blob_access, storage_account, reporter)
+                )
+            if kv_role_created:
+                wait_futures.append(
+                    executor.submit(wait_for_secret_access, vault_name, reporter)
+                )
+            for future in wait_futures:
+                future.result()
+
+    # Container creation is data-plane on the Storage Account; safe to run
+    # now that the blob role has propagated.
+    finalize_storage_container(storage_account, reporter)
+    reporter.finish_step()
+
+    # The secret write is the only remaining work for the API-key step;
+    # the KV is already created and the role has propagated above.
+    reporter.start_step("Storing API key in Key Vault", AgentlessStep.STORE_API_KEY)
+    api_key_secret_id = set_or_update_secret(
+        config.api_key, vault_name, config.resource_group, reporter
+    )
+    reporter.finish_step()
+
+    return storage_account, api_key_secret_id
+
+
 def _print_merged_deployment(
     config: Config,
     existing_metadata: Optional[DeploymentMetadata],
@@ -309,19 +406,10 @@ def cmd_deploy() -> None:
         )
         existing_metadata_result = _check_existing_deployment(config, storage_account_name)
 
-        # Step 2: Create state storage (Storage Account + blob container)
-        storage_account = ensure_state_storage(config, reporter)
-
-        # Step 3: Store API key in Key Vault
-        vault_name = get_key_vault_name(config.scanner_subscription)
-        api_key_secret_id = ensure_api_key_secret(
-            config_api_key=config.api_key,
-            vault_name=vault_name,
-            resource_group=config.resource_group,
-            location=config.locations[0],
-            subscription=config.scanner_subscription,
-            reporter=reporter,
-        )
+        # Steps 2 & 3: provision the scanner-side state Storage Account and
+        # Key Vault in parallel and store the API key. See
+        # ``ensure_scanner_resources`` for the parallelisation rationale.
+        storage_account, api_key_secret_id = ensure_scanner_resources(config, reporter)
 
         existing_metadata = (
             existing_metadata_result.metadata
