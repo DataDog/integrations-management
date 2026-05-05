@@ -14,12 +14,25 @@ from az_shared.script_status import Status
 from .agentless_api import activate_scan_options
 from .config import Config, parse_config
 from .destroy import cmd_destroy
-from .errors import DatadogCredentialsError, SetupError
-from .metadata import DeploymentMetadata, read_metadata, write_metadata, merge_with_config, terraform_state_exists
+from .errors import ConfigurationError, DatadogCredentialsError, SetupError
+from .metadata import (
+    DeploymentMetadata,
+    MetadataReadResult,
+    MetadataReadStatus,
+    merge_with_config,
+    read_metadata,
+    rg_mismatch_detail,
+    terraform_state_exists,
+    write_metadata,
+)
 from .preflight import run_preflight_checks, validate_datadog_api_key, validate_datadog_app_key
 from .reporter import AgentlessStep, Reporter
 from .secrets import ensure_api_key_secret, get_key_vault_name
-from .state_storage import ensure_state_storage
+from .state_storage import (
+    ensure_state_storage,
+    find_storage_account_rg,
+    get_storage_account_name,
+)
 from .terraform import TerraformRunner
 
 
@@ -174,6 +187,70 @@ def _print_current_run_inputs(config: Config) -> None:
         print(f"    - {s}{marker}")
 
 
+def _check_existing_deployment(
+    config: Config,
+    storage_account_name: str,
+) -> MetadataReadResult:
+    """Validate compatibility with any existing deployment before mutating.
+
+    Runs *before* ``ensure_state_storage`` so we can fail fast on a
+    mismatched ``SCANNER_RESOURCE_GROUP``: the deterministic Storage
+    Account / Key Vault names are shared across runs but those resources
+    can only live in one resource group at a time, so a mismatch would
+    otherwise surface much later as a confusing ``StorageAccountAlreadyTaken``
+    after we'd already created an orphaned RG.
+
+    Returns the metadata read result so callers can reuse it for the
+    additive merge instead of issuing a second blob read.
+    """
+    result = read_metadata(storage_account_name)
+
+    if result.status == MetadataReadStatus.PRESENT and result.metadata is not None:
+        existing_rg = result.metadata.resource_group
+        if existing_rg and existing_rg != config.resource_group:
+            raise ConfigurationError(
+                "Resource group mismatch",
+                rg_mismatch_detail(
+                    existing_rg=existing_rg,
+                    requested_rg=config.resource_group,
+                    scanner_subscription=config.scanner_subscription,
+                ),
+            )
+        return result
+
+    if result.status == MetadataReadStatus.ERROR:
+        raise SetupError(
+            "Could not read deployment metadata",
+            f"{result.error_detail or 'unknown error'}\n"
+            "Fix the underlying access/network issue and re-run.\n"
+            "(Proceeding could silently create duplicate resources or "
+            "shrink an existing deployment.)",
+        )
+
+    # MISSING: blob (or its container/SA) does not exist for the requested
+    # resource group. When using the deterministic Storage Account name,
+    # also check whether that SA already lives in *another* RG of the
+    # scanner subscription — that would mean the user is re-running with a
+    # different SCANNER_RESOURCE_GROUP than the original deployment.
+    # Skipped for the custom-SA case: ensure_state_storage already requires
+    # the user-provided account to exist in `config.resource_group`.
+    if config.state_storage_account is None:
+        actual_rg = find_storage_account_rg(
+            storage_account_name, config.scanner_subscription
+        )
+        if actual_rg and actual_rg != config.resource_group:
+            raise ConfigurationError(
+                "Resource group mismatch",
+                rg_mismatch_detail(
+                    existing_rg=actual_rg,
+                    requested_rg=config.resource_group,
+                    scanner_subscription=config.scanner_subscription,
+                ),
+            )
+
+    return result
+
+
 def _print_merged_deployment(
     config: Config,
     existing_metadata: Optional[DeploymentMetadata],
@@ -222,6 +299,16 @@ def cmd_deploy() -> None:
         # Step 1: Preflight checks (on current run inputs first)
         run_preflight_checks(config, reporter)
 
+        # Resolve the storage account name now so we can read existing
+        # deployment metadata *before* any mutation. The deterministic name
+        # is subscription-scoped, so a previous deploy (potentially under a
+        # different SCANNER_RESOURCE_GROUP) is observable from here.
+        storage_account_name = (
+            config.state_storage_account
+            or get_storage_account_name(config.scanner_subscription)
+        )
+        existing_metadata_result = _check_existing_deployment(config, storage_account_name)
+
         # Step 2: Create state storage (Storage Account + blob container)
         storage_account = ensure_state_storage(config, reporter)
 
@@ -236,8 +323,12 @@ def cmd_deploy() -> None:
             reporter=reporter,
         )
 
-        # Read existing metadata and merge with current inputs
-        existing_metadata, metadata_etag = read_metadata(storage_account)
+        existing_metadata = (
+            existing_metadata_result.metadata
+            if existing_metadata_result.status == MetadataReadStatus.PRESENT
+            else None
+        )
+        metadata_etag = existing_metadata_result.etag
 
         if existing_metadata is None and terraform_state_exists(storage_account):
             reporter.warning(

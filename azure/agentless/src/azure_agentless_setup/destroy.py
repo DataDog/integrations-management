@@ -11,12 +11,19 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from az_shared.execute_cmd import execute
+from common.requests import dd_request
 from common.shell import Cmd
 
-from .agentless_api import deactivate_scan_options
 from .config import Config, CONFIG_BASE_DIR, DEFAULT_RESOURCE_GROUP, get_config_dir
-from .errors import SetupError
-from .metadata import read_metadata, delete_metadata, terraform_state_exists
+from .errors import ConfigurationError, SetupError
+from .metadata import (
+    DeploymentMetadata,
+    MetadataReadStatus,
+    delete_metadata,
+    read_metadata,
+    rg_mismatch_detail,
+    terraform_state_exists,
+)
 from .secrets import API_KEY_SECRET_NAME, get_key_vault_name
 from .state_storage import get_storage_account_name, storage_account_exists
 from .terraform import generate_ssh_key, generate_terraform_config, generate_tfvars
@@ -77,6 +84,61 @@ def get_storage_account(scanner_subscription: str) -> str:
     return get_storage_account_name(scanner_subscription)
 
 
+def _resolve_destroy_resource_group(
+    *,
+    metadata: Optional[DeploymentMetadata],
+    metadata_status: MetadataReadStatus,
+    metadata_error_detail: Optional[str],
+    env_rg: Optional[str],
+    scanner_subscription: str,
+) -> str:
+    """Resolve the resource group to use for destroy.
+
+    Precedence (metadata is the source of truth, env var is a fallback for
+    legacy installs only):
+
+      1. Metadata has ``resource_group`` set → use it. If ``SCANNER_RESOURCE_GROUP``
+         is also set and disagrees, raise ``ConfigurationError`` rather than
+         silently destroying the wrong resources (the env var override was
+         the original source of the bug; treating it as a fallback eliminates
+         the foot-gun without adding a new flag).
+      2. Metadata exists but has no ``resource_group`` (legacy install) →
+         require ``SCANNER_RESOURCE_GROUP``.
+      3. No metadata at all → use ``SCANNER_RESOURCE_GROUP`` if set,
+         otherwise the default.
+    """
+    if metadata and metadata.resource_group:
+        if env_rg and env_rg != metadata.resource_group:
+            raise ConfigurationError(
+                "Resource group mismatch",
+                rg_mismatch_detail(
+                    existing_rg=metadata.resource_group,
+                    requested_rg=env_rg,
+                    scanner_subscription=scanner_subscription,
+                ),
+            )
+        return metadata.resource_group
+
+    if metadata:
+        # Metadata blob exists but pre-dates the resource_group field.
+        if not env_rg:
+            raise SetupError(
+                "Resource group required",
+                "This deployment's metadata does not include the resource group "
+                "(installations created before this field was added).\n"
+                "Set SCANNER_RESOURCE_GROUP to the resource group used at deploy time.",
+            )
+        return env_rg
+
+    if metadata_status == MetadataReadStatus.ERROR:
+        print(
+            f"⚠️  Could not read deployment metadata ({metadata_error_detail or 'unknown error'}); "
+            "falling back to SCANNER_RESOURCE_GROUP / default."
+        )
+
+    return env_rg or DEFAULT_RESOURCE_GROUP
+
+
 def get_credentials_from_env() -> tuple:
     """Get Datadog credentials from environment variables.
 
@@ -131,7 +193,8 @@ def regenerate_terraform_config(
 
     api_key, app_key, site = get_credentials_from_env()
 
-    metadata, _ = read_metadata(storage_account)
+    result = read_metadata(storage_account)
+    metadata = result.metadata if result.status == MetadataReadStatus.PRESENT else None
     if metadata:
         print(
             f"Found deployment metadata with {len(metadata.locations)} location(s) "
@@ -140,7 +203,13 @@ def regenerate_terraform_config(
         locations = metadata.locations
         subscriptions_to_scan = metadata.subscriptions_to_scan
     else:
-        print("No deployment metadata found. Using environment variables.")
+        if result.status == MetadataReadStatus.ERROR:
+            print(
+                f"⚠️  Could not read deployment metadata ({result.error_detail or 'unknown error'}); "
+                "falling back to environment variables."
+            )
+        else:
+            print("No deployment metadata found. Using environment variables.")
         locations_str = os.environ.get("SCANNER_LOCATIONS", "").strip()
         subs_str = os.environ.get("SUBSCRIPTIONS_TO_SCAN", "").strip()
 
@@ -276,6 +345,35 @@ def run_terraform_destroy(work_dir: Path) -> None:
         os.chdir(original_dir)
 
 
+def disable_scan_options(subscriptions: list[str]) -> bool:
+    """Disable agentless scan options for each subscription via the Datadog API.
+
+    Returns:
+        True if every subscription was cleaned up, False if at least one failed.
+    """
+    print(f"Disabling scan options for {len(subscriptions)} subscription(s)...")
+    errors = []
+    for sub_id in subscriptions:
+        try:
+            dd_request("DELETE", f"/api/v2/agentless_scanning/accounts/azure/{sub_id}")
+            print(f"  ✅ {sub_id}")
+        except Exception as e:
+            errors.append(sub_id)
+            print(f"  ⚠️  {sub_id}: {e}")
+
+    if errors:
+        print()
+        print(f"⚠️  Failed to disable scan options for {len(errors)} subscription(s).")
+        print("   You can disable them manually from the Datadog UI:")
+        print("   Security → Cloud Security → Settings → Azure")
+        print()
+        return False
+
+    print("  Scan options disabled successfully.")
+    print()
+    return True
+
+
 def delete_key_vault(vault_name: str) -> bool:
     """Delete the Key Vault.
 
@@ -363,26 +461,21 @@ def cmd_destroy() -> None:
 
         # Storage account name is derived from the subscription and does not
         # depend on the resource group, so we can look up metadata first and
-        # then resolve the resource group with metadata as a fallback.
+        # then resolve the resource group with metadata as the source of truth.
         storage_account = get_storage_account(scanner_subscription)
 
-        metadata, _ = read_metadata(storage_account)
+        result = read_metadata(storage_account)
+        metadata = result.metadata if result.status == MetadataReadStatus.PRESENT else None
         subscriptions_to_scan = metadata.subscriptions_to_scan if metadata else []
 
-        env_rg = os.environ.get("SCANNER_RESOURCE_GROUP", "").strip()
-        if env_rg:
-            resource_group = env_rg
-        elif metadata and metadata.resource_group:
-            resource_group = metadata.resource_group
-        elif metadata:
-            raise SetupError(
-                "Resource group required",
-                "This deployment's metadata does not include the resource group "
-                "(installations created before this field was added).\n"
-                "Set SCANNER_RESOURCE_GROUP to the resource group used at deploy time.",
-            )
-        else:
-            resource_group = DEFAULT_RESOURCE_GROUP
+        env_rg = os.environ.get("SCANNER_RESOURCE_GROUP", "").strip() or None
+        resource_group = _resolve_destroy_resource_group(
+            metadata=metadata,
+            metadata_status=result.status,
+            metadata_error_detail=result.error_detail,
+            env_rg=env_rg,
+            scanner_subscription=scanner_subscription,
+        )
 
         work_dir, destroy_ssh_key_dir = get_working_directory(
             scanner_subscription, storage_account, resource_group
@@ -396,7 +489,7 @@ def cmd_destroy() -> None:
 
         scan_options_fully_cleaned = True
         if subscriptions_to_scan:
-            scan_options_fully_cleaned = deactivate_scan_options(subscriptions_to_scan)
+            scan_options_fully_cleaned = disable_scan_options(subscriptions_to_scan)
         else:
             print("⚠️  No subscriptions found in metadata — skipping scan options cleanup.")
             print("   You can disable them manually from the Datadog UI.")

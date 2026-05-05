@@ -13,9 +13,11 @@ silently overwriting each other.
 """
 
 import json
+import subprocess
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
@@ -31,6 +33,65 @@ METADATA_BLOB = "config.json"
 METADATA_VERSION = 1
 MAX_CAS_ATTEMPTS = 3
 TF_STATE_BLOB = "datadog-agentless.tfstate"
+
+
+class MetadataReadStatus(Enum):
+    """Outcome of an attempt to read deployment metadata from blob storage.
+
+    The MISSING / ERROR distinction matters: MISSING is the legitimate
+    "first deploy" path, while ERROR (auth, network, throttling, ...) must
+    not be silently treated as MISSING — that could mask an existing
+    deployment and let a re-run shrink locations/subscriptions.
+    """
+
+    MISSING = "missing"
+    PRESENT = "present"
+    ERROR = "error"
+
+
+@dataclass(frozen=True)
+class MetadataReadResult:
+    """Result of read_metadata().
+
+    On PRESENT, ``metadata`` and ``etag`` are populated.
+    On MISSING / ERROR, ``metadata`` is None; ``error_detail`` is set on ERROR.
+    """
+
+    status: MetadataReadStatus
+    metadata: Optional["DeploymentMetadata"] = None
+    etag: Optional[str] = None
+    error_detail: Optional[str] = None
+
+
+def rg_mismatch_detail(
+    *,
+    existing_rg: str,
+    requested_rg: str,
+    scanner_subscription: str,
+) -> str:
+    """Render the standard "resource group mismatch" detail message.
+
+    Shared between deploy and destroy so users see identical guidance on
+    both paths: the deterministic Storage Account / Key Vault names tie a
+    deployment to a single resource group, and re-running with a different
+    SCANNER_RESOURCE_GROUP would either fail with a confusing
+    AlreadyTaken error (deploy) or destroy the wrong resources (destroy).
+    """
+    return (
+        f"This deployment was created in resource group:\n"
+        f"  - existing:  {existing_rg}   (scanner subscription {scanner_subscription})\n"
+        f"but this run is targeting:\n"
+        f"  - requested: {requested_rg}\n"
+        f"\n"
+        f"The Terraform state, Storage Account and Key Vault are tied to\n"
+        f"the existing resource group. To re-run against this deployment:\n"
+        f"\n"
+        f"  - Unset SCANNER_RESOURCE_GROUP, or set it to:\n"
+        f"      SCANNER_RESOURCE_GROUP={existing_rg}\n"
+        f"\n"
+        f"To deploy in a different resource group, first run `destroy`\n"
+        f"against the existing one, then re-run `deploy` with the new value."
+    )
 
 
 def _utc_now_iso() -> str:
@@ -71,23 +132,56 @@ class DeploymentMetadata:
         )
 
 
-def _get_blob_etag(storage_account: str) -> Optional[str]:
-    """Get the ETag of config.json, or None if it doesn't exist."""
-    try:
-        raw = execute(
-            Cmd(["az", "storage", "blob", "show"])
-            .param("--account-name", storage_account)
-            .param("--container-name", CONTAINER_NAME)
-            .param("--name", METADATA_BLOB)
-            .param("--auth-mode", "login")
-            .param("--query", "properties.etag")
-            .param("--output", "tsv"),
-            can_fail=True,
-        )
-        etag = raw.strip().strip('"')
-        return etag if etag else None
-    except Exception:
-        return None
+_BLOB_MISSING_MARKERS = (
+    "blobnotfound",
+    "containernotfound",
+    "the specified blob does not exist",
+    "the specified container does not exist",
+    "resourcenotfound",
+    "the specified resource does not exist",
+)
+
+
+def _classify_blob_show_failure(stderr: str) -> tuple[MetadataReadStatus, Optional[str]]:
+    """Map an ``az storage blob show`` failure to MISSING vs ERROR.
+
+    Returns ``(status, error_detail)``. ``error_detail`` is populated on
+    ERROR so callers can surface it to the user.
+    """
+    s = (stderr or "").lower()
+    if any(marker in s for marker in _BLOB_MISSING_MARKERS):
+        return MetadataReadStatus.MISSING, None
+    detail = (stderr or "").strip() or "az storage blob show failed"
+    return MetadataReadStatus.ERROR, detail
+
+
+def _show_metadata_blob(storage_account: str) -> MetadataReadResult:
+    """Look up the metadata blob's ETag and classify the outcome.
+
+    Bypasses ``az_shared.execute`` so we can read stderr and distinguish
+    a legitimate 404 (BlobNotFound / ContainerNotFound / ResourceNotFound)
+    from auth/network/throttling failures. Treating the latter as MISSING
+    would be unsafe — it could trick a re-deploy into thinking it's a
+    first run and forget locations/subscriptions tracked in the existing
+    blob.
+    """
+    cmd = str(
+        Cmd(["az", "storage", "blob", "show"])
+        .param("--account-name", storage_account)
+        .param("--container-name", CONTAINER_NAME)
+        .param("--name", METADATA_BLOB)
+        .param("--auth-mode", "login")
+        .param("--query", "properties.etag")
+        .param("--output", "tsv")
+    )
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+
+    if result.returncode == 0:
+        etag = (result.stdout or "").strip().strip('"') or None
+        return MetadataReadResult(MetadataReadStatus.PRESENT, etag=etag)
+
+    status, detail = _classify_blob_show_failure(result.stderr or "")
+    return MetadataReadResult(status, error_detail=detail)
 
 
 def _download_metadata(storage_account: str) -> Optional[str]:
@@ -154,27 +248,43 @@ def _upload_metadata_cas(storage_account: str, content: str, etag: Optional[str]
         Path(tmp_path).unlink(missing_ok=True)
 
 
-def read_metadata(storage_account: str) -> tuple[Optional[DeploymentMetadata], Optional[str]]:
+def read_metadata(storage_account: str) -> MetadataReadResult:
     """Read deployment metadata from blob storage.
 
     Gets the ETag first, then downloads the content. If another process
-    writes between these two calls, our ETag will be stale and the CAS
-    write will safely fail.
+    writes between these two calls our ETag is stale and the CAS write
+    will safely fail.
 
-    Returns:
-        Tuple of (metadata or None, ETag or None).
+    Returns a tri-state ``MetadataReadResult``:
+
+      * ``MISSING`` — the blob (or its container / storage account) does
+        not exist; this is the typical first-deploy path.
+      * ``PRESENT`` — the blob exists and was parsed; ``metadata`` and
+        ``etag`` are populated.
+      * ``ERROR`` — the read failed for a non-404 reason; callers must
+        not silently treat this as MISSING (see ``MetadataReadStatus``).
     """
-    etag = _get_blob_etag(storage_account)
-    if etag is None:
-        return None, None
+    show = _show_metadata_blob(storage_account)
+    if show.status != MetadataReadStatus.PRESENT:
+        return show
 
     content = _download_metadata(storage_account)
     if content is None:
-        return None, None
+        # ETag fetch worked, content download didn't: classify as ERROR so
+        # the caller doesn't proceed as "first deploy".
+        return MetadataReadResult(
+            MetadataReadStatus.ERROR,
+            etag=show.etag,
+            error_detail=f"failed to download {METADATA_BLOB} from {storage_account}/{CONTAINER_NAME}",
+        )
 
     try:
         data = json.loads(content)
-        return DeploymentMetadata.from_dict(data), etag
+        return MetadataReadResult(
+            MetadataReadStatus.PRESENT,
+            metadata=DeploymentMetadata.from_dict(data),
+            etag=show.etag,
+        )
     except (json.JSONDecodeError, KeyError) as e:
         raise MetadataError(
             "Failed to parse deployment metadata",
@@ -203,9 +313,10 @@ def write_metadata(
         if _upload_metadata_cas(storage_account, content, expected_etag):
             return
 
-        remote_metadata, expected_etag = read_metadata(storage_account)
-        if remote_metadata is not None and config is not None:
-            metadata = merge_with_config(remote_metadata, config)
+        remote = read_metadata(storage_account)
+        expected_etag = remote.etag
+        if remote.status == MetadataReadStatus.PRESENT and remote.metadata is not None and config is not None:
+            metadata = merge_with_config(remote.metadata, config)
 
     raise MetadataError(
         "Failed to write deployment metadata",
