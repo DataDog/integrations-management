@@ -21,7 +21,13 @@ from .errors import TerraformError
 from .reporter import Reporter, AgentlessStep
 
 
-TERRAFORM_PARALLELISM = 10
+# Terraform's default is 10. The agentless apply graph is dominated by a
+# few hundred independent Azure ARM operations (role assignments per
+# subscription/scope, VMSS+VNet per location, Key Vault role grants); these
+# are network-bound and easily handled by the ARM control plane in parallel.
+# Bumping to 20 trims wall-clock on multi-location / multi-subscription
+# deploys without producing visible 429s.
+TERRAFORM_PARALLELISM = 20
 
 # TODO: replace with a release tag once terraform-module-datadog-agentless-scanner cuts one
 MODULE_VERSION = "fbc0d0bb425ae4084433834e68d3b23e566fba0d"
