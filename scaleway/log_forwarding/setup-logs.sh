@@ -123,13 +123,12 @@ SCW_PROJECT_ID="${SCW_PROJECT_ID:-$(scw_config_get default-project-id)}"
 # if Scaleway changes that format the parse silently falls back to the
 # hardcoded list below.
 _scw_cockpit_regions() {
-  scw cockpit data-source list --help 2>&1 \
-    | grep 'region=' \
-    | sed 's/.*(\(.*\))/\1/' \
-    | tr '|' '\n' | tr -d ' ' \
-    | grep -Ev '^$|^all$' \
-    | paste -sd ',' \
-    || echo "fr-par,nl-ams,pl-waw"
+  local regions
+  regions=$(scw cockpit data-source list --help 2>&1 \
+    | grep 'region=' | sed 's/.*(\(.*\))/\1/' \
+    | tr '|' '\n' | tr -d ' ' | grep -Ev '^$|^all$' \
+    | paste -sd ',') || true
+  echo "${regions:-fr-par,nl-ams,pl-waw}"
 }
 SCALEWAY_REGIONS="${SCALEWAY_REGIONS:-$(_scw_cockpit_regions)}"
 SCALEWAY_PRODUCTS="${SCALEWAY_PRODUCTS:-all}"            # "all" or CSV of Cockpit product names (e.g. "kubernetes,rdb")
@@ -147,6 +146,7 @@ IAM_POLICY_NAME="datadog-integration-policy"            # stable IAM policy name
 IAM_ACCESS_KEY=""   # set by provision_iam_application
 IAM_SECRET_KEY=""   # set by provision_iam_application
 _IAM_OLD_KEYS=""    # old keys staged for cleanup after account registration
+_AUDIT_DEPLOYED=false # set to true when setup_audit_trail successfully redeploys the collector
 # Internal: skip IAM provisioning when credentials are supplied externally (multi-site testing).
 SKIP_IAM="${SKIP_IAM:-false}"
 # Internal: if set, write generated IAM credentials to this file for multi-site reuse.
@@ -212,11 +212,31 @@ dd_get()   { dd_request GET   "$1"; }
 dd_post()  { dd_request POST  "$1" "$2"; }
 dd_patch() { dd_request PATCH "$1" "$2"; }
 
+# Fetches all pages from a Datadog list endpoint (page[limit]/page[offset]).
+# Returns {"data": [...]} with every item from every page merged.
+dd_get_all() {
+  local path="$1"
+  local limit=100 offset=0
+  local sep='?'; [[ "$path" == *'?'* ]] && sep='&'
+  local all_items='[]'
+  while true; do
+    local resp items count
+    resp=$(dd_get "${path}${sep}page[limit]=${limit}&page[offset]=${offset}") || return 1
+    items=$(jq '.data // []' <<< "$resp")
+    count=$(jq 'length' <<< "$items")
+    all_items=$(jq -n --argjson a "$all_items" --argjson b "$items" '$a + $b')
+    (( count < limit )) && break
+    (( offset += limit ))
+  done
+  jq -n --argjson data "$all_items" '{"data": $data}'
+}
+
 # ── Prerequisites check ───────────────────────────────────────────────────────
 check_prereqs() {
   local missing=()
   command -v curl &>/dev/null || missing+=(curl)
   command -v jq   &>/dev/null || missing+=(jq)
+  command -v scw  &>/dev/null || missing+=(scw)
   if [[ ${#missing[@]} -gt 0 ]]; then
     die "Missing required tools: ${missing[*]}
   Install with:
@@ -349,7 +369,7 @@ provision_iam_application() {
   log "Switched to application credentials for remaining setup."
 
   if [[ -n "$MULTISITE_CREDS_FILE" ]]; then
-    printf 'SCW_ACCESS_KEY=%s\nSCW_SECRET_KEY=%s\n' "$IAM_ACCESS_KEY" "$IAM_SECRET_KEY" > "$MULTISITE_CREDS_FILE"
+    (umask 077; printf 'SCW_ACCESS_KEY=%s\nSCW_SECRET_KEY=%s\n' "$IAM_ACCESS_KEY" "$IAM_SECRET_KEY" > "$MULTISITE_CREDS_FILE")
   fi
   echo
 }
@@ -405,7 +425,7 @@ register_datadog_account() {
 
   log "Checking for existing Datadog Scaleway account '${account_name}'..."
   local accounts_resp account_id
-  accounts_resp=$(dd_get "/api/v2/web-integrations/scaleway/accounts") \
+  accounts_resp=$(dd_get_all "/api/v2/web-integrations/scaleway/accounts") \
     || die "Failed to list Datadog Scaleway accounts"
   account_id=$(jq -r --arg name "$account_name" \
     'first(.data[] | select(.attributes.name == $name) | .id) // empty' <<< "$accounts_resp")
@@ -415,13 +435,13 @@ register_datadog_account() {
     log "Account exists — updating (id=${account_id})..."
     action_resp=$(dd_patch "/api/v2/web-integrations/scaleway/accounts/${account_id}" "$payload") \
       || die "Failed to update Datadog Scaleway account"
-    account_id=$(jq -r '.data.id // .id // "dry-run-id"' <<< "$action_resp")
+    account_id=$(jq -r 'if (.data | type) == "object" then .data.id // "dry-run-id" else (.id // "dry-run-id") end' <<< "$action_resp")
     ok "Updated Datadog Scaleway account '${account_name}' (id=${account_id})"
   else
     log "Creating Datadog Scaleway account '${account_name}'..."
     action_resp=$(dd_post "/api/v2/web-integrations/scaleway/accounts" "$payload") \
       || die "Failed to create Datadog Scaleway account"
-    account_id=$(jq -r '.data.id // .id // "dry-run-id"' <<< "$action_resp")
+    account_id=$(jq -r 'if (.data | type) == "object" then .data.id // "dry-run-id" else (.id // "dry-run-id") end' <<< "$action_resp")
     ok "Created Datadog Scaleway account '${account_name}' (id=${account_id})"
   fi
 
@@ -674,6 +694,7 @@ EOF
   ok "Audit trail collector deployed and running on ${SCW_INSTANCE_IP}"
   ok "Verify: ssh ${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP} journalctl -fu opentelemetry-collector"
   ok "Logs will appear in Datadog > Logs within ~1 minute."
+  _AUDIT_DEPLOYED=true
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -708,14 +729,21 @@ main() {
 
   register_datadog_account
 
-  # Clean up old IAM keys now that the new key is persisted in Datadog.
-  local old_key
-  while IFS= read -r old_key; do
-    [[ -z "$old_key" ]] && continue
-    scw iam api-key delete "access-key=${old_key}" 2>/dev/null \
-      && log "Deleted old API key ${old_key}" \
-      || warn "Could not delete old API key ${old_key} — remove it manually from the Scaleway console"
-  done <<< "$_IAM_OLD_KEYS"
+  # Clean up old IAM keys only when safe — a deployed audit collector that was not
+  # redeployed this run still holds the old key, so revoking it breaks log forwarding.
+  if [[ "$ENABLE_AUDIT_TRAIL" != "true" ]] || [[ "$_AUDIT_DEPLOYED" == "true" ]]; then
+    local old_key
+    while IFS= read -r old_key; do
+      [[ -z "$old_key" ]] && continue
+      scw iam api-key delete "access-key=${old_key}" 2>/dev/null \
+        && log "Deleted old API key ${old_key}" \
+        || warn "Could not delete old API key ${old_key} — remove it manually from the Scaleway console"
+    done <<< "$_IAM_OLD_KEYS"
+  else
+    local stale_keys
+    stale_keys=$(tr '\n' ' ' <<< "$_IAM_OLD_KEYS")
+    [[ -n "${stale_keys// }" ]] && warn "Audit collector was not redeployed this run — skipping cleanup of old IAM keys. Rotate manually when safe: ${stale_keys}"
+  fi
 
   ok "Setup complete."
   print_datadog_credentials
