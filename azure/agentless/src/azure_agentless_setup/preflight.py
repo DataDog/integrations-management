@@ -4,6 +4,7 @@
 """Preflight checks before running Terraform."""
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from typing import Optional
 
 from az_shared.auth import check_login
@@ -210,23 +211,18 @@ def _check_scan_subscription(scan_subscription: str) -> list[str]:
     )
 
 
-def check_subscriptions_permissions_parallel(
-    reporter: Reporter,
+def _collect_permission_failures(
     scanner_subscription: str,
     all_subscriptions: list[str],
     resource_group: str,
-    scanner_rg_exists: bool,
-) -> list[str]:
-    """Check permissions on all subscriptions in parallel.
+) -> list[tuple[str, list[str]]]:
+    """Probe permissions on every subscription in parallel.
 
-    Scanner subscription: see :func:`_check_scanner_subscription` — probed at
-    RG scope when the RG already exists, subscription scope otherwise.
-    Scan-only subscriptions: probed at subscription scope for the
-    cross-subscription role-assignment write.
-
-    Returns the list of subscription IDs that failed permission checks.
+    Returns a list of ``(subscription_id, missing_actions)`` for subscriptions
+    that fail the check, **sorted by subscription ID** so callers can surface
+    errors deterministically after a parallel preflight phase.
     """
-    failed = []
+    scanner_rg_exists = resource_group_exists(resource_group, scanner_subscription)
 
     def _check(sub_id: str) -> tuple[str, list[str]]:
         if sub_id == scanner_subscription:
@@ -235,27 +231,42 @@ def check_subscriptions_permissions_parallel(
             )
         return sub_id, _check_scan_subscription(sub_id)
 
+    failures: list[tuple[str, list[str]]] = []
     with ThreadPoolExecutor(max_workers=min(len(all_subscriptions), MAX_PARALLEL_WORKERS)) as executor:
         futures = {executor.submit(_check, s): s for s in all_subscriptions}
-
         for future in as_completed(futures):
             sub_id, missing = future.result()
             if missing:
-                detail = "\n".join(f"    - {a}" for a in missing)
-                reporter.error(f"Missing permissions on subscription: {sub_id}", f"Required actions:\n{detail}")
-                failed.append(sub_id)
+                failures.append((sub_id, missing))
 
-    return failed
+    failures.sort(key=lambda pair: pair[0])
+    return failures
 
 
-def validate_locations(reporter: Reporter, locations: list[str]) -> None:
-    """Validate that location names are valid Azure regions.
+def check_subscriptions_permissions_parallel(
+    reporter: Reporter,
+    scanner_subscription: str,
+    all_subscriptions: list[str],
+    resource_group: str,
+) -> list[str]:
+    """Check permissions on all subscriptions in parallel.
 
-    Fetches all available regions in a single API call via ``az_shared.regions``
-    and checks that every requested location is in the returned list.
+    Returns the list of subscription IDs that failed permission checks.
+    """
+    failed_pairs = _collect_permission_failures(
+        scanner_subscription, all_subscriptions, resource_group
+    )
+    for sub_id, missing in failed_pairs:
+        detail = "\n".join(f"    - {a}" for a in missing)
+        reporter.error(f"Missing permissions on subscription: {sub_id}", f"Required actions:\n{detail}")
+    return [sub_id for sub_id, _ in failed_pairs]
+
+
+def _validate_locations_core(locations: list[str]) -> None:
+    """Validate location names against ``az account list-locations``.
 
     Raises:
-        ConfigurationError: If any location is invalid.
+        ConfigurationError: If regions cannot be fetched or any location is invalid.
     """
     try:
         available = get_available_regions()
@@ -278,6 +289,18 @@ def validate_locations(reporter: Reporter, locations: list[str]) -> None:
             "These locations do not exist or are not accessible.\n"
             "Run 'az account list-locations --query \"[].name\"' to see available locations.",
         )
+
+
+def validate_locations(reporter: Reporter, locations: list[str]) -> None:
+    """Validate that location names are valid Azure regions.
+
+    Fetches all available regions in a single API call via ``az_shared.regions``
+    and checks that every requested location is in the returned list.
+
+    Raises:
+        ConfigurationError: If any location is invalid.
+    """
+    _validate_locations_core(locations)
     reporter.success(f"Location(s) validated: {', '.join(locations)}")
 
 
@@ -304,6 +327,85 @@ def _register_resource_provider(provider: str, subscription_id: str) -> tuple[st
         return provider, False, str(e)
 
 
+@dataclass(frozen=True)
+class _ResourceProviderPreflightOutcome:
+    """Result of :func:`_ensure_resource_providers_core`."""
+
+    all_registered: bool
+    """True when every required namespace was already Registered or Registering."""
+
+    newly_registered: tuple[str, ...]
+    """Namespaces that were not registered and had ``az provider register`` run successfully."""
+
+
+def _discover_unregistered_resource_providers(subscription_id: str) -> list[str]:
+    """Return namespaces from :data:`REQUIRED_RESOURCE_PROVIDERS` that are not
+    ``Registered`` / ``Registering`` in ``subscription_id``.
+    """
+    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
+        futures = {
+            executor.submit(_check_resource_provider, p, subscription_id): p
+            for p in REQUIRED_RESOURCE_PROVIDERS
+        }
+        unregistered: list[str] = []
+        for future in as_completed(futures):
+            provider, state = future.result()
+            if state not in ("Registered", "Registering"):
+                unregistered.append(provider)
+    return sorted(unregistered)
+
+
+def _register_resource_providers_or_raise(
+    subscription_id: str,
+    unregistered: list[str],
+) -> tuple[str, ...]:
+    """Register every namespace in ``unregistered`` in parallel.
+
+    Returns the sorted tuple of provider names that were requested (all
+    succeeded).
+
+    Raises:
+        ResourceProviderError: If any registration fails.
+    """
+    errors: list[tuple[str, str]] = []
+    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
+        futures = {
+            executor.submit(_register_resource_provider, p, subscription_id): p
+            for p in unregistered
+        }
+        for future in as_completed(futures):
+            provider, success, error = future.result()
+            if not success:
+                errors.append((provider, error or "unknown error"))
+
+    if errors:
+        error_details = "\n".join(f"  - {p}: {e}" for p, e in errors)
+        raise ResourceProviderError(
+            f"Failed to register {len(errors)} resource provider(s)",
+            error_details,
+        )
+    return tuple(sorted(unregistered))
+
+
+def _ensure_resource_providers_core(subscription_id: str) -> _ResourceProviderPreflightOutcome:
+    """Check required resource providers and register any that are missing.
+
+    Used by the parallel preflight phase (no ``reporter`` I/O).
+
+    Raises:
+        ResourceProviderError: If providers cannot be registered.
+    """
+    unregistered = _discover_unregistered_resource_providers(subscription_id)
+    if not unregistered:
+        return _ResourceProviderPreflightOutcome(all_registered=True, newly_registered=())
+
+    _register_resource_providers_or_raise(subscription_id, unregistered)
+    return _ResourceProviderPreflightOutcome(
+        all_registered=False,
+        newly_registered=tuple(unregistered),
+    )
+
+
 def check_and_register_resource_providers(
     reporter: Reporter,
     subscription_id: str,
@@ -313,47 +415,24 @@ def check_and_register_resource_providers(
     Raises:
         ResourceProviderError: If providers cannot be registered.
     """
-    # Check all providers in parallel
-    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
-        futures = {
-            executor.submit(_check_resource_provider, p, subscription_id): p
-            for p in REQUIRED_RESOURCE_PROVIDERS
-        }
-        unregistered = []
-        for future in as_completed(futures):
-            provider, state = future.result()
-            if state not in ("Registered", "Registering"):
-                unregistered.append(provider)
-
+    unregistered = _discover_unregistered_resource_providers(subscription_id)
     if not unregistered:
         reporter.success("All required resource providers registered")
         return
 
-    # Register missing providers in parallel
     reporter.info(f"Registering {len(unregistered)} resource provider(s)...")
-    errors = []
-    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
-        futures = {
-            executor.submit(_register_resource_provider, p, subscription_id): p
-            for p in unregistered
-        }
-        for future in as_completed(futures):
-            provider, success, error = future.result()
-            if not success:
-                errors.append((provider, error))
-
-    if errors:
-        error_details = "\n".join(f"  - {p}: {e}" for p, e in errors)
-        raise ResourceProviderError(
-            f"Failed to register {len(errors)} resource provider(s)",
-            error_details,
-        )
-
-    reporter.success(f"Registered resource provider(s): {', '.join(unregistered)}")
+    registered = _register_resource_providers_or_raise(subscription_id, unregistered)
+    reporter.success(f"Registered resource provider(s): {', '.join(registered)}")
 
 
 def run_preflight_checks(config: Config, reporter: Reporter) -> None:
     """Run all preflight checks.
+
+    Location validation, cross-subscription permission probes, and resource
+    provider discovery/registration run concurrently (three-way outer
+    executor). Console / workflow-status output is emitted **after** all
+    three finish, in a fixed order (locations → permissions → resource
+    providers) so messages never interleave.
 
     Raises:
         AzureAuthenticationError: If not authenticated with Azure.
@@ -367,35 +446,55 @@ def run_preflight_checks(config: Config, reporter: Reporter) -> None:
 
     set_subscription(reporter, config.scanner_subscription)
 
-    validate_locations(reporter, config.locations)
-
-    # Determine whether the scanner RG exists so we can probe permissions at
-    # the RG scope (vs subscription scope) when it does, and drop the
-    # resourceGroups/write requirement that would otherwise block users with
-    # RG-scoped Contributor on a pre-provisioned resource group.
-    scanner_rg_exists = resource_group_exists(
-        config.resource_group, config.scanner_subscription
-    )
-
     reporter.info(f"Checking permissions on {len(config.all_subscriptions)} subscription(s)...")
-    failed = check_subscriptions_permissions_parallel(
-        reporter,
-        config.scanner_subscription,
-        config.all_subscriptions,
-        config.resource_group,
-        scanner_rg_exists,
+    reporter.info(
+        f"Checking resource providers in scanner subscription ({config.scanner_subscription})..."
     )
 
-    if failed:
-        raise AzureAccessError(
-            f"Insufficient permissions on {len(failed)} subscription(s)",
-            "Ensure you have the required role assignments on:\n"
-            + "\n".join(f"  - {s}" for s in failed),
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        f_locations = executor.submit(_validate_locations_core, config.locations)
+        f_permissions = executor.submit(
+            _collect_permission_failures,
+            config.scanner_subscription,
+            config.all_subscriptions,
+            config.resource_group,
+        )
+        f_resource_providers = executor.submit(
+            _ensure_resource_providers_core,
+            config.scanner_subscription,
         )
 
-    reporter.success(f"Permissions verified for {len(config.all_subscriptions)} subscription(s)")
+        # Resolve futures in a fixed order so the first failure matches the
+        # historical preflight semantics (locations → permissions → RP) even
+        # though the work ran in parallel.
+        f_locations.result()
+        failed_pairs = f_permissions.result()
+        rp_outcome = f_resource_providers.result()
 
-    reporter.info(f"Checking resource providers in scanner subscription ({config.scanner_subscription})...")
-    check_and_register_resource_providers(reporter, config.scanner_subscription)
+    reporter.success(f"Location(s) validated: {', '.join(config.locations)}")
+
+    for sub_id, missing in failed_pairs:
+        detail = "\n".join(f"    - {a}" for a in missing)
+        reporter.error(
+            f"Missing permissions on subscription: {sub_id}",
+            f"Required actions:\n{detail}",
+        )
+    if failed_pairs:
+        raise AzureAccessError(
+            f"Insufficient permissions on {len(failed_pairs)} subscription(s)",
+            "Ensure you have the required role assignments on:\n"
+            + "\n".join(f"  - {s}" for s, _ in failed_pairs),
+        )
+
+    reporter.success(
+        f"Permissions verified for {len(config.all_subscriptions)} subscription(s)"
+    )
+
+    if rp_outcome.all_registered:
+        reporter.success("All required resource providers registered")
+    else:
+        reporter.success(
+            f"Registered resource provider(s): {', '.join(rp_outcome.newly_registered)}"
+        )
 
     reporter.finish_step()
