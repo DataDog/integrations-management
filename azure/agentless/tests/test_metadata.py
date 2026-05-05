@@ -2,13 +2,18 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 
+from unittest.mock import patch
+
 import pytest
 
 from azure_agentless_setup.config import Config
 from azure_agentless_setup.errors import MetadataError
 from azure_agentless_setup.metadata import (
     DeploymentMetadata,
+    MetadataReadResult,
+    MetadataReadStatus,
     merge_with_config,
+    read_metadata,
 )
 
 
@@ -140,3 +145,69 @@ class TestMergeWithConfig:
 
         assert result.locations == sorted(["eastus", "southeastasia", "westeurope"])
         assert len(set(result.subscriptions_to_scan)) == len(result.subscriptions_to_scan)
+
+
+class TestReadMetadata:
+    """Contract tests for :func:`read_metadata` tri-state outcomes."""
+
+    @patch("azure_agentless_setup.metadata._download_metadata")
+    @patch("azure_agentless_setup.metadata._show_metadata_blob")
+    def test_missing_short_circuits_without_download(self, mock_show, mock_download):
+        mock_show.return_value = MetadataReadResult(MetadataReadStatus.MISSING)
+
+        result = read_metadata("stacct")
+
+        assert result.status == MetadataReadStatus.MISSING
+        mock_download.assert_not_called()
+
+    @patch("azure_agentless_setup.metadata._download_metadata")
+    @patch("azure_agentless_setup.metadata._show_metadata_blob")
+    def test_error_from_blob_show_propagates(self, mock_show, mock_download):
+        mock_show.return_value = MetadataReadResult(
+            MetadataReadStatus.ERROR,
+            error_detail="AuthorizationFailed",
+        )
+
+        result = read_metadata("stacct")
+
+        assert result.status == MetadataReadStatus.ERROR
+        assert result.error_detail == "AuthorizationFailed"
+        mock_download.assert_not_called()
+
+    @patch("azure_agentless_setup.metadata._download_metadata")
+    @patch("azure_agentless_setup.metadata._show_metadata_blob")
+    def test_present_etag_but_download_fails_is_error_not_missing(self, mock_show, mock_download):
+        """If blob show succeeds but download fails, callers must not treat the
+        deployment as absent (that would risk additive-merge data loss)."""
+        mock_show.return_value = MetadataReadResult(
+            MetadataReadStatus.PRESENT,
+            etag='"etag1"',
+        )
+        mock_download.return_value = None
+
+        result = read_metadata("stacct")
+
+        assert result.status == MetadataReadStatus.ERROR
+        assert result.etag == '"etag1"'
+        assert result.error_detail and "download" in result.error_detail.lower()
+
+    @patch("azure_agentless_setup.metadata._download_metadata")
+    @patch("azure_agentless_setup.metadata._show_metadata_blob")
+    def test_present_parses_metadata_and_preserves_etag(self, mock_show, mock_download):
+        mock_show.return_value = MetadataReadResult(
+            MetadataReadStatus.PRESENT,
+            etag='"e2"',
+        )
+        mock_download.return_value = (
+            '{"version": 1, "scanner_subscription": "sub-s", "resource_group": "rg-x", '
+            '"locations": ["eastus"], "subscriptions_to_scan": ["sub-s", "sub-a"], '
+            '"created_at": "t0", "modified_at": "t0"}'
+        )
+
+        result = read_metadata("stacct")
+
+        assert result.status == MetadataReadStatus.PRESENT
+        assert result.metadata is not None
+        assert result.metadata.resource_group == "rg-x"
+        assert result.metadata.scanner_subscription == "sub-s"
+        assert result.etag == '"e2"'
