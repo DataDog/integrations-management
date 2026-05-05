@@ -7,8 +7,9 @@ import pytest
 
 from azure_agentless_setup.errors import KeyVaultError
 from azure_agentless_setup.secrets import (
-    get_key_vault_name,
+    create_key_vault,
     ensure_api_key_secret,
+    get_key_vault_name,
 )
 
 
@@ -116,3 +117,51 @@ class TestEnsureApiKeySecret:
             )
 
         assert "creation failed" in str(exc.value)
+
+
+class TestCreateKeyVaultSoftDeleteMismatch:
+    """A soft-deleted Key Vault can only be recovered into its original
+    resource group. We must refuse to recover into a different RG instead
+    of letting az emit an opaque error."""
+
+    @staticmethod
+    def _deleted(original_rg: str) -> dict:
+        return {
+            "name": "datadog-vault",
+            "properties": {
+                "vaultId": (
+                    f"/subscriptions/sub/resourceGroups/{original_rg}/"
+                    "providers/Microsoft.KeyVault/vaults/datadog-vault"
+                ),
+            },
+        }
+
+    @patch("azure_agentless_setup.secrets._get_soft_deleted_vault")
+    def test_raises_on_rg_mismatch_with_purge_hint(self, mock_get_deleted):
+        mock_get_deleted.return_value = self._deleted(original_rg="rg-original")
+
+        with pytest.raises(KeyVaultError) as exc:
+            create_key_vault(
+                vault_name="datadog-vault",
+                resource_group="rg-other",
+                location="eastus",
+                subscription="sub",
+            )
+
+        assert "rg-original" in exc.value.detail
+        assert "rg-other" in exc.value.detail
+        assert "az keyvault purge" in exc.value.detail
+
+    @patch("azure_agentless_setup.secrets._recover_soft_deleted")
+    @patch("azure_agentless_setup.secrets._get_soft_deleted_vault")
+    def test_recovers_when_rg_matches(self, mock_get_deleted, mock_recover):
+        mock_get_deleted.return_value = self._deleted(original_rg="rg-original")
+
+        create_key_vault(
+            vault_name="datadog-vault",
+            resource_group="rg-original",
+            location="eastus",
+            subscription="sub",
+        )
+
+        mock_recover.assert_called_once_with("datadog-vault")
