@@ -40,7 +40,7 @@ python azure_agentless_setup.pyz deploy
 | `SCANNER_SUBSCRIPTION` | Yes | Azure subscription ID where the scanner will be deployed |
 | `SCANNER_LOCATIONS` | Yes | Comma-separated list of Azure locations (max 4) for scanners (e.g., `eastus` or `eastus,westeurope`) |
 | `SUBSCRIPTIONS_TO_SCAN` | Yes | Comma-separated list of Azure subscription IDs to scan |
-| `SCANNER_RESOURCE_GROUP` | No | Resource group name for scanner resources (default: `datadog-agentless-scanner`) |
+| `SCANNER_RESOURCE_GROUP` | No | Resource group name for scanner resources (default: `datadog-agentless-scanner`). Cannot be changed after the first deploy — to switch resource groups, run `destroy` first. |
 | `TF_STATE_STORAGE_ACCOUNT` | No | Custom Azure Storage Account for Terraform state (see below) |
 
 Re-running `deploy` with new `SCANNER_LOCATIONS` or `SUBSCRIPTIONS_TO_SCAN` values merges them with the existing deployment (stored in the Terraform state storage account) instead of replacing it.
