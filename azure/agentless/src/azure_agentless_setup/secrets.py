@@ -49,18 +49,62 @@ def key_vault_exists(vault_name: str, resource_group: str) -> bool:
         return False
 
 
-def _is_soft_deleted(vault_name: str, location: str) -> bool:
-    """Check if a Key Vault exists in soft-deleted state."""
+def _get_soft_deleted_vault(vault_name: str, location: str) -> Optional[dict]:
+    """Return the soft-deleted vault descriptor, or None if not soft-deleted.
+
+    The descriptor exposes ``properties.vaultId`` from which the original
+    resource group can be recovered.
+    """
     try:
-        result = execute(
+        raw = execute(
             Cmd(["az", "keyvault", "show-deleted"])
             .param("--name", vault_name)
             .param("--location", location),
             can_fail=True,
         )
-        return bool(result)
+        if not raw:
+            return None
+        return json.loads(raw)
     except Exception:
-        return False
+        return None
+
+
+def _resource_group_from_arm_id(arm_id: str) -> Optional[str]:
+    """Extract the resource group segment from an ARM resource ID.
+
+    Format: ``/subscriptions/<sub>/resourceGroups/<rg>/providers/...``.
+    Case-insensitive on the segment name (Azure mixes ``resourceGroups``
+    and ``resourcegroups`` depending on the API).
+    """
+    if not arm_id:
+        return None
+    parts = arm_id.split("/")
+    for i, part in enumerate(parts):
+        if part.lower() == "resourcegroups" and i + 1 < len(parts):
+            return parts[i + 1] or None
+    return None
+
+
+def _soft_delete_rg_mismatch_detail(
+    *,
+    vault_name: str,
+    location: str,
+    original_rg: str,
+    requested_rg: str,
+) -> str:
+    return (
+        f"A soft-deleted Datadog Key Vault named '{vault_name}' exists in\n"
+        f"location '{location}', originally in resource group:\n"
+        f"  - {original_rg}\n"
+        f"\n"
+        f"It cannot be recovered into a different resource group ('{requested_rg}').\n"
+        f"\n"
+        f"You can:\n"
+        f"  - Re-run with SCANNER_RESOURCE_GROUP={original_rg} to recover it there, OR\n"
+        f"  - Purge it (irreversible — deletes the secret) and let this run\n"
+        f"    create a new vault:\n"
+        f"      az keyvault purge --name {vault_name} --location {location}"
+    )
 
 
 def _recover_soft_deleted(vault_name: str) -> None:
@@ -81,6 +125,10 @@ def create_key_vault(
 
     If a soft-deleted vault with the same name exists, recovers it
     instead of requiring a manual purge (which can take several minutes).
+    A soft-deleted vault can only be recovered into its *original*
+    resource group, so we refuse to recover one whose original RG
+    differs from ``resource_group`` and tell the user how to proceed
+    (re-run targeting the original RG, or purge).
 
     Uses RBAC authorization (--enable-rbac-authorization) so that the
     Terraform roles module can grant access via role assignments rather
@@ -89,11 +137,30 @@ def create_key_vault(
     Raises:
         KeyVaultError: If the Key Vault cannot be created.
     """
-    try:
-        if _is_soft_deleted(vault_name, location):
+    deleted = _get_soft_deleted_vault(vault_name, location)
+    if deleted is not None:
+        original_vault_id = (deleted.get("properties") or {}).get("vaultId") or ""
+        original_rg = _resource_group_from_arm_id(original_vault_id)
+        if original_rg and original_rg != resource_group:
+            raise KeyVaultError(
+                "Soft-deleted Key Vault belongs to a different resource group",
+                _soft_delete_rg_mismatch_detail(
+                    vault_name=vault_name,
+                    location=location,
+                    original_rg=original_rg,
+                    requested_rg=resource_group,
+                ),
+            )
+        try:
             _recover_soft_deleted(vault_name)
             return
+        except Exception as e:
+            raise KeyVaultError(
+                f"Failed to recover soft-deleted Key Vault: {vault_name}",
+                str(e),
+            ) from e
 
+    try:
         execute(
             Cmd(["az", "keyvault", "create"])
             .param("--name", vault_name)
