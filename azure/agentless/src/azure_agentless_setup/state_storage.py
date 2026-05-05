@@ -66,6 +66,29 @@ def storage_account_exists(
         return False
 
 
+def find_storage_account_rg(account_name: str, subscription: str) -> Optional[str]:
+    """Return the resource group containing a Storage Account, or None.
+
+    Storage Account names are unique within a subscription, so ``az storage
+    account show`` without ``--resource-group`` finds it wherever it lives.
+    Used by the deploy preflight to detect the "user re-runs with a different
+    SCANNER_RESOURCE_GROUP" case before any mutations: the deterministic SA
+    name is shared across runs but the SA can only live in one RG.
+    """
+    try:
+        raw = execute(
+            Cmd(["az", "storage", "account", "show"])
+            .param("--name", account_name)
+            .param("--subscription", subscription)
+            .param("--query", "resourceGroup")
+            .param("--output", "tsv"),
+            can_fail=True,
+        )
+        return (raw or "").strip() or None
+    except Exception:
+        return None
+
+
 def create_storage_account(
     account_name: str,
     resource_group: str,
