@@ -97,6 +97,7 @@ var commonAppSettings = [
   { name: DD_SITE_SETTING, value: datadogSite }
   { name: DD_TELEMETRY_SETTING, value: datadogTelemetry ? 'true' : 'false' }
   { name: CONTROL_PLANE_ID_SETTING, value: controlPlaneId }
+  { name: CONTROL_PLANE_REGION_SETTING, value: controlPlaneLocation }
   { name: AZURE_AUTHORITY_SETTING, value: environment().authentication.loginEndpoint }
   { name: 'AzureWebJobsFeatureFlags', value: 'EnableWorkerIndexing' }
   { name: 'FUNCTIONS_EXTENSION_VERSION', value: '~4' }
@@ -163,7 +164,6 @@ resource scalingTask 'Microsoft.Web/sites@2022-09-01' = {
       appSettings: union(commonAppSettings, [
         { name: RESOURCE_GROUP_SETTING, value: controlPlaneResourceGroupName }
         { name: FORWARDER_IMAGE_SETTING, value: forwarderImage }
-        { name: CONTROL_PLANE_REGION_SETTING, value: controlPlaneLocation }
         { name: PII_SCRUBBER_RULES_SETTING, value: piiScrubberRules }
       ])
       linuxFxVersion: 'Python|3.11'
