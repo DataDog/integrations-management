@@ -163,6 +163,7 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
         "DD_SITE": config.datadog_site,
         "DD_TELEMETRY": "true" if config.datadog_telemetry else "false",
         "CONTROL_PLANE_ID": config.control_plane_id,
+        "CONTROL_PLANE_REGION": config.control_plane_region,
         "LOG_LEVEL": config.log_level,
     }
 
@@ -180,7 +181,6 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
         specific_settings = {
             "RESOURCE_GROUP": config.control_plane_rg,
             "FORWARDER_IMAGE": f"{IMAGE_REGISTRY_URL}/forwarder:latest",
-            "CONTROL_PLANE_REGION": config.control_plane_region,
             "PII_SCRUBBER_RULES": config.pii_scrubber_rules,
         }
     else:
