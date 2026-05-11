@@ -72,25 +72,31 @@ def rg_mismatch_detail(
     """Render the standard "resource group mismatch" detail message.
 
     Shared between deploy and destroy so users see identical guidance on
-    both paths: the deterministic Storage Account / Key Vault names tie a
-    deployment to a single resource group, and re-running with a different
-    SCANNER_RESOURCE_GROUP would either fail with a confusing
-    AlreadyTaken error (deploy) or destroy the wrong resources (destroy).
+    both paths. Datadog supports a single Agentless Scanner deployment per
+    scanner subscription, so the recommended remediation is to re-use the
+    existing resource group; deleting and re-creating the deployment in a
+    different one is only an option if the relocation is intentional.
     """
     return (
-        f"This deployment was created in resource group:\n"
-        f"  - existing:  {existing_rg}   (scanner subscription {scanner_subscription})\n"
+        f"An Agentless Scanner deployment already exists in scanner\n"
+        f"subscription {scanner_subscription}, in resource group:\n"
+        f"  - existing:  {existing_rg}\n"
         f"but this run is targeting:\n"
         f"  - requested: {requested_rg}\n"
         f"\n"
-        f"The Terraform state, Storage Account and Key Vault are tied to\n"
-        f"the existing resource group. To re-run against this deployment:\n"
+        f"Only one Agentless Scanner deployment is supported per scanner\n"
+        f"subscription, and its Terraform state, Storage Account and Key\n"
+        f"Vault are tied to the existing resource group.\n"
         f"\n"
-        f"  - Unset SCANNER_RESOURCE_GROUP, or set it to:\n"
-        f"      SCANNER_RESOURCE_GROUP={existing_rg}\n"
+        f"Recommended: re-use the existing resource group by setting:\n"
+        f"  SCANNER_RESOURCE_GROUP={existing_rg}\n"
+        f"(or unset SCANNER_RESOURCE_GROUP if {existing_rg} is the default).\n"
+        f"Re-running `deploy` against the existing resource group will\n"
+        f"additively merge any new locations or subscriptions you pass in.\n"
         f"\n"
-        f"To deploy in a different resource group, first run `destroy`\n"
-        f"against the existing one, then re-run `deploy` with the new value."
+        f"Only if you really need to relocate the deployment to a different\n"
+        f"resource group: first run `destroy` against {existing_rg}, then\n"
+        f"re-run `deploy` with the new SCANNER_RESOURCE_GROUP value."
     )
 
 

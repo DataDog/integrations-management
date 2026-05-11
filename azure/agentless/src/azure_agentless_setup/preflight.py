@@ -46,9 +46,20 @@ REQUIRED_RESOURCE_PROVIDERS = [
 ]
 
 # Actions required on every subscription (scanner + scan targets) for
-# cross-subscription role assignments. Always probed at subscription scope.
+# cross-subscription role assignments. Always probed at subscription scope:
+#
+# * ``roleAssignments/write`` — needed to bind the scanner managed identity
+#   to its scanning role at each scan-target subscription.
+# * ``roleDefinitions/write`` — the Terraform ``roles`` module creates a
+#   custom role whose ``assignableScopes`` must cover every scan-target
+#   subscription. Azure requires the caller to have ``roleDefinitions/write``
+#   effective at every scope listed in ``assignableScopes``. Surfacing this
+#   in preflight turns a confusing mid-apply 403 (AuthorizationFailed on
+#   ``Microsoft.Authorization/roleDefinitions/write``) into an actionable
+#   message at the start of the run.
 REQUIRED_ACTIONS_ALL_SUBSCRIPTIONS = [
     "Microsoft.Authorization/roleAssignments/write",
+    "Microsoft.Authorization/roleDefinitions/write",
 ]
 
 # Resource-creation actions for the scanner subscription. These are probed at
