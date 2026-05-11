@@ -108,12 +108,17 @@ class TestResolveResourceGroupViaTags:
         assert "rg-a" in exc.value.detail and "rg-b" in exc.value.detail
 
 
+@patch("azure_agentless_setup.main.storage_account_exists", return_value=True)
 class TestCheckExistingDeployment:
-    """Metadata-blob inspection. Tag-based RG discovery is exercised
-    separately by :class:`TestResolveResourceGroupViaTags`."""
+    """Metadata-blob inspection when the Storage Account exists.
+
+    Tag-based RG discovery is exercised separately by
+    :class:`TestResolveResourceGroupViaTags`; the SA-missing short-circuit
+    is exercised by :class:`TestCheckExistingDeploymentStorageAccountMissing`.
+    """
 
     @patch("azure_agentless_setup.main.read_metadata")
-    def test_present_matching_rg_returns_result(self, mock_read):
+    def test_present_matching_rg_returns_result(self, mock_read, _sa_exists):
         mock_read.return_value = _present("rg-current")
 
         check = _check_existing_deployment(_make_config())
@@ -121,7 +126,7 @@ class TestCheckExistingDeployment:
         assert check.metadata_result.status == MetadataReadStatus.PRESENT
 
     @patch("azure_agentless_setup.main.read_metadata")
-    def test_present_mismatched_rg_raises(self, mock_read):
+    def test_present_mismatched_rg_raises(self, mock_read, _sa_exists):
         """With install-id-scoped SA names, finding a metadata blob at all
         means we addressed the right install — so a recorded RG that
         disagrees with the config can only be blob corruption. We still
@@ -135,7 +140,7 @@ class TestCheckExistingDeployment:
         assert "rg-other" in exc.value.detail
 
     @patch("azure_agentless_setup.main.read_metadata")
-    def test_error_status_raises(self, mock_read):
+    def test_error_status_raises(self, mock_read, _sa_exists):
         mock_read.return_value = MetadataReadResult(
             MetadataReadStatus.ERROR, error_detail="auth boom"
         )
@@ -146,7 +151,7 @@ class TestCheckExistingDeployment:
         assert "auth boom" in exc.value.detail
 
     @patch("azure_agentless_setup.main.read_metadata")
-    def test_missing_first_deploy_returns_missing(self, mock_read):
+    def test_missing_first_deploy_returns_missing(self, mock_read, _sa_exists):
         mock_read.return_value = MetadataReadResult(MetadataReadStatus.MISSING)
 
         check = _check_existing_deployment(_make_config())
@@ -154,10 +159,31 @@ class TestCheckExistingDeployment:
         assert check.metadata_result.status == MetadataReadStatus.MISSING
 
     @patch("azure_agentless_setup.main.read_metadata")
-    def test_custom_sa_used_as_storage_account_name(self, mock_read):
+    def test_custom_sa_used_as_storage_account_name(self, mock_read, _sa_exists):
         mock_read.return_value = MetadataReadResult(MetadataReadStatus.MISSING)
         config = _make_config(state_storage_account="myacct")
 
         check = _check_existing_deployment(config)
 
         assert check.storage_account_name == "myacct"
+
+
+class TestCheckExistingDeploymentStorageAccountMissing:
+    """First-deploy short-circuit: no Storage Account → MISSING, no blob read.
+
+    Regression guard for the case where the SA does not exist yet:
+    ``read_metadata`` would otherwise surface an account-not-found / DNS
+    failure that ``_classify_blob_show_failure`` cannot reliably map to
+    MISSING, aborting first deploys with a misleading
+    "Could not read deployment metadata" error.
+    """
+
+    @patch("azure_agentless_setup.main.read_metadata")
+    @patch("azure_agentless_setup.main.storage_account_exists", return_value=False)
+    def test_missing_sa_short_circuits_without_blob_read(
+        self, _sa_exists, mock_read
+    ):
+        check = _check_existing_deployment(_make_config())
+
+        assert check.metadata_result.status == MetadataReadStatus.MISSING
+        mock_read.assert_not_called()

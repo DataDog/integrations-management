@@ -41,6 +41,7 @@ from .state_storage import (
     find_agentless_resource_groups,
     get_storage_account_name,
     prepare_storage_account,
+    storage_account_exists,
     wait_for_blob_access,
 )
 from .terraform import TerraformRunner
@@ -287,6 +288,25 @@ def _check_existing_deployment(config: Config) -> ExistingDeploymentCheck:
         config.state_storage_account
         or get_storage_account_name(config.install_id)
     )
+
+    # First deploy short-circuit: the Storage Account does not exist yet,
+    # so probing the metadata blob would surface as an
+    # account-not-found / DNS-resolution failure that ``read_metadata``
+    # cannot reliably distinguish from a real auth/throttling error.
+    # When the SA is absent there cannot be a metadata blob by
+    # definition, so treat it as MISSING here. For a custom
+    # ``TF_STATE_STORAGE_ACCOUNT`` that doesn't exist, ``prepare_storage_account``
+    # raises a precise "Custom storage account does not exist" error
+    # downstream — better than masking it as a metadata-read failure.
+    if not storage_account_exists(
+        storage_account_name, config.resource_group, config.scanner_subscription
+    ):
+        return ExistingDeploymentCheck(
+            config,
+            MetadataReadResult(MetadataReadStatus.MISSING),
+            storage_account_name,
+        )
+
     result = read_metadata(storage_account_name)
 
     if result.status == MetadataReadStatus.PRESENT and result.metadata is not None:
@@ -475,6 +495,11 @@ def cmd_deploy() -> None:
 
         # Read existing deployment metadata *before* any mutation so we
         # can fail fast on a mismatched RG and reuse the result for the
+        # additive merge later. ``check.storage_account_name`` is not
+        # consumed here: ``ensure_scanner_resources`` re-derives the
+        # same name from ``config.install_id`` (or honours
+        # ``state_storage_account``) and the two paths must agree by
+        # construction.
         existing_metadata_result = _check_existing_deployment(config).metadata_result
 
         # Steps 2 & 3: provision the scanner-side state Storage Account and
