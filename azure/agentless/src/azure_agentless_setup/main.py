@@ -475,10 +475,7 @@ def cmd_deploy() -> None:
 
         # Read existing deployment metadata *before* any mutation so we
         # can fail fast on a mismatched RG and reuse the result for the
-        # additive merge later.
-        check = _check_existing_deployment(config)
-        storage_account_name = check.storage_account_name
-        existing_metadata_result = check.metadata_result
+        existing_metadata_result = _check_existing_deployment(config).metadata_result
 
         # Steps 2 & 3: provision the scanner-side state Storage Account and
         # Key Vault in parallel and store the API key. See
