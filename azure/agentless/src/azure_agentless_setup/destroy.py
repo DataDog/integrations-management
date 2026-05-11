@@ -14,7 +14,13 @@ from az_shared.execute_cmd import execute
 from common.shell import Cmd
 
 from .agentless_api import deactivate_scan_options
-from .config import Config, CONFIG_BASE_DIR, DEFAULT_RESOURCE_GROUP, get_config_dir
+from .config import (
+    CONFIG_BASE_DIR,
+    Config,
+    DEFAULT_RESOURCE_GROUP,
+    compute_install_id,
+    get_config_dir,
+)
 from .errors import ConfigurationError, SetupError
 from .metadata import (
     DeploymentMetadata,
@@ -25,7 +31,11 @@ from .metadata import (
     terraform_state_exists,
 )
 from .secrets import API_KEY_SECRET_NAME, get_key_vault_name
-from .state_storage import get_storage_account_name, storage_account_exists
+from .state_storage import (
+    find_agentless_resource_groups,
+    get_storage_account_name,
+    storage_account_exists,
+)
 from .terraform import generate_ssh_key, generate_terraform_config, generate_tfvars
 
 
@@ -90,22 +100,30 @@ def _resolve_destroy_resource_group(
     metadata_status: MetadataReadStatus,
     metadata_error_detail: Optional[str],
     env_rg: Optional[str],
+    tagged_rgs: list[str],
     scanner_subscription: str,
 ) -> str:
     """Resolve the resource group to use for destroy.
 
-    Precedence (metadata is the source of truth, env var is a fallback for
-    legacy installs only):
+    Precedence (metadata is the source of truth; the env var and tag
+    discovery are fallbacks used when metadata is unavailable):
 
-      1. Metadata has ``resource_group`` set → use it. If ``SCANNER_RESOURCE_GROUP``
-         is also set and disagrees, raise ``ConfigurationError`` rather than
-         silently destroying the wrong resources (the env var override was
-         the original source of the bug; treating it as a fallback eliminates
-         the foot-gun without adding a new flag).
+      1. Metadata has ``resource_group`` set → use it. If
+         ``SCANNER_RESOURCE_GROUP`` is also set and disagrees, raise
+         ``ConfigurationError`` rather than silently destroying the wrong
+         resources (the env var override was the original source of the
+         bug; treating it as a fallback eliminates the foot-gun without
+         adding a new flag).
       2. Metadata exists but has no ``resource_group`` (legacy install) →
          require ``SCANNER_RESOURCE_GROUP``.
-      3. No metadata at all → use ``SCANNER_RESOURCE_GROUP`` if set,
-         otherwise the default.
+      3. No metadata, ≥2 tagged RGs → require ``SCANNER_RESOURCE_GROUP``
+         (matches the deploy-side single-install policy: we don't pick
+         one silently).
+      4. No metadata, exactly 1 tagged RG → adopt it. If the env var was
+         set to a different value, raise the mismatch error.
+      5. No metadata, 0 tagged RGs → ``SCANNER_RESOURCE_GROUP`` if set,
+         otherwise the default RG name (preserves legacy / fresh-shell
+         behaviour for users who never tagged their RG).
     """
     if metadata and metadata.resource_group:
         if env_rg and env_rg != metadata.resource_group:
@@ -133,8 +151,40 @@ def _resolve_destroy_resource_group(
     if metadata_status == MetadataReadStatus.ERROR:
         print(
             f"⚠️  Could not read deployment metadata ({metadata_error_detail or 'unknown error'}); "
-            "falling back to SCANNER_RESOURCE_GROUP / default."
+            "falling back to tagged RG discovery / SCANNER_RESOURCE_GROUP / default."
         )
+
+    if len(tagged_rgs) >= 2:
+        if env_rg:
+            if env_rg not in tagged_rgs:
+                raise ConfigurationError(
+                    "Resource group not recognised",
+                    f"SCANNER_RESOURCE_GROUP={env_rg} does not match any tagged\n"
+                    f"Agentless Scanner deployment in subscription {scanner_subscription}.\n"
+                    f"Tagged resource groups found:\n"
+                    + "\n".join(f"  - {rg}" for rg in tagged_rgs),
+                )
+            return env_rg
+        raise SetupError(
+            "Multiple Agentless Scanner deployments detected",
+            f"Scanner subscription {scanner_subscription} hosts {len(tagged_rgs)} "
+            f"Agentless Scanner deployments:\n"
+            + "\n".join(f"  - {rg}" for rg in tagged_rgs)
+            + "\nSet SCANNER_RESOURCE_GROUP to the one you want to destroy.",
+        )
+
+    if len(tagged_rgs) == 1:
+        tagged = tagged_rgs[0]
+        if env_rg and env_rg != tagged:
+            raise ConfigurationError(
+                "Resource group mismatch",
+                rg_mismatch_detail(
+                    existing_rg=tagged,
+                    requested_rg=env_rg,
+                    scanner_subscription=scanner_subscription,
+                ),
+            )
+        return tagged
 
     return env_rg or DEFAULT_RESOURCE_GROUP
 
@@ -272,7 +322,8 @@ def get_working_directory(
         throwaway key pair from :func:`terraform.generate_ssh_key`); otherwise
         ``None``.
     """
-    config_folder = get_config_dir(scanner_subscription)
+    install_id = compute_install_id(scanner_subscription, resource_group)
+    config_folder = get_config_dir(scanner_subscription, install_id)
     folder_exists = config_folder.exists() and (config_folder / "main.tf").exists()
 
     print(f"  Scanner Subscription:  {scanner_subscription}")
@@ -439,12 +490,20 @@ def cmd_destroy() -> None:
         metadata = result.metadata if result.status == MetadataReadStatus.PRESENT else None
         subscriptions_to_scan = metadata.subscriptions_to_scan if metadata else []
 
+        # Tag-based discovery acts as a secondary source of truth: when the
+        # metadata blob isn't reachable (auth/network/throttling) we can
+        # still find the deployment if its RG was tagged at deploy time.
+        # Doesn't override metadata when metadata is present — that path
+        # is still authoritative.
+        tagged_rgs = find_agentless_resource_groups(scanner_subscription)
+
         env_rg = os.environ.get("SCANNER_RESOURCE_GROUP", "").strip() or None
         resource_group = _resolve_destroy_resource_group(
             metadata=metadata,
             metadata_status=result.status,
             metadata_error_detail=result.error_detail,
             env_rg=env_rg,
+            tagged_rgs=tagged_rgs,
             scanner_subscription=scanner_subscription,
         )
 

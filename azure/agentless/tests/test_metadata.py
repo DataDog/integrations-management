@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from azure_agentless_setup.config import Config
+from azure_agentless_setup.config import Config, compute_install_id
 from azure_agentless_setup.errors import MetadataError
 from azure_agentless_setup.metadata import (
     DeploymentMetadata,
@@ -47,6 +47,35 @@ class TestDeploymentMetadata:
         assert restored.scanner_subscription == "sub-1"
         assert restored.locations == sorted(["eastus", "westeurope"])
         assert restored.subscriptions_to_scan == sorted(["sub-1", "sub-2"])
+
+    def test_install_id_written_when_rg_known(self):
+        """install_id is derived from (subscription, RG). Persisting it in
+        config.json is for human inspection / support workflows; readers
+        always recompute, so the on-disk value just has to match."""
+        meta = DeploymentMetadata(
+            scanner_subscription="sub-1",
+            resource_group="rg-x",
+            locations=["eastus"],
+            subscriptions_to_scan=["sub-1"],
+            created_at="t0",
+            modified_at="t0",
+        )
+        d = meta.to_dict()
+        assert d["install_id"] == compute_install_id("sub-1", "rg-x")
+
+    def test_install_id_null_when_rg_missing(self):
+        """Legacy metadata blobs may lack resource_group; install_id then
+        cannot be derived and must serialise as null rather than a stale
+        sub-only hash."""
+        meta = DeploymentMetadata(
+            scanner_subscription="sub-1",
+            resource_group=None,
+            locations=["eastus"],
+            subscriptions_to_scan=["sub-1"],
+            created_at="t0",
+            modified_at="t0",
+        )
+        assert meta.to_dict()["install_id"] is None
 
     def test_sorts_lists(self):
         meta = DeploymentMetadata(

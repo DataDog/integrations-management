@@ -27,6 +27,14 @@ STORAGE_BLOB_DATA_CONTRIBUTOR = "Storage Blob Data Contributor"
 RBAC_PROPAGATION_RETRIES = 6
 RBAC_PROPAGATION_DELAY = 10
 
+# Marker tag applied by the setup script (and by the Terraform module) to
+# every resource it creates. Used by tag-based discovery to find existing
+# Agentless Scanner installations without consulting a central registry.
+# Kept in sync with `terraform-module-datadog-agentless-scanner/azure`
+# (modules/{resource-group,virtual-machine,virtual-network,managed-identity}).
+AGENTLESS_TAG_KEY = "DatadogAgentlessScanner"
+AGENTLESS_TAG_VALUE = "true"
+
 
 def get_storage_account_name(scanner_subscription: str) -> str:
     """Generate a deterministic, globally unique storage account name.
@@ -263,6 +271,36 @@ def resource_group_exists(resource_group: str, subscription: str) -> bool:
         return bool(result)
     except Exception:
         return False
+
+
+def find_agentless_resource_groups(scanner_subscription: str) -> list[str]:
+    """List resource groups tagged as an Agentless Scanner deployment.
+
+    Filters on the ``DatadogAgentlessScanner=true`` marker tag that the
+    setup script applies on RG creation (and that the Terraform module
+    re-applies to every resource it manages). Returns the bare RG names
+    in deterministic order — typically zero or one entry today, since
+    multi-install on a single scanner subscription is blocked.
+
+    Failures (auth, throttling, network) are swallowed and treated as
+    "no tagged RGs found": the caller falls back to the metadata blob
+    and (in this release) the deterministic Storage Account lookup,
+    which together still detect a previous install for the same RG name.
+    Once those legacy nets are removed in a follow-up commit, this
+    function will need to fail loudly instead.
+    """
+    try:
+        raw = execute(
+            Cmd(["az", "group", "list"])
+            .param("--subscription", scanner_subscription)
+            .param("--tag", f"{AGENTLESS_TAG_KEY}={AGENTLESS_TAG_VALUE}")
+            .param("--query", "[].name")
+            .param("--output", "tsv"),
+            can_fail=True,
+        )
+    except Exception:
+        return []
+    return sorted({line.strip() for line in (raw or "").splitlines() if line.strip()})
 
 
 def ensure_resource_group(resource_group: str, location: str, subscription: str) -> None:

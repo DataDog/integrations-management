@@ -7,9 +7,10 @@ import pytest
 
 from azure_agentless_setup.errors import StorageAccountError
 from azure_agentless_setup.state_storage import (
-    get_storage_account_name,
     ensure_resource_group,
     ensure_state_storage,
+    find_agentless_resource_groups,
+    get_storage_account_name,
 )
 
 
@@ -46,14 +47,31 @@ class TestEnsureResourceGroup:
         assert "group" in str(args) and "show" in str(args)
 
     @patch("azure_agentless_setup.state_storage.execute")
-    def test_creates_when_not_exists(self, mock_execute):
+    def test_creates_when_not_exists_and_tags_it(self, mock_execute):
+        # First call: az group show (returns empty → does not exist).
+        # Second call: az group create — must include the agentless marker
+        # tag so tag-based discovery can find this install on a later run.
         mock_execute.side_effect = ["", ""]
 
         ensure_resource_group("my-rg", "eastus", "sub-123")
 
         assert mock_execute.call_count == 2
-        second_call = str(mock_execute.call_args_list[1])
-        assert "group" in second_call and "create" in second_call
+        create_call = str(mock_execute.call_args_list[1])
+        assert "group" in create_call and "create" in create_call
+        assert "DatadogAgentlessScanner=true" in create_call
+
+    @patch("azure_agentless_setup.state_storage.execute")
+    def test_existing_rg_is_not_retagged(self, mock_execute):
+        """Pre-existing resource groups (e.g. admin-provisioned) must not be
+        retagged: the user may be using them for other workloads."""
+        mock_execute.return_value = '{"name": "admin-rg"}'
+
+        ensure_resource_group("admin-rg", "eastus", "sub-123")
+
+        assert mock_execute.call_count == 1
+        only_call = str(mock_execute.call_args)
+        assert "show" in only_call
+        assert "create" not in only_call
 
     @patch("azure_agentless_setup.state_storage.execute")
     def test_raises_on_create_failure(self, mock_execute):
@@ -63,6 +81,31 @@ class TestEnsureResourceGroup:
             ensure_resource_group("my-rg", "eastus", "sub-123")
 
         assert "Failed to create resource group" in exc.value.message
+
+
+class TestFindAgentlessResourceGroups:
+    @patch("azure_agentless_setup.state_storage.execute")
+    def test_returns_tagged_rg_names(self, mock_execute):
+        mock_execute.return_value = "rg-a\nrg-b\n"
+
+        rgs = find_agentless_resource_groups("sub-123")
+
+        assert rgs == ["rg-a", "rg-b"]
+        call_str = str(mock_execute.call_args)
+        assert "DatadogAgentlessScanner=true" in call_str
+
+    @patch("azure_agentless_setup.state_storage.execute")
+    def test_empty_output_returns_empty(self, mock_execute):
+        mock_execute.return_value = ""
+        assert find_agentless_resource_groups("sub-123") == []
+
+    @patch("azure_agentless_setup.state_storage.execute")
+    def test_failure_is_swallowed_to_empty(self, mock_execute):
+        """Discovery is best-effort in this release: the metadata blob and
+        SA-RG fallback in main.py still catch existing installs, so a
+        transient az failure must not abort deploy."""
+        mock_execute.side_effect = RuntimeError("auth")
+        assert find_agentless_resource_groups("sub-123") == []
 
 
 class TestEnsureStateStorage:

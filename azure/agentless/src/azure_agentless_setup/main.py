@@ -8,6 +8,7 @@ import signal
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from typing import Optional
 
 from az_shared.script_status import Status
@@ -37,6 +38,7 @@ from .secrets import (
 from .state_storage import (
     ensure_resource_group,
     finalize_storage_container,
+    find_agentless_resource_groups,
     find_storage_account_rg,
     get_storage_account_name,
     prepare_storage_account,
@@ -196,22 +198,95 @@ def _print_current_run_inputs(config: Config) -> None:
         print(f"    - {s}{marker}")
 
 
-def _check_existing_deployment(
-    config: Config,
-    storage_account_name: str,
-) -> MetadataReadResult:
+@dataclass(frozen=True)
+class ExistingDeploymentCheck:
+    """Outcome of ``_check_existing_deployment``.
+
+    ``config`` is the input config with the resource group resolved against
+    tag-based discovery: when exactly one tagged RG exists in the scanner
+    subscription and the user did not pin ``SCANNER_RESOURCE_GROUP``, the
+    field is rewritten to the discovered RG (and ``install_id`` follows).
+    """
+
+    config: Config
+    metadata_result: MetadataReadResult
+    storage_account_name: str
+
+
+def _resolve_resource_group_via_tags(config: Config) -> Config:
+    """Reconcile ``config.resource_group`` with tag-based discovery.
+
+    Lists resource groups in the scanner subscription that carry the
+    ``DatadogAgentlessScanner=true`` marker tag and applies the
+    single-install-per-subscription decision matrix:
+
+      * 0 tagged RGs: keep ``config.resource_group`` (first deploy, or
+        legacy install whose RG was created by hand and never tagged).
+      * 1 tagged RG, env var unset: switch to the tagged RG. Re-runs from
+        a fresh Cloud Shell session no longer need ``SCANNER_RESOURCE_GROUP``
+        as long as the previous deploy got far enough to tag the RG.
+      * 1 tagged RG, env var matches: keep it.
+      * 1 tagged RG, env var differs: ``ConfigurationError`` with the
+        shared ``rg_mismatch_detail`` guidance (re-use the tagged RG, or
+        destroy first to relocate).
+      * ≥2 tagged RGs: ``SetupError`` — multi-install per subscription is
+        not supported yet, and silently picking one would be dangerous.
+        The follow-up commit that introduces install-id-scoped resource
+        names will relax this.
+    """
+    tagged = find_agentless_resource_groups(config.scanner_subscription)
+
+    if len(tagged) >= 2:
+        raise SetupError(
+            "Multiple Agentless Scanner deployments detected",
+            f"Scanner subscription {config.scanner_subscription} already hosts "
+            f"{len(tagged)} Agentless Scanner deployments:\n"
+            + "\n".join(f"  - {rg}" for rg in tagged)
+            + "\n\nOnly one Agentless Scanner deployment is supported per scanner\n"
+            "subscription. Run `destroy` against the deployments you no longer\n"
+            "need, or contact Datadog support.",
+        )
+
+    if len(tagged) == 1:
+        existing_rg = tagged[0]
+        if config.resource_group_explicit and config.resource_group != existing_rg:
+            raise ConfigurationError(
+                "Resource group mismatch",
+                rg_mismatch_detail(
+                    existing_rg=existing_rg,
+                    requested_rg=config.resource_group,
+                    scanner_subscription=config.scanner_subscription,
+                ),
+            )
+        if config.resource_group != existing_rg:
+            return config.with_resource_group(existing_rg)
+
+    return config
+
+
+def _check_existing_deployment(config: Config) -> ExistingDeploymentCheck:
     """Validate compatibility with any existing deployment before mutating.
 
-    Runs *before* ``ensure_state_storage`` so we can fail fast on a
-    mismatched ``SCANNER_RESOURCE_GROUP``: the deterministic Storage
-    Account / Key Vault names are shared across runs but those resources
-    can only live in one resource group at a time, so a mismatch would
-    otherwise surface much later as a confusing ``StorageAccountAlreadyTaken``
-    after we'd already created an orphaned RG.
+    Assumes ``config.resource_group`` has already been reconciled with
+    tag-based discovery (see ``_resolve_resource_group_via_tags``); this
+    function only inspects the metadata blob and (for the deterministic
+    SA name case) does a defensive cross-RG SA lookup.
 
-    Returns the metadata read result so callers can reuse it for the
-    additive merge instead of issuing a second blob read.
+    Runs *before* ``ensure_state_storage`` so we can fail fast on a
+    mismatched deployment: the deterministic Storage Account / Key Vault
+    names are shared across runs but those resources can only live in
+    one resource group at a time, so a mismatch would otherwise surface
+    much later as a confusing ``StorageAccountAlreadyTaken`` after we'd
+    already created an orphaned RG.
+
+    Returns the resolved config plus the metadata read result so callers
+    can reuse it for the additive merge instead of issuing a second blob
+    read.
     """
+    storage_account_name = (
+        config.state_storage_account
+        or get_storage_account_name(config.scanner_subscription)
+    )
     result = read_metadata(storage_account_name)
 
     if result.status == MetadataReadStatus.PRESENT and result.metadata is not None:
@@ -225,7 +300,7 @@ def _check_existing_deployment(
                     scanner_subscription=config.scanner_subscription,
                 ),
             )
-        return result
+        return ExistingDeploymentCheck(config, result, storage_account_name)
 
     if result.status == MetadataReadStatus.ERROR:
         raise SetupError(
@@ -236,13 +311,12 @@ def _check_existing_deployment(
             "shrink an existing deployment.)",
         )
 
-    # MISSING: blob (or its container/SA) does not exist for the requested
-    # resource group. When using the deterministic Storage Account name,
-    # also check whether that SA already lives in *another* RG of the
-    # scanner subscription — that would mean the user is re-running with a
-    # different SCANNER_RESOURCE_GROUP than the original deployment.
-    # Skipped for the custom-SA case: ensure_state_storage already requires
-    # the user-provided account to exist in `config.resource_group`.
+    # MISSING + deterministic SA name: defensive check for the legacy
+    # case where the SA exists in another RG (e.g. crashed partial install
+    # whose RG was never tagged, so tag-based discovery returned nothing).
+    # Removed in the follow-up commit that switches SA naming to be
+    # install-id-scoped — at that point a stale SA in another RG would
+    # have a different name and not collide.
     if config.state_storage_account is None:
         actual_rg = find_storage_account_rg(
             storage_account_name, config.scanner_subscription
@@ -257,7 +331,7 @@ def _check_existing_deployment(
                 ),
             )
 
-    return result
+    return ExistingDeploymentCheck(config, result, storage_account_name)
 
 
 def ensure_scanner_resources(config: Config, reporter: Reporter) -> tuple[str, str]:
@@ -400,18 +474,31 @@ def cmd_deploy() -> None:
 
         _print_current_run_inputs(config)
 
-        # Step 1: Preflight checks (on current run inputs first)
+        # Tag-based RG discovery runs first: the resolved resource group
+        # feeds into both preflight (RG-scope permission checks) and the
+        # metadata read below. If exactly one tagged RG exists in the
+        # scanner subscription and the user did not pin
+        # SCANNER_RESOURCE_GROUP, we silently adopt the tagged RG; if they
+        # did pin a different one, ``_resolve_resource_group_via_tags``
+        # raises a ConfigurationError with ``rg_mismatch_detail``.
+        original_rg = config.resource_group
+        config = _resolve_resource_group_via_tags(config)
+        if config.resource_group != original_rg:
+            print(
+                f"\nReusing existing Agentless Scanner deployment in resource group: "
+                f"{config.resource_group}"
+            )
+            print(f"(overriding the default {original_rg})")
+
+        # Step 1: Preflight checks (on the resolved config)
         run_preflight_checks(config, reporter)
 
-        # Resolve the storage account name now so we can read existing
-        # deployment metadata *before* any mutation. The deterministic name
-        # is subscription-scoped, so a previous deploy (potentially under a
-        # different SCANNER_RESOURCE_GROUP) is observable from here.
-        storage_account_name = (
-            config.state_storage_account
-            or get_storage_account_name(config.scanner_subscription)
-        )
-        existing_metadata_result = _check_existing_deployment(config, storage_account_name)
+        # Read existing deployment metadata *before* any mutation so we
+        # can fail fast on a mismatched RG and reuse the result for the
+        # additive merge later.
+        check = _check_existing_deployment(config)
+        storage_account_name = check.storage_account_name
+        existing_metadata_result = check.metadata_result
 
         # Steps 2 & 3: provision the scanner-side state Storage Account and
         # Key Vault in parallel and store the API key. See

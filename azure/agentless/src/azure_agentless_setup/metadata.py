@@ -24,7 +24,7 @@ from typing import Optional
 from az_shared.execute_cmd import execute
 from common.shell import Cmd
 
-from .config import Config
+from .config import Config, compute_install_id
 from .errors import MetadataError
 from .state_storage import CONTAINER_NAME
 
@@ -115,9 +115,24 @@ class DeploymentMetadata:
     modified_at: str
     resource_group: Optional[str] = None
 
+    @property
+    def install_id(self) -> Optional[str]:
+        """Derived ``install_id`` for this deployment.
+
+        Not stored as a field: it's a pure function of ``scanner_subscription``
+        and ``resource_group``. ``to_dict`` writes it out for human
+        inspection and for support workflows that grep the blob; readers
+        ignore the value on disk and always recompute (this also keeps us
+        safe if the on-disk value ever drifts).
+        """
+        if not (self.scanner_subscription and self.resource_group):
+            return None
+        return compute_install_id(self.scanner_subscription, self.resource_group)
+
     def to_dict(self) -> dict:
         return {
             "version": METADATA_VERSION,
+            "install_id": self.install_id,
             "scanner_subscription": self.scanner_subscription,
             "resource_group": self.resource_group,
             "locations": sorted(self.locations),

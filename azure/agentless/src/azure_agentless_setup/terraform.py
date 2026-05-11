@@ -229,7 +229,7 @@ class TerraformRunner:
         """Create and populate the Terraform working directory."""
         ssh_public_key, self._ssh_tmp_dir = generate_ssh_key()
 
-        work_dir = get_config_dir(self.config.scanner_subscription)
+        work_dir = get_config_dir(self.config.scanner_subscription, self.config.install_id)
         work_dir.mkdir(parents=True, exist_ok=True)
 
         main_tf = work_dir / "main.tf"
