@@ -39,7 +39,6 @@ from .state_storage import (
     ensure_resource_group,
     finalize_storage_container,
     find_agentless_resource_groups,
-    find_storage_account_rg,
     get_storage_account_name,
     prepare_storage_account,
     wait_for_blob_access,
@@ -265,19 +264,20 @@ def _resolve_resource_group_via_tags(config: Config) -> Config:
 
 
 def _check_existing_deployment(config: Config) -> ExistingDeploymentCheck:
-    """Validate compatibility with any existing deployment before mutating.
+    """Read the existing-deployment metadata blob, if any.
 
     Assumes ``config.resource_group`` has already been reconciled with
-    tag-based discovery (see ``_resolve_resource_group_via_tags``); this
-    function only inspects the metadata blob and (for the deterministic
-    SA name case) does a defensive cross-RG SA lookup.
+    tag-based discovery (see ``_resolve_resource_group_via_tags``). The
+    Storage Account / Key Vault names are now install-id-scoped, so
+    re-running with a different ``SCANNER_RESOURCE_GROUP`` resolves to a
+    different SA entirely — no cross-RG name collision to defend against,
+    and tag discovery handles the actual "is there an existing install"
+    question.
 
-    Runs *before* ``ensure_state_storage`` so we can fail fast on a
-    mismatched deployment: the deterministic Storage Account / Key Vault
-    names are shared across runs but those resources can only live in
-    one resource group at a time, so a mismatch would otherwise surface
-    much later as a confusing ``StorageAccountAlreadyTaken`` after we'd
-    already created an orphaned RG.
+    The PRESENT-but-different-RG check is kept as a sanity net: if we
+    successfully read metadata, install_id must match, so the recorded
+    RG should match too; a disagreement signals blob corruption rather
+    than a normal user state.
 
     Returns the resolved config plus the metadata read result so callers
     can reuse it for the additive merge instead of issuing a second blob
@@ -285,7 +285,7 @@ def _check_existing_deployment(config: Config) -> ExistingDeploymentCheck:
     """
     storage_account_name = (
         config.state_storage_account
-        or get_storage_account_name(config.scanner_subscription)
+        or get_storage_account_name(config.install_id)
     )
     result = read_metadata(storage_account_name)
 
@@ -310,26 +310,6 @@ def _check_existing_deployment(config: Config) -> ExistingDeploymentCheck:
             "(Proceeding could silently create duplicate resources or "
             "shrink an existing deployment.)",
         )
-
-    # MISSING + deterministic SA name: defensive check for the legacy
-    # case where the SA exists in another RG (e.g. crashed partial install
-    # whose RG was never tagged, so tag-based discovery returned nothing).
-    # Removed in the follow-up commit that switches SA naming to be
-    # install-id-scoped — at that point a stale SA in another RG would
-    # have a different name and not collide.
-    if config.state_storage_account is None:
-        actual_rg = find_storage_account_rg(
-            storage_account_name, config.scanner_subscription
-        )
-        if actual_rg and actual_rg != config.resource_group:
-            raise ConfigurationError(
-                "Resource group mismatch",
-                rg_mismatch_detail(
-                    existing_rg=actual_rg,
-                    requested_rg=config.resource_group,
-                    scanner_subscription=config.scanner_subscription,
-                ),
-            )
 
     return ExistingDeploymentCheck(config, result, storage_account_name)
 
@@ -369,7 +349,7 @@ def ensure_scanner_resources(config: Config, reporter: Reporter) -> tuple[str, s
         config.resource_group, config.locations[0], config.scanner_subscription
     )
 
-    vault_name = get_key_vault_name(config.scanner_subscription)
+    vault_name = get_key_vault_name(config.install_id)
 
     # Run the two control-plane paths in parallel: each does its own
     # existence check + create-if-missing + role grant. Letting the SA and

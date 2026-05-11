@@ -8,7 +8,6 @@ module's `roles` sub-module grants the managed identity "Key Vault
 Secrets User" access so scanner VMs can retrieve the key at runtime.
 """
 
-import hashlib
 import json
 import subprocess
 from time import sleep
@@ -27,16 +26,21 @@ RBAC_PROPAGATION_RETRIES = 6
 RBAC_PROPAGATION_DELAY = 10  # seconds
 
 
-def get_key_vault_name(scanner_subscription: str) -> str:
-    """Generate a deterministic, globally unique Key Vault name.
+def get_key_vault_name(install_id: str) -> str:
+    """Build the Key Vault name from a per-install identifier.
 
     Azure constraints:
       - 3–24 characters, alphanumeric and hyphens only
       - Must start with a letter
       - Must be globally unique across all of Azure
+
+    Mirrors :func:`state_storage.get_storage_account_name`: 12-char
+    install_id prefixed with ``datadog-`` (8 chars) lands at 20 chars,
+    well inside the 24-char limit, and the install_id changing with
+    the resource group keeps multi-install per scanner subscription
+    free of name collisions.
     """
-    digest = hashlib.sha256(scanner_subscription.encode()).hexdigest()[:12]
-    return f"datadog-{digest}"
+    return f"datadog-{install_id}"
 
 
 def key_vault_exists(vault_name: str, resource_group: str) -> bool:

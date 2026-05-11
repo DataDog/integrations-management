@@ -23,7 +23,6 @@ from .config import (
 )
 from .errors import ConfigurationError, SetupError
 from .metadata import (
-    DeploymentMetadata,
     MetadataReadStatus,
     delete_metadata,
     read_metadata,
@@ -86,74 +85,40 @@ def get_scanner_subscription() -> str:
     )
 
 
-def get_storage_account(scanner_subscription: str) -> str:
-    """Determine the storage account name from env var or default."""
+def get_storage_account(install_id: str) -> str:
+    """Determine the storage account name from env var or install_id."""
     custom = os.environ.get("TF_STATE_STORAGE_ACCOUNT", "").strip()
     if custom:
         return custom
-    return get_storage_account_name(scanner_subscription)
+    return get_storage_account_name(install_id)
 
 
 def _resolve_destroy_resource_group(
     *,
-    metadata: Optional[DeploymentMetadata],
-    metadata_status: MetadataReadStatus,
-    metadata_error_detail: Optional[str],
     env_rg: Optional[str],
     tagged_rgs: list[str],
     scanner_subscription: str,
 ) -> str:
     """Resolve the resource group to use for destroy.
 
-    Precedence (metadata is the source of truth; the env var and tag
-    discovery are fallbacks used when metadata is unavailable):
+    With install-id-scoped resource naming, the Storage Account that
+    holds the deployment metadata is itself addressable only after we
+    know the resource group — so we can no longer use the metadata blob
+    as the source of truth here. Tag-based discovery and
+    ``SCANNER_RESOURCE_GROUP`` are now the only inputs:
 
-      1. Metadata has ``resource_group`` set → use it. If
-         ``SCANNER_RESOURCE_GROUP`` is also set and disagrees, raise
-         ``ConfigurationError`` rather than silently destroying the wrong
-         resources (the env var override was the original source of the
-         bug; treating it as a fallback eliminates the foot-gun without
-         adding a new flag).
-      2. Metadata exists but has no ``resource_group`` (legacy install) →
-         require ``SCANNER_RESOURCE_GROUP``.
-      3. No metadata, ≥2 tagged RGs → require ``SCANNER_RESOURCE_GROUP``
-         (matches the deploy-side single-install policy: we don't pick
-         one silently).
-      4. No metadata, exactly 1 tagged RG → adopt it. If the env var was
-         set to a different value, raise the mismatch error.
-      5. No metadata, 0 tagged RGs → ``SCANNER_RESOURCE_GROUP`` if set,
-         otherwise the default RG name (preserves legacy / fresh-shell
-         behaviour for users who never tagged their RG).
+      * ≥2 tagged RGs without env var → ``SetupError``. The single-install
+        policy keeps us from picking one silently, and on the destroy
+        path silence would be even worse than on deploy.
+      * ≥2 tagged RGs with env var matching one → use it.
+      * ≥2 tagged RGs with env var matching none → ``ConfigurationError``.
+      * 1 tagged RG with env var disagreeing → ``ConfigurationError`` via
+        the shared ``rg_mismatch_detail`` guidance.
+      * 1 tagged RG, env var unset or matching → use it.
+      * 0 tagged RGs → ``SCANNER_RESOURCE_GROUP`` if set, otherwise the
+        default RG name (covers the "admin pre-created an untagged RG"
+        edge case, in which the user must remember the env var).
     """
-    if metadata and metadata.resource_group:
-        if env_rg and env_rg != metadata.resource_group:
-            raise ConfigurationError(
-                "Resource group mismatch",
-                rg_mismatch_detail(
-                    existing_rg=metadata.resource_group,
-                    requested_rg=env_rg,
-                    scanner_subscription=scanner_subscription,
-                ),
-            )
-        return metadata.resource_group
-
-    if metadata:
-        # Metadata blob exists but pre-dates the resource_group field.
-        if not env_rg:
-            raise SetupError(
-                "Resource group required",
-                "This deployment's metadata does not include the resource group "
-                "(installations created before this field was added).\n"
-                "Set SCANNER_RESOURCE_GROUP to the resource group used at deploy time.",
-            )
-        return env_rg
-
-    if metadata_status == MetadataReadStatus.ERROR:
-        print(
-            f"⚠️  Could not read deployment metadata ({metadata_error_detail or 'unknown error'}); "
-            "falling back to tagged RG discovery / SCANNER_RESOURCE_GROUP / default."
-        )
-
     if len(tagged_rgs) >= 2:
         if env_rg:
             if env_rg not in tagged_rgs:
@@ -288,7 +253,8 @@ def regenerate_terraform_config(
         resource_group=resource_group,
     )
 
-    vault_name = get_key_vault_name(scanner_subscription)
+    install_id = compute_install_id(scanner_subscription, resource_group)
+    vault_name = get_key_vault_name(install_id)
     api_key_secret_id = f"/subscriptions/{scanner_subscription}/resourceGroups/{resource_group}/providers/Microsoft.KeyVault/vaults/{vault_name}/secrets/{API_KEY_SECRET_NAME}"
 
     public_key, ssh_tmp_dir = generate_ssh_key()
@@ -413,9 +379,9 @@ def delete_key_vault(vault_name: str) -> bool:
         return False
 
 
-def prompt_key_vault_cleanup(scanner_subscription: str) -> None:
+def prompt_key_vault_cleanup(install_id: str) -> None:
     """Ask user if they want to delete the Key Vault."""
-    vault_name = get_key_vault_name(scanner_subscription)
+    vault_name = get_key_vault_name(install_id)
 
     print("=" * 60)
     print("  Cleanup Options")
@@ -481,31 +447,28 @@ def cmd_destroy() -> None:
 
         scanner_subscription = get_scanner_subscription()
 
-        # Storage account name is derived from the subscription and does not
-        # depend on the resource group, so we can look up metadata first and
-        # then resolve the resource group with metadata as the source of truth.
-        storage_account = get_storage_account(scanner_subscription)
-
-        result = read_metadata(storage_account)
-        metadata = result.metadata if result.status == MetadataReadStatus.PRESENT else None
-        subscriptions_to_scan = metadata.subscriptions_to_scan if metadata else []
-
-        # Tag-based discovery acts as a secondary source of truth: when the
-        # metadata blob isn't reachable (auth/network/throttling) we can
-        # still find the deployment if its RG was tagged at deploy time.
-        # Doesn't override metadata when metadata is present — that path
-        # is still authoritative.
-        tagged_rgs = find_agentless_resource_groups(scanner_subscription)
-
+        # The storage account name is install-id-scoped, and the install_id
+        # is derived from (scanner subscription, resource group), so the
+        # resource group must be resolved first. Tag-based discovery plus
+        # the env var are the only inputs — the metadata blob lives inside
+        # the SA we are about to address and can no longer participate.
         env_rg = os.environ.get("SCANNER_RESOURCE_GROUP", "").strip() or None
+        tagged_rgs = find_agentless_resource_groups(scanner_subscription)
         resource_group = _resolve_destroy_resource_group(
-            metadata=metadata,
-            metadata_status=result.status,
-            metadata_error_detail=result.error_detail,
             env_rg=env_rg,
             tagged_rgs=tagged_rgs,
             scanner_subscription=scanner_subscription,
         )
+
+        install_id = compute_install_id(scanner_subscription, resource_group)
+        storage_account = get_storage_account(install_id)
+
+        # Metadata is no longer authoritative for the resource group, but
+        # we still read it to recover the list of scan subscriptions for
+        # the Datadog-API cleanup at the end.
+        result = read_metadata(storage_account)
+        metadata = result.metadata if result.status == MetadataReadStatus.PRESENT else None
+        subscriptions_to_scan = metadata.subscriptions_to_scan if metadata else []
 
         work_dir, destroy_ssh_key_dir = get_working_directory(
             scanner_subscription, storage_account, resource_group
@@ -535,7 +498,7 @@ def cmd_destroy() -> None:
         else:
             print("⚠️  Keeping deployment metadata so you can re-run `destroy` to retry.")
 
-        prompt_key_vault_cleanup(scanner_subscription)
+        prompt_key_vault_cleanup(install_id)
         print_final_notes(storage_account, resource_group)
 
     except SetupError as e:

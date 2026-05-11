@@ -109,23 +109,23 @@ class TestResolveResourceGroupViaTags:
 
 
 class TestCheckExistingDeployment:
-    """Metadata-blob + legacy SA-RG fallback. Tag discovery is exercised
-    separately above; here we hold it fixed at 'no tagged RGs' so the
-    surface under test is just the metadata branch."""
+    """Metadata-blob inspection. Tag-based RG discovery is exercised
+    separately by :class:`TestResolveResourceGroupViaTags`."""
 
-    @patch("azure_agentless_setup.main.find_storage_account_rg", return_value=None)
     @patch("azure_agentless_setup.main.read_metadata")
-    def test_present_matching_rg_returns_result(self, mock_read, mock_find):
+    def test_present_matching_rg_returns_result(self, mock_read):
         mock_read.return_value = _present("rg-current")
 
         check = _check_existing_deployment(_make_config())
 
         assert check.metadata_result.status == MetadataReadStatus.PRESENT
-        mock_find.assert_not_called()
 
-    @patch("azure_agentless_setup.main.find_storage_account_rg")
     @patch("azure_agentless_setup.main.read_metadata")
-    def test_present_mismatched_rg_raises(self, mock_read, mock_find):
+    def test_present_mismatched_rg_raises(self, mock_read):
+        """With install-id-scoped SA names, finding a metadata blob at all
+        means we addressed the right install — so a recorded RG that
+        disagrees with the config can only be blob corruption. We still
+        fail loud rather than silently merge."""
         mock_read.return_value = _present("rg-original")
 
         with pytest.raises(ConfigurationError) as exc:
@@ -133,11 +133,9 @@ class TestCheckExistingDeployment:
 
         assert "rg-original" in exc.value.detail
         assert "rg-other" in exc.value.detail
-        mock_find.assert_not_called()
 
-    @patch("azure_agentless_setup.main.find_storage_account_rg")
     @patch("azure_agentless_setup.main.read_metadata")
-    def test_error_status_raises(self, mock_read, mock_find):
+    def test_error_status_raises(self, mock_read):
         mock_read.return_value = MetadataReadResult(
             MetadataReadStatus.ERROR, error_detail="auth boom"
         )
@@ -146,42 +144,20 @@ class TestCheckExistingDeployment:
             _check_existing_deployment(_make_config())
 
         assert "auth boom" in exc.value.detail
-        mock_find.assert_not_called()
 
-    @patch(
-        "azure_agentless_setup.main.find_storage_account_rg",
-        return_value="rg-original",
-    )
     @patch("azure_agentless_setup.main.read_metadata")
-    def test_missing_but_sa_in_other_rg_raises(self, mock_read, mock_find):
-        mock_read.return_value = MetadataReadResult(MetadataReadStatus.MISSING)
-
-        with pytest.raises(ConfigurationError) as exc:
-            _check_existing_deployment(_make_config(resource_group="rg-other"))
-
-        assert "rg-original" in exc.value.detail
-        assert "rg-other" in exc.value.detail
-
-    @patch("azure_agentless_setup.main.find_storage_account_rg", return_value=None)
-    @patch("azure_agentless_setup.main.read_metadata")
-    def test_missing_first_deploy_returns_missing(self, mock_read, mock_find):
+    def test_missing_first_deploy_returns_missing(self, mock_read):
         mock_read.return_value = MetadataReadResult(MetadataReadStatus.MISSING)
 
         check = _check_existing_deployment(_make_config())
 
         assert check.metadata_result.status == MetadataReadStatus.MISSING
-        mock_find.assert_called_once()
 
-    @patch("azure_agentless_setup.main.find_storage_account_rg")
     @patch("azure_agentless_setup.main.read_metadata")
-    def test_missing_with_custom_sa_skips_find(self, mock_read, mock_find):
-        # Custom SA: ensure_state_storage already validates the SA's RG, so
-        # the MISSING branch must NOT call find_storage_account_rg.
+    def test_custom_sa_used_as_storage_account_name(self, mock_read):
         mock_read.return_value = MetadataReadResult(MetadataReadStatus.MISSING)
         config = _make_config(state_storage_account="myacct")
 
         check = _check_existing_deployment(config)
 
-        assert check.metadata_result.status == MetadataReadStatus.MISSING
         assert check.storage_account_name == "myacct"
-        mock_find.assert_not_called()

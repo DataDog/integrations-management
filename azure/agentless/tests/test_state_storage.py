@@ -15,24 +15,15 @@ from azure_agentless_setup.state_storage import (
 
 
 class TestGetStorageAccountName:
-    def test_deterministic(self):
-        name1 = get_storage_account_name("sub-123")
-        name2 = get_storage_account_name("sub-123")
-        assert name1 == name2
-
-    def test_different_subs_produce_different_names(self):
-        name1 = get_storage_account_name("sub-aaa")
-        name2 = get_storage_account_name("sub-bbb")
-        assert name1 != name2
-
-    def test_within_azure_length_limit(self):
-        name = get_storage_account_name("a-very-long-subscription-id-that-is-a-uuid")
-        assert len(name) <= 24
-
-    def test_lowercase_alphanumeric_only(self):
-        name = get_storage_account_name("sub-123")
-        assert name.isalnum() or all(c.isalnum() for c in name)
+    def test_respects_azure_constraints(self):
+        # Azure SA names: 3-24 chars, lowercase alphanumeric, globally
+        # unique. install_id is a 12-char lowercase hex; prefixed with
+        # "datadog" we land at 19 chars and stay within constraints.
+        name = get_storage_account_name("0123456789ab")
+        assert name == "datadog0123456789ab"
+        assert 3 <= len(name) <= 24
         assert name == name.lower()
+        assert name.isalnum()
 
 
 class TestEnsureResourceGroup:
@@ -109,11 +100,14 @@ class TestFindAgentlessResourceGroups:
 
 
 class TestEnsureStateStorage:
+    INSTALL_ID = "abcdef012345"
+
     def _make_config(self, state_storage_account=None):
         config = MagicMock()
         config.scanner_subscription = "sub-scanner"
         config.locations = ["eastus"]
         config.resource_group = "my-rg"
+        config.install_id = self.INSTALL_ID
         config.state_storage_account = state_storage_account
         return config
 
@@ -132,7 +126,7 @@ class TestEnsureStateStorage:
 
         result = ensure_state_storage(config, reporter)
 
-        assert result == get_storage_account_name("sub-scanner")
+        assert result == get_storage_account_name(self.INSTALL_ID)
         mock_rg.assert_called_once()
         mock_create_c.assert_not_called()
 
@@ -150,7 +144,7 @@ class TestEnsureStateStorage:
 
         mock_sa_create.assert_called_once()
         mock_create_c.assert_called_once()
-        assert result == get_storage_account_name("sub-scanner")
+        assert result == get_storage_account_name(self.INSTALL_ID)
 
     @patch("azure_agentless_setup.state_storage.wait_for_blob_access")
     @patch("azure_agentless_setup.state_storage.create_container")

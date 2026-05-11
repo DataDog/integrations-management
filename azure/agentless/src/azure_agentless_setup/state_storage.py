@@ -7,7 +7,6 @@ Creates a Storage Account + blob container to store Terraform state.
 The azurerm backend requires: storage_account_name, container_name, key.
 """
 
-import hashlib
 import json
 import subprocess
 import time
@@ -36,18 +35,21 @@ AGENTLESS_TAG_KEY = "DatadogAgentlessScanner"
 AGENTLESS_TAG_VALUE = "true"
 
 
-def get_storage_account_name(scanner_subscription: str) -> str:
-    """Generate a deterministic, globally unique storage account name.
+def get_storage_account_name(install_id: str) -> str:
+    """Build the storage account name from a per-install identifier.
 
     Azure constraints:
       - 3–24 characters, lowercase letters and digits only
       - Must be globally unique across all of Azure
 
-    We use a truncated SHA-256 of the subscription ID to keep it short
-    and deterministic (same subscription always gets the same name).
+    ``install_id`` is a 12-char lowercase hex string (see
+    :func:`azure_agentless_setup.config.compute_install_id`); prefixed with
+    ``datadog`` we land at 19 chars total, well inside the limit, and two
+    deploys with different resource groups in the same scanner subscription
+    resolve to different names — which is what makes future multi-install
+    per subscription possible without storage-account name collisions.
     """
-    digest = hashlib.sha256(scanner_subscription.encode()).hexdigest()[:12]
-    return f"datadog{digest}"
+    return f"datadog{install_id}"
 
 
 def storage_account_exists(
@@ -72,29 +74,6 @@ def storage_account_exists(
         return bool(result)
     except Exception:
         return False
-
-
-def find_storage_account_rg(account_name: str, subscription: str) -> Optional[str]:
-    """Return the resource group containing a Storage Account, or None.
-
-    Storage Account names are unique within a subscription, so ``az storage
-    account show`` without ``--resource-group`` finds it wherever it lives.
-    Used by the deploy preflight to detect the "user re-runs with a different
-    SCANNER_RESOURCE_GROUP" case before any mutations: the deterministic SA
-    name is shared across runs but the SA can only live in one RG.
-    """
-    try:
-        raw = execute(
-            Cmd(["az", "storage", "account", "show"])
-            .param("--name", account_name)
-            .param("--subscription", subscription)
-            .param("--query", "resourceGroup")
-            .param("--output", "tsv"),
-            can_fail=True,
-        )
-        return (raw or "").strip() or None
-    except Exception:
-        return None
 
 
 def create_storage_account(
@@ -355,7 +334,7 @@ def prepare_storage_account(config: Config, reporter: Reporter) -> tuple[str, bo
             )
         reporter.success(f"Using custom storage account: {account_name}")
     else:
-        account_name = get_storage_account_name(config.scanner_subscription)
+        account_name = get_storage_account_name(config.install_id)
         if storage_account_exists(
             account_name, config.resource_group, config.scanner_subscription
         ):

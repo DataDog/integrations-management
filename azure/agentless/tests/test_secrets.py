@@ -14,22 +14,14 @@ from azure_agentless_setup.secrets import (
 
 
 class TestGetKeyVaultName:
-    def test_deterministic(self):
-        name1 = get_key_vault_name("sub-123")
-        name2 = get_key_vault_name("sub-123")
-        assert name1 == name2
-
-    def test_different_subs_produce_different_names(self):
-        name1 = get_key_vault_name("sub-aaa")
-        name2 = get_key_vault_name("sub-bbb")
-        assert name1 != name2
-
-    def test_within_azure_length_limit(self):
-        name = get_key_vault_name("a-very-long-subscription-id-that-is-a-uuid")
-        assert len(name) <= 24
-
-    def test_starts_with_letter(self):
-        name = get_key_vault_name("sub-123")
+    def test_respects_azure_constraints(self):
+        # Azure Key Vault names: 3-24 chars, alphanumeric + hyphens,
+        # must start with a letter, globally unique. install_id is a
+        # 12-char lowercase hex; prefixed with "datadog-" we land at
+        # 20 chars and stay within constraints.
+        name = get_key_vault_name("0123456789ab")
+        assert name == "datadog-0123456789ab"
+        assert 3 <= len(name) <= 24
         assert name[0].isalpha()
 
 
