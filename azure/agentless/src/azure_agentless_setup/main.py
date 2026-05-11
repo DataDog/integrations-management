@@ -385,6 +385,13 @@ def cmd_deploy() -> None:
 
     print_session_warning()
 
+    # Tracked across the whole try/except so the failure handler can mark the
+    # active step as FAILED in the workflow-status API. Without this the
+    # Datadog UI's setup-progress timeline keeps the in-progress step spinning
+    # forever when, e.g., terraform apply fails because of insufficient
+    # permissions.
+    reporter: Optional[Reporter] = None
+
     try:
         config = parse_config()
         reporter = Reporter(TOTAL_STEPS, workflow_id=config.workflow_id)
@@ -473,6 +480,12 @@ def cmd_deploy() -> None:
         timer.cancel()
 
     except SetupError as e:
+        # Surface the failure on the active step so the workflow-status API
+        # (and the Datadog UI timeline) flips the spinning step to FAILED
+        # instead of leaving it in_progress forever. The console summary
+        # below stays intact; ``report_step_failure`` only reports to the API.
+        if reporter is not None:
+            reporter.report_step_failure(e.message)
         print()
         print(f"❌ Setup failed: {e.message}")
         if e.detail:
@@ -483,6 +496,8 @@ def cmd_deploy() -> None:
         sys.exit(1)
 
     except Exception as e:
+        if reporter is not None:
+            reporter.report_step_failure(f"Unexpected error: {e}")
         print()
         print(f"❌ Unexpected error: {e}")
         print()
