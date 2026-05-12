@@ -91,6 +91,10 @@ class Reporter:
         soft-failure paths so the Datadog UI surfaces the partial issue
         without poisoning the workflow ID for retries (``is_valid_workflow_id``
         only blocks on ``FAILED``).
+
+        Clears ``_current_step_id`` after reporting so a subsequent
+        ``error()`` call between steps cannot accidentally mark a finished
+        step as ``FAILED``.
         """
         self.console.finish_step()
         if self._current_step_id:
@@ -100,6 +104,7 @@ class Reporter:
                 f"{self._current_step_id.value}: {outcome.value}",
                 metadata=metadata,
             )
+            self._current_step_id = None
 
     def success(self, message: str) -> None:
         self.console.success(message)
@@ -112,6 +117,25 @@ class Reporter:
 
     def error(self, message: str, detail: Optional[str] = None) -> None:
         self.console.error(message, detail)
+        if self._current_step_id:
+            self.status.report(
+                self._current_step_id.value,
+                Status.FAILED,
+                message,
+            )
+
+    def report_step_failure(self, message: str) -> None:
+        """Mark the active step as ``FAILED`` in the workflow-status API.
+
+        Unlike :meth:`error`, this does not print to the console — it's meant
+        for top-level exception handlers in :mod:`main` that already render
+        their own ``❌ Setup failed`` summary, so we want the API status to
+        flip to ``FAILED`` (so the Datadog UI's setup-progress timeline stops
+        spinning) without duplicating the error text on stderr.
+
+        No-op when no step is active (e.g. a failure during config parsing,
+        or after a step finished but before the next one started).
+        """
         if self._current_step_id:
             self.status.report(
                 self._current_step_id.value,

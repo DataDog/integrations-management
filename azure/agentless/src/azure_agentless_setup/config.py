@@ -3,8 +3,9 @@
 
 """Configuration parsing from environment variables."""
 
+import hashlib
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Optional
 
@@ -17,10 +18,36 @@ CONFIG_BASE_DIR = Path.home() / ".datadog-agentless-setup"
 
 DEFAULT_RESOURCE_GROUP = "datadog-agentless-scanner"
 
+# Length of the install identifier embedded in resource names and local
+# paths. Truncated SHA-256 hex; 12 characters matches the existing storage
+# account / Key Vault name budget (24 chars, lowercase alphanumeric) and
+# keeps the install_id readable in log lines without padding everything.
+INSTALL_ID_LEN = 12
 
-def get_config_dir(scanner_subscription: str) -> Path:
-    """Get the configuration directory for a scanner subscription."""
-    return CONFIG_BASE_DIR / scanner_subscription
+
+def compute_install_id(scanner_subscription: str, resource_group: str) -> str:
+    """Derive a stable per-install identifier from ``(subscription, RG)``.
+
+    Two deploys that share both the scanner subscription and the resource
+    group resolve to the same install (same Storage Account, Key Vault,
+    local working dir); changing the resource group produces a different
+    install. The function is deterministic — no state is needed to
+    recompute the identifier on a fresh shell.
+    """
+    digest = hashlib.sha256(
+        f"{scanner_subscription}|{resource_group}".encode()
+    ).hexdigest()
+    return digest[:INSTALL_ID_LEN]
+
+
+def get_config_dir(scanner_subscription: str, install_id: str) -> Path:
+    """Return the per-install local working directory.
+
+    Nested under the subscription so we can keep enumerating subscriptions
+    in destroy (one folder per scanner subscription) while reserving room
+    for future multi-install support (one folder per install_id).
+    """
+    return CONFIG_BASE_DIR / scanner_subscription / install_id
 
 
 @dataclass
@@ -42,6 +69,23 @@ class Config:
     # Optional: custom Azure Storage Account for Terraform state
     state_storage_account: Optional[str] = None
 
+    # Whether ``SCANNER_RESOURCE_GROUP`` was set by the user. Tag-based
+    # discovery uses this to decide whether to reuse a tagged RG silently
+    # (env var unset → reuse) or fail with a mismatch error (env var set
+    # to a different value).
+    resource_group_explicit: bool = False
+
+    @property
+    def install_id(self) -> str:
+        """Stable per-install identifier derived from ``(subscription, RG)``.
+
+        Exposed as a property so callers don't have to keep the field in
+        sync with ``resource_group``: ``with_resource_group`` is the only
+        way the resource group changes after parsing and the new
+        ``install_id`` is recomputed automatically.
+        """
+        return compute_install_id(self.scanner_subscription, self.resource_group)
+
     @property
     def all_subscriptions(self) -> list[str]:
         """All subscriptions including scanner subscription (deduplicated)."""
@@ -61,17 +105,21 @@ class Config:
 
     def with_merged(self, locations: list[str], subscriptions_to_scan: list[str]) -> "Config":
         """Return a copy with merged locations and subscriptions."""
-        return Config(
-            api_key=self.api_key,
-            app_key=self.app_key,
-            site=self.site,
-            workflow_id=self.workflow_id,
-            scanner_subscription=self.scanner_subscription,
+        return replace(
+            self,
             locations=locations,
             subscriptions_to_scan=subscriptions_to_scan,
-            resource_group=self.resource_group,
-            state_storage_account=self.state_storage_account,
         )
+
+    def with_resource_group(self, resource_group: str) -> "Config":
+        """Return a copy targeting ``resource_group``.
+
+        Used by tag-based RG discovery to switch to an existing tagged
+        resource group when the user did not pin one with
+        ``SCANNER_RESOURCE_GROUP``. ``install_id`` is recomputed
+        automatically because it's a property.
+        """
+        return replace(self, resource_group=resource_group)
 
 
 def parse_config() -> Config:
@@ -110,7 +158,9 @@ def parse_config() -> Config:
     if not subscriptions_str:
         errors.append("SUBSCRIPTIONS_TO_SCAN is required (comma-separated list)")
 
-    resource_group = os.environ.get("SCANNER_RESOURCE_GROUP", "").strip() or DEFAULT_RESOURCE_GROUP
+    rg_env = os.environ.get("SCANNER_RESOURCE_GROUP", "").strip()
+    resource_group = rg_env or DEFAULT_RESOURCE_GROUP
+    resource_group_explicit = bool(rg_env)
 
     if errors:
         usage = """
@@ -164,4 +214,5 @@ Usage:
         subscriptions_to_scan=subscriptions_to_scan,
         resource_group=resource_group,
         state_storage_account=state_storage_account,
+        resource_group_explicit=resource_group_explicit,
     )

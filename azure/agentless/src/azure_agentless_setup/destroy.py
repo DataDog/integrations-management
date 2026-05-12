@@ -14,11 +14,27 @@ from az_shared.execute_cmd import execute
 from common.shell import Cmd
 
 from .agentless_api import deactivate_scan_options
-from .config import Config, CONFIG_BASE_DIR, DEFAULT_RESOURCE_GROUP, get_config_dir
-from .errors import SetupError
-from .metadata import read_metadata, delete_metadata, terraform_state_exists
+from .config import (
+    CONFIG_BASE_DIR,
+    Config,
+    DEFAULT_RESOURCE_GROUP,
+    compute_install_id,
+    get_config_dir,
+)
+from .errors import ConfigurationError, SetupError
+from .metadata import (
+    MetadataReadStatus,
+    delete_metadata,
+    read_metadata,
+    rg_mismatch_detail,
+    terraform_state_exists,
+)
 from .secrets import API_KEY_SECRET_NAME, get_key_vault_name
-from .state_storage import get_storage_account_name, storage_account_exists
+from .state_storage import (
+    find_agentless_resource_groups,
+    get_storage_account_name,
+    storage_account_exists,
+)
 from .terraform import generate_ssh_key, generate_terraform_config, generate_tfvars
 
 
@@ -69,12 +85,73 @@ def get_scanner_subscription() -> str:
     )
 
 
-def get_storage_account(scanner_subscription: str) -> str:
-    """Determine the storage account name from env var or default."""
+def get_storage_account(install_id: str) -> str:
+    """Determine the storage account name from env var or install_id."""
     custom = os.environ.get("TF_STATE_STORAGE_ACCOUNT", "").strip()
     if custom:
         return custom
-    return get_storage_account_name(scanner_subscription)
+    return get_storage_account_name(install_id)
+
+
+def _resolve_destroy_resource_group(
+    *,
+    env_rg: Optional[str],
+    tagged_rgs: list[str],
+    scanner_subscription: str,
+) -> str:
+    """Resolve the resource group to use for destroy.
+
+    With install-id-scoped resource naming, the Storage Account that
+    holds the deployment metadata is itself addressable only after we
+    know the resource group — so we can no longer use the metadata blob
+    as the source of truth here. Tag-based discovery and
+    ``SCANNER_RESOURCE_GROUP`` are now the only inputs:
+
+      * ≥2 tagged RGs without env var → ``SetupError``. The single-install
+        policy keeps us from picking one silently, and on the destroy
+        path silence would be even worse than on deploy.
+      * ≥2 tagged RGs with env var matching one → use it.
+      * ≥2 tagged RGs with env var matching none → ``ConfigurationError``.
+      * 1 tagged RG with env var disagreeing → ``ConfigurationError`` via
+        the shared ``rg_mismatch_detail`` guidance.
+      * 1 tagged RG, env var unset or matching → use it.
+      * 0 tagged RGs → ``SCANNER_RESOURCE_GROUP`` if set, otherwise the
+        default RG name (covers the "admin pre-created an untagged RG"
+        edge case, in which the user must remember the env var).
+    """
+    if len(tagged_rgs) >= 2:
+        if env_rg:
+            if env_rg not in tagged_rgs:
+                raise ConfigurationError(
+                    "Resource group not recognised",
+                    f"SCANNER_RESOURCE_GROUP={env_rg} does not match any tagged\n"
+                    f"Agentless Scanner deployment in subscription {scanner_subscription}.\n"
+                    f"Tagged resource groups found:\n"
+                    + "\n".join(f"  - {rg}" for rg in tagged_rgs),
+                )
+            return env_rg
+        raise SetupError(
+            "Multiple Agentless Scanner deployments detected",
+            f"Scanner subscription {scanner_subscription} hosts {len(tagged_rgs)} "
+            f"Agentless Scanner deployments:\n"
+            + "\n".join(f"  - {rg}" for rg in tagged_rgs)
+            + "\nSet SCANNER_RESOURCE_GROUP to the one you want to destroy.",
+        )
+
+    if len(tagged_rgs) == 1:
+        tagged = tagged_rgs[0]
+        if env_rg and env_rg != tagged:
+            raise ConfigurationError(
+                "Resource group mismatch",
+                rg_mismatch_detail(
+                    existing_rg=tagged,
+                    requested_rg=env_rg,
+                    scanner_subscription=scanner_subscription,
+                ),
+            )
+        return tagged
+
+    return env_rg or DEFAULT_RESOURCE_GROUP
 
 
 def get_credentials_from_env() -> tuple:
@@ -131,7 +208,8 @@ def regenerate_terraform_config(
 
     api_key, app_key, site = get_credentials_from_env()
 
-    metadata, _ = read_metadata(storage_account)
+    result = read_metadata(storage_account)
+    metadata = result.metadata if result.status == MetadataReadStatus.PRESENT else None
     if metadata:
         print(
             f"Found deployment metadata with {len(metadata.locations)} location(s) "
@@ -140,7 +218,13 @@ def regenerate_terraform_config(
         locations = metadata.locations
         subscriptions_to_scan = metadata.subscriptions_to_scan
     else:
-        print("No deployment metadata found. Using environment variables.")
+        if result.status == MetadataReadStatus.ERROR:
+            print(
+                f"⚠️  Could not read deployment metadata ({result.error_detail or 'unknown error'}); "
+                "falling back to environment variables."
+            )
+        else:
+            print("No deployment metadata found. Using environment variables.")
         locations_str = os.environ.get("SCANNER_LOCATIONS", "").strip()
         subs_str = os.environ.get("SUBSCRIPTIONS_TO_SCAN", "").strip()
 
@@ -169,7 +253,8 @@ def regenerate_terraform_config(
         resource_group=resource_group,
     )
 
-    vault_name = get_key_vault_name(scanner_subscription)
+    install_id = compute_install_id(scanner_subscription, resource_group)
+    vault_name = get_key_vault_name(install_id)
     api_key_secret_id = f"/subscriptions/{scanner_subscription}/resourceGroups/{resource_group}/providers/Microsoft.KeyVault/vaults/{vault_name}/secrets/{API_KEY_SECRET_NAME}"
 
     public_key, ssh_tmp_dir = generate_ssh_key()
@@ -203,7 +288,8 @@ def get_working_directory(
         throwaway key pair from :func:`terraform.generate_ssh_key`); otherwise
         ``None``.
     """
-    config_folder = get_config_dir(scanner_subscription)
+    install_id = compute_install_id(scanner_subscription, resource_group)
+    config_folder = get_config_dir(scanner_subscription, install_id)
     folder_exists = config_folder.exists() and (config_folder / "main.tf").exists()
 
     print(f"  Scanner Subscription:  {scanner_subscription}")
@@ -293,9 +379,9 @@ def delete_key_vault(vault_name: str) -> bool:
         return False
 
 
-def prompt_key_vault_cleanup(scanner_subscription: str) -> None:
+def prompt_key_vault_cleanup(install_id: str) -> None:
     """Ask user if they want to delete the Key Vault."""
-    vault_name = get_key_vault_name(scanner_subscription)
+    vault_name = get_key_vault_name(install_id)
 
     print("=" * 60)
     print("  Cleanup Options")
@@ -361,28 +447,28 @@ def cmd_destroy() -> None:
 
         scanner_subscription = get_scanner_subscription()
 
-        # Storage account name is derived from the subscription and does not
-        # depend on the resource group, so we can look up metadata first and
-        # then resolve the resource group with metadata as a fallback.
-        storage_account = get_storage_account(scanner_subscription)
+        # The storage account name is install-id-scoped, and the install_id
+        # is derived from (scanner subscription, resource group), so the
+        # resource group must be resolved first. Tag-based discovery plus
+        # the env var are the only inputs — the metadata blob lives inside
+        # the SA we are about to address and can no longer participate.
+        env_rg = os.environ.get("SCANNER_RESOURCE_GROUP", "").strip() or None
+        tagged_rgs = find_agentless_resource_groups(scanner_subscription)
+        resource_group = _resolve_destroy_resource_group(
+            env_rg=env_rg,
+            tagged_rgs=tagged_rgs,
+            scanner_subscription=scanner_subscription,
+        )
 
-        metadata, _ = read_metadata(storage_account)
+        install_id = compute_install_id(scanner_subscription, resource_group)
+        storage_account = get_storage_account(install_id)
+
+        # Metadata is no longer authoritative for the resource group, but
+        # we still read it to recover the list of scan subscriptions for
+        # the Datadog-API cleanup at the end.
+        result = read_metadata(storage_account)
+        metadata = result.metadata if result.status == MetadataReadStatus.PRESENT else None
         subscriptions_to_scan = metadata.subscriptions_to_scan if metadata else []
-
-        env_rg = os.environ.get("SCANNER_RESOURCE_GROUP", "").strip()
-        if env_rg:
-            resource_group = env_rg
-        elif metadata and metadata.resource_group:
-            resource_group = metadata.resource_group
-        elif metadata:
-            raise SetupError(
-                "Resource group required",
-                "This deployment's metadata does not include the resource group "
-                "(installations created before this field was added).\n"
-                "Set SCANNER_RESOURCE_GROUP to the resource group used at deploy time.",
-            )
-        else:
-            resource_group = DEFAULT_RESOURCE_GROUP
 
         work_dir, destroy_ssh_key_dir = get_working_directory(
             scanner_subscription, storage_account, resource_group
@@ -412,7 +498,7 @@ def cmd_destroy() -> None:
         else:
             print("⚠️  Keeping deployment metadata so you can re-run `destroy` to retry.")
 
-        prompt_key_vault_cleanup(scanner_subscription)
+        prompt_key_vault_cleanup(install_id)
         print_final_notes(storage_account, resource_group)
 
     except SetupError as e:

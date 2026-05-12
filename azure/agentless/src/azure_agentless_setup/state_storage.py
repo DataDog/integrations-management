@@ -7,7 +7,6 @@ Creates a Storage Account + blob container to store Terraform state.
 The azurerm backend requires: storage_account_name, container_name, key.
 """
 
-import hashlib
 import json
 import subprocess
 import time
@@ -27,19 +26,30 @@ STORAGE_BLOB_DATA_CONTRIBUTOR = "Storage Blob Data Contributor"
 RBAC_PROPAGATION_RETRIES = 6
 RBAC_PROPAGATION_DELAY = 10
 
+# Marker tag applied by the setup script (and by the Terraform module) to
+# every resource it creates. Used by tag-based discovery to find existing
+# Agentless Scanner installations without consulting a central registry.
+# Kept in sync with `terraform-module-datadog-agentless-scanner/azure`
+# (modules/{resource-group,virtual-machine,virtual-network,managed-identity}).
+AGENTLESS_TAG_KEY = "DatadogAgentlessScanner"
+AGENTLESS_TAG_VALUE = "true"
 
-def get_storage_account_name(scanner_subscription: str) -> str:
-    """Generate a deterministic, globally unique storage account name.
+
+def get_storage_account_name(install_id: str) -> str:
+    """Build the storage account name from a per-install identifier.
 
     Azure constraints:
       - 3–24 characters, lowercase letters and digits only
       - Must be globally unique across all of Azure
 
-    We use a truncated SHA-256 of the subscription ID to keep it short
-    and deterministic (same subscription always gets the same name).
+    ``install_id`` is a 12-char lowercase hex string (see
+    :func:`azure_agentless_setup.config.compute_install_id`); prefixed with
+    ``datadog`` we land at 19 chars total, well inside the limit, and two
+    deploys with different resource groups in the same scanner subscription
+    resolve to different names — which is what makes future multi-install
+    per subscription possible without storage-account name collisions.
     """
-    digest = hashlib.sha256(scanner_subscription.encode()).hexdigest()[:12]
-    return f"datadog{digest}"
+    return f"datadog{install_id}"
 
 
 def storage_account_exists(
@@ -195,7 +205,7 @@ def grant_current_user_blob_data_contributor(account_name: str, resource_group: 
         ) from e
 
 
-def _wait_for_blob_access(account_name: str, reporter: Reporter) -> None:
+def wait_for_blob_access(account_name: str, reporter: Reporter) -> None:
     """Wait for Storage Blob Data Contributor role to propagate.
 
     Probes actual blob data-plane access instead of sleeping a fixed
@@ -228,19 +238,57 @@ def _wait_for_blob_access(account_name: str, reporter: Reporter) -> None:
     reporter.info("Role propagation timeout — proceeding (Terraform will retry if needed)")
 
 
+def resource_group_exists(resource_group: str, subscription: str) -> bool:
+    """Check whether a resource group exists in the subscription."""
+    try:
+        result = execute(
+            Cmd(["az", "group", "show"])
+            .param("--name", resource_group)
+            .param("--subscription", subscription),
+            can_fail=True,
+        )
+        return bool(result)
+    except Exception:
+        return False
+
+
+def find_agentless_resource_groups(scanner_subscription: str) -> list[str]:
+    """List resource groups tagged as an Agentless Scanner deployment.
+
+    Filters on the ``DatadogAgentlessScanner=true`` marker tag that the
+    setup script applies on RG creation (and that the Terraform module
+    re-applies to every resource it manages). Returns the bare RG names
+    in deterministic order — typically zero or one entry today, since
+    multi-install on a single scanner subscription is blocked.
+
+    Failures (auth, throttling, network) are swallowed and treated as
+    "no tagged RGs found": the caller falls back to the metadata blob
+    and (in this release) the deterministic Storage Account lookup,
+    which together still detect a previous install for the same RG name.
+    Once those legacy nets are removed in a follow-up commit, this
+    function will need to fail loudly instead.
+    """
+    try:
+        raw = execute(
+            Cmd(["az", "group", "list"])
+            .param("--subscription", scanner_subscription)
+            .param("--tag", f"{AGENTLESS_TAG_KEY}={AGENTLESS_TAG_VALUE}")
+            .param("--query", "[].name")
+            .param("--output", "tsv"),
+            can_fail=True,
+        )
+    except Exception:
+        return []
+    return sorted({line.strip() for line in (raw or "").splitlines() if line.strip()})
+
+
 def ensure_resource_group(resource_group: str, location: str, subscription: str) -> None:
     """Create the resource group if it doesn't exist.
 
     Raises:
         StorageAccountError: If the resource group cannot be created.
     """
-    result = execute(
-        Cmd(["az", "group", "show"])
-        .param("--name", resource_group)
-        .param("--subscription", subscription),
-        can_fail=True,
-    )
-    if result:
+    if resource_group_exists(resource_group, subscription):
         return
 
     try:
@@ -258,28 +306,27 @@ def ensure_resource_group(resource_group: str, location: str, subscription: str)
         ) from e
 
 
-def ensure_state_storage(config: Config, reporter: Reporter) -> str:
-    """Ensure the Terraform state storage infrastructure exists.
+def prepare_storage_account(config: Config, reporter: Reporter) -> tuple[str, bool]:
+    """Ensure the Terraform-state Storage Account exists and the current user
+    has Storage Blob Data Contributor on it.
 
-    Creates (if needed):
-    1. Resource group
-    2. Storage Account
-    3. Blob container
+    Splitting this out from ``ensure_state_storage`` lets the orchestrator
+    run the Storage Account and Key Vault control-plane work in parallel
+    and share a single RBAC propagation wait. Caller is responsible for:
 
-    If config.state_storage_account is set, uses that account (must already exist).
-    Otherwise, creates a default account named with a hash of the subscription ID.
+    * waiting for the role to propagate when the returned ``role_created``
+      is ``True``;
+    * creating the blob container afterwards via
+      :func:`finalize_storage_container` (the container is data-plane and
+      requires the role to have propagated).
 
-    Returns:
-        The storage account name.
-
-    Raises:
-        StorageAccountError: If any storage operation fails.
+    Returns ``(account_name, role_created)``.
     """
-    reporter.start_step("Setting up Terraform state storage", AgentlessStep.CREATE_STATE_STORAGE)
-
     if config.state_storage_account:
         account_name = config.state_storage_account
-        if not storage_account_exists(account_name, config.resource_group, config.scanner_subscription):
+        if not storage_account_exists(
+            account_name, config.resource_group, config.scanner_subscription
+        ):
             reporter.fatal(
                 f"Custom storage account does not exist: {account_name}",
                 f"Create the storage account in resource group '{config.resource_group}' first,\n"
@@ -287,12 +334,10 @@ def ensure_state_storage(config: Config, reporter: Reporter) -> str:
             )
         reporter.success(f"Using custom storage account: {account_name}")
     else:
-        account_name = get_storage_account_name(config.scanner_subscription)
-
-        # Ensure the resource group exists before creating the storage account
-        ensure_resource_group(config.resource_group, config.locations[0], config.scanner_subscription)
-
-        if storage_account_exists(account_name, config.resource_group, config.scanner_subscription):
+        account_name = get_storage_account_name(config.install_id)
+        if storage_account_exists(
+            account_name, config.resource_group, config.scanner_subscription
+        ):
             reporter.success(f"Using existing storage account: {account_name}")
         else:
             reporter.info(f"Creating storage account: {account_name}")
@@ -304,17 +349,45 @@ def ensure_state_storage(config: Config, reporter: Reporter) -> str:
             )
             reporter.success(f"Created storage account: {account_name}")
 
-    # Grant data-plane access for TF backend (use_azuread_auth = true)
     reporter.info("Granting blob data access to current user...")
     role_created = grant_current_user_blob_data_contributor(account_name, config.resource_group)
+    return account_name, role_created
 
-    if role_created:
-        _wait_for_blob_access(account_name, reporter)
 
-    # Ensure the blob container exists
+def finalize_storage_container(account_name: str, reporter: Reporter) -> None:
+    """Create the tfstate blob container if missing.
+
+    Must run after the current user's Storage Blob Data Contributor role
+    has propagated to the blob data plane (otherwise this fails with
+    AuthorizationPermissionMismatch).
+    """
     if not container_exists(account_name):
         reporter.info(f"Creating blob container: {CONTAINER_NAME}")
         create_container(account_name)
+
+
+def ensure_state_storage(config: Config, reporter: Reporter) -> str:
+    """Ensure the Terraform state storage infrastructure exists.
+
+    Sequential wrapper around :func:`prepare_storage_account` +
+    :func:`wait_for_blob_access` + :func:`finalize_storage_container`.
+    Kept for callers that want to provision state storage independently
+    of the Key Vault (the deploy command goes through the parallel
+    orchestrator in ``main.py`` instead).
+    """
+    reporter.start_step("Setting up Terraform state storage", AgentlessStep.CREATE_STATE_STORAGE)
+
+    if not config.state_storage_account:
+        ensure_resource_group(
+            config.resource_group, config.locations[0], config.scanner_subscription
+        )
+
+    account_name, role_created = prepare_storage_account(config, reporter)
+
+    if role_created:
+        wait_for_blob_access(account_name, reporter)
+
+    finalize_storage_container(account_name, reporter)
 
     reporter.finish_step()
     return account_name
