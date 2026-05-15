@@ -29,10 +29,11 @@ from .metadata import (
     rg_mismatch_detail,
     terraform_state_exists,
 )
-from .secrets import API_KEY_SECRET_NAME, get_key_vault_name
+from .secrets import API_KEY_SECRET_NAME, get_key_vault_name, key_vault_exists
 from .state_storage import (
     find_agentless_resource_groups,
     get_storage_account_name,
+    resource_group_exists,
     storage_account_exists,
 )
 from .terraform import generate_ssh_key, generate_terraform_config, generate_tfvars
@@ -379,9 +380,23 @@ def delete_key_vault(vault_name: str) -> bool:
         return False
 
 
-def prompt_key_vault_cleanup(install_id: str) -> None:
-    """Ask user if they want to delete the Key Vault."""
+def prompt_key_vault_cleanup(install_id: str, resource_group: str) -> None:
+    """Ask user if they want to delete the Key Vault.
+
+    Skips the prompt entirely when the vault has already been removed
+    (for example because the user destroyed the parent resource group
+    out-of-band, or a previous ``destroy`` run already deleted it). The
+    az CLI's "vault not found" output is noisy and easily misread as a
+    permission problem, so we pre-check existence to keep the post-destroy
+    summary honest.
+    """
     vault_name = get_key_vault_name(install_id)
+
+    if not key_vault_exists(vault_name, resource_group):
+        print("Key Vault already removed:")
+        print(f"  {vault_name}")
+        print()
+        return
 
     print("=" * 60)
     print("  Cleanup Options")
@@ -409,9 +424,34 @@ def prompt_key_vault_cleanup(install_id: str) -> None:
         print("Key Vault kept (non-interactive mode).")
 
 
-def print_final_notes(storage_account: str, resource_group: str) -> None:
-    """Print final notes about resources not deleted."""
+def print_final_notes(
+    storage_account: str, resource_group: str, scanner_subscription: str
+) -> None:
+    """Print final notes about resources that Terraform did not delete.
+
+    The state Storage Account, Key Vault, and Resource Group are created
+    by the Python wizard rather than Terraform, so ``terraform destroy``
+    leaves them in place by design. When the user has already removed
+    them out-of-band (typically via ``az group delete``), telling them to
+    run it again would only surface a ``ResourceGroupNotFound`` error,
+    so we adjust the notes to match the actual state.
+    """
     print()
+    rg_present = resource_group_exists(resource_group, scanner_subscription)
+    sa_present = rg_present and storage_account_exists(
+        storage_account, resource_group, scanner_subscription
+    )
+
+    if not rg_present:
+        print("=" * 60)
+        print("  Cleanup Complete")
+        print("=" * 60)
+        print()
+        print(f"Resource group already removed: {resource_group}")
+        print("No further manual cleanup needed.")
+        print()
+        return
+
     print("=" * 60)
     print("  Notes")
     print("=" * 60)
@@ -419,7 +459,8 @@ def print_final_notes(storage_account: str, resource_group: str) -> None:
     print("The following resources were NOT deleted:")
     print()
     print(f"  Resource Group:   {resource_group}")
-    print(f"  Storage Account:  {storage_account} (contains Terraform state)")
+    if sa_present:
+        print(f"  Storage Account:  {storage_account} (contains Terraform state)")
     print()
     print("You can delete the resource group manually if no longer needed:")
     print(f"  az group delete --name {resource_group} --yes --no-wait")
@@ -498,8 +539,8 @@ def cmd_destroy() -> None:
         else:
             print("⚠️  Keeping deployment metadata so you can re-run `destroy` to retry.")
 
-        prompt_key_vault_cleanup(install_id)
-        print_final_notes(storage_account, resource_group)
+        prompt_key_vault_cleanup(install_id, resource_group)
+        print_final_notes(storage_account, resource_group, scanner_subscription)
 
     except SetupError as e:
         print()
