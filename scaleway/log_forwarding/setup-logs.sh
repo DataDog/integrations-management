@@ -108,13 +108,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-# printf '%(%H:%M:%S)T' requires bash 4.2+; macOS ships bash 3.2 by default.
-if [[ "${BASH_VERSINFO[0]}" -lt 4 ]] || { [[ "${BASH_VERSINFO[0]}" -eq 4 ]] && [[ "${BASH_VERSINFO[1]}" -lt 2 ]]; }; then
-  printf 'bash 4.2 or later is required (you have %s).\n' "$BASH_VERSION" >&2
-  printf 'Install it with: brew install bash\n' >&2
-  exit 1
-fi
-
 # ── Flags ─────────────────────────────────────────────────────────────────────
 DRY_RUN=false
 TEARDOWN=false
@@ -128,7 +121,7 @@ unset _arg
 
 # ── Logging helpers ───────────────────────────────────────────────────────────
 # Defined early so bootstrap_scw and everything below can use them.
-_ts()    { printf '%(%H:%M:%S)T' -1; }
+_ts()    { date '+%H:%M:%S'; }
 log()    { printf '\033[0;34m[%s]\033[0m  %s\n'    "$(_ts)" "$*"; }
 ok()     { printf '\033[0;32m[%s] ✓\033[0m  %s\n' "$(_ts)" "$*"; }
 warn()   { printf '\033[0;33m[%s] ⚠\033[0m  %s\n' "$(_ts)" "$*" >&2; }
