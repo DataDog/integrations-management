@@ -166,4 +166,34 @@ class TestCreateKeyVaultSoftDeleteMismatch:
             subscription="sub",
         )
 
-        mock_recover.assert_called_once_with("datadog-vault")
+        # Recovery must target the scanner subscription so it runs against
+        # the right tenant even when the user's az default subscription
+        # differs from SCANNER_SUBSCRIPTION.
+        mock_recover.assert_called_once_with("datadog-vault", "sub")
+
+    @patch("azure_agentless_setup.secrets.execute")
+    @patch("azure_agentless_setup.secrets._get_soft_deleted_vault", return_value=None)
+    def test_translates_vault_already_exists_to_actionable_error(
+        self, mock_get_deleted, mock_execute
+    ):
+        """When list-deleted cannot see the soft-deleted vault (typically a
+        missing ``deletedVaults/read`` permission) but Azure rejects the
+        create with ``VaultAlreadyExists``, the user must get the recover /
+        purge commands rather than the raw az stderr."""
+        mock_execute.side_effect = Exception(
+            "ERROR: (VaultAlreadyExists) The vault name 'datadog-vault' "
+            "is already in use."
+        )
+
+        with pytest.raises(KeyVaultError) as exc:
+            create_key_vault(
+                vault_name="datadog-vault",
+                resource_group="rg",
+                location="eastus",
+                subscription="sub-scanner",
+            )
+
+        assert "already in use" in exc.value.message
+        assert "az keyvault recover" in exc.value.detail
+        assert "az keyvault purge" in exc.value.detail
+        assert "--subscription sub-scanner" in exc.value.detail

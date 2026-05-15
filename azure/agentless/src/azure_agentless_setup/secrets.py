@@ -57,23 +57,38 @@ def key_vault_exists(vault_name: str, resource_group: str) -> bool:
         return False
 
 
-def _get_soft_deleted_vault(vault_name: str, location: str) -> Optional[dict]:
+def _get_soft_deleted_vault(vault_name: str, subscription: str) -> Optional[dict]:
     """Return the soft-deleted vault descriptor, or None if not soft-deleted.
 
-    The descriptor exposes ``properties.vaultId`` from which the original
-    resource group can be recovered.
+    Uses ``az keyvault list-deleted`` filtered by name (rather than the
+    location-scoped ``show-deleted``) so the lookup is robust against:
+
+      * the Cloud Shell user's default subscription differing from
+        ``SCANNER_SUBSCRIPTION`` — ``show-deleted`` does not accept
+        ``--subscription`` in older az CLI builds, which silently sent
+        the query to the wrong subscription and returned "not found";
+      * a previous deploy targeting a different location than the
+        current run — ``show-deleted --location`` only matches the
+        location the vault was originally parked in.
+
+    The descriptor exposes ``properties.vaultId`` (resource group) and
+    ``properties.location`` (recovery / purge location).
     """
     try:
         raw = execute(
-            Cmd(["az", "keyvault", "show-deleted"])
-            .param("--name", vault_name)
-            .param("--location", location),
+            Cmd(["az", "keyvault", "list-deleted"])
+            .param("--subscription", subscription)
+            .param("--resource-type", "vault")
+            .param("--query", f"[?name=='{vault_name}'] | [0]"),
             can_fail=True,
         )
-        if not raw:
-            return None
-        return json.loads(raw)
     except Exception:
+        return None
+    if not raw or raw.strip() in ("", "null"):
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
         return None
 
 
@@ -97,6 +112,7 @@ def _soft_delete_rg_mismatch_detail(
     *,
     vault_name: str,
     location: str,
+    subscription: str,
     original_rg: str,
     requested_rg: str,
 ) -> str:
@@ -109,17 +125,55 @@ def _soft_delete_rg_mismatch_detail(
         f"\n"
         f"You can:\n"
         f"  - Re-run with SCANNER_RESOURCE_GROUP={original_rg} to recover it there, OR\n"
-        f"  - Purge it (irreversible — deletes the secret) and let this run\n"
+        f"  - Purge it (irreversible, deletes the secret) and let this run\n"
         f"    create a new vault:\n"
-        f"      az keyvault purge --name {vault_name} --location {location}"
+        f"      az keyvault purge --name {vault_name} --location {location} \\\n"
+        f"        --subscription {subscription}"
     )
 
 
-def _recover_soft_deleted(vault_name: str) -> None:
-    """Recover a soft-deleted Key Vault."""
+def _vault_already_exists_detail(
+    *, vault_name: str, location: str, subscription: str
+) -> str:
+    """Actionable message for the ``VaultAlreadyExists`` fallback.
+
+    Triggered when ``_get_soft_deleted_vault`` returned nothing (typically
+    because the current user lacks ``Microsoft.KeyVault/deletedVaults/read``
+    on the subscription) but ``az keyvault create`` immediately rejected
+    the name because Azure does have a soft-deleted vault with it.
+    """
+    return (
+        f"A Key Vault named '{vault_name}' is already taken in subscription\n"
+        f"{subscription}. The most common cause is a previous Datadog\n"
+        f"Agentless Scanner deploy that was destroyed: Azure keeps the vault\n"
+        f"in a soft-deleted state for the retention period.\n"
+        f"\n"
+        f"The setup script could not detect it automatically (usually a\n"
+        f"missing 'Microsoft.KeyVault/deletedVaults/read' permission for\n"
+        f"the current user on this subscription).\n"
+        f"\n"
+        f"To unblock, run one of:\n"
+        f"  - az keyvault recover --name {vault_name} \\\n"
+        f"      --subscription {subscription}\n"
+        f"  - az keyvault purge --name {vault_name} --location {location} \\\n"
+        f"      --subscription {subscription}\n"
+        f"\n"
+        f"Then re-run deploy. Alternatively, set SCANNER_RESOURCE_GROUP to a\n"
+        f"different value to derive a fresh vault name."
+    )
+
+
+def _recover_soft_deleted(vault_name: str, subscription: str) -> None:
+    """Recover a soft-deleted Key Vault in ``subscription``.
+
+    Passes ``--subscription`` so recovery runs against the scanner
+    subscription even when the Cloud Shell user's default subscription
+    differs.
+    """
     execute(
         Cmd(["az", "keyvault", "recover"])
         .param("--name", vault_name)
+        .param("--subscription", subscription)
     )
 
 
@@ -145,22 +199,27 @@ def create_key_vault(
     Raises:
         KeyVaultError: If the Key Vault cannot be created.
     """
-    deleted = _get_soft_deleted_vault(vault_name, location)
+    deleted = _get_soft_deleted_vault(vault_name, subscription)
     if deleted is not None:
-        original_vault_id = (deleted.get("properties") or {}).get("vaultId") or ""
+        properties = deleted.get("properties") or {}
+        original_vault_id = properties.get("vaultId") or ""
         original_rg = _resource_group_from_arm_id(original_vault_id)
+        # Recovery / purge advice should point at the location the
+        # soft-deleted vault is parked in, not the new deploy location.
+        original_location = properties.get("location") or location
         if original_rg and original_rg != resource_group:
             raise KeyVaultError(
                 "Soft-deleted Key Vault belongs to a different resource group",
                 _soft_delete_rg_mismatch_detail(
                     vault_name=vault_name,
-                    location=location,
+                    location=original_location,
+                    subscription=subscription,
                     original_rg=original_rg,
                     requested_rg=resource_group,
                 ),
             )
         try:
-            _recover_soft_deleted(vault_name)
+            _recover_soft_deleted(vault_name, subscription)
             return
         except Exception as e:
             raise KeyVaultError(
@@ -180,6 +239,20 @@ def create_key_vault(
             .param_list("--tags", ["Datadog=true", "DatadogAgentlessScanner=true"])
         )
     except Exception as e:
+        # Fallback for cases where ``_get_soft_deleted_vault`` returned
+        # nothing (typically because the current user lacks
+        # ``Microsoft.KeyVault/deletedVaults/read``) yet Azure refuses the
+        # create because the vault name is occupied by a soft-deleted
+        # vault. Match on the error code so we survive az CLI localisation.
+        if "VaultAlreadyExists" in str(e):
+            raise KeyVaultError(
+                f"Key Vault name '{vault_name}' is already in use",
+                _vault_already_exists_detail(
+                    vault_name=vault_name,
+                    location=location,
+                    subscription=subscription,
+                ),
+            ) from e
         raise KeyVaultError(
             f"Failed to create Key Vault: {vault_name}",
             str(e),
