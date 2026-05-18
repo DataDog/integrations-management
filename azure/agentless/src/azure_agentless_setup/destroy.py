@@ -10,9 +10,6 @@ import sys
 from pathlib import Path
 from typing import Optional, Tuple
 
-from az_shared.execute_cmd import execute
-from common.shell import Cmd
-
 from .agentless_api import deactivate_scan_options
 from .config import (
     CONFIG_BASE_DIR,
@@ -29,7 +26,12 @@ from .metadata import (
     rg_mismatch_detail,
     terraform_state_exists,
 )
-from .secrets import API_KEY_SECRET_NAME, get_key_vault_name, key_vault_exists
+from .secrets import (
+    API_KEY_SECRET_NAME,
+    get_key_vault_name,
+    key_vault_exists,
+    purge_key_vault,
+)
 from .state_storage import (
     ensure_current_user_blob_data_access,
     find_agentless_resource_groups,
@@ -377,32 +379,21 @@ def run_terraform_destroy(work_dir: Path) -> None:
         os.chdir(original_dir)
 
 
-def delete_key_vault(vault_name: str) -> bool:
-    """Delete the Key Vault.
+def cleanup_key_vault(
+    install_id: str, resource_group: str, subscription: str
+) -> None:
+    """Purge the Key Vault left behind by Terraform.
 
-    Returns:
-        True if deleted, False if the az CLI reported failure.
-    """
-    try:
-        execute(
-            Cmd(["az", "keyvault", "delete"])
-            .param("--name", vault_name)
-            .flag("--no-wait"),
-        )
-        return True
-    except Exception:
-        return False
+    Terraform does not manage the vault itself (the API-key secret is
+    written by the wizard before any plan runs), so destroy never
+    cleans it up automatically. Without a purge, Azure keeps the
+    soft-deleted vault reserved for its retention window (7 days for
+    wizard-created vaults) - the recurring root cause of
+    ``VaultAlreadyExists`` on re-deploy.
 
-
-def prompt_key_vault_cleanup(install_id: str, resource_group: str) -> None:
-    """Ask user if they want to delete the Key Vault.
-
-    Skips the prompt entirely when the vault has already been removed
-    (for example because the user destroyed the parent resource group
-    out-of-band, or a previous ``destroy`` run already deleted it). The
-    az CLI's "vault not found" output is noisy and easily misread as a
-    permission problem, so we pre-check existence to keep the post-destroy
-    summary honest.
+    Always purges: ``terraform destroy`` has already confirmed the
+    user's intent by the time we get here. Skips when the vault has
+    already been removed.
     """
     vault_name = get_key_vault_name(install_id)
 
@@ -412,30 +403,12 @@ def prompt_key_vault_cleanup(install_id: str, resource_group: str) -> None:
         print()
         return
 
-    print("=" * 60)
-    print("  Cleanup Options")
-    print("=" * 60)
+    print(f"Purging Key Vault {vault_name}...")
+    if purge_key_vault(vault_name, subscription):
+        print(f"✅ Key Vault purged: {vault_name}")
+    else:
+        print(f"⚠️  Failed to purge Key Vault {vault_name}.")
     print()
-    print("The Key Vault was NOT deleted by Terraform:")
-    print(f"  {vault_name}")
-    print()
-    print("This vault holds the Datadog API key and may be reused for future deployments.")
-    print()
-
-    try:
-        response = input("Do you want to delete the Key Vault? (y/N): ").strip().lower()
-        if response in ("y", "yes"):
-            print("Deleting Key Vault...")
-            if delete_key_vault(vault_name):
-                print("✅ Key Vault deleted.")
-                print("   Note: Azure retains soft-deleted vaults for the configured")
-                print("   retention period. It will be auto-purged after that.")
-            else:
-                print("⚠️  Failed to delete Key Vault (it may not exist or you lack permissions).")
-        else:
-            print("Key Vault kept.")
-    except EOFError:
-        print("Key Vault kept (non-interactive mode).")
 
 
 def print_final_notes(
@@ -568,7 +541,7 @@ def cmd_destroy() -> None:
         else:
             print("⚠️  Keeping deployment metadata so you can re-run `destroy` to retry.")
 
-        prompt_key_vault_cleanup(install_id, resource_group)
+        cleanup_key_vault(install_id, resource_group, scanner_subscription)
         print_final_notes(storage_account, resource_group, scanner_subscription)
 
     except SetupError as e:

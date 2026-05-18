@@ -177,6 +177,54 @@ def _recover_soft_deleted(vault_name: str, subscription: str) -> None:
     )
 
 
+def purge_key_vault(vault_name: str, subscription: str) -> bool:
+    """Permanently delete and purge a Key Vault in one step.
+
+    Performs the full ``soft-delete -> purge`` sequence so the vault
+    name is freed for immediate reuse. Without the purge step Azure
+    keeps the vault reserved for its retention window (7 days for
+    wizard-created vaults), which is the recurring root cause of
+    ``VaultAlreadyExists`` on re-deploy.
+
+    The soft-delete step blocks until completion (no ``--no-wait``)
+    so the purge call sees the vault in the soft-deleted state. The
+    purge step discovers the original location via
+    :func:`_get_soft_deleted_vault` (subscription-scoped,
+    location-agnostic) and passes it explicitly because
+    ``az keyvault purge`` is location-scoped.
+
+    Returns ``False`` on any failure in either step. Callers in the
+    destroy flow rely on this never raising so the wizard's last
+    cleanup step does not crash a destroy that otherwise succeeded.
+    """
+    try:
+        execute(
+            Cmd(["az", "keyvault", "delete"])
+            .param("--name", vault_name)
+            .param("--subscription", subscription)
+        )
+    except Exception:
+        return False
+
+    deleted = _get_soft_deleted_vault(vault_name, subscription)
+    if deleted is None:
+        return False
+    location = (deleted.get("properties") or {}).get("location")
+    if not location:
+        return False
+
+    try:
+        execute(
+            Cmd(["az", "keyvault", "purge"])
+            .param("--name", vault_name)
+            .param("--location", location)
+            .param("--subscription", subscription)
+        )
+        return True
+    except Exception:
+        return False
+
+
 def create_key_vault(
     vault_name: str,
     resource_group: str,

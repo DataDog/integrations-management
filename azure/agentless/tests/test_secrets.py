@@ -10,6 +10,7 @@ from azure_agentless_setup.secrets import (
     create_key_vault,
     ensure_api_key_secret,
     get_key_vault_name,
+    purge_key_vault,
 )
 
 
@@ -197,3 +198,43 @@ class TestCreateKeyVaultSoftDeleteMismatch:
         assert "az keyvault recover" in exc.value.detail
         assert "az keyvault purge" in exc.value.detail
         assert "--subscription sub-scanner" in exc.value.detail
+
+
+class TestPurgeKeyVault:
+    """``purge_key_vault`` chains the soft-delete and the purge so the
+    vault name is freed for immediate reuse. Both steps must target
+    the scanner subscription (the user's az default may differ), and
+    the purge step must carry the vault's original location because
+    ``az keyvault purge`` is location-scoped."""
+
+    @patch("azure_agentless_setup.secrets.execute")
+    @patch("azure_agentless_setup.secrets._get_soft_deleted_vault")
+    def test_soft_deletes_then_purges_with_explicit_location_and_subscription(
+        self, mock_get_deleted, mock_execute
+    ):
+        mock_get_deleted.return_value = {
+            "name": "datadog-vault",
+            "properties": {"location": "westeurope"},
+        }
+
+        assert purge_key_vault("datadog-vault", "sub-scanner") is True
+
+        delete_cmd = str(mock_execute.call_args_list[0].args[0])
+        assert " keyvault delete " in delete_cmd
+        assert "--name datadog-vault" in delete_cmd
+        assert "--subscription sub-scanner" in delete_cmd
+        # ``--no-wait`` would let the purge step race the soft-delete
+        # and fail with "vault not soft-deleted"; pin its absence.
+        assert "--no-wait" not in delete_cmd
+
+        purge_cmd = str(mock_execute.call_args_list[1].args[0])
+        assert " keyvault purge " in purge_cmd
+        assert "--name datadog-vault" in purge_cmd
+        assert "--location westeurope" in purge_cmd
+        assert "--subscription sub-scanner" in purge_cmd
+
+    @patch("azure_agentless_setup.secrets.execute", side_effect=Exception("control-plane denied"))
+    def test_returns_false_when_soft_delete_fails(self, mock_execute):
+        # Caller in destroy.py degrades to a single-line warning
+        # rather than crashing the wizard's final cleanup step.
+        assert purge_key_vault("datadog-vault", "sub-scanner") is False

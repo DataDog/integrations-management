@@ -10,10 +10,15 @@ and the ``SCANNER_RESOURCE_GROUP`` env var; metadata-based reconciliation
 moved upstream into deploy and is no longer involved here.
 """
 
+from unittest.mock import patch
+
 import pytest
 
 from azure_agentless_setup.config import DEFAULT_RESOURCE_GROUP
-from azure_agentless_setup.destroy import _resolve_destroy_resource_group
+from azure_agentless_setup.destroy import (
+    _resolve_destroy_resource_group,
+    cleanup_key_vault,
+)
 from azure_agentless_setup.errors import ConfigurationError, SetupError
 
 
@@ -63,3 +68,36 @@ class TestResolveDestroyResourceGroup:
         with pytest.raises(ConfigurationError) as exc:
             _call(tagged_rgs=["rg-a", "rg-b"], env_rg="rg-unknown")
         assert "rg-unknown" in exc.value.detail
+
+
+class TestCleanupKeyVault:
+    """Destroy always purges the vault: terraform destroy has already
+    confirmed the user's intent, so the recurring ``VaultAlreadyExists``
+    on re-deploy must not be re-introduced by stopping at soft-delete."""
+
+    @patch("azure_agentless_setup.destroy.purge_key_vault", return_value=True)
+    @patch("azure_agentless_setup.destroy.key_vault_exists", return_value=True)
+    def test_purges_with_scanner_subscription(self, mock_exists, mock_purge):
+        cleanup_key_vault(
+            install_id="0123456789ab",
+            resource_group="rg",
+            subscription="sub-scanner",
+        )
+
+        mock_purge.assert_called_once_with("datadog-0123456789ab", "sub-scanner")
+
+    @patch("azure_agentless_setup.destroy.purge_key_vault")
+    @patch("azure_agentless_setup.destroy.key_vault_exists", return_value=False)
+    def test_skips_entirely_when_vault_already_gone(
+        self, mock_exists, mock_purge
+    ):
+        # Idempotency: a destroy that already ran (or had the parent
+        # RG nuked out-of-band) must not flood the user with az-cli
+        # "vault not found" noise.
+        cleanup_key_vault(
+            install_id="0123456789ab",
+            resource_group="rg",
+            subscription="sub-scanner",
+        )
+
+        mock_purge.assert_not_called()
