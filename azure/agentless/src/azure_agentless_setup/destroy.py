@@ -31,12 +31,26 @@ from .metadata import (
 )
 from .secrets import API_KEY_SECRET_NAME, get_key_vault_name, key_vault_exists
 from .state_storage import (
+    ensure_current_user_blob_data_access,
     find_agentless_resource_groups,
     get_storage_account_name,
     resource_group_exists,
     storage_account_exists,
 )
 from .terraform import generate_ssh_key, generate_terraform_config, generate_tfvars
+
+
+class _PrintReporter:
+    """Minimal stand-in for :class:`reporter.Reporter` on the destroy path.
+
+    The destroy command does not run the workflow-status reporter,
+    but :func:`state_storage.wait_for_blob_access` only calls
+    ``reporter.info(message)``. Implementing that single method here
+    keeps destroy free of the full Reporter dependency.
+    """
+
+    def info(self, message: str) -> None:
+        print(f"  {message}")
 
 
 def sigint_handler(signum, frame) -> None:
@@ -503,6 +517,21 @@ def cmd_destroy() -> None:
 
         install_id = compute_install_id(scanner_subscription, resource_group)
         storage_account = get_storage_account(install_id)
+
+        # Storage Blob Data Contributor is a *data-plane* role; Owner on
+        # the resource group does not include it. Grant it to the current
+        # user before the metadata read so a user destroying a deployment
+        # created by someone else doesn't trip over an opaque
+        # "permissions" error from `az storage blob show`.
+        if storage_account_exists(
+            storage_account, resource_group, scanner_subscription
+        ):
+            ensure_current_user_blob_data_access(
+                storage_account,
+                resource_group,
+                scanner_subscription,
+                _PrintReporter(),
+            )
 
         # Metadata is no longer authoritative for the resource group, but
         # we still read it to recover the list of scan subscriptions for

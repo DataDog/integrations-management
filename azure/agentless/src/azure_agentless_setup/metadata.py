@@ -347,19 +347,41 @@ def write_metadata(
 
 
 def terraform_state_exists(storage_account: str) -> bool:
-    """Check if Terraform state exists in the container."""
-    try:
-        result = execute(
-            Cmd(["az", "storage", "blob", "show"])
-            .param("--account-name", storage_account)
-            .param("--container-name", CONTAINER_NAME)
-            .param("--name", TF_STATE_BLOB)
-            .param("--auth-mode", "login"),
-            can_fail=True,
-        )
-        return bool(result)
-    except Exception:
+    """Check whether the Terraform state blob exists.
+
+    Distinguishes a genuine 404 (BlobNotFound / ContainerNotFound /
+    ResourceNotFound) from auth / network / throttling failures by
+    reading stderr directly, mirroring :func:`_show_metadata_blob`. The
+    previous implementation swallowed every failure and returned
+    ``False``, which on the destroy path turned a missing Storage Blob
+    Data Contributor role into the misleading "No Terraform state found
+    in storage account" message. Raises :class:`MetadataError` on
+    non-404 failures so the caller surfaces the real problem.
+    """
+    cmd = str(
+        Cmd(["az", "storage", "blob", "show"])
+        .param("--account-name", storage_account)
+        .param("--container-name", CONTAINER_NAME)
+        .param("--name", TF_STATE_BLOB)
+        .param("--auth-mode", "login")
+    )
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    if result.returncode == 0:
+        return True
+
+    status, detail = _classify_blob_show_failure(result.stderr or "")
+    if status == MetadataReadStatus.MISSING:
         return False
+
+    raise MetadataError(
+        f"Could not check Terraform state in {storage_account}",
+        f"{detail or 'unknown error'}\n"
+        "If this is a permissions error, the current user needs\n"
+        "'Storage Blob Data Contributor' on the storage account. The wizard\n"
+        "tries to grant it automatically; if you see this message, the\n"
+        "grant may have failed or not yet propagated. Re-run after a few\n"
+        "seconds, or ask a subscription Owner to assign the role manually.",
+    )
 
 
 def delete_metadata(storage_account: str) -> bool:

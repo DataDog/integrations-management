@@ -205,27 +205,145 @@ def grant_current_user_blob_data_contributor(account_name: str, resource_group: 
         ) from e
 
 
+def _signed_in_user_object_id() -> Optional[str]:
+    """Best-effort lookup of the current user's Entra object ID.
+
+    Returns ``None`` on failure so error messages remain useful even when
+    we cannot fetch the ID. Reading ``signed-in-user`` only needs the
+    default Microsoft Graph scope every authenticated user already has.
+    """
+    try:
+        raw = execute(
+            Cmd(["az", "ad", "signed-in-user", "show"])
+            .param("--query", "id")
+            .param("--output", "tsv"),
+            can_fail=True,
+        )
+    except Exception:
+        return None
+    return (raw or "").strip() or None
+
+
+def ensure_current_user_blob_data_access(
+    account_name: str,
+    resource_group: str,
+    subscription: str,
+    reporter: Reporter,
+) -> None:
+    """Grant the current user 'Storage Blob Data Contributor' on
+    ``account_name`` and wait for RBAC propagation, with a focused error
+    when self-grant is not possible.
+
+    Callers about to do blob data-plane reads or writes (deploy's
+    metadata probe, destroy's metadata read) must invoke this *before*
+    the first blob call so they don't surface Azure's opaque "you do not
+    have the required permissions" error.
+
+    Azure separates control-plane RBAC (Owner / Contributor on the
+    subscription, the resource group, or the storage account itself)
+    from data-plane RBAC. Owner on the resource group manages the
+    Storage Account but does NOT read or write the blobs inside it -
+    that's reserved for the ``Storage Blob Data *`` roles.
+
+    Idempotent: returns silently when the role already exists.
+    """
+    try:
+        role_created = grant_current_user_blob_data_contributor(
+            account_name, resource_group
+        )
+    except StorageAccountError as e:
+        object_id = _signed_in_user_object_id() or "<your-object-id>"
+        raise StorageAccountError(
+            "Cannot access existing deployment's Terraform state",
+            f"An Agentless Scanner deployment already exists in resource group\n"
+            f"'{resource_group}', and the current user cannot self-grant\n"
+            f"'Storage Blob Data Contributor' on its state Storage Account\n"
+            f"'{account_name}'.\n"
+            f"\n"
+            f"Note: Azure separates control-plane RBAC (Owner / Contributor on\n"
+            f"a resource group) from data-plane RBAC. Owner on the resource\n"
+            f"group is NOT sufficient to read or write blobs in a Storage\n"
+            f"Account inside it.\n"
+            f"\n"
+            f"Ask a subscription Owner (typically the user who originally\n"
+            f"deployed) to run, in the scanner subscription:\n"
+            f"\n"
+            f"  az role assignment create \\\n"
+            f"    --assignee {object_id} \\\n"
+            f"    --role 'Storage Blob Data Contributor' \\\n"
+            f"    --scope $(az storage account show \\\n"
+            f"      --name {account_name} \\\n"
+            f"      --resource-group {resource_group} \\\n"
+            f"      --subscription {subscription} \\\n"
+            f"      --query id -o tsv)\n"
+            f"\n"
+            f"Then re-run.\n"
+            f"\n"
+            f"Underlying error: {e.detail or e.message}",
+        ) from e
+
+    if role_created:
+        wait_for_blob_access(account_name, reporter)
+
+
+# Markers indicating the blob-data-plane responded with a clean 404 -
+# i.e. the request was authorized and merely targeted a blob or
+# container that does not exist yet. ``wait_for_blob_access`` treats
+# these as a success signal because they still demonstrate that the
+# caller has data-plane reachability.
+_BLOB_PROBE_BENIGN_MARKERS = (
+    "blobnotfound",
+    "containernotfound",
+    "resourcenotfound",
+    "the specified blob does not exist",
+    "the specified container does not exist",
+    "the specified resource does not exist",
+)
+
+
 def wait_for_blob_access(account_name: str, reporter: Reporter) -> None:
     """Wait for Storage Blob Data Contributor role to propagate.
 
-    Probes actual blob data-plane access instead of sleeping a fixed
-    duration. Listing containers with --auth-mode login exercises the
-    same Azure AD path that Terraform will use.
+    Probes the exact same data-plane API the wizard will hit next -
+    ``az storage blob show config.json`` - and tolerates only the
+    ``BlobNotFound`` / ``ContainerNotFound`` family of errors as
+    success signals (the metadata blob is missing on first deploys but
+    the response still proves data-plane reachability). Any other
+    failure - typically ``AuthorizationPermissionMismatch`` - is
+    treated as "role not yet propagated" and retried.
 
-    Uses subprocess directly instead of execute() to avoid noisy
-    log.error output on every expected retry attempt.
+    The previous probe (``az storage container list``) was unreliable
+    on second-user-joining paths: some az CLI builds quietly returned
+    an empty array with ``rc=0`` when the caller lacked the
+    data-plane role (because the CLI silently re-authenticated with
+    storage account keys harvested via the control plane), so the wait
+    returned immediately and the subsequent metadata read failed with
+    a confusing "permissions" error. Mirroring the exact downstream
+    operation eliminates that gap.
+
+    Uses subprocess directly instead of execute() so we can inspect
+    stderr for the not-found markers and to avoid noisy log.error
+    output on every expected retry attempt.
     """
+    from .metadata import METADATA_BLOB
+
     probe_cmd = str(
-        Cmd(["az", "storage", "container", "list"])
+        Cmd(["az", "storage", "blob", "show"])
         .param("--account-name", account_name)
+        .param("--container-name", CONTAINER_NAME)
+        .param("--name", METADATA_BLOB)
         .param("--auth-mode", "login")
-        .param("--query", "length(@)")
+        .param("--query", "properties.etag")
         .param("--output", "tsv")
     )
 
     for attempt in range(RBAC_PROPAGATION_RETRIES):
         result = subprocess.run(probe_cmd, shell=True, capture_output=True, text=True)
         if result.returncode == 0:
+            return
+
+        stderr_lc = (result.stderr or "").lower()
+        if any(marker in stderr_lc for marker in _BLOB_PROBE_BENIGN_MARKERS):
             return
 
         remaining = RBAC_PROPAGATION_RETRIES - attempt - 1
@@ -235,7 +353,7 @@ def wait_for_blob_access(account_name: str, reporter: Reporter) -> None:
             )
             time.sleep(RBAC_PROPAGATION_DELAY)
 
-    reporter.info("Role propagation timeout — proceeding (Terraform will retry if needed)")
+    reporter.info("Role propagation timeout, proceeding (Terraform will retry if needed)")
 
 
 def resource_group_exists(resource_group: str, subscription: str) -> bool:

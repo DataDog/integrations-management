@@ -7,10 +7,12 @@ import pytest
 
 from azure_agentless_setup.errors import StorageAccountError
 from azure_agentless_setup.state_storage import (
+    RBAC_PROPAGATION_RETRIES,
     ensure_resource_group,
     ensure_state_storage,
     find_agentless_resource_groups,
     get_storage_account_name,
+    wait_for_blob_access,
 )
 
 
@@ -185,3 +187,72 @@ class TestEnsureStateStorage:
             ensure_state_storage(config, reporter)
 
         reporter.fatal.assert_called_once()
+
+
+class TestWaitForBlobAccess:
+    """Probe behaviour for RBAC-propagation detection.
+
+    The fix for the second-user-joining flow depends on the probe
+    mirroring the exact ``az storage blob show`` call ``read_metadata``
+    will run: only the BlobNotFound / ContainerNotFound family of
+    errors counts as "data plane reachable, blob just doesn't exist
+    yet"; anything else (typically AuthorizationPermissionMismatch)
+    has to be retried. Without this, an over-permissive probe would
+    let the wait return immediately and the subsequent metadata read
+    fail with the opaque Azure "permissions" error.
+    """
+
+    def _completed(self, returncode: int, stderr: str = ""):
+        cp = MagicMock()
+        cp.returncode = returncode
+        cp.stderr = stderr
+        cp.stdout = ""
+        return cp
+
+    @patch("azure_agentless_setup.state_storage.subprocess.run")
+    def test_returns_immediately_on_probe_success(self, mock_run):
+        mock_run.return_value = self._completed(0)
+        reporter = MagicMock()
+
+        wait_for_blob_access("acct", reporter)
+
+        mock_run.assert_called_once()
+        reporter.info.assert_not_called()
+
+    @patch("azure_agentless_setup.state_storage.subprocess.run")
+    def test_returns_on_blob_not_found(self, mock_run):
+        """First-deploy paths: SA was just created, config.json doesn't
+        exist yet. A clean 404 still proves data-plane reachability,
+        so the wait must not loop."""
+        mock_run.return_value = self._completed(
+            1, stderr="ErrorCode:BlobNotFound\nThe specified blob does not exist."
+        )
+        reporter = MagicMock()
+
+        wait_for_blob_access("acct", reporter)
+
+        mock_run.assert_called_once()
+        reporter.info.assert_not_called()
+
+    @patch("azure_agentless_setup.state_storage.time.sleep")
+    @patch("azure_agentless_setup.state_storage.subprocess.run")
+    def test_retries_on_authorization_permission_mismatch(self, mock_run, _mock_sleep):
+        """The bug we're fixing: this stderr used to come back from
+        ``az storage blob show`` after the wizard fell through a
+        permissive ``container list`` probe. The probe must keep
+        retrying instead of declaring success."""
+        mock_run.return_value = self._completed(
+            1,
+            stderr=(
+                "ERROR: You do not have the required permissions needed to "
+                "perform this operation."
+            ),
+        )
+        reporter = MagicMock()
+
+        wait_for_blob_access("acct", reporter)
+
+        assert mock_run.call_count == RBAC_PROPAGATION_RETRIES
+        # The final "timeout" message must be emitted so the user has a
+        # diagnostic when propagation truly fails to land in the window.
+        assert any("timeout" in c.args[0] for c in reporter.info.call_args_list)

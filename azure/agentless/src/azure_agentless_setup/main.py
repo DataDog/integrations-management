@@ -36,6 +36,7 @@ from .secrets import (
     wait_for_secret_access,
 )
 from .state_storage import (
+    ensure_current_user_blob_data_access,
     ensure_resource_group,
     finalize_storage_container,
     find_agentless_resource_groups,
@@ -264,16 +265,27 @@ def _resolve_resource_group_via_tags(config: Config) -> Config:
     return config
 
 
-def _check_existing_deployment(config: Config) -> ExistingDeploymentCheck:
+def _check_existing_deployment(
+    config: Config, reporter: Reporter
+) -> ExistingDeploymentCheck:
     """Read the existing-deployment metadata blob, if any.
 
     Assumes ``config.resource_group`` has already been reconciled with
     tag-based discovery (see ``_resolve_resource_group_via_tags``). The
     Storage Account / Key Vault names are now install-id-scoped, so
     re-running with a different ``SCANNER_RESOURCE_GROUP`` resolves to a
-    different SA entirely — no cross-RG name collision to defend against,
+    different SA entirely (no cross-RG name collision to defend against),
     and tag discovery handles the actual "is there an existing install"
     question.
+
+    When the Storage Account already exists (a second user joining an
+    existing deployment), we grant the current user 'Storage Blob Data
+    Contributor' on it *before* the metadata read. Azure splits
+    control-plane from data-plane RBAC, so Owner on the resource group
+    does not let you read blobs - the role grant by
+    ``ensure_scanner_resources`` previously ran after this read and the
+    metadata probe failed with an opaque "permissions" error for every
+    user other than the original deployer.
 
     The PRESENT-but-different-RG check is kept as a sanity net: if we
     successfully read metadata, install_id must match, so the recorded
@@ -297,7 +309,7 @@ def _check_existing_deployment(config: Config) -> ExistingDeploymentCheck:
     # definition, so treat it as MISSING here. For a custom
     # ``TF_STATE_STORAGE_ACCOUNT`` that doesn't exist, ``prepare_storage_account``
     # raises a precise "Custom storage account does not exist" error
-    # downstream — better than masking it as a metadata-read failure.
+    # downstream, which is better than masking it as a metadata-read failure.
     if not storage_account_exists(
         storage_account_name, config.resource_group, config.scanner_subscription
     ):
@@ -306,6 +318,13 @@ def _check_existing_deployment(config: Config) -> ExistingDeploymentCheck:
             MetadataReadResult(MetadataReadStatus.MISSING),
             storage_account_name,
         )
+
+    ensure_current_user_blob_data_access(
+        storage_account_name,
+        config.resource_group,
+        config.scanner_subscription,
+        reporter,
+    )
 
     result = read_metadata(storage_account_name)
 
@@ -500,7 +519,9 @@ def cmd_deploy() -> None:
         # same name from ``config.install_id`` (or honours
         # ``state_storage_account``) and the two paths must agree by
         # construction.
-        existing_metadata_result = _check_existing_deployment(config).metadata_result
+        existing_metadata_result = _check_existing_deployment(
+            config, reporter
+        ).metadata_result
 
         # Steps 2 & 3: provision the scanner-side state Storage Account and
         # Key Vault in parallel and store the API key. See
