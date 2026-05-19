@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from az_shared.errors import ResourceNotFoundError
+
 from azure_agentless_setup.errors import KeyVaultError
 from azure_agentless_setup.secrets import (
     create_key_vault,
@@ -198,6 +200,63 @@ class TestCreateKeyVaultSoftDeleteMismatch:
         assert "az keyvault recover" in exc.value.detail
         assert "az keyvault purge" in exc.value.detail
         assert "--subscription sub-scanner" in exc.value.detail
+
+
+class TestCreateKeyVaultPostCreatePropagation:
+    """``az keyvault create`` issues a PUT then a GET to return the new
+    resource. ARM frequently 404s the GET right after a purge of the
+    same vault name even though the PUT succeeded - the resource is
+    created, it just is not visible yet. ``create_key_vault`` must
+    swallow that 404 and confirm via :func:`key_vault_exists` rather
+    than surfacing a misleading "Failed to create" error to the user."""
+
+    @patch("azure_agentless_setup.secrets.sleep")
+    @patch("azure_agentless_setup.secrets.key_vault_exists")
+    @patch("azure_agentless_setup.secrets.execute")
+    @patch("azure_agentless_setup.secrets._get_soft_deleted_vault", return_value=None)
+    def test_treats_post_create_404_as_success_when_vault_eventually_visible(
+        self, mock_get_deleted, mock_execute, mock_exists, mock_sleep
+    ):
+        mock_execute.side_effect = ResourceNotFoundError(
+            "Resource not found when executing 'az keyvault create ...'"
+        )
+        # Three GETs miss before ARM catches up, then the vault appears.
+        # Pins that the helper polls (does not give up on the first miss).
+        mock_exists.side_effect = [False, False, False, True]
+
+        create_key_vault(
+            vault_name="datadog-vault",
+            resource_group="rg",
+            location="westus2",
+            subscription="sub-scanner",
+        )
+
+        assert mock_exists.call_count == 4
+
+    @patch("azure_agentless_setup.secrets.sleep")
+    @patch("azure_agentless_setup.secrets.key_vault_exists", return_value=False)
+    @patch("azure_agentless_setup.secrets.execute")
+    @patch("azure_agentless_setup.secrets._get_soft_deleted_vault", return_value=None)
+    def test_raises_with_diagnostic_when_vault_never_appears(
+        self, mock_get_deleted, mock_execute, mock_exists, mock_sleep
+    ):
+        mock_execute.side_effect = ResourceNotFoundError(
+            "Resource not found when executing 'az keyvault create ...'"
+        )
+
+        with pytest.raises(KeyVaultError) as exc:
+            create_key_vault(
+                vault_name="datadog-vault",
+                resource_group="rg",
+                location="westus2",
+                subscription="sub-scanner",
+            )
+
+        # The user must get the manual recovery hint - without it the
+        # raw "Resource not found" is easily misread as a permissions
+        # problem.
+        assert "az keyvault show" in exc.value.detail
+        assert "datadog-vault" in exc.value.detail
 
 
 class TestPurgeKeyVault:

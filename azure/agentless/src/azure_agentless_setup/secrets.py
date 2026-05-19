@@ -13,6 +13,7 @@ import subprocess
 from time import sleep
 from typing import Optional
 
+from az_shared.errors import ResourceNotFoundError
 from az_shared.execute_cmd import execute, execute_json
 from common.shell import Cmd
 
@@ -24,6 +25,15 @@ API_KEY_SECRET_NAME = "datadog-api-key"
 
 RBAC_PROPAGATION_RETRIES = 6
 RBAC_PROPAGATION_DELAY = 10  # seconds
+
+# How long to poll for the vault to appear after ``az keyvault create``
+# reports ``ResourceNotFound``. The az CLI issues the PUT, then a GET to
+# return the new resource - if ARM has not propagated the resource yet
+# (very common right after a purge of the same name), the GET 404s and
+# the CLI surfaces ``ResourceNotFound`` even though the create succeeded.
+# 12 * 5s = 60s; in practice the resource appears within 10-20s.
+POST_CREATE_VISIBILITY_RETRIES = 12
+POST_CREATE_VISIBILITY_DELAY = 5  # seconds
 
 
 def get_key_vault_name(install_id: str) -> str:
@@ -286,6 +296,24 @@ def create_key_vault(
             .param("--retention-days", "7")
             .param_list("--tags", ["Datadog=true", "DatadogAgentlessScanner=true"])
         )
+    except ResourceNotFoundError as e:
+        # The PUT issued by ``az keyvault create`` has succeeded, but
+        # the CLI's follow-up GET 404'd because ARM has not propagated
+        # the new resource yet. This is overwhelmingly the case when
+        # re-creating a vault whose name was just purged in a prior
+        # destroy. Poll for the resource to appear before declaring
+        # failure - the create itself almost always landed.
+        if _wait_for_vault_visible(vault_name, resource_group):
+            return
+        raise KeyVaultError(
+            f"Failed to create Key Vault: {vault_name}",
+            f"{str(e)}\n\n"
+            f"Azure reported the resource is not visible after create.\n"
+            f"This can happen when the vault name was recently purged.\n"
+            f"Wait a couple of minutes and re-run, or verify manually:\n"
+            f"  az keyvault show --name {vault_name} \\\n"
+            f"    --resource-group {resource_group} --subscription {subscription}",
+        ) from e
     except Exception as e:
         # Fallback for cases where ``_get_soft_deleted_vault`` returned
         # nothing (typically because the current user lacks
@@ -305,6 +333,27 @@ def create_key_vault(
             f"Failed to create Key Vault: {vault_name}",
             str(e),
         ) from e
+
+
+def _wait_for_vault_visible(vault_name: str, resource_group: str) -> bool:
+    """Poll for ``vault_name`` to become visible after a create.
+
+    Used only on the ``ResourceNotFound`` recovery path in
+    :func:`create_key_vault` (see comment there). Returns ``True`` as
+    soon as ``az keyvault show`` succeeds, or ``False`` after the full
+    :data:`POST_CREATE_VISIBILITY_RETRIES` window elapses without the
+    resource appearing.
+    """
+    print(
+        f"Vault not yet visible to ARM, waiting up to "
+        f"{POST_CREATE_VISIBILITY_RETRIES * POST_CREATE_VISIBILITY_DELAY}s "
+        f"for the create to propagate..."
+    )
+    for _ in range(POST_CREATE_VISIBILITY_RETRIES):
+        if key_vault_exists(vault_name, resource_group):
+            return True
+        sleep(POST_CREATE_VISIBILITY_DELAY)
+    return False
 
 
 def grant_current_user_secrets_officer(vault_name: str, subscription: str) -> bool:
