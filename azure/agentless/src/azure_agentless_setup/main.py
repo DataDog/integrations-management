@@ -434,7 +434,11 @@ def ensure_scanner_resources(config: Config, reporter: Reporter) -> tuple[str, s
     # the KV is already created and the role has propagated above.
     reporter.start_step("Storing API key in Key Vault", AgentlessStep.STORE_API_KEY)
     api_key_secret_id = set_or_update_secret(
-        config.api_key, vault_name, config.resource_group, reporter
+        config.api_key,
+        vault_name,
+        config.resource_group,
+        config.scanner_subscription,
+        reporter,
     )
     reporter.finish_step()
 

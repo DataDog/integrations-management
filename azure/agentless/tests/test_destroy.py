@@ -84,6 +84,13 @@ class TestCleanupKeyVault:
             subscription="sub-scanner",
         )
 
+        # ``key_vault_exists`` must carry the scanner subscription too:
+        # without it, Cloud Shell's default sub is used and the
+        # existence check silently returns False, causing the purge
+        # to be skipped (the regression we are guarding against).
+        mock_exists.assert_called_once_with(
+            "datadog-0123456789ab", "rg", "sub-scanner"
+        )
         mock_purge.assert_called_once_with("datadog-0123456789ab", "sub-scanner")
 
     @patch("azure_agentless_setup.destroy.purge_key_vault")

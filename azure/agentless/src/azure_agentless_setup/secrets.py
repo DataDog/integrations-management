@@ -53,15 +53,28 @@ def get_key_vault_name(install_id: str) -> str:
     return f"datadog-{install_id}"
 
 
-def key_vault_exists(vault_name: str, resource_group: str) -> bool:
-    """Check if a Key Vault exists in the resource group."""
+def key_vault_exists(
+    vault_name: str,
+    resource_group: str,
+    subscription: Optional[str] = None,
+) -> bool:
+    """Check if a Key Vault exists in the resource group.
+
+    Pass ``subscription`` so the check uses the correct subscription when
+    the Azure CLI default account differs (e.g. Cloud Shell). The destroy
+    flow does not run ``set_subscription`` and therefore must always pass
+    it; the deploy flow already pinned the default in preflight, so the
+    parameter is optional for backward compatibility.
+    """
     try:
-        result = execute(
+        cmd = (
             Cmd(["az", "keyvault", "show"])
             .param("--name", vault_name)
-            .param("--resource-group", resource_group),
-            can_fail=True,
+            .param("--resource-group", resource_group)
         )
+        if subscription:
+            cmd = cmd.param("--subscription", subscription)
+        result = execute(cmd, can_fail=True)
         return bool(result)
     except Exception:
         return False
@@ -303,7 +316,7 @@ def create_key_vault(
         # re-creating a vault whose name was just purged in a prior
         # destroy. Poll for the resource to appear before declaring
         # failure - the create itself almost always landed.
-        if _wait_for_vault_visible(vault_name, resource_group):
+        if _wait_for_vault_visible(vault_name, resource_group, subscription):
             return
         raise KeyVaultError(
             f"Failed to create Key Vault: {vault_name}",
@@ -335,7 +348,9 @@ def create_key_vault(
         ) from e
 
 
-def _wait_for_vault_visible(vault_name: str, resource_group: str) -> bool:
+def _wait_for_vault_visible(
+    vault_name: str, resource_group: str, subscription: str
+) -> bool:
     """Poll for ``vault_name`` to become visible after a create.
 
     Used only on the ``ResourceNotFound`` recovery path in
@@ -350,7 +365,7 @@ def _wait_for_vault_visible(vault_name: str, resource_group: str) -> bool:
         f"for the create to propagate..."
     )
     for _ in range(POST_CREATE_VISIBILITY_RETRIES):
-        if key_vault_exists(vault_name, resource_group):
+        if key_vault_exists(vault_name, resource_group, subscription):
             return True
         sleep(POST_CREATE_VISIBILITY_DELAY)
     return False
@@ -361,6 +376,14 @@ def grant_current_user_secrets_officer(vault_name: str, subscription: str) -> bo
 
     With RBAC-enabled Key Vaults, the creator doesn't automatically get
     data-plane access. We need this role to set/get secrets.
+
+    ``subscription`` must be the scanner subscription. Without
+    ``--subscription`` on the inner ``az keyvault show`` /
+    ``az role assignment`` calls, the Cloud Shell user's default sub
+    would be used - which on the destroy path (no preflight
+    ``set_subscription``) is frequently wrong, surfacing as a confusing
+    ``ResourceNotFound``. Mirrors the same fix applied to the
+    Storage Blob Data Contributor grant.
 
     Returns:
         True if a new role assignment was created (caller should wait
@@ -379,6 +402,7 @@ def grant_current_user_secrets_officer(vault_name: str, subscription: str) -> bo
         vault_info = execute_json(
             Cmd(["az", "keyvault", "show"])
             .param("--name", vault_name)
+            .param("--subscription", subscription)
         )
         vault_resource_id = vault_info["id"]
 
@@ -387,6 +411,7 @@ def grant_current_user_secrets_officer(vault_name: str, subscription: str) -> bo
             .param("--assignee", user_object_id)
             .param("--role", "Key Vault Secrets Officer")
             .param("--scope", vault_resource_id)
+            .param("--subscription", subscription)
             .param("--query", "length(@)")
             .param("--output", "tsv"),
             can_fail=True,
@@ -400,6 +425,7 @@ def grant_current_user_secrets_officer(vault_name: str, subscription: str) -> bo
             .param("--assignee-principal-type", "User")
             .param("--role", "Key Vault Secrets Officer")
             .param("--scope", vault_resource_id)
+            .param("--subscription", subscription)
         )
         return True
     except KeyVaultError:
@@ -491,7 +517,9 @@ def set_secret(vault_name: str, api_key: str) -> str:
     return json.loads(raw)["id"]
 
 
-def get_secret_resource_id(vault_name: str, resource_group: str) -> str:
+def get_secret_resource_id(
+    vault_name: str, resource_group: str, subscription: str
+) -> str:
     """Get the ARM resource ID for the API key secret (versionless).
 
     The roles module expects a resource ID like:
@@ -505,6 +533,7 @@ def get_secret_resource_id(vault_name: str, resource_group: str) -> str:
             Cmd(["az", "keyvault", "show"])
             .param("--name", vault_name)
             .param("--resource-group", resource_group)
+            .param("--subscription", subscription)
         )
         vault_id = vault_info["id"]
         return f"{vault_id}/secrets/{API_KEY_SECRET_NAME}"
@@ -533,7 +562,7 @@ def prepare_key_vault(
 
     Returns ``role_created``.
     """
-    if not key_vault_exists(vault_name, resource_group):
+    if not key_vault_exists(vault_name, resource_group, subscription):
         reporter.info(f"Creating Key Vault: {vault_name}")
         create_key_vault(vault_name, resource_group, location, subscription)
 
@@ -545,6 +574,7 @@ def set_or_update_secret(
     config_api_key: str,
     vault_name: str,
     resource_group: str,
+    subscription: str,
     reporter: Reporter,
 ) -> str:
     """Create or update the API key secret and return the versionless secret
@@ -569,7 +599,7 @@ def set_or_update_secret(
         set_secret(vault_name, config_api_key)
         reporter.success(f"API key secret stored: {vault_name}/{API_KEY_SECRET_NAME}")
 
-    return get_secret_resource_id(vault_name, resource_group)
+    return get_secret_resource_id(vault_name, resource_group, subscription)
 
 
 def ensure_api_key_secret(
@@ -598,7 +628,7 @@ def ensure_api_key_secret(
         wait_for_secret_access(vault_name, reporter)
 
     secret_resource_id = set_or_update_secret(
-        config_api_key, vault_name, resource_group, reporter
+        config_api_key, vault_name, resource_group, subscription, reporter
     )
     reporter.finish_step()
     return secret_resource_id

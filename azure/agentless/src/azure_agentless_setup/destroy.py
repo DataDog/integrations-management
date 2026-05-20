@@ -397,7 +397,7 @@ def cleanup_key_vault(
     """
     vault_name = get_key_vault_name(install_id)
 
-    if not key_vault_exists(vault_name, resource_group):
+    if not key_vault_exists(vault_name, resource_group, subscription):
         print("Key Vault already removed:")
         print(f"  {vault_name}")
         print()
@@ -495,10 +495,18 @@ def cmd_destroy() -> None:
         # the resource group does not include it. Grant it to the current
         # user before the metadata read so a user destroying a deployment
         # created by someone else doesn't trip over an opaque
-        # "permissions" error from `az storage blob show`.
-        if storage_account_exists(
+        # "permissions" error from `az storage blob show`. When the SA
+        # does not exist (RG already nuked out-of-band, or a partial
+        # deploy never created it) the metadata read is also skipped:
+        # ``az storage blob show`` would DNS-fail on the missing account
+        # endpoint and produce noisy stderr that ``_classify_blob_show_failure``
+        # cannot recognise as a clean MISSING.
+        sa_present = storage_account_exists(
             storage_account, resource_group, scanner_subscription
-        ):
+        )
+
+        subscriptions_to_scan: list[str] = []
+        if sa_present:
             ensure_current_user_blob_data_access(
                 storage_account,
                 resource_group,
@@ -506,12 +514,14 @@ def cmd_destroy() -> None:
                 _PrintReporter(),
             )
 
-        # Metadata is no longer authoritative for the resource group, but
-        # we still read it to recover the list of scan subscriptions for
-        # the Datadog-API cleanup at the end.
-        result = read_metadata(storage_account)
-        metadata = result.metadata if result.status == MetadataReadStatus.PRESENT else None
-        subscriptions_to_scan = metadata.subscriptions_to_scan if metadata else []
+            # Metadata is no longer authoritative for the resource group, but
+            # we still read it to recover the list of scan subscriptions for
+            # the Datadog-API cleanup at the end.
+            result = read_metadata(storage_account)
+            metadata = (
+                result.metadata if result.status == MetadataReadStatus.PRESENT else None
+            )
+            subscriptions_to_scan = metadata.subscriptions_to_scan if metadata else []
 
         work_dir, destroy_ssh_key_dir = get_working_directory(
             scanner_subscription, storage_account, resource_group

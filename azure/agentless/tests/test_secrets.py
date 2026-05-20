@@ -12,6 +12,8 @@ from azure_agentless_setup.secrets import (
     create_key_vault,
     ensure_api_key_secret,
     get_key_vault_name,
+    grant_current_user_secrets_officer,
+    key_vault_exists,
     purge_key_vault,
 )
 
@@ -297,3 +299,62 @@ class TestPurgeKeyVault:
         # Caller in destroy.py degrades to a single-line warning
         # rather than crashing the wizard's final cleanup step.
         assert purge_key_vault("datadog-vault", "sub-scanner") is False
+
+
+class TestKeyVaultExistsSubscriptionThreading:
+    """``key_vault_exists`` is the only thing standing between destroy
+    and a misleading "VaultAlreadyExists" / "ResourceNotFound" loop:
+    when the Cloud Shell user's default subscription differs from the
+    scanner sub (the wizard never calls ``set_subscription`` on the
+    destroy path), the lookup must explicitly target the scanner sub
+    or it will silently report the vault as missing and try to recreate."""
+
+    @patch("azure_agentless_setup.secrets.execute")
+    def test_passes_subscription_to_az_when_provided(self, mock_execute):
+        mock_execute.return_value = '{"name": "datadog-vault"}'
+
+        key_vault_exists("datadog-vault", "rg", "sub-scanner")
+
+        cmd_str = str(mock_execute.call_args.args[0])
+        assert "keyvault show" in cmd_str
+        assert "--subscription sub-scanner" in cmd_str
+
+
+class TestGrantCurrentUserSecretsOfficerSubscriptionThreading:
+    """Mirror the Storage Blob Data Contributor fix: every inner az
+    call must carry ``--subscription``. The Cloud Shell user's default
+    is unreliable, and the destroy path doesn't call ``set_subscription``,
+    so without the threading these calls would hit the wrong sub and
+    surface as opaque ResourceNotFound / AuthorizationFailed errors."""
+
+    @patch("azure_agentless_setup.secrets.execute_json")
+    @patch("azure_agentless_setup.secrets.execute")
+    def test_threads_subscription_through_all_az_calls(
+        self, mock_execute, mock_execute_json
+    ):
+        # signed-in-user → show vault → role list (0 = need create) → role create
+        mock_execute.side_effect = [
+            "user-object-id",
+            "0",
+            "",
+        ]
+        mock_execute_json.return_value = {
+            "id": "/subscriptions/sub-scanner/resourceGroups/rg/providers/Microsoft.KeyVault/vaults/v"
+        }
+
+        grant_current_user_secrets_officer("v", "sub-scanner")
+
+        # ``execute_json`` runs the ``az keyvault show`` lookup; the role
+        # list / create both go through ``execute``. All three must carry
+        # --subscription sub-scanner.
+        show_cmd = str(mock_execute_json.call_args.args[0])
+        assert "keyvault show" in show_cmd
+        assert "--subscription sub-scanner" in show_cmd
+
+        list_cmd = str(mock_execute.call_args_list[1].args[0])
+        assert "role assignment list" in list_cmd
+        assert "--subscription sub-scanner" in list_cmd
+
+        create_cmd = str(mock_execute.call_args_list[2].args[0])
+        assert "role assignment create" in create_cmd
+        assert "--subscription sub-scanner" in create_cmd
