@@ -33,6 +33,7 @@ from .secrets import (
     get_key_vault_name,
     key_vault_exists,
     purge_key_vault,
+    soft_deleted_key_vault_exists,
 )
 from .reporter import PrintReporter
 from .state_storage import (
@@ -367,18 +368,31 @@ def cleanup_key_vault(
     ``VaultAlreadyExists`` on re-deploy.
 
     Always purges: ``terraform destroy`` has already confirmed the
-    user's intent by the time we get here. Skips when the vault has
-    already been removed.
+    user's intent by the time we get here. Triggers purge when either
+    a live vault or a soft-deleted descriptor exists; skips only when
+    Azure has neither. The soft-deleted check is essential because a
+    previous destroy may have run ``az keyvault delete`` and then
+    failed at the purge step - ``key_vault_exists`` then returns False
+    on retry and would otherwise leave the name reserved for the full
+    retention window.
     """
     vault_name = get_key_vault_name(install_id)
 
-    if not key_vault_exists(vault_name, resource_group, subscription):
+    live = key_vault_exists(vault_name, resource_group, subscription)
+    soft_deleted = (
+        not live and soft_deleted_key_vault_exists(vault_name, subscription)
+    )
+
+    if not live and not soft_deleted:
         print("Key Vault already removed:")
         print(f"  {vault_name}")
         print()
         return
 
-    print(f"Purging Key Vault {vault_name}...")
+    if soft_deleted:
+        print(f"Purging soft-deleted Key Vault {vault_name}...")
+    else:
+        print(f"Purging Key Vault {vault_name}...")
     if purge_key_vault(vault_name, subscription):
         print(f"✅ Key Vault purged: {vault_name}")
     else:

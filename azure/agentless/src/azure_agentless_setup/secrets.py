@@ -207,6 +207,19 @@ def _recover_soft_deleted(vault_name: str, subscription: str) -> None:
     )
 
 
+def soft_deleted_key_vault_exists(vault_name: str, subscription: str) -> bool:
+    """Return whether a soft-deleted vault with this name exists.
+
+    Thin presence-check wrapper over :func:`_get_soft_deleted_vault`
+    for callers (currently destroy) that only need a boolean. Used to
+    keep the retry path free of ``VaultAlreadyExists``: when a previous
+    destroy ran ``az keyvault delete`` but failed at ``purge``, the
+    live ``key_vault_exists`` lookup returns False while the name is
+    still reserved by Azure as a soft-deleted vault.
+    """
+    return _get_soft_deleted_vault(vault_name, subscription) is not None
+
+
 def purge_key_vault(vault_name: str, subscription: str) -> bool:
     """Permanently delete and purge a Key Vault in one step.
 
@@ -216,9 +229,16 @@ def purge_key_vault(vault_name: str, subscription: str) -> bool:
     wizard-created vaults), which is the recurring root cause of
     ``VaultAlreadyExists`` on re-deploy.
 
-    The soft-delete step blocks until completion (no ``--no-wait``)
-    so the purge call sees the vault in the soft-deleted state. The
-    purge step discovers the original location via
+    Idempotent on retry: if the vault is already soft-deleted (a
+    previous destroy ran the delete step but failed at purge), the
+    soft-delete call is skipped. ``az keyvault delete`` would
+    otherwise raise ``ResourceNotFound`` and short-circuit the function
+    before the purge step ever ran, leaving the name reserved
+    indefinitely.
+
+    The soft-delete step blocks until completion (no ``--no-wait``) so
+    the purge call sees the vault in the soft-deleted state. The purge
+    step discovers the original location via
     :func:`_get_soft_deleted_vault` (subscription-scoped,
     location-agnostic) and passes it explicitly because
     ``az keyvault purge`` is location-scoped.
@@ -227,18 +247,20 @@ def purge_key_vault(vault_name: str, subscription: str) -> bool:
     destroy flow rely on this never raising so the wizard's last
     cleanup step does not crash a destroy that otherwise succeeded.
     """
-    try:
-        execute(
-            Cmd(["az", "keyvault", "delete"])
-            .param("--name", vault_name)
-            .param("--subscription", subscription)
-        )
-    except Exception:
-        return False
-
     deleted = _get_soft_deleted_vault(vault_name, subscription)
     if deleted is None:
-        return False
+        try:
+            execute(
+                Cmd(["az", "keyvault", "delete"])
+                .param("--name", vault_name)
+                .param("--subscription", subscription)
+            )
+        except Exception:
+            return False
+        deleted = _get_soft_deleted_vault(vault_name, subscription)
+        if deleted is None:
+            return False
+
     location = (deleted.get("properties") or {}).get("location")
     if not location:
         return False

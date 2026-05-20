@@ -71,12 +71,25 @@ def grant_role_to_current_user(
 
         resource_id = resource_id_lookup()
 
+        # ``--include-inherited`` and ``--include-groups`` make the
+        # idempotency check honor effective permissions: without them
+        # only direct, user-scoped assignments at this exact resource
+        # show up, and a user who already has the role through a
+        # parent-scope (subscription / RG) assignment or via group
+        # membership is reported as ``existing == 0``. We then attempt
+        # to self-grant; if that user lacks
+        # ``Microsoft.Authorization/roleAssignments/write`` (common when
+        # the data-plane role was delegated by a higher-privileged
+        # admin), the create fails and blocks an otherwise-authorized
+        # deploy/destroy.
         existing = execute(
             Cmd(["az", "role", "assignment", "list"])
             .param("--assignee", user_object_id)
             .param("--role", role)
             .param("--scope", resource_id)
             .param("--subscription", subscription)
+            .flag("--include-inherited")
+            .flag("--include-groups")
             .param("--query", "length(@)")
             .param("--output", "tsv"),
             can_fail=True,

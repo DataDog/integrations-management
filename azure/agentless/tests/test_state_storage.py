@@ -168,6 +168,13 @@ class TestGrantCurrentUserBlobDataContributor:
         list_cmd = str(mock_rbac_execute.call_args_list[1].args[0])
         assert "role assignment list" in list_cmd
         assert "--subscription sub-scanner" in list_cmd
+        # Honor inherited / group-mediated assignments so users who
+        # already have ``Storage Blob Data Contributor`` through a
+        # parent-scope grant or via a group don't trip the self-grant
+        # path - which fails when they lack
+        # ``Microsoft.Authorization/roleAssignments/write``.
+        assert "--include-inherited" in list_cmd
+        assert "--include-groups" in list_cmd
 
         create_cmd = str(mock_rbac_execute.call_args_list[2].args[0])
         assert "role assignment create" in create_cmd

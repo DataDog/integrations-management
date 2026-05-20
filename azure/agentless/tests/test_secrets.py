@@ -1,7 +1,7 @@
 # Unless explicitly stated otherwise all files in this repository are licensed under the Apache-2 License.
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -176,10 +176,15 @@ class TestPurgeKeyVault:
     def test_soft_deletes_then_purges_with_explicit_location_and_subscription(
         self, mock_get_deleted, mock_execute
     ):
-        mock_get_deleted.return_value = {
-            "name": "datadog-vault",
-            "properties": {"location": "westeurope"},
-        }
+        # First lookup: live vault, no soft-deleted descriptor yet.
+        # Second lookup (post-delete): vault now in soft-deleted state.
+        mock_get_deleted.side_effect = [
+            None,
+            {
+                "name": "datadog-vault",
+                "properties": {"location": "westeurope"},
+            },
+        ]
 
         assert purge_key_vault("datadog-vault", "sub-scanner") is True
 
@@ -192,6 +197,30 @@ class TestPurgeKeyVault:
         assert "--no-wait" not in delete_cmd
 
         purge_cmd = str(mock_execute.call_args_list[1].args[0])
+        assert " keyvault purge " in purge_cmd
+        assert "--name datadog-vault" in purge_cmd
+        assert "--location westeurope" in purge_cmd
+        assert "--subscription sub-scanner" in purge_cmd
+
+    @patch("azure_agentless_setup.secrets.execute")
+    @patch("azure_agentless_setup.secrets._get_soft_deleted_vault")
+    def test_skips_redelete_when_vault_already_soft_deleted(
+        self, mock_get_deleted, mock_execute
+    ):
+        # Retry path: a previous destroy ran ``az keyvault delete`` but
+        # crashed before purging. Calling ``delete`` again would raise
+        # ``ResourceNotFound`` and short-circuit before the purge step,
+        # leaving the name reserved indefinitely. The retry must skip
+        # straight to purge.
+        mock_get_deleted.return_value = {
+            "name": "datadog-vault",
+            "properties": {"location": "westeurope"},
+        }
+
+        assert purge_key_vault("datadog-vault", "sub-scanner") is True
+
+        assert len(mock_execute.call_args_list) == 1
+        purge_cmd = str(mock_execute.call_args_list[0].args[0])
         assert " keyvault purge " in purge_cmd
         assert "--name datadog-vault" in purge_cmd
         assert "--location westeurope" in purge_cmd
@@ -260,6 +289,15 @@ class TestGrantCurrentUserSecretsOfficerSubscriptionThreading:
         list_cmd = str(mock_rbac_execute.call_args_list[1].args[0])
         assert "role assignment list" in list_cmd
         assert "--subscription sub-scanner" in list_cmd
+        # ``--include-inherited`` + ``--include-groups`` make the
+        # idempotency check honor effective permissions (parent-scope
+        # assignments and group-mediated assignments). Without them, a
+        # user who already has the role through inheritance shows
+        # ``existing == 0`` and we attempt a redundant self-grant -
+        # which fails when the user lacks
+        # ``Microsoft.Authorization/roleAssignments/write``.
+        assert "--include-inherited" in list_cmd
+        assert "--include-groups" in list_cmd
 
         create_cmd = str(mock_rbac_execute.call_args_list[2].args[0])
         assert "role assignment create" in create_cmd
