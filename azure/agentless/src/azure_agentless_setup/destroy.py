@@ -20,6 +20,7 @@ from .config import (
 )
 from .errors import ConfigurationError, SetupError
 from .metadata import (
+    MetadataReadResult,
     MetadataReadStatus,
     delete_metadata,
     read_metadata,
@@ -206,12 +207,18 @@ def regenerate_terraform_config(
     storage_account: str,
     resource_group: str,
     config_folder: Path,
+    metadata_result: Optional[MetadataReadResult] = None,
 ) -> Path:
     """Regenerate Terraform configuration when local folder doesn't exist.
 
-    Reads deployment metadata from Azure Blob Storage to discover all
-    locations and subscriptions. Falls back to requiring environment
-    variables if metadata is not available.
+    When ``metadata_result`` is provided, reuses the caller's metadata
+    read instead of issuing a second ``az storage blob show`` round-trip:
+    ``cmd_destroy`` already reads the blob to recover the scan
+    subscription list before deciding to call this helper, so a fresh
+    read here would only duplicate work and risk inconsistency on
+    transient failures. Falls back to environment variables if metadata
+    is not available (the typical "user wiped local config and we have
+    no blob to read" path).
 
     Generates a throwaway SSH key pair with :func:`terraform.generate_ssh_key` (same as
     deploy): Azure only needs a decodable public key in ``terraform.tfvars`` for refresh/destroy;
@@ -225,7 +232,7 @@ def regenerate_terraform_config(
 
     api_key, app_key, site = get_credentials_from_env()
 
-    result = read_metadata(storage_account)
+    result = metadata_result if metadata_result is not None else read_metadata(storage_account)
     metadata = result.metadata if result.status == MetadataReadStatus.PRESENT else None
     if metadata:
         print(
@@ -296,8 +303,13 @@ def get_working_directory(
     scanner_subscription: str,
     storage_account: str,
     resource_group: str,
+    metadata_result: Optional[MetadataReadResult] = None,
 ) -> Tuple[Path, Optional[Path]]:
     """Get the working directory for Terraform, regenerating config if needed.
+
+    ``metadata_result`` is forwarded to :func:`regenerate_terraform_config`
+    so the caller can pass a previously-read ``MetadataReadResult`` and
+    avoid re-reading the deployment metadata blob on the regen path.
 
     Returns:
         ``(work_dir, ssh_key_temp_dir)``. The second item is a directory to remove
@@ -334,7 +346,11 @@ def get_working_directory(
         sys.exit(1)
 
     ssh_tmp = regenerate_terraform_config(
-        scanner_subscription, storage_account, resource_group, config_folder
+        scanner_subscription,
+        storage_account,
+        resource_group,
+        config_folder,
+        metadata_result,
     )
     return config_folder, ssh_tmp
 
@@ -505,6 +521,7 @@ def cmd_destroy() -> None:
             storage_account, resource_group, scanner_subscription
         )
 
+        metadata_result: Optional[MetadataReadResult] = None
         subscriptions_to_scan: list[str] = []
         if sa_present:
             ensure_current_user_blob_data_access(
@@ -516,15 +533,22 @@ def cmd_destroy() -> None:
 
             # Metadata is no longer authoritative for the resource group, but
             # we still read it to recover the list of scan subscriptions for
-            # the Datadog-API cleanup at the end.
-            result = read_metadata(storage_account)
+            # the Datadog-API cleanup at the end. The result is also handed
+            # down to ``get_working_directory`` so the regen path doesn't
+            # round-trip the same blob again.
+            metadata_result = read_metadata(storage_account)
             metadata = (
-                result.metadata if result.status == MetadataReadStatus.PRESENT else None
+                metadata_result.metadata
+                if metadata_result.status == MetadataReadStatus.PRESENT
+                else None
             )
             subscriptions_to_scan = metadata.subscriptions_to_scan if metadata else []
 
         work_dir, destroy_ssh_key_dir = get_working_directory(
-            scanner_subscription, storage_account, resource_group
+            scanner_subscription,
+            storage_account,
+            resource_group,
+            metadata_result,
         )
 
         try:
