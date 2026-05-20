@@ -12,6 +12,7 @@ from azure_agentless_setup.state_storage import (
     ensure_state_storage,
     find_agentless_resource_groups,
     get_storage_account_name,
+    grant_current_user_blob_data_contributor,
     wait_for_blob_access,
 )
 
@@ -187,6 +188,45 @@ class TestEnsureStateStorage:
             ensure_state_storage(config, reporter)
 
         reporter.fatal.assert_called_once()
+
+
+class TestGrantCurrentUserBlobDataContributor:
+    """The grant must target the scanner subscription on every az call,
+    not the Cloud Shell user's default sub. Cloud Shell picks a default
+    subscription at startup which is frequently different from the
+    scanner sub; without ``--subscription``, ``az storage account show``
+    hits the wrong sub and 404s with ``ResourceGroupNotFound``, which the
+    wizard mis-translates as a data-plane RBAC failure."""
+
+    @patch("azure_agentless_setup.state_storage.execute")
+    def test_threads_subscription_through_all_az_calls(self, mock_execute):
+        mock_execute.side_effect = [
+            "user-object-id",
+            '{"id": "/subscriptions/sub-scanner/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/sa"}',
+            "0",
+            "",
+        ]
+
+        grant_current_user_blob_data_contributor(
+            account_name="sa",
+            resource_group="rg",
+            subscription="sub-scanner",
+        )
+
+        show_cmd = str(mock_execute.call_args_list[1].args[0])
+        assert "storage account show" in show_cmd
+        assert "--subscription sub-scanner" in show_cmd
+
+        # Role list / create must also carry the scanner subscription,
+        # otherwise the role would be queried/created in the wrong sub
+        # and the wait_for_blob_access probe would never see it.
+        list_cmd = str(mock_execute.call_args_list[2].args[0])
+        assert "role assignment list" in list_cmd
+        assert "--subscription sub-scanner" in list_cmd
+
+        create_cmd = str(mock_execute.call_args_list[3].args[0])
+        assert "role assignment create" in create_cmd
+        assert "--subscription sub-scanner" in create_cmd
 
 
 class TestWaitForBlobAccess:

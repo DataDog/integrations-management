@@ -148,12 +148,21 @@ def create_container(account_name: str) -> None:
         ) from e
 
 
-def grant_current_user_blob_data_contributor(account_name: str, resource_group: str) -> bool:
+def grant_current_user_blob_data_contributor(
+    account_name: str, resource_group: str, subscription: str
+) -> bool:
     """Grant the current user 'Storage Blob Data Contributor' on the storage account.
 
     The azurerm TF backend with `use_azuread_auth = true` requires
     data-plane access. The control-plane Owner/Contributor role is
     not sufficient for blob operations.
+
+    ``subscription`` must be the scanner subscription. The Cloud Shell
+    user's default az subscription is often different (Cloud Shell
+    picks an arbitrary one at startup), and without ``--subscription``
+    the ``az storage account show`` call below would query the wrong
+    sub and 404 with ``ResourceGroupNotFound``, producing a misleading
+    "data-plane RBAC" failure even though the storage account exists.
 
     Returns:
         True if a new role assignment was created (caller should wait
@@ -173,6 +182,7 @@ def grant_current_user_blob_data_contributor(account_name: str, resource_group: 
             Cmd(["az", "storage", "account", "show"])
             .param("--name", account_name)
             .param("--resource-group", resource_group)
+            .param("--subscription", subscription)
         )
         account_id = json.loads(account_info_raw)["id"]
 
@@ -181,6 +191,7 @@ def grant_current_user_blob_data_contributor(account_name: str, resource_group: 
             .param("--assignee", user_object_id)
             .param("--role", STORAGE_BLOB_DATA_CONTRIBUTOR)
             .param("--scope", account_id)
+            .param("--subscription", subscription)
             .param("--query", "length(@)")
             .param("--output", "tsv"),
             can_fail=True,
@@ -194,6 +205,7 @@ def grant_current_user_blob_data_contributor(account_name: str, resource_group: 
             .param("--assignee-principal-type", "User")
             .param("--role", STORAGE_BLOB_DATA_CONTRIBUTOR)
             .param("--scope", account_id)
+            .param("--subscription", subscription)
         )
         return True
     except StorageAccountError:
@@ -249,7 +261,7 @@ def ensure_current_user_blob_data_access(
     """
     try:
         role_created = grant_current_user_blob_data_contributor(
-            account_name, resource_group
+            account_name, resource_group, subscription
         )
     except StorageAccountError as e:
         object_id = _signed_in_user_object_id() or "<your-object-id>"
@@ -468,7 +480,9 @@ def prepare_storage_account(config: Config, reporter: Reporter) -> tuple[str, bo
             reporter.success(f"Created storage account: {account_name}")
 
     reporter.info("Granting blob data access to current user...")
-    role_created = grant_current_user_blob_data_contributor(account_name, config.resource_group)
+    role_created = grant_current_user_blob_data_contributor(
+        account_name, config.resource_group, config.scanner_subscription
+    )
     return account_name, role_created
 
 
