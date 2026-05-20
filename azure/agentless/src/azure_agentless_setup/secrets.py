@@ -17,7 +17,7 @@ from az_shared.errors import ResourceGroupNotFoundError, ResourceNotFoundError
 from az_shared.execute_cmd import execute, execute_json
 from common.shell import Cmd
 
-from .errors import KeyVaultError
+from .errors import KeyVaultError, wrap_az_errors
 from .rbac import grant_role_to_current_user
 from .reporter import Reporter
 
@@ -192,6 +192,7 @@ def _vault_already_exists_detail(
     )
 
 
+@wrap_az_errors(KeyVaultError, "Failed to recover soft-deleted Key Vault: {vault_name}")
 def _recover_soft_deleted(vault_name: str, subscription: str) -> None:
     """Recover a soft-deleted Key Vault in ``subscription``.
 
@@ -295,14 +296,8 @@ def create_key_vault(
                     requested_rg=resource_group,
                 ),
             )
-        try:
-            _recover_soft_deleted(vault_name, subscription)
-            return
-        except Exception as e:
-            raise KeyVaultError(
-                f"Failed to recover soft-deleted Key Vault: {vault_name}",
-                str(e),
-            ) from e
+        _recover_soft_deleted(vault_name, subscription)
+        return
 
     try:
         execute(
@@ -472,6 +467,7 @@ def get_secret_value(vault_name: str) -> Optional[str]:
     return json.loads(raw).get("value")
 
 
+@wrap_az_errors(KeyVaultError, "Failed to store API key in Key Vault: {vault_name}")
 def set_secret(vault_name: str, api_key: str) -> str:
     """Create or update the API key secret in Key Vault and return the
     secret's data-plane URL.
@@ -481,21 +477,16 @@ def set_secret(vault_name: str, api_key: str) -> str:
     ``az keyvault secret set`` raises a clear AuthorizationPermissionMismatch
     rather than this function silently sleeping for a minute.
     """
-    try:
-        raw = execute(
-            Cmd(["az", "keyvault", "secret", "set"])
-            .param("--vault-name", vault_name)
-            .param("--name", API_KEY_SECRET_NAME)
-            .param("--value", api_key)
-        )
-    except Exception as e:
-        raise KeyVaultError(
-            f"Failed to store API key in Key Vault: {vault_name}",
-            str(e),
-        ) from e
+    raw = execute(
+        Cmd(["az", "keyvault", "secret", "set"])
+        .param("--vault-name", vault_name)
+        .param("--name", API_KEY_SECRET_NAME)
+        .param("--value", api_key)
+    )
     return json.loads(raw)["id"]
 
 
+@wrap_az_errors(KeyVaultError, "Failed to get Key Vault resource ID: {vault_name}")
 def get_secret_resource_id(
     vault_name: str, resource_group: str, subscription: str
 ) -> str:
@@ -507,20 +498,14 @@ def get_secret_resource_id(
     Raises:
         KeyVaultError: If the vault info cannot be retrieved.
     """
-    try:
-        vault_info = execute_json(
-            Cmd(["az", "keyvault", "show"])
-            .param("--name", vault_name)
-            .param("--resource-group", resource_group)
-            .param("--subscription", subscription)
-        )
-        vault_id = vault_info["id"]
-        return f"{vault_id}/secrets/{API_KEY_SECRET_NAME}"
-    except Exception as e:
-        raise KeyVaultError(
-            f"Failed to get Key Vault resource ID: {vault_name}",
-            str(e),
-        ) from e
+    vault_info = execute_json(
+        Cmd(["az", "keyvault", "show"])
+        .param("--name", vault_name)
+        .param("--resource-group", resource_group)
+        .param("--subscription", subscription)
+    )
+    vault_id = vault_info["id"]
+    return f"{vault_id}/secrets/{API_KEY_SECRET_NAME}"
 
 
 def prepare_key_vault(

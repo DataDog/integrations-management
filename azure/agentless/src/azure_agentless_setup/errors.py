@@ -7,9 +7,13 @@ Extends the shared az_shared.errors hierarchy so that all agentless errors
 are also AzIntegrationError instances (includes az/python version in str()).
 """
 
-from typing import Optional
+import functools
+import inspect
+from typing import Callable, Optional, TypeVar
 
 from az_shared.errors import FatalError
+
+F = TypeVar("F", bound=Callable[..., object])
 
 
 class SetupError(FatalError):
@@ -88,3 +92,50 @@ class MetadataError(SetupError):
 
 class TerraformError(SetupError):
     """Terraform operation failed."""
+
+
+def wrap_az_errors(
+    error_cls: type[SetupError],
+    message_template: str,
+) -> Callable[[F], F]:
+    """Wrap unexpected exceptions raised by ``func`` as ``error_cls``.
+
+    Replaces the recurring ``try / except Exception as e: raise
+    <DomainError>(f"Failed to ...", str(e)) from e`` boilerplate around
+    ``az`` CLI helpers in :mod:`state_storage` and :mod:`secrets`.
+    Already-typed instances of ``error_cls`` propagate untouched so a
+    caller raising a more specific message via its own ``raise`` is not
+    re-wrapped.
+
+    The decorated function's bound arguments are exposed to
+    ``message_template`` via ``str.format``, so e.g.::
+
+        @wrap_az_errors(StorageAccountError,
+                        "Failed to create storage account: {account_name}")
+        def create_storage_account(account_name: str, ...): ...
+
+    pulls ``account_name`` directly from the call. Defaults are filled
+    in via :meth:`inspect.BoundArguments.apply_defaults` before the
+    template is rendered.
+    """
+
+    def decorator(func: F) -> F:
+        sig = inspect.signature(func)
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except error_cls:
+                raise
+            except Exception as e:
+                bound = sig.bind(*args, **kwargs)
+                bound.apply_defaults()
+                raise error_cls(
+                    message_template.format(**bound.arguments),
+                    str(e),
+                ) from e
+
+        return wrapper  # type: ignore[return-value]
+
+    return decorator

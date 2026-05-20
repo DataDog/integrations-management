@@ -16,7 +16,7 @@ from az_shared.execute_cmd import execute
 from common.shell import Cmd
 
 from .config import Config
-from .errors import StorageAccountError
+from .errors import StorageAccountError, wrap_az_errors
 from .rbac import grant_role_to_current_user
 from .reporter import InfoReporter, Reporter
 
@@ -84,6 +84,7 @@ def storage_account_exists(
     return bool(result)
 
 
+@wrap_az_errors(StorageAccountError, "Failed to create storage account: {account_name}")
 def create_storage_account(
     account_name: str,
     resource_group: str,
@@ -101,24 +102,18 @@ def create_storage_account(
     Raises:
         StorageAccountError: If the account cannot be created.
     """
-    try:
-        execute(
-            Cmd(["az", "storage", "account", "create"])
-            .param("--name", account_name)
-            .param("--resource-group", resource_group)
-            .param("--location", location)
-            .param("--subscription", subscription)
-            .param("--sku", "Standard_LRS")
-            .param("--kind", "StorageV2")
-            .param("--min-tls-version", "TLS1_2")
-            .param("--allow-blob-public-access", "false")
-            .param_list("--tags", ["Datadog=true", "DatadogAgentlessScanner=true"])
-        )
-    except Exception as e:
-        raise StorageAccountError(
-            f"Failed to create storage account: {account_name}",
-            str(e),
-        ) from e
+    execute(
+        Cmd(["az", "storage", "account", "create"])
+        .param("--name", account_name)
+        .param("--resource-group", resource_group)
+        .param("--location", location)
+        .param("--subscription", subscription)
+        .param("--sku", "Standard_LRS")
+        .param("--kind", "StorageV2")
+        .param("--min-tls-version", "TLS1_2")
+        .param("--allow-blob-public-access", "false")
+        .param_list("--tags", ["Datadog=true", "DatadogAgentlessScanner=true"])
+    )
 
 
 def container_exists(account_name: str) -> bool:
@@ -141,24 +136,22 @@ def container_exists(account_name: str) -> bool:
     return bool(result)
 
 
+@wrap_az_errors(
+    StorageAccountError,
+    "Failed to create blob container '" + CONTAINER_NAME + "' in {account_name}",
+)
 def create_container(account_name: str) -> None:
     """Create the tfstate blob container.
 
     Raises:
         StorageAccountError: If the container cannot be created.
     """
-    try:
-        execute(
-            Cmd(["az", "storage", "container", "create"])
-            .param("--name", CONTAINER_NAME)
-            .param("--account-name", account_name)
-            .param("--auth-mode", "login")
-        )
-    except Exception as e:
-        raise StorageAccountError(
-            f"Failed to create blob container '{CONTAINER_NAME}' in {account_name}",
-            str(e),
-        ) from e
+    execute(
+        Cmd(["az", "storage", "container", "create"])
+        .param("--name", CONTAINER_NAME)
+        .param("--account-name", account_name)
+        .param("--auth-mode", "login")
+    )
 
 
 def grant_current_user_blob_data_contributor(
@@ -401,6 +394,7 @@ def find_agentless_resource_groups(scanner_subscription: str) -> list[str]:
     return sorted({line.strip() for line in (raw or "").splitlines() if line.strip()})
 
 
+@wrap_az_errors(StorageAccountError, "Failed to create resource group: {resource_group}")
 def ensure_resource_group(resource_group: str, location: str, subscription: str) -> None:
     """Create the resource group if it doesn't exist.
 
@@ -410,19 +404,13 @@ def ensure_resource_group(resource_group: str, location: str, subscription: str)
     if resource_group_exists(resource_group, subscription):
         return
 
-    try:
-        execute(
-            Cmd(["az", "group", "create"])
-            .param("--name", resource_group)
-            .param("--location", location)
-            .param("--subscription", subscription)
-            .param_list("--tags", ["Datadog=true", "DatadogAgentlessScanner=true"])
-        )
-    except Exception as e:
-        raise StorageAccountError(
-            f"Failed to create resource group: {resource_group}",
-            str(e),
-        ) from e
+    execute(
+        Cmd(["az", "group", "create"])
+        .param("--name", resource_group)
+        .param("--location", location)
+        .param("--subscription", subscription)
+        .param_list("--tags", ["Datadog=true", "DatadogAgentlessScanner=true"])
+    )
 
 
 def prepare_storage_account(config: Config, reporter: Reporter) -> tuple[str, bool]:
