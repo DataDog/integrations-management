@@ -163,6 +163,21 @@ _BLOB_MISSING_MARKERS = (
 )
 
 
+@dataclass(frozen=True)
+class BlobProbeResult:
+    """Outcome of :func:`probe_blob`.
+
+    ``stdout`` carries the trimmed stdout on PRESENT (used by callers
+    that asked for a ``--query`` projection, e.g. an ETag). ``error_detail``
+    carries the trimmed stderr on ERROR for diagnostic surfacing. MISSING
+    populates neither.
+    """
+
+    status: MetadataReadStatus
+    stdout: str = ""
+    error_detail: Optional[str] = None
+
+
 def _classify_blob_show_failure(stderr: str) -> tuple[MetadataReadStatus, Optional[str]]:
     """Map an ``az storage blob show`` failure to MISSING vs ERROR.
 
@@ -176,33 +191,56 @@ def _classify_blob_show_failure(stderr: str) -> tuple[MetadataReadStatus, Option
     return MetadataReadStatus.ERROR, detail
 
 
-def _show_metadata_blob(storage_account: str) -> MetadataReadResult:
-    """Look up the metadata blob's ETag and classify the outcome.
+def probe_blob(
+    storage_account: str,
+    blob_name: str,
+    *,
+    query: Optional[str] = None,
+) -> BlobProbeResult:
+    """Run ``az storage blob show`` against a single blob and classify the result.
 
-    Bypasses ``az_shared.execute`` so we can read stderr and distinguish
-    a legitimate 404 (BlobNotFound / ContainerNotFound / ResourceNotFound)
-    from auth/network/throttling failures. Treating the latter as MISSING
-    would be unsafe — it could trick a re-deploy into thinking it's a
-    first run and forget locations/subscriptions tracked in the existing
-    blob.
+    Bypasses ``az_shared.execute`` so callers can read stderr and
+    distinguish a legitimate 404 (BlobNotFound / ContainerNotFound /
+    ResourceNotFound) from auth / network / throttling failures.
+    Treating the latter as MISSING would be unsafe: a re-deploy could
+    think it's a first run and forget locations / subscriptions tracked
+    in the existing metadata blob; a destroy could mis-translate an RBAC
+    failure into "no Terraform state found".
+
+    When ``query`` is set the helper appends ``--query <query> --output
+    tsv`` so PRESENT carries the projected value in ``stdout``; otherwise
+    no projection is requested and ``stdout`` is empty on PRESENT.
     """
-    cmd = str(
+    cmd = (
         Cmd(["az", "storage", "blob", "show"])
         .param("--account-name", storage_account)
         .param("--container-name", CONTAINER_NAME)
-        .param("--name", METADATA_BLOB)
+        .param("--name", blob_name)
         .param("--auth-mode", "login")
-        .param("--query", "properties.etag")
-        .param("--output", "tsv")
     )
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    if query is not None:
+        cmd = cmd.param("--query", query).param("--output", "tsv")
+
+    result = subprocess.run(str(cmd), shell=True, capture_output=True, text=True)
 
     if result.returncode == 0:
-        etag = (result.stdout or "").strip().strip('"') or None
-        return MetadataReadResult(MetadataReadStatus.PRESENT, etag=etag)
+        return BlobProbeResult(
+            MetadataReadStatus.PRESENT,
+            stdout=(result.stdout or "").strip(),
+        )
 
     status, detail = _classify_blob_show_failure(result.stderr or "")
-    return MetadataReadResult(status, error_detail=detail)
+    return BlobProbeResult(status, error_detail=detail)
+
+
+def _show_metadata_blob(storage_account: str) -> MetadataReadResult:
+    """Look up the metadata blob's ETag and translate the probe to a
+    :class:`MetadataReadResult`."""
+    probe = probe_blob(storage_account, METADATA_BLOB, query="properties.etag")
+    if probe.status == MetadataReadStatus.PRESENT:
+        etag = probe.stdout.strip('"') or None
+        return MetadataReadResult(MetadataReadStatus.PRESENT, etag=etag)
+    return MetadataReadResult(probe.status, error_detail=probe.error_detail)
 
 
 def _download_metadata(storage_account: str) -> Optional[str]:
@@ -349,33 +387,23 @@ def write_metadata(
 def terraform_state_exists(storage_account: str) -> bool:
     """Check whether the Terraform state blob exists.
 
-    Distinguishes a genuine 404 (BlobNotFound / ContainerNotFound /
-    ResourceNotFound) from auth / network / throttling failures by
-    reading stderr directly, mirroring :func:`_show_metadata_blob`. The
-    previous implementation swallowed every failure and returned
-    ``False``, which on the destroy path turned a missing Storage Blob
-    Data Contributor role into the misleading "No Terraform state found
-    in storage account" message. Raises :class:`MetadataError` on
-    non-404 failures so the caller surfaces the real problem.
+    Goes through :func:`probe_blob` so the same classifier used by
+    :func:`_show_metadata_blob` (and by :func:`state_storage.wait_for_blob_access`)
+    decides whether a failure is a clean 404 or an auth / network /
+    throttling problem. Raises :class:`MetadataError` on non-404 failures
+    so the caller surfaces the real problem instead of mis-translating
+    a missing Storage Blob Data Contributor role into "no Terraform
+    state found".
     """
-    cmd = str(
-        Cmd(["az", "storage", "blob", "show"])
-        .param("--account-name", storage_account)
-        .param("--container-name", CONTAINER_NAME)
-        .param("--name", TF_STATE_BLOB)
-        .param("--auth-mode", "login")
-    )
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    if result.returncode == 0:
+    probe = probe_blob(storage_account, TF_STATE_BLOB)
+    if probe.status == MetadataReadStatus.PRESENT:
         return True
-
-    status, detail = _classify_blob_show_failure(result.stderr or "")
-    if status == MetadataReadStatus.MISSING:
+    if probe.status == MetadataReadStatus.MISSING:
         return False
 
     raise MetadataError(
         f"Could not check Terraform state in {storage_account}",
-        f"{detail or 'unknown error'}\n"
+        f"{probe.error_detail or 'unknown error'}\n"
         "If this is a permissions error, the current user needs\n"
         "'Storage Blob Data Contributor' on the storage account. The wizard\n"
         "tries to grant it automatically; if you see this message, the\n"

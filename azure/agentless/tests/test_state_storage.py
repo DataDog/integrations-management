@@ -176,44 +176,43 @@ class TestWaitForBlobAccess:
     has to be retried. Without this, an over-permissive probe would
     let the wait return immediately and the subsequent metadata read
     fail with the opaque Azure "permissions" error.
+
+    Probe semantics live in :func:`metadata.probe_blob`; these tests
+    mock that function so the wait-loop logic is exercised in isolation
+    from the subprocess-and-classifier internals.
     """
 
-    def _completed(self, returncode: int, stderr: str = ""):
-        cp = MagicMock()
-        cp.returncode = returncode
-        cp.stderr = stderr
-        cp.stdout = ""
-        return cp
+    @patch("azure_agentless_setup.metadata.probe_blob")
+    def test_returns_immediately_on_probe_success(self, mock_probe):
+        from azure_agentless_setup.metadata import BlobProbeResult, MetadataReadStatus
 
-    @patch("azure_agentless_setup.state_storage.subprocess.run")
-    def test_returns_immediately_on_probe_success(self, mock_run):
-        mock_run.return_value = self._completed(0)
+        mock_probe.return_value = BlobProbeResult(MetadataReadStatus.PRESENT, stdout='"etag"')
         reporter = MagicMock()
 
         wait_for_blob_access("acct", reporter)
 
-        mock_run.assert_called_once()
+        mock_probe.assert_called_once()
         reporter.info.assert_not_called()
 
-    @patch("azure_agentless_setup.state_storage.subprocess.run")
-    def test_returns_on_blob_not_found(self, mock_run):
+    @patch("azure_agentless_setup.metadata.probe_blob")
+    def test_returns_on_blob_not_found(self, mock_probe):
         """First-deploy paths: SA was just created, config.json doesn't
         exist yet. A clean 404 still proves data-plane reachability,
         so the wait must not loop."""
-        mock_run.return_value = self._completed(
-            1, stderr="ErrorCode:BlobNotFound\nThe specified blob does not exist."
-        )
+        from azure_agentless_setup.metadata import BlobProbeResult, MetadataReadStatus
+
+        mock_probe.return_value = BlobProbeResult(MetadataReadStatus.MISSING)
         reporter = MagicMock()
 
         wait_for_blob_access("acct", reporter)
 
-        mock_run.assert_called_once()
+        mock_probe.assert_called_once()
         reporter.info.assert_not_called()
 
     @patch("azure_agentless_setup.state_storage.time.sleep")
-    @patch("azure_agentless_setup.state_storage.subprocess.run")
+    @patch("azure_agentless_setup.metadata.probe_blob")
     def test_raises_on_persistent_authorization_permission_mismatch(
-        self, mock_run, _mock_sleep
+        self, mock_probe, _mock_sleep
     ):
         """The bug we're fixing: this stderr used to come back from
         ``az storage blob show`` after the wizard fell through a
@@ -226,26 +225,22 @@ class TestWaitForBlobAccess:
         a focused ``StorageAccountError`` carrying the last probe
         stderr so the user has a single actionable failure point.
         """
-        permission_error_stderr = (
+        from azure_agentless_setup.metadata import BlobProbeResult, MetadataReadStatus
+
+        permission_error_detail = (
             "ERROR: You do not have the required permissions needed to "
             "perform this operation."
         )
-        mock_run.return_value = self._completed(1, stderr=permission_error_stderr)
+        mock_probe.return_value = BlobProbeResult(
+            MetadataReadStatus.ERROR, error_detail=permission_error_detail
+        )
         reporter = MagicMock()
 
         with pytest.raises(StorageAccountError) as exc:
             wait_for_blob_access("acct", reporter)
 
-        # ``subprocess.run`` is shared across modules, so the mock also
-        # catches the ``az version`` call ``AzIntegrationError.__init__``
-        # makes when the exception we just raised is constructed. Count
-        # only the probe calls (``storage blob show``).
-        probe_calls = [
-            c for c in mock_run.call_args_list
-            if "storage blob show" in (c.args[0] if c.args else "")
-        ]
-        assert len(probe_calls) == RBAC_PROPAGATION_RETRIES
+        assert mock_probe.call_count == RBAC_PROPAGATION_RETRIES
         # The raised error must carry both the offending account and
-        # the last probe stderr so the user has actionable context.
+        # the last probe error detail so the user has actionable context.
         assert "acct" in exc.value.detail
         assert "required permissions" in exc.value.detail

@@ -8,7 +8,6 @@ The azurerm backend requires: storage_account_name, container_name, key.
 """
 
 import json
-import subprocess
 import time
 from typing import Optional
 
@@ -311,31 +310,17 @@ def ensure_current_user_blob_data_access(
         wait_for_blob_access(account_name, reporter)
 
 
-# Markers indicating the blob-data-plane responded with a clean 404 -
-# i.e. the request was authorized and merely targeted a blob or
-# container that does not exist yet. ``wait_for_blob_access`` treats
-# these as a success signal because they still demonstrate that the
-# caller has data-plane reachability.
-_BLOB_PROBE_BENIGN_MARKERS = (
-    "blobnotfound",
-    "containernotfound",
-    "resourcenotfound",
-    "the specified blob does not exist",
-    "the specified container does not exist",
-    "the specified resource does not exist",
-)
-
-
 def wait_for_blob_access(account_name: str, reporter: Reporter) -> None:
     """Wait for Storage Blob Data Contributor role to propagate.
 
     Probes the exact same data-plane API the wizard will hit next -
-    ``az storage blob show config.json`` - and tolerates only the
-    ``BlobNotFound`` / ``ContainerNotFound`` family of errors as
-    success signals (the metadata blob is missing on first deploys but
-    the response still proves data-plane reachability). Any other
-    failure - typically ``AuthorizationPermissionMismatch`` - is
-    treated as "role not yet propagated" and retried.
+    ``az storage blob show config.json`` - via :func:`metadata.probe_blob`,
+    which classifies the response into PRESENT / MISSING / ERROR using
+    the single classifier shared with :func:`metadata._show_metadata_blob`
+    and :func:`metadata.terraform_state_exists`. PRESENT and MISSING both
+    prove data-plane reachability and exit the loop; ERROR (typically
+    ``AuthorizationPermissionMismatch``) is treated as "role not yet
+    propagated" and retried.
 
     The previous probe (``az storage container list``) was unreliable
     on second-user-joining paths: some az CLI builds quietly returned
@@ -346,10 +331,6 @@ def wait_for_blob_access(account_name: str, reporter: Reporter) -> None:
     a confusing "permissions" error. Mirroring the exact downstream
     operation eliminates that gap.
 
-    Uses subprocess directly instead of execute() so we can inspect
-    stderr for the not-found markers and to avoid noisy log.error
-    output on every expected retry attempt.
-
     Raises:
         StorageAccountError: when the role never propagates within the
         retry window. The previous behaviour of warning and returning
@@ -358,28 +339,15 @@ def wait_for_blob_access(account_name: str, reporter: Reporter) -> None:
         from Terraform's backend init). Failing here gives the user a
         single, actionable error at the point the problem is detected.
     """
-    from .metadata import METADATA_BLOB
+    from .metadata import METADATA_BLOB, MetadataReadStatus, probe_blob
 
-    probe_cmd = str(
-        Cmd(["az", "storage", "blob", "show"])
-        .param("--account-name", account_name)
-        .param("--container-name", CONTAINER_NAME)
-        .param("--name", METADATA_BLOB)
-        .param("--auth-mode", "login")
-        .param("--query", "properties.etag")
-        .param("--output", "tsv")
-    )
-
-    last_stderr = ""
+    last_error_detail = ""
     for attempt in range(RBAC_PROPAGATION_RETRIES):
-        result = subprocess.run(probe_cmd, shell=True, capture_output=True, text=True)
-        if result.returncode == 0:
+        probe = probe_blob(account_name, METADATA_BLOB, query="properties.etag")
+        if probe.status in (MetadataReadStatus.PRESENT, MetadataReadStatus.MISSING):
             return
 
-        last_stderr = (result.stderr or "").strip()
-        stderr_lc = last_stderr.lower()
-        if any(marker in stderr_lc for marker in _BLOB_PROBE_BENIGN_MARKERS):
-            return
+        last_error_detail = probe.error_detail or ""
 
         remaining = RBAC_PROPAGATION_RETRIES - attempt - 1
         if remaining > 0:
@@ -392,7 +360,7 @@ def wait_for_blob_access(account_name: str, reporter: Reporter) -> None:
     raise StorageAccountError(
         f"Storage Blob Data Contributor role did not propagate within {total}s",
         f"Last probe error on storage account '{account_name}':\n"
-        f"  {last_stderr or 'unknown'}\n"
+        f"  {last_error_detail or 'unknown'}\n"
         "\n"
         "This usually means either:\n"
         "  - the role assignment did not stick (a transient ARM /\n"
