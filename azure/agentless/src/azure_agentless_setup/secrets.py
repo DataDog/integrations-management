@@ -13,7 +13,7 @@ import subprocess
 from time import sleep
 from typing import Optional
 
-from az_shared.errors import ResourceNotFoundError
+from az_shared.errors import ResourceGroupNotFoundError, ResourceNotFoundError
 from az_shared.execute_cmd import execute, execute_json
 from common.shell import Cmd
 
@@ -65,19 +65,24 @@ def key_vault_exists(
     flow does not run ``set_subscription`` and therefore must always pass
     it; the deploy flow already pinned the default in preflight, so the
     parameter is optional for backward compatibility.
+
+    Only the two ``*NotFound`` errors are treated as "missing"; auth /
+    throttling / network failures propagate so callers cannot silently
+    miss an existing vault and either try to recreate it (yielding
+    ``VaultAlreadyExists``) or skip cleanup on destroy.
     """
+    cmd = (
+        Cmd(["az", "keyvault", "show"])
+        .param("--name", vault_name)
+        .param("--resource-group", resource_group)
+    )
+    if subscription:
+        cmd = cmd.param("--subscription", subscription)
     try:
-        cmd = (
-            Cmd(["az", "keyvault", "show"])
-            .param("--name", vault_name)
-            .param("--resource-group", resource_group)
-        )
-        if subscription:
-            cmd = cmd.param("--subscription", subscription)
         result = execute(cmd, can_fail=True)
-        return bool(result)
-    except Exception:
+    except (ResourceNotFoundError, ResourceGroupNotFoundError):
         return False
+    return bool(result)
 
 
 def _get_soft_deleted_vault(vault_name: str, subscription: str) -> Optional[dict]:

@@ -12,6 +12,7 @@ import subprocess
 import time
 from typing import Optional
 
+from az_shared.errors import ResourceGroupNotFoundError, ResourceNotFoundError
 from az_shared.execute_cmd import execute
 from common.shell import Cmd
 
@@ -61,19 +62,26 @@ def storage_account_exists(
 
     Pass ``subscription`` so the check uses the correct subscription when the
     Azure CLI default account differs (e.g. Cloud Shell).
+
+    Only the two ``*NotFound`` errors are treated as "doesn't exist".
+    Auth, throttling, refresh-token and network failures propagate so
+    callers don't silently treat a permissions problem as "first deploy"
+    (which would let the wizard try to create a colliding SA) or as
+    "nothing to destroy" (which would skip the metadata read and SSH
+    key cleanup).
     """
+    cmd = (
+        Cmd(["az", "storage", "account", "show"])
+        .param("--name", account_name)
+        .param("--resource-group", resource_group)
+    )
+    if subscription:
+        cmd = cmd.param("--subscription", subscription)
     try:
-        cmd = (
-            Cmd(["az", "storage", "account", "show"])
-            .param("--name", account_name)
-            .param("--resource-group", resource_group)
-        )
-        if subscription:
-            cmd = cmd.param("--subscription", subscription)
         result = execute(cmd, can_fail=True)
-        return bool(result)
-    except Exception:
+    except (ResourceNotFoundError, ResourceGroupNotFoundError):
         return False
+    return bool(result)
 
 
 def create_storage_account(
@@ -114,7 +122,12 @@ def create_storage_account(
 
 
 def container_exists(account_name: str) -> bool:
-    """Check if the tfstate blob container exists."""
+    """Check if the tfstate blob container exists.
+
+    Only ``ResourceNotFound`` is treated as "container missing". Other
+    errors (auth, network, throttling) propagate so callers do not skip
+    container creation while the real problem is RBAC propagation.
+    """
     try:
         result = execute(
             Cmd(["az", "storage", "container", "show"])
@@ -123,9 +136,9 @@ def container_exists(account_name: str) -> bool:
             .param("--auth-mode", "login"),
             can_fail=True,
         )
-        return bool(result)
-    except Exception:
+    except ResourceNotFoundError:
         return False
+    return bool(result)
 
 
 def create_container(account_name: str) -> None:
@@ -336,6 +349,14 @@ def wait_for_blob_access(account_name: str, reporter: Reporter) -> None:
     Uses subprocess directly instead of execute() so we can inspect
     stderr for the not-found markers and to avoid noisy log.error
     output on every expected retry attempt.
+
+    Raises:
+        StorageAccountError: when the role never propagates within the
+        retry window. The previous behaviour of warning and returning
+        silently turned a real RBAC failure into a confusing downstream
+        ``AuthorizationPermissionMismatch`` from ``read_metadata`` (or
+        from Terraform's backend init). Failing here gives the user a
+        single, actionable error at the point the problem is detected.
     """
     from .metadata import METADATA_BLOB
 
@@ -349,12 +370,14 @@ def wait_for_blob_access(account_name: str, reporter: Reporter) -> None:
         .param("--output", "tsv")
     )
 
+    last_stderr = ""
     for attempt in range(RBAC_PROPAGATION_RETRIES):
         result = subprocess.run(probe_cmd, shell=True, capture_output=True, text=True)
         if result.returncode == 0:
             return
 
-        stderr_lc = (result.stderr or "").lower()
+        last_stderr = (result.stderr or "").strip()
+        stderr_lc = last_stderr.lower()
         if any(marker in stderr_lc for marker in _BLOB_PROBE_BENIGN_MARKERS):
             return
 
@@ -365,11 +388,35 @@ def wait_for_blob_access(account_name: str, reporter: Reporter) -> None:
             )
             time.sleep(RBAC_PROPAGATION_DELAY)
 
-    reporter.info("Role propagation timeout, proceeding (Terraform will retry if needed)")
+    total = RBAC_PROPAGATION_RETRIES * RBAC_PROPAGATION_DELAY
+    raise StorageAccountError(
+        f"Storage Blob Data Contributor role did not propagate within {total}s",
+        f"Last probe error on storage account '{account_name}':\n"
+        f"  {last_stderr or 'unknown'}\n"
+        "\n"
+        "This usually means either:\n"
+        "  - the role assignment did not stick (a transient ARM /\n"
+        "    Graph issue); re-running the wizard after a minute or two\n"
+        "    typically clears it, OR\n"
+        "  - the current user is missing\n"
+        "    'Microsoft.Authorization/roleAssignments/write' on the\n"
+        "    storage account scope and the wizard's self-grant produced\n"
+        "    a phantom role assignment. Have a subscription Owner verify:\n"
+        f"      az role assignment list \\\n"
+        f"        --scope $(az storage account show --name {account_name} \\\n"
+        f"          --query id -o tsv) \\\n"
+        f"        --query \"[?roleDefinitionName=='Storage Blob Data Contributor']\"",
+    )
 
 
 def resource_group_exists(resource_group: str, subscription: str) -> bool:
-    """Check whether a resource group exists in the subscription."""
+    """Check whether a resource group exists in the subscription.
+
+    Only ``ResourceGroupNotFound`` / ``ResourceNotFound`` are treated as
+    "missing"; auth/throttling/network failures propagate so the caller
+    surfaces the real problem instead of silently treating an RBAC issue
+    as "no deployment present".
+    """
     try:
         result = execute(
             Cmd(["az", "group", "show"])
@@ -377,9 +424,9 @@ def resource_group_exists(resource_group: str, subscription: str) -> bool:
             .param("--subscription", subscription),
             can_fail=True,
         )
-        return bool(result)
-    except Exception:
+    except (ResourceNotFoundError, ResourceGroupNotFoundError):
         return False
+    return bool(result)
 
 
 def find_agentless_resource_groups(scanner_subscription: str) -> list[str]:

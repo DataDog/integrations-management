@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from az_shared.errors import AccessError, ResourceNotFoundError
+
 from azure_agentless_setup.errors import StorageAccountError
 from azure_agentless_setup.state_storage import (
     RBAC_PROPAGATION_RETRIES,
@@ -13,6 +15,7 @@ from azure_agentless_setup.state_storage import (
     find_agentless_resource_groups,
     get_storage_account_name,
     grant_current_user_blob_data_contributor,
+    storage_account_exists,
     wait_for_blob_access,
 )
 
@@ -100,6 +103,28 @@ class TestFindAgentlessResourceGroups:
         transient az failure must not abort deploy."""
         mock_execute.side_effect = RuntimeError("auth")
         assert find_agentless_resource_groups("sub-123") == []
+
+
+class TestStorageAccountExistsErrorClassification:
+    """``storage_account_exists`` used to swallow every exception as
+    "doesn't exist", which let auth / network failures masquerade as
+    "first deploy" - meaning the wizard would try to create a colliding
+    SA, or destroy would skip the metadata read entirely. Only the two
+    ``*NotFound`` errors should map to False; anything else must
+    propagate so the caller surfaces the real problem."""
+
+    @patch("azure_agentless_setup.state_storage.execute")
+    def test_resource_not_found_maps_to_false(self, mock_execute):
+        mock_execute.side_effect = ResourceNotFoundError("not found")
+        assert storage_account_exists("sa", "rg", "sub") is False
+
+    @patch("azure_agentless_setup.state_storage.execute")
+    def test_access_error_propagates(self, mock_execute):
+        # The whole point of B2: an AccessError must NOT degrade to
+        # "no SA found"; the caller has to see the real RBAC issue.
+        mock_execute.side_effect = AccessError("no permission")
+        with pytest.raises(AccessError):
+            storage_account_exists("sa", "rg", "sub")
 
 
 class TestEnsureStateStorage:
@@ -276,23 +301,40 @@ class TestWaitForBlobAccess:
 
     @patch("azure_agentless_setup.state_storage.time.sleep")
     @patch("azure_agentless_setup.state_storage.subprocess.run")
-    def test_retries_on_authorization_permission_mismatch(self, mock_run, _mock_sleep):
+    def test_raises_on_persistent_authorization_permission_mismatch(
+        self, mock_run, _mock_sleep
+    ):
         """The bug we're fixing: this stderr used to come back from
         ``az storage blob show`` after the wizard fell through a
         permissive ``container list`` probe. The probe must keep
-        retrying instead of declaring success."""
-        mock_run.return_value = self._completed(
-            1,
-            stderr=(
-                "ERROR: You do not have the required permissions needed to "
-                "perform this operation."
-            ),
+        retrying instead of declaring success.
+
+        Previously the wait silently returned after the retry window,
+        leaving the downstream ``read_metadata`` call to surface a
+        confusing ``AuthorizationPermissionMismatch``. Now we raise
+        a focused ``StorageAccountError`` carrying the last probe
+        stderr so the user has a single actionable failure point.
+        """
+        permission_error_stderr = (
+            "ERROR: You do not have the required permissions needed to "
+            "perform this operation."
         )
+        mock_run.return_value = self._completed(1, stderr=permission_error_stderr)
         reporter = MagicMock()
 
-        wait_for_blob_access("acct", reporter)
+        with pytest.raises(StorageAccountError) as exc:
+            wait_for_blob_access("acct", reporter)
 
-        assert mock_run.call_count == RBAC_PROPAGATION_RETRIES
-        # The final "timeout" message must be emitted so the user has a
-        # diagnostic when propagation truly fails to land in the window.
-        assert any("timeout" in c.args[0] for c in reporter.info.call_args_list)
+        # ``subprocess.run`` is shared across modules, so the mock also
+        # catches the ``az version`` call ``AzIntegrationError.__init__``
+        # makes when the exception we just raised is constructed. Count
+        # only the probe calls (``storage blob show``).
+        probe_calls = [
+            c for c in mock_run.call_args_list
+            if "storage blob show" in (c.args[0] if c.args else "")
+        ]
+        assert len(probe_calls) == RBAC_PROPAGATION_RETRIES
+        # The raised error must carry both the offending account and
+        # the last probe stderr so the user has actionable context.
+        assert "acct" in exc.value.detail
+        assert "required permissions" in exc.value.detail
