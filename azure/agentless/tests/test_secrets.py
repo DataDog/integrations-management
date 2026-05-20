@@ -228,15 +228,21 @@ class TestGrantCurrentUserSecretsOfficerSubscriptionThreading:
     call must carry ``--subscription``. The Cloud Shell user's default
     is unreliable, and the destroy path doesn't call ``set_subscription``,
     so without the threading these calls would hit the wrong sub and
-    surface as opaque ResourceNotFound / AuthorizationFailed errors."""
+    surface as opaque ResourceNotFound / AuthorizationFailed errors.
+
+    Since the grant flow was extracted into :func:`rbac.grant_role_to_current_user`,
+    the vault lookup runs in ``secrets`` (via ``execute_json``) while
+    signed-in-user, role list, and role create run in ``rbac`` (via
+    ``execute``). Both modules' commands are asserted here.
+    """
 
     @patch("azure_agentless_setup.secrets.execute_json")
-    @patch("azure_agentless_setup.secrets.execute")
+    @patch("azure_agentless_setup.rbac.execute")
     def test_threads_subscription_through_all_az_calls(
-        self, mock_execute, mock_execute_json
+        self, mock_rbac_execute, mock_execute_json
     ):
-        # signed-in-user → show vault → role list (0 = need create) → role create
-        mock_execute.side_effect = [
+        # signed-in-user → role list (0 = need create) → role create
+        mock_rbac_execute.side_effect = [
             "user-object-id",
             "0",
             "",
@@ -247,17 +253,14 @@ class TestGrantCurrentUserSecretsOfficerSubscriptionThreading:
 
         grant_current_user_secrets_officer("v", "sub-scanner")
 
-        # ``execute_json`` runs the ``az keyvault show`` lookup; the role
-        # list / create both go through ``execute``. All three must carry
-        # --subscription sub-scanner.
         show_cmd = str(mock_execute_json.call_args.args[0])
         assert "keyvault show" in show_cmd
         assert "--subscription sub-scanner" in show_cmd
 
-        list_cmd = str(mock_execute.call_args_list[1].args[0])
+        list_cmd = str(mock_rbac_execute.call_args_list[1].args[0])
         assert "role assignment list" in list_cmd
         assert "--subscription sub-scanner" in list_cmd
 
-        create_cmd = str(mock_execute.call_args_list[2].args[0])
+        create_cmd = str(mock_rbac_execute.call_args_list[2].args[0])
         assert "role assignment create" in create_cmd
         assert "--subscription sub-scanner" in create_cmd

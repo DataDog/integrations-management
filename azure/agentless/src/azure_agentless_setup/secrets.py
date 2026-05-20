@@ -18,6 +18,7 @@ from az_shared.execute_cmd import execute, execute_json
 from common.shell import Cmd
 
 from .errors import KeyVaultError
+from .rbac import grant_role_to_current_user
 from .reporter import Reporter
 
 
@@ -397,49 +398,22 @@ def grant_current_user_secrets_officer(vault_name: str, subscription: str) -> bo
     Raises:
         KeyVaultError: If the role assignment fails.
     """
-    try:
-        user_object_id = execute(
-            Cmd(["az", "ad", "signed-in-user", "show"])
-            .param("--query", "id")
-            .param("--output", "tsv")
-        ).strip()
 
-        vault_info = execute_json(
+    def lookup_vault_id() -> str:
+        info = execute_json(
             Cmd(["az", "keyvault", "show"])
             .param("--name", vault_name)
             .param("--subscription", subscription)
         )
-        vault_resource_id = vault_info["id"]
+        return info["id"]
 
-        existing = execute(
-            Cmd(["az", "role", "assignment", "list"])
-            .param("--assignee", user_object_id)
-            .param("--role", "Key Vault Secrets Officer")
-            .param("--scope", vault_resource_id)
-            .param("--subscription", subscription)
-            .param("--query", "length(@)")
-            .param("--output", "tsv"),
-            can_fail=True,
-        )
-        if existing.strip() not in ("", "0"):
-            return False
-
-        execute(
-            Cmd(["az", "role", "assignment", "create"])
-            .param("--assignee-object-id", user_object_id)
-            .param("--assignee-principal-type", "User")
-            .param("--role", "Key Vault Secrets Officer")
-            .param("--scope", vault_resource_id)
-            .param("--subscription", subscription)
-        )
-        return True
-    except KeyVaultError:
-        raise
-    except Exception as e:
-        raise KeyVaultError(
-            "Failed to grant Key Vault Secrets Officer role to current user",
-            str(e),
-        ) from e
+    return grant_role_to_current_user(
+        role="Key Vault Secrets Officer",
+        resource_id_lookup=lookup_vault_id,
+        subscription=subscription,
+        error_cls=KeyVaultError,
+        error_message="Failed to grant Key Vault Secrets Officer role to current user",
+    )
 
 
 def wait_for_secret_access(vault_name: str, reporter: Reporter) -> None:

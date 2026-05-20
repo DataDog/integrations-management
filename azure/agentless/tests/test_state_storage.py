@@ -132,16 +132,25 @@ class TestGrantCurrentUserBlobDataContributor:
     subscription at startup which is frequently different from the
     scanner sub; without ``--subscription``, ``az storage account show``
     hits the wrong sub and 404s with ``ResourceGroupNotFound``, which the
-    wizard mis-translates as a data-plane RBAC failure."""
+    wizard mis-translates as a data-plane RBAC failure.
 
+    Since the grant flow was extracted into :func:`rbac.grant_role_to_current_user`,
+    the resource lookup runs in ``state_storage`` while signed-in-user
+    lookup, role list, and role create run in ``rbac``. Both modules'
+    ``execute`` are mocked here so the threading is asserted across the
+    whole flow.
+    """
+
+    @patch("azure_agentless_setup.rbac.execute")
     @patch("azure_agentless_setup.state_storage.execute")
-    def test_threads_subscription_through_all_az_calls(self, mock_execute):
-        mock_execute.side_effect = [
-            "user-object-id",
-            '{"id": "/subscriptions/sub-scanner/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/sa"}',
-            "0",
-            "",
-        ]
+    def test_threads_subscription_through_all_az_calls(
+        self, mock_state_execute, mock_rbac_execute
+    ):
+        mock_state_execute.return_value = (
+            '{"id": "/subscriptions/sub-scanner/resourceGroups/rg/'
+            'providers/Microsoft.Storage/storageAccounts/sa"}'
+        )
+        mock_rbac_execute.side_effect = ["user-object-id", "0", ""]
 
         grant_current_user_blob_data_contributor(
             account_name="sa",
@@ -149,18 +158,18 @@ class TestGrantCurrentUserBlobDataContributor:
             subscription="sub-scanner",
         )
 
-        show_cmd = str(mock_execute.call_args_list[1].args[0])
+        show_cmd = str(mock_state_execute.call_args.args[0])
         assert "storage account show" in show_cmd
         assert "--subscription sub-scanner" in show_cmd
 
         # Role list / create must also carry the scanner subscription,
         # otherwise the role would be queried/created in the wrong sub
         # and the wait_for_blob_access probe would never see it.
-        list_cmd = str(mock_execute.call_args_list[2].args[0])
+        list_cmd = str(mock_rbac_execute.call_args_list[1].args[0])
         assert "role assignment list" in list_cmd
         assert "--subscription sub-scanner" in list_cmd
 
-        create_cmd = str(mock_execute.call_args_list[3].args[0])
+        create_cmd = str(mock_rbac_execute.call_args_list[2].args[0])
         assert "role assignment create" in create_cmd
         assert "--subscription sub-scanner" in create_cmd
 

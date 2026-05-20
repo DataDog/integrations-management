@@ -17,6 +17,7 @@ from common.shell import Cmd
 
 from .config import Config
 from .errors import StorageAccountError
+from .rbac import grant_role_to_current_user
 from .reporter import Reporter
 
 
@@ -172,8 +173,8 @@ def grant_current_user_blob_data_contributor(
     ``subscription`` must be the scanner subscription. The Cloud Shell
     user's default az subscription is often different (Cloud Shell
     picks an arbitrary one at startup), and without ``--subscription``
-    the ``az storage account show`` call below would query the wrong
-    sub and 404 with ``ResourceGroupNotFound``, producing a misleading
+    the ``az storage account show`` lookup would query the wrong sub
+    and 404 with ``ResourceGroupNotFound``, producing a misleading
     "data-plane RBAC" failure even though the storage account exists.
 
     Returns:
@@ -183,50 +184,23 @@ def grant_current_user_blob_data_contributor(
     Raises:
         StorageAccountError: If the role assignment fails.
     """
-    try:
-        user_object_id = execute(
-            Cmd(["az", "ad", "signed-in-user", "show"])
-            .param("--query", "id")
-            .param("--output", "tsv")
-        ).strip()
 
-        account_info_raw = execute(
+    def lookup_account_id() -> str:
+        raw = execute(
             Cmd(["az", "storage", "account", "show"])
             .param("--name", account_name)
             .param("--resource-group", resource_group)
             .param("--subscription", subscription)
         )
-        account_id = json.loads(account_info_raw)["id"]
+        return json.loads(raw)["id"]
 
-        existing = execute(
-            Cmd(["az", "role", "assignment", "list"])
-            .param("--assignee", user_object_id)
-            .param("--role", STORAGE_BLOB_DATA_CONTRIBUTOR)
-            .param("--scope", account_id)
-            .param("--subscription", subscription)
-            .param("--query", "length(@)")
-            .param("--output", "tsv"),
-            can_fail=True,
-        )
-        if existing.strip() not in ("", "0"):
-            return False
-
-        execute(
-            Cmd(["az", "role", "assignment", "create"])
-            .param("--assignee-object-id", user_object_id)
-            .param("--assignee-principal-type", "User")
-            .param("--role", STORAGE_BLOB_DATA_CONTRIBUTOR)
-            .param("--scope", account_id)
-            .param("--subscription", subscription)
-        )
-        return True
-    except StorageAccountError:
-        raise
-    except Exception as e:
-        raise StorageAccountError(
-            "Failed to grant Storage Blob Data Contributor role to current user",
-            str(e),
-        ) from e
+    return grant_role_to_current_user(
+        role=STORAGE_BLOB_DATA_CONTRIBUTOR,
+        resource_id_lookup=lookup_account_id,
+        subscription=subscription,
+        error_cls=StorageAccountError,
+        error_message="Failed to grant Storage Blob Data Contributor role to current user",
+    )
 
 
 def _signed_in_user_object_id() -> Optional[str]:
