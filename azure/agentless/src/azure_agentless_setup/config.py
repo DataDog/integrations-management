@@ -25,6 +25,40 @@ DEFAULT_RESOURCE_GROUP = "datadog-agentless-scanner"
 INSTALL_ID_LEN = 12
 
 
+def parse_credentials() -> tuple[str, str, str]:
+    """Read and validate Datadog credentials from environment variables.
+
+    Returns ``(api_key, app_key, site)``.
+
+    Used by the destroy command, which only needs credentials and not
+    the full deploy-time configuration. The deploy path goes through
+    :func:`parse_config` instead so it can aggregate credential errors
+    with the rest of the env-var validation in a single message.
+
+    Raises:
+        ConfigurationError: If any of the three credentials is missing.
+    """
+    api_key = os.environ.get("DD_API_KEY", "").strip()
+    app_key = os.environ.get("DD_APP_KEY", "").strip()
+    site = os.environ.get("DD_SITE", "").strip()
+
+    errors = []
+    if not api_key:
+        errors.append("DD_API_KEY is required")
+    if not app_key:
+        errors.append("DD_APP_KEY is required")
+    if not site:
+        errors.append("DD_SITE is required")
+
+    if errors:
+        raise ConfigurationError(
+            "Missing credentials",
+            "\n".join(f"  - {e}" for e in errors),
+        )
+
+    return api_key, app_key, site
+
+
 def compute_install_id(scanner_subscription: str, resource_group: str) -> str:
     """Derive a stable per-install identifier from ``(subscription, RG)``.
 

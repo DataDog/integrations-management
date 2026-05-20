@@ -18,7 +18,7 @@ from common.shell import Cmd
 from .config import Config
 from .errors import StorageAccountError
 from .rbac import grant_role_to_current_user
-from .reporter import Reporter
+from .reporter import InfoReporter, Reporter
 
 
 CONTAINER_NAME = "tfstate"
@@ -226,7 +226,7 @@ def ensure_current_user_blob_data_access(
     account_name: str,
     resource_group: str,
     subscription: str,
-    reporter: Reporter,
+    reporter: InfoReporter,
 ) -> None:
     """Grant the current user 'Storage Blob Data Contributor' on
     ``account_name`` and wait for RBAC propagation, with a focused error
@@ -284,7 +284,7 @@ def ensure_current_user_blob_data_access(
         wait_for_blob_access(account_name, reporter)
 
 
-def wait_for_blob_access(account_name: str, reporter: Reporter) -> None:
+def wait_for_blob_access(account_name: str, reporter: InfoReporter) -> None:
     """Wait for Storage Blob Data Contributor role to propagate.
 
     Probes the exact same data-plane API the wizard will hit next -

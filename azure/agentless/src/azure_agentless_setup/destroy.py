@@ -17,6 +17,7 @@ from .config import (
     DEFAULT_RESOURCE_GROUP,
     compute_install_id,
     get_config_dir,
+    parse_credentials,
 )
 from .errors import ConfigurationError, SetupError
 from .metadata import (
@@ -33,6 +34,7 @@ from .secrets import (
     key_vault_exists,
     purge_key_vault,
 )
+from .reporter import PrintReporter
 from .state_storage import (
     ensure_current_user_blob_data_access,
     find_agentless_resource_groups,
@@ -41,19 +43,6 @@ from .state_storage import (
     storage_account_exists,
 )
 from .terraform import generate_ssh_key, generate_terraform_config, generate_tfvars
-
-
-class _PrintReporter:
-    """Minimal stand-in for :class:`reporter.Reporter` on the destroy path.
-
-    The destroy command does not run the workflow-status reporter,
-    but :func:`state_storage.wait_for_blob_access` only calls
-    ``reporter.info(message)``. Implementing that single method here
-    keeps destroy free of the full Reporter dependency.
-    """
-
-    def info(self, message: str) -> None:
-        print(f"  {message}")
 
 
 def sigint_handler(signum, frame) -> None:
@@ -172,36 +161,6 @@ def _resolve_destroy_resource_group(
     return env_rg or DEFAULT_RESOURCE_GROUP
 
 
-def get_credentials_from_env() -> tuple:
-    """Get Datadog credentials from environment variables.
-
-    Returns:
-        Tuple of (api_key, app_key, site)
-
-    Raises:
-        SetupError: If any required credentials are missing.
-    """
-    api_key = os.environ.get("DD_API_KEY", "").strip()
-    app_key = os.environ.get("DD_APP_KEY", "").strip()
-    site = os.environ.get("DD_SITE", "").strip()
-
-    errors = []
-    if not api_key:
-        errors.append("DD_API_KEY is required")
-    if not app_key:
-        errors.append("DD_APP_KEY is required")
-    if not site:
-        errors.append("DD_SITE is required")
-
-    if errors:
-        raise SetupError(
-            "Missing credentials",
-            "\n".join(f"  - {e}" for e in errors),
-        )
-
-    return api_key, app_key, site
-
-
 def regenerate_terraform_config(
     scanner_subscription: str,
     storage_account: str,
@@ -230,7 +189,7 @@ def regenerate_terraform_config(
     """
     print("Local config not found, but Terraform state exists in storage account.")
 
-    api_key, app_key, site = get_credentials_from_env()
+    api_key, app_key, site = parse_credentials()
 
     result = metadata_result if metadata_result is not None else read_metadata(storage_account)
     metadata = result.metadata if result.status == MetadataReadStatus.PRESENT else None
@@ -487,7 +446,7 @@ def cmd_destroy() -> None:
         # Fail fast if Datadog credentials aren't set — they're required
         # below for scan options cleanup and for regenerate_terraform_config.
         # The returned values are re-read by the callers that actually use them.
-        get_credentials_from_env()
+        parse_credentials()
 
         scanner_subscription = get_scanner_subscription()
 
@@ -528,7 +487,7 @@ def cmd_destroy() -> None:
                 storage_account,
                 resource_group,
                 scanner_subscription,
-                _PrintReporter(),
+                PrintReporter(),
             )
 
             # Metadata is no longer authoritative for the resource group, but
