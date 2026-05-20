@@ -18,7 +18,7 @@ from common.shell import Cmd
 
 from .config import Config
 from .errors import StorageAccountError
-from .reporter import Reporter, AgentlessStep
+from .reporter import Reporter
 
 
 CONTAINER_NAME = "tfstate"
@@ -487,9 +487,9 @@ def prepare_storage_account(config: Config, reporter: Reporter) -> tuple[str, bo
     """Ensure the Terraform-state Storage Account exists and the current user
     has Storage Blob Data Contributor on it.
 
-    Splitting this out from ``ensure_state_storage`` lets the orchestrator
-    run the Storage Account and Key Vault control-plane work in parallel
-    and share a single RBAC propagation wait. Caller is responsible for:
+    Control-plane work only, so the orchestrator can run it in parallel
+    with Key Vault preparation and share a single RBAC propagation wait.
+    Caller is responsible for:
 
     * waiting for the role to propagate when the returned ``role_created``
       is ``True``;
@@ -544,29 +544,3 @@ def finalize_storage_container(account_name: str, reporter: Reporter) -> None:
         reporter.info(f"Creating blob container: {CONTAINER_NAME}")
         create_container(account_name)
 
-
-def ensure_state_storage(config: Config, reporter: Reporter) -> str:
-    """Ensure the Terraform state storage infrastructure exists.
-
-    Sequential wrapper around :func:`prepare_storage_account` +
-    :func:`wait_for_blob_access` + :func:`finalize_storage_container`.
-    Kept for callers that want to provision state storage independently
-    of the Key Vault (the deploy command goes through the parallel
-    orchestrator in ``main.py`` instead).
-    """
-    reporter.start_step("Setting up Terraform state storage", AgentlessStep.CREATE_STATE_STORAGE)
-
-    if not config.state_storage_account:
-        ensure_resource_group(
-            config.resource_group, config.locations[0], config.scanner_subscription
-        )
-
-    account_name, role_created = prepare_storage_account(config, reporter)
-
-    if role_created:
-        wait_for_blob_access(account_name, reporter)
-
-    finalize_storage_container(account_name, reporter)
-
-    reporter.finish_step()
-    return account_name

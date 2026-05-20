@@ -18,7 +18,7 @@ from az_shared.execute_cmd import execute, execute_json
 from common.shell import Cmd
 
 from .errors import KeyVaultError
-from .reporter import Reporter, AgentlessStep
+from .reporter import Reporter
 
 
 API_KEY_SECRET_NAME = "datadog-api-key"
@@ -559,11 +559,11 @@ def prepare_key_vault(
     """Ensure the Key Vault exists and the current user has Secrets Officer
     on it.
 
-    Splitting this out from ``ensure_api_key_secret`` lets the orchestrator
-    run Key Vault preparation in parallel with Storage Account setup and
-    share a single RBAC propagation wait. Caller is responsible for waiting
-    for the role to propagate when the returned ``role_created`` is ``True``
-    before invoking :func:`set_or_update_secret`.
+    Control-plane work only, so the orchestrator can run it in parallel
+    with Storage Account preparation and share a single RBAC propagation
+    wait. Caller is responsible for waiting for the role to propagate when
+    the returned ``role_created`` is ``True`` before invoking
+    :func:`set_or_update_secret`.
 
     Returns ``role_created``.
     """
@@ -605,35 +605,3 @@ def set_or_update_secret(
         reporter.success(f"API key secret stored: {vault_name}/{API_KEY_SECRET_NAME}")
 
     return get_secret_resource_id(vault_name, resource_group, subscription)
-
-
-def ensure_api_key_secret(
-    config_api_key: str,
-    vault_name: str,
-    resource_group: str,
-    location: str,
-    subscription: str,
-    reporter: Reporter,
-) -> str:
-    """Create or update the API key secret in Key Vault.
-
-    Sequential wrapper around :func:`prepare_key_vault` +
-    :func:`wait_for_secret_access` + :func:`set_or_update_secret`.
-    Kept for callers that want to provision the Key Vault independently
-    of the state Storage Account (the deploy command goes through the
-    parallel orchestrator in ``main.py`` instead).
-    """
-    reporter.start_step("Storing API key in Key Vault", AgentlessStep.STORE_API_KEY)
-
-    role_created = prepare_key_vault(
-        vault_name, resource_group, location, subscription, reporter
-    )
-
-    if role_created:
-        wait_for_secret_access(vault_name, reporter)
-
-    secret_resource_id = set_or_update_secret(
-        config_api_key, vault_name, resource_group, subscription, reporter
-    )
-    reporter.finish_step()
-    return secret_resource_id

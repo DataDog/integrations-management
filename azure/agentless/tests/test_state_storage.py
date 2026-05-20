@@ -11,7 +11,6 @@ from azure_agentless_setup.errors import StorageAccountError
 from azure_agentless_setup.state_storage import (
     RBAC_PROPAGATION_RETRIES,
     ensure_resource_group,
-    ensure_state_storage,
     find_agentless_resource_groups,
     get_storage_account_name,
     grant_current_user_blob_data_contributor,
@@ -125,94 +124,6 @@ class TestStorageAccountExistsErrorClassification:
         mock_execute.side_effect = AccessError("no permission")
         with pytest.raises(AccessError):
             storage_account_exists("sa", "rg", "sub")
-
-
-class TestEnsureStateStorage:
-    INSTALL_ID = "abcdef012345"
-
-    def _make_config(self, state_storage_account=None):
-        config = MagicMock()
-        config.scanner_subscription = "sub-scanner"
-        config.locations = ["eastus"]
-        config.resource_group = "my-rg"
-        config.install_id = self.INSTALL_ID
-        config.state_storage_account = state_storage_account
-        return config
-
-    def _make_reporter(self):
-        reporter = MagicMock()
-        return reporter
-
-    @patch("azure_agentless_setup.state_storage.create_container")
-    @patch("azure_agentless_setup.state_storage.container_exists", return_value=True)
-    @patch("azure_agentless_setup.state_storage.grant_current_user_blob_data_contributor", return_value=False)
-    @patch("azure_agentless_setup.state_storage.storage_account_exists", return_value=True)
-    @patch("azure_agentless_setup.state_storage.ensure_resource_group")
-    def test_existing_account_reused(self, mock_rg, mock_sa_exists, mock_grant, mock_c_exists, mock_create_c):
-        config = self._make_config()
-        reporter = self._make_reporter()
-
-        result = ensure_state_storage(config, reporter)
-
-        assert result == get_storage_account_name(self.INSTALL_ID)
-        mock_rg.assert_called_once()
-        mock_create_c.assert_not_called()
-
-    @patch("azure_agentless_setup.state_storage.create_container")
-    @patch("azure_agentless_setup.state_storage.container_exists", return_value=False)
-    @patch("azure_agentless_setup.state_storage.grant_current_user_blob_data_contributor", return_value=False)
-    @patch("azure_agentless_setup.state_storage.create_storage_account")
-    @patch("azure_agentless_setup.state_storage.storage_account_exists", return_value=False)
-    @patch("azure_agentless_setup.state_storage.ensure_resource_group")
-    def test_creates_account_and_container(self, mock_rg, mock_sa_exists, mock_sa_create, mock_grant, mock_c_exists, mock_create_c):
-        config = self._make_config()
-        reporter = self._make_reporter()
-
-        result = ensure_state_storage(config, reporter)
-
-        mock_sa_create.assert_called_once()
-        mock_create_c.assert_called_once()
-        assert result == get_storage_account_name(self.INSTALL_ID)
-
-    @patch("azure_agentless_setup.state_storage.wait_for_blob_access")
-    @patch("azure_agentless_setup.state_storage.create_container")
-    @patch("azure_agentless_setup.state_storage.container_exists", return_value=False)
-    @patch("azure_agentless_setup.state_storage.grant_current_user_blob_data_contributor", return_value=True)
-    @patch("azure_agentless_setup.state_storage.create_storage_account")
-    @patch("azure_agentless_setup.state_storage.storage_account_exists", return_value=False)
-    @patch("azure_agentless_setup.state_storage.ensure_resource_group")
-    def test_waits_for_rbac_propagation_on_new_role(
-        self, mock_rg, mock_sa_exists, mock_sa_create, mock_grant, mock_c_exists, mock_create_c, mock_wait,
-    ):
-        config = self._make_config()
-        reporter = self._make_reporter()
-
-        ensure_state_storage(config, reporter)
-
-        mock_wait.assert_called_once()
-
-    @patch("azure_agentless_setup.state_storage.container_exists", return_value=True)
-    @patch("azure_agentless_setup.state_storage.grant_current_user_blob_data_contributor", return_value=False)
-    @patch("azure_agentless_setup.state_storage.storage_account_exists", return_value=True)
-    def test_custom_account_used(self, mock_sa_exists, mock_grant, mock_c_exists):
-        config = self._make_config(state_storage_account="mycustomacct")
-        reporter = self._make_reporter()
-
-        result = ensure_state_storage(config, reporter)
-
-        assert result == "mycustomacct"
-        mock_sa_exists.assert_called_once_with("mycustomacct", "my-rg", "sub-scanner")
-
-    @patch("azure_agentless_setup.state_storage.storage_account_exists", return_value=False)
-    def test_custom_account_not_found_raises(self, mock_sa_exists):
-        config = self._make_config(state_storage_account="missing-acct")
-        reporter = self._make_reporter()
-        reporter.fatal.side_effect = StorageAccountError("not found")
-
-        with pytest.raises(StorageAccountError):
-            ensure_state_storage(config, reporter)
-
-        reporter.fatal.assert_called_once()
 
 
 class TestGrantCurrentUserBlobDataContributor:
