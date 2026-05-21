@@ -10,9 +10,6 @@ import sys
 from pathlib import Path
 from typing import Optional, Tuple
 
-from az_shared.execute_cmd import execute
-from common.shell import Cmd
-
 from .agentless_api import deactivate_scan_options
 from .config import (
     CONFIG_BASE_DIR,
@@ -20,19 +17,30 @@ from .config import (
     DEFAULT_RESOURCE_GROUP,
     compute_install_id,
     get_config_dir,
+    parse_credentials,
 )
 from .errors import ConfigurationError, SetupError
 from .metadata import (
+    MetadataReadResult,
     MetadataReadStatus,
     delete_metadata,
     read_metadata,
     rg_mismatch_detail,
     terraform_state_exists,
 )
-from .secrets import API_KEY_SECRET_NAME, get_key_vault_name
+from .secrets import (
+    API_KEY_SECRET_NAME,
+    get_key_vault_name,
+    key_vault_exists,
+    purge_key_vault,
+    soft_deleted_key_vault_exists,
+)
+from .reporter import PrintReporter
 from .state_storage import (
+    ensure_current_user_blob_data_access,
     find_agentless_resource_groups,
     get_storage_account_name,
+    resource_group_exists,
     storage_account_exists,
 )
 from .terraform import generate_ssh_key, generate_terraform_config, generate_tfvars
@@ -154,47 +162,23 @@ def _resolve_destroy_resource_group(
     return env_rg or DEFAULT_RESOURCE_GROUP
 
 
-def get_credentials_from_env() -> tuple:
-    """Get Datadog credentials from environment variables.
-
-    Returns:
-        Tuple of (api_key, app_key, site)
-
-    Raises:
-        SetupError: If any required credentials are missing.
-    """
-    api_key = os.environ.get("DD_API_KEY", "").strip()
-    app_key = os.environ.get("DD_APP_KEY", "").strip()
-    site = os.environ.get("DD_SITE", "").strip()
-
-    errors = []
-    if not api_key:
-        errors.append("DD_API_KEY is required")
-    if not app_key:
-        errors.append("DD_APP_KEY is required")
-    if not site:
-        errors.append("DD_SITE is required")
-
-    if errors:
-        raise SetupError(
-            "Missing credentials",
-            "\n".join(f"  - {e}" for e in errors),
-        )
-
-    return api_key, app_key, site
-
-
 def regenerate_terraform_config(
     scanner_subscription: str,
     storage_account: str,
     resource_group: str,
     config_folder: Path,
+    metadata_result: Optional[MetadataReadResult] = None,
 ) -> Path:
     """Regenerate Terraform configuration when local folder doesn't exist.
 
-    Reads deployment metadata from Azure Blob Storage to discover all
-    locations and subscriptions. Falls back to requiring environment
-    variables if metadata is not available.
+    When ``metadata_result`` is provided, reuses the caller's metadata
+    read instead of issuing a second ``az storage blob show`` round-trip:
+    ``cmd_destroy`` already reads the blob to recover the scan
+    subscription list before deciding to call this helper, so a fresh
+    read here would only duplicate work and risk inconsistency on
+    transient failures. Falls back to environment variables if metadata
+    is not available (the typical "user wiped local config and we have
+    no blob to read" path).
 
     Generates a throwaway SSH key pair with :func:`terraform.generate_ssh_key` (same as
     deploy): Azure only needs a decodable public key in ``terraform.tfvars`` for refresh/destroy;
@@ -206,9 +190,9 @@ def regenerate_terraform_config(
     """
     print("Local config not found, but Terraform state exists in storage account.")
 
-    api_key, app_key, site = get_credentials_from_env()
+    api_key, app_key, site = parse_credentials()
 
-    result = read_metadata(storage_account)
+    result = metadata_result if metadata_result is not None else read_metadata(storage_account)
     metadata = result.metadata if result.status == MetadataReadStatus.PRESENT else None
     if metadata:
         print(
@@ -279,8 +263,13 @@ def get_working_directory(
     scanner_subscription: str,
     storage_account: str,
     resource_group: str,
+    metadata_result: Optional[MetadataReadResult] = None,
 ) -> Tuple[Path, Optional[Path]]:
     """Get the working directory for Terraform, regenerating config if needed.
+
+    ``metadata_result`` is forwarded to :func:`regenerate_terraform_config`
+    so the caller can pass a previously-read ``MetadataReadResult`` and
+    avoid re-reading the deployment metadata blob on the regen path.
 
     Returns:
         ``(work_dir, ssh_key_temp_dir)``. The second item is a directory to remove
@@ -317,7 +306,11 @@ def get_working_directory(
         sys.exit(1)
 
     ssh_tmp = regenerate_terraform_config(
-        scanner_subscription, storage_account, resource_group, config_folder
+        scanner_subscription,
+        storage_account,
+        resource_group,
+        config_folder,
+        metadata_result,
     )
     return config_folder, ssh_tmp
 
@@ -362,56 +355,79 @@ def run_terraform_destroy(work_dir: Path) -> None:
         os.chdir(original_dir)
 
 
-def delete_key_vault(vault_name: str) -> bool:
-    """Delete the Key Vault.
+def cleanup_key_vault(
+    install_id: str, resource_group: str, subscription: str
+) -> None:
+    """Purge the Key Vault left behind by Terraform.
 
-    Returns:
-        True if deleted, False if the az CLI reported failure.
+    Terraform does not manage the vault itself (the API-key secret is
+    written by the wizard before any plan runs), so destroy never
+    cleans it up automatically. Without a purge, Azure keeps the
+    soft-deleted vault reserved for its retention window (7 days for
+    wizard-created vaults) - the recurring root cause of
+    ``VaultAlreadyExists`` on re-deploy.
+
+    Always purges: ``terraform destroy`` has already confirmed the
+    user's intent by the time we get here. Triggers purge when either
+    a live vault or a soft-deleted descriptor exists; skips only when
+    Azure has neither. The soft-deleted check is essential because a
+    previous destroy may have run ``az keyvault delete`` and then
+    failed at the purge step - ``key_vault_exists`` then returns False
+    on retry and would otherwise leave the name reserved for the full
+    retention window.
     """
-    try:
-        execute(
-            Cmd(["az", "keyvault", "delete"])
-            .param("--name", vault_name)
-            .flag("--no-wait"),
-        )
-        return True
-    except Exception:
-        return False
-
-
-def prompt_key_vault_cleanup(install_id: str) -> None:
-    """Ask user if they want to delete the Key Vault."""
     vault_name = get_key_vault_name(install_id)
 
-    print("=" * 60)
-    print("  Cleanup Options")
-    print("=" * 60)
-    print()
-    print("The Key Vault was NOT deleted by Terraform:")
-    print(f"  {vault_name}")
-    print()
-    print("This vault holds the Datadog API key and may be reused for future deployments.")
+    live = key_vault_exists(vault_name, resource_group, subscription)
+    soft_deleted = (
+        not live and soft_deleted_key_vault_exists(vault_name, subscription)
+    )
+
+    if not live and not soft_deleted:
+        print("Key Vault already removed:")
+        print(f"  {vault_name}")
+        print()
+        return
+
+    if soft_deleted:
+        print(f"Purging soft-deleted Key Vault {vault_name}...")
+    else:
+        print(f"Purging Key Vault {vault_name}...")
+    if purge_key_vault(vault_name, subscription):
+        print(f"✅ Key Vault purged: {vault_name}")
+    else:
+        print(f"⚠️  Failed to purge Key Vault {vault_name}.")
     print()
 
-    try:
-        response = input("Do you want to delete the Key Vault? (y/N): ").strip().lower()
-        if response in ("y", "yes"):
-            print("Deleting Key Vault...")
-            if delete_key_vault(vault_name):
-                print("✅ Key Vault deleted.")
-                print("   Note: Azure retains soft-deleted vaults for the configured")
-                print("   retention period. It will be auto-purged after that.")
-            else:
-                print("⚠️  Failed to delete Key Vault (it may not exist or you lack permissions).")
-        else:
-            print("Key Vault kept.")
-    except EOFError:
-        print("Key Vault kept (non-interactive mode).")
 
+def print_final_notes(
+    storage_account: str, resource_group: str, scanner_subscription: str
+) -> None:
+    """Print final notes about resources that Terraform did not delete.
 
-def print_final_notes(storage_account: str, resource_group: str) -> None:
-    """Print final notes about resources not deleted."""
+    The state Storage Account, Key Vault, and Resource Group are created
+    by the Python wizard rather than Terraform, so ``terraform destroy``
+    leaves them in place by design. When the user has already removed
+    them out-of-band (typically via ``az group delete``), telling them to
+    run it again would only surface a ``ResourceGroupNotFound`` error,
+    so we adjust the notes to match the actual state.
+    """
     print()
+    rg_present = resource_group_exists(resource_group, scanner_subscription)
+    sa_present = rg_present and storage_account_exists(
+        storage_account, resource_group, scanner_subscription
+    )
+
+    if not rg_present:
+        print("=" * 60)
+        print("  Cleanup Complete")
+        print("=" * 60)
+        print()
+        print(f"Resource group already removed: {resource_group}")
+        print("No further manual cleanup needed.")
+        print()
+        return
+
     print("=" * 60)
     print("  Notes")
     print("=" * 60)
@@ -419,7 +435,8 @@ def print_final_notes(storage_account: str, resource_group: str) -> None:
     print("The following resources were NOT deleted:")
     print()
     print(f"  Resource Group:   {resource_group}")
-    print(f"  Storage Account:  {storage_account} (contains Terraform state)")
+    if sa_present:
+        print(f"  Storage Account:  {storage_account} (contains Terraform state)")
     print()
     print("You can delete the resource group manually if no longer needed:")
     print(f"  az group delete --name {resource_group} --yes --no-wait")
@@ -443,7 +460,7 @@ def cmd_destroy() -> None:
         # Fail fast if Datadog credentials aren't set — they're required
         # below for scan options cleanup and for regenerate_terraform_config.
         # The returned values are re-read by the callers that actually use them.
-        get_credentials_from_env()
+        parse_credentials()
 
         scanner_subscription = get_scanner_subscription()
 
@@ -463,15 +480,48 @@ def cmd_destroy() -> None:
         install_id = compute_install_id(scanner_subscription, resource_group)
         storage_account = get_storage_account(install_id)
 
-        # Metadata is no longer authoritative for the resource group, but
-        # we still read it to recover the list of scan subscriptions for
-        # the Datadog-API cleanup at the end.
-        result = read_metadata(storage_account)
-        metadata = result.metadata if result.status == MetadataReadStatus.PRESENT else None
-        subscriptions_to_scan = metadata.subscriptions_to_scan if metadata else []
+        # Storage Blob Data Contributor is a *data-plane* role; Owner on
+        # the resource group does not include it. Grant it to the current
+        # user before the metadata read so a user destroying a deployment
+        # created by someone else doesn't trip over an opaque
+        # "permissions" error from `az storage blob show`. When the SA
+        # does not exist (RG already nuked out-of-band, or a partial
+        # deploy never created it) the metadata read is also skipped:
+        # ``az storage blob show`` would DNS-fail on the missing account
+        # endpoint and produce noisy stderr that ``_classify_blob_show_failure``
+        # cannot recognise as a clean MISSING.
+        sa_present = storage_account_exists(
+            storage_account, resource_group, scanner_subscription
+        )
+
+        metadata_result: Optional[MetadataReadResult] = None
+        subscriptions_to_scan: list[str] = []
+        if sa_present:
+            ensure_current_user_blob_data_access(
+                storage_account,
+                resource_group,
+                scanner_subscription,
+                PrintReporter(),
+            )
+
+            # Metadata is no longer authoritative for the resource group, but
+            # we still read it to recover the list of scan subscriptions for
+            # the Datadog-API cleanup at the end. The result is also handed
+            # down to ``get_working_directory`` so the regen path doesn't
+            # round-trip the same blob again.
+            metadata_result = read_metadata(storage_account)
+            metadata = (
+                metadata_result.metadata
+                if metadata_result.status == MetadataReadStatus.PRESENT
+                else None
+            )
+            subscriptions_to_scan = metadata.subscriptions_to_scan if metadata else []
 
         work_dir, destroy_ssh_key_dir = get_working_directory(
-            scanner_subscription, storage_account, resource_group
+            scanner_subscription,
+            storage_account,
+            resource_group,
+            metadata_result,
         )
 
         try:
@@ -498,8 +548,8 @@ def cmd_destroy() -> None:
         else:
             print("⚠️  Keeping deployment metadata so you can re-run `destroy` to retry.")
 
-        prompt_key_vault_cleanup(install_id)
-        print_final_notes(storage_account, resource_group)
+        cleanup_key_vault(install_id, resource_group, scanner_subscription)
+        print_final_notes(storage_account, resource_group, scanner_subscription)
 
     except SetupError as e:
         print()

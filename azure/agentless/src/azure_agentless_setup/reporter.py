@@ -4,12 +4,40 @@
 """Composite reporter that outputs to console and Datadog workflow status API."""
 
 from enum import Enum
-from typing import Any, NoReturn, Optional
+from typing import Any, NoReturn, Optional, Protocol
 
 from az_shared.script_status import Status, StatusReporter
 
 from .console_reporter import ConsoleReporter, Step
 from .errors import SetupError
+
+
+class InfoReporter(Protocol):
+    """Narrow reporter interface for helpers that only need progress messages.
+
+    The full :class:`Reporter` (workflow-status API + console UX with
+    ``start_step`` / ``finish_step`` lifecycle) is overkill for one-shot
+    operations like destroy that don't track step state - they only need
+    somewhere to surface human-readable progress while waiting on Azure
+    (e.g. RBAC propagation). Both :class:`Reporter` and
+    :class:`PrintReporter` structurally satisfy this protocol, so callers
+    accepting ``InfoReporter`` work transparently with either.
+    """
+
+    def info(self, message: str) -> None: ...
+
+
+class PrintReporter:
+    """Minimal :class:`InfoReporter` that writes indented messages to stdout.
+
+    Used by the destroy command, which intentionally does not run the
+    workflow-status reporter (no Datadog API surface, no step lifecycle):
+    it just needs an ``info`` sink so :func:`state_storage.wait_for_blob_access`
+    can report RBAC-propagation waits.
+    """
+
+    def info(self, message: str) -> None:
+        print(f"  {message}")
 
 
 WORKFLOW_TYPE = "azure-agentless-setup"

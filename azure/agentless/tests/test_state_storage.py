@@ -5,12 +5,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from az_shared.errors import AccessError, ResourceNotFoundError
+
 from azure_agentless_setup.errors import StorageAccountError
 from azure_agentless_setup.state_storage import (
+    RBAC_PROPAGATION_RETRIES,
     ensure_resource_group,
-    ensure_state_storage,
     find_agentless_resource_groups,
     get_storage_account_name,
+    grant_current_user_blob_data_contributor,
+    storage_account_exists,
+    wait_for_blob_access,
 )
 
 
@@ -99,89 +104,159 @@ class TestFindAgentlessResourceGroups:
         assert find_agentless_resource_groups("sub-123") == []
 
 
-class TestEnsureStateStorage:
-    INSTALL_ID = "abcdef012345"
+class TestStorageAccountExistsErrorClassification:
+    """``storage_account_exists`` used to swallow every exception as
+    "doesn't exist", which let auth / network failures masquerade as
+    "first deploy" - meaning the wizard would try to create a colliding
+    SA, or destroy would skip the metadata read entirely. Only the two
+    ``*NotFound`` errors should map to False; anything else must
+    propagate so the caller surfaces the real problem."""
 
-    def _make_config(self, state_storage_account=None):
-        config = MagicMock()
-        config.scanner_subscription = "sub-scanner"
-        config.locations = ["eastus"]
-        config.resource_group = "my-rg"
-        config.install_id = self.INSTALL_ID
-        config.state_storage_account = state_storage_account
-        return config
+    @patch("azure_agentless_setup.state_storage.execute")
+    def test_resource_not_found_maps_to_false(self, mock_execute):
+        mock_execute.side_effect = ResourceNotFoundError("not found")
+        assert storage_account_exists("sa", "rg", "sub") is False
 
-    def _make_reporter(self):
-        reporter = MagicMock()
-        return reporter
+    @patch("azure_agentless_setup.state_storage.execute")
+    def test_access_error_propagates(self, mock_execute):
+        # The whole point of B2: an AccessError must NOT degrade to
+        # "no SA found"; the caller has to see the real RBAC issue.
+        mock_execute.side_effect = AccessError("no permission")
+        with pytest.raises(AccessError):
+            storage_account_exists("sa", "rg", "sub")
 
-    @patch("azure_agentless_setup.state_storage.create_container")
-    @patch("azure_agentless_setup.state_storage.container_exists", return_value=True)
-    @patch("azure_agentless_setup.state_storage.grant_current_user_blob_data_contributor", return_value=False)
-    @patch("azure_agentless_setup.state_storage.storage_account_exists", return_value=True)
-    @patch("azure_agentless_setup.state_storage.ensure_resource_group")
-    def test_existing_account_reused(self, mock_rg, mock_sa_exists, mock_grant, mock_c_exists, mock_create_c):
-        config = self._make_config()
-        reporter = self._make_reporter()
 
-        result = ensure_state_storage(config, reporter)
+class TestGrantCurrentUserBlobDataContributor:
+    """The grant must target the scanner subscription on every az call,
+    not the Cloud Shell user's default sub. Cloud Shell picks a default
+    subscription at startup which is frequently different from the
+    scanner sub; without ``--subscription``, ``az storage account show``
+    hits the wrong sub and 404s with ``ResourceGroupNotFound``, which the
+    wizard mis-translates as a data-plane RBAC failure.
 
-        assert result == get_storage_account_name(self.INSTALL_ID)
-        mock_rg.assert_called_once()
-        mock_create_c.assert_not_called()
+    Since the grant flow was extracted into :func:`rbac.grant_role_to_current_user`,
+    the resource lookup runs in ``state_storage`` while signed-in-user
+    lookup, role list, and role create run in ``rbac``. Both modules'
+    ``execute`` are mocked here so the threading is asserted across the
+    whole flow.
+    """
 
-    @patch("azure_agentless_setup.state_storage.create_container")
-    @patch("azure_agentless_setup.state_storage.container_exists", return_value=False)
-    @patch("azure_agentless_setup.state_storage.grant_current_user_blob_data_contributor", return_value=False)
-    @patch("azure_agentless_setup.state_storage.create_storage_account")
-    @patch("azure_agentless_setup.state_storage.storage_account_exists", return_value=False)
-    @patch("azure_agentless_setup.state_storage.ensure_resource_group")
-    def test_creates_account_and_container(self, mock_rg, mock_sa_exists, mock_sa_create, mock_grant, mock_c_exists, mock_create_c):
-        config = self._make_config()
-        reporter = self._make_reporter()
-
-        result = ensure_state_storage(config, reporter)
-
-        mock_sa_create.assert_called_once()
-        mock_create_c.assert_called_once()
-        assert result == get_storage_account_name(self.INSTALL_ID)
-
-    @patch("azure_agentless_setup.state_storage.wait_for_blob_access")
-    @patch("azure_agentless_setup.state_storage.create_container")
-    @patch("azure_agentless_setup.state_storage.container_exists", return_value=False)
-    @patch("azure_agentless_setup.state_storage.grant_current_user_blob_data_contributor", return_value=True)
-    @patch("azure_agentless_setup.state_storage.create_storage_account")
-    @patch("azure_agentless_setup.state_storage.storage_account_exists", return_value=False)
-    @patch("azure_agentless_setup.state_storage.ensure_resource_group")
-    def test_waits_for_rbac_propagation_on_new_role(
-        self, mock_rg, mock_sa_exists, mock_sa_create, mock_grant, mock_c_exists, mock_create_c, mock_wait,
+    @patch("azure_agentless_setup.rbac.execute")
+    @patch("azure_agentless_setup.state_storage.execute")
+    def test_threads_subscription_through_all_az_calls(
+        self, mock_state_execute, mock_rbac_execute
     ):
-        config = self._make_config()
-        reporter = self._make_reporter()
+        mock_state_execute.return_value = (
+            '{"id": "/subscriptions/sub-scanner/resourceGroups/rg/'
+            'providers/Microsoft.Storage/storageAccounts/sa"}'
+        )
+        mock_rbac_execute.side_effect = ["user-object-id", "0", ""]
 
-        ensure_state_storage(config, reporter)
+        grant_current_user_blob_data_contributor(
+            account_name="sa",
+            resource_group="rg",
+            subscription="sub-scanner",
+        )
 
-        mock_wait.assert_called_once()
+        show_cmd = str(mock_state_execute.call_args.args[0])
+        assert "storage account show" in show_cmd
+        assert "--subscription sub-scanner" in show_cmd
 
-    @patch("azure_agentless_setup.state_storage.container_exists", return_value=True)
-    @patch("azure_agentless_setup.state_storage.grant_current_user_blob_data_contributor", return_value=False)
-    @patch("azure_agentless_setup.state_storage.storage_account_exists", return_value=True)
-    def test_custom_account_used(self, mock_sa_exists, mock_grant, mock_c_exists):
-        config = self._make_config(state_storage_account="mycustomacct")
-        reporter = self._make_reporter()
+        # Role list / create must also carry the scanner subscription,
+        # otherwise the role would be queried/created in the wrong sub
+        # and the wait_for_blob_access probe would never see it.
+        list_cmd = str(mock_rbac_execute.call_args_list[1].args[0])
+        assert "role assignment list" in list_cmd
+        assert "--subscription sub-scanner" in list_cmd
+        # Honor inherited / group-mediated assignments so users who
+        # already have ``Storage Blob Data Contributor`` through a
+        # parent-scope grant or via a group don't trip the self-grant
+        # path - which fails when they lack
+        # ``Microsoft.Authorization/roleAssignments/write``.
+        assert "--include-inherited" in list_cmd
+        assert "--include-groups" in list_cmd
 
-        result = ensure_state_storage(config, reporter)
+        create_cmd = str(mock_rbac_execute.call_args_list[2].args[0])
+        assert "role assignment create" in create_cmd
+        assert "--subscription sub-scanner" in create_cmd
 
-        assert result == "mycustomacct"
-        mock_sa_exists.assert_called_once_with("mycustomacct", "my-rg", "sub-scanner")
 
-    @patch("azure_agentless_setup.state_storage.storage_account_exists", return_value=False)
-    def test_custom_account_not_found_raises(self, mock_sa_exists):
-        config = self._make_config(state_storage_account="missing-acct")
-        reporter = self._make_reporter()
-        reporter.fatal.side_effect = StorageAccountError("not found")
+class TestWaitForBlobAccess:
+    """Probe behaviour for RBAC-propagation detection.
 
-        with pytest.raises(StorageAccountError):
-            ensure_state_storage(config, reporter)
+    The fix for the second-user-joining flow depends on the probe
+    mirroring the exact ``az storage blob show`` call ``read_metadata``
+    will run: only the BlobNotFound / ContainerNotFound family of
+    errors counts as "data plane reachable, blob just doesn't exist
+    yet"; anything else (typically AuthorizationPermissionMismatch)
+    has to be retried. Without this, an over-permissive probe would
+    let the wait return immediately and the subsequent metadata read
+    fail with the opaque Azure "permissions" error.
 
-        reporter.fatal.assert_called_once()
+    Probe semantics live in :func:`metadata.probe_blob`; these tests
+    mock that function so the wait-loop logic is exercised in isolation
+    from the subprocess-and-classifier internals.
+    """
+
+    @patch("azure_agentless_setup.metadata.probe_blob")
+    def test_returns_immediately_on_probe_success(self, mock_probe):
+        from azure_agentless_setup.metadata import BlobProbeResult, MetadataReadStatus
+
+        mock_probe.return_value = BlobProbeResult(MetadataReadStatus.PRESENT, stdout='"etag"')
+        reporter = MagicMock()
+
+        wait_for_blob_access("acct", reporter)
+
+        mock_probe.assert_called_once()
+        reporter.info.assert_not_called()
+
+    @patch("azure_agentless_setup.metadata.probe_blob")
+    def test_returns_on_blob_not_found(self, mock_probe):
+        """First-deploy paths: SA was just created, config.json doesn't
+        exist yet. A clean 404 still proves data-plane reachability,
+        so the wait must not loop."""
+        from azure_agentless_setup.metadata import BlobProbeResult, MetadataReadStatus
+
+        mock_probe.return_value = BlobProbeResult(MetadataReadStatus.MISSING)
+        reporter = MagicMock()
+
+        wait_for_blob_access("acct", reporter)
+
+        mock_probe.assert_called_once()
+        reporter.info.assert_not_called()
+
+    @patch("azure_agentless_setup.state_storage.time.sleep")
+    @patch("azure_agentless_setup.metadata.probe_blob")
+    def test_raises_on_persistent_authorization_permission_mismatch(
+        self, mock_probe, _mock_sleep
+    ):
+        """The bug we're fixing: this stderr used to come back from
+        ``az storage blob show`` after the wizard fell through a
+        permissive ``container list`` probe. The probe must keep
+        retrying instead of declaring success.
+
+        Previously the wait silently returned after the retry window,
+        leaving the downstream ``read_metadata`` call to surface a
+        confusing ``AuthorizationPermissionMismatch``. Now we raise
+        a focused ``StorageAccountError`` carrying the last probe
+        stderr so the user has a single actionable failure point.
+        """
+        from azure_agentless_setup.metadata import BlobProbeResult, MetadataReadStatus
+
+        permission_error_detail = (
+            "ERROR: You do not have the required permissions needed to "
+            "perform this operation."
+        )
+        mock_probe.return_value = BlobProbeResult(
+            MetadataReadStatus.ERROR, error_detail=permission_error_detail
+        )
+        reporter = MagicMock()
+
+        with pytest.raises(StorageAccountError) as exc:
+            wait_for_blob_access("acct", reporter)
+
+        assert mock_probe.call_count == RBAC_PROPAGATION_RETRIES
+        # The raised error must carry both the offending account and
+        # the last probe error detail so the user has actionable context.
+        assert "acct" in exc.value.detail
+        assert "required permissions" in exc.value.detail

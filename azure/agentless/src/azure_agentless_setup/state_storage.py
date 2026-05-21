@@ -8,16 +8,17 @@ The azurerm backend requires: storage_account_name, container_name, key.
 """
 
 import json
-import subprocess
 import time
 from typing import Optional
 
+from az_shared.errors import ResourceGroupNotFoundError, ResourceNotFoundError
 from az_shared.execute_cmd import execute
 from common.shell import Cmd
 
 from .config import Config
-from .errors import StorageAccountError
-from .reporter import Reporter, AgentlessStep
+from .errors import StorageAccountError, wrap_az_errors
+from .rbac import grant_role_to_current_user
+from .reporter import InfoReporter, Reporter
 
 
 CONTAINER_NAME = "tfstate"
@@ -61,21 +62,29 @@ def storage_account_exists(
 
     Pass ``subscription`` so the check uses the correct subscription when the
     Azure CLI default account differs (e.g. Cloud Shell).
+
+    Only the two ``*NotFound`` errors are treated as "doesn't exist".
+    Auth, throttling, refresh-token and network failures propagate so
+    callers don't silently treat a permissions problem as "first deploy"
+    (which would let the wizard try to create a colliding SA) or as
+    "nothing to destroy" (which would skip the metadata read and SSH
+    key cleanup).
     """
+    cmd = (
+        Cmd(["az", "storage", "account", "show"])
+        .param("--name", account_name)
+        .param("--resource-group", resource_group)
+    )
+    if subscription:
+        cmd = cmd.param("--subscription", subscription)
     try:
-        cmd = (
-            Cmd(["az", "storage", "account", "show"])
-            .param("--name", account_name)
-            .param("--resource-group", resource_group)
-        )
-        if subscription:
-            cmd = cmd.param("--subscription", subscription)
         result = execute(cmd, can_fail=True)
-        return bool(result)
-    except Exception:
+    except (ResourceNotFoundError, ResourceGroupNotFoundError):
         return False
+    return bool(result)
 
 
+@wrap_az_errors(StorageAccountError, "Failed to create storage account: {account_name}")
 def create_storage_account(
     account_name: str,
     resource_group: str,
@@ -93,28 +102,27 @@ def create_storage_account(
     Raises:
         StorageAccountError: If the account cannot be created.
     """
-    try:
-        execute(
-            Cmd(["az", "storage", "account", "create"])
-            .param("--name", account_name)
-            .param("--resource-group", resource_group)
-            .param("--location", location)
-            .param("--subscription", subscription)
-            .param("--sku", "Standard_LRS")
-            .param("--kind", "StorageV2")
-            .param("--min-tls-version", "TLS1_2")
-            .param("--allow-blob-public-access", "false")
-            .param_list("--tags", ["Datadog=true", "DatadogAgentlessScanner=true"])
-        )
-    except Exception as e:
-        raise StorageAccountError(
-            f"Failed to create storage account: {account_name}",
-            str(e),
-        ) from e
+    execute(
+        Cmd(["az", "storage", "account", "create"])
+        .param("--name", account_name)
+        .param("--resource-group", resource_group)
+        .param("--location", location)
+        .param("--subscription", subscription)
+        .param("--sku", "Standard_LRS")
+        .param("--kind", "StorageV2")
+        .param("--min-tls-version", "TLS1_2")
+        .param("--allow-blob-public-access", "false")
+        .param_list("--tags", ["Datadog=true", "DatadogAgentlessScanner=true"])
+    )
 
 
 def container_exists(account_name: str) -> bool:
-    """Check if the tfstate blob container exists."""
+    """Check if the tfstate blob container exists.
+
+    Only ``ResourceNotFound`` is treated as "container missing". Other
+    errors (auth, network, throttling) propagate so callers do not skip
+    container creation while the real problem is RBAC propagation.
+    """
     try:
         result = execute(
             Cmd(["az", "storage", "container", "show"])
@@ -123,37 +131,44 @@ def container_exists(account_name: str) -> bool:
             .param("--auth-mode", "login"),
             can_fail=True,
         )
-        return bool(result)
-    except Exception:
+    except ResourceNotFoundError:
         return False
+    return bool(result)
 
 
+@wrap_az_errors(
+    StorageAccountError,
+    "Failed to create blob container '" + CONTAINER_NAME + "' in {account_name}",
+)
 def create_container(account_name: str) -> None:
     """Create the tfstate blob container.
 
     Raises:
         StorageAccountError: If the container cannot be created.
     """
-    try:
-        execute(
-            Cmd(["az", "storage", "container", "create"])
-            .param("--name", CONTAINER_NAME)
-            .param("--account-name", account_name)
-            .param("--auth-mode", "login")
-        )
-    except Exception as e:
-        raise StorageAccountError(
-            f"Failed to create blob container '{CONTAINER_NAME}' in {account_name}",
-            str(e),
-        ) from e
+    execute(
+        Cmd(["az", "storage", "container", "create"])
+        .param("--name", CONTAINER_NAME)
+        .param("--account-name", account_name)
+        .param("--auth-mode", "login")
+    )
 
 
-def grant_current_user_blob_data_contributor(account_name: str, resource_group: str) -> bool:
+def grant_current_user_blob_data_contributor(
+    account_name: str, resource_group: str, subscription: str
+) -> bool:
     """Grant the current user 'Storage Blob Data Contributor' on the storage account.
 
     The azurerm TF backend with `use_azuread_auth = true` requires
     data-plane access. The control-plane Owner/Contributor role is
     not sufficient for blob operations.
+
+    ``subscription`` must be the scanner subscription. The Cloud Shell
+    user's default az subscription is often different (Cloud Shell
+    picks an arbitrary one at startup), and without ``--subscription``
+    the ``az storage account show`` lookup would query the wrong sub
+    and 404 with ``ResourceGroupNotFound``, producing a misleading
+    "data-plane RBAC" failure even though the storage account exists.
 
     Returns:
         True if a new role assignment was created (caller should wait
@@ -162,71 +177,144 @@ def grant_current_user_blob_data_contributor(account_name: str, resource_group: 
     Raises:
         StorageAccountError: If the role assignment fails.
     """
-    try:
-        user_object_id = execute(
-            Cmd(["az", "ad", "signed-in-user", "show"])
-            .param("--query", "id")
-            .param("--output", "tsv")
-        ).strip()
 
-        account_info_raw = execute(
+    def lookup_account_id() -> str:
+        raw = execute(
             Cmd(["az", "storage", "account", "show"])
             .param("--name", account_name)
             .param("--resource-group", resource_group)
+            .param("--subscription", subscription)
         )
-        account_id = json.loads(account_info_raw)["id"]
+        return json.loads(raw)["id"]
 
-        existing = execute(
-            Cmd(["az", "role", "assignment", "list"])
-            .param("--assignee", user_object_id)
-            .param("--role", STORAGE_BLOB_DATA_CONTRIBUTOR)
-            .param("--scope", account_id)
-            .param("--query", "length(@)")
+    return grant_role_to_current_user(
+        role=STORAGE_BLOB_DATA_CONTRIBUTOR,
+        resource_id_lookup=lookup_account_id,
+        subscription=subscription,
+        error_cls=StorageAccountError,
+        error_message="Failed to grant Storage Blob Data Contributor role to current user",
+    )
+
+
+def _signed_in_user_object_id() -> Optional[str]:
+    """Best-effort lookup of the current user's Entra object ID.
+
+    Returns ``None`` on failure so error messages remain useful even when
+    we cannot fetch the ID. Reading ``signed-in-user`` only needs the
+    default Microsoft Graph scope every authenticated user already has.
+    """
+    try:
+        raw = execute(
+            Cmd(["az", "ad", "signed-in-user", "show"])
+            .param("--query", "id")
             .param("--output", "tsv"),
             can_fail=True,
         )
-        if existing.strip() not in ("", "0"):
-            return False
+    except Exception:
+        return None
+    return (raw or "").strip() or None
 
-        execute(
-            Cmd(["az", "role", "assignment", "create"])
-            .param("--assignee-object-id", user_object_id)
-            .param("--assignee-principal-type", "User")
-            .param("--role", STORAGE_BLOB_DATA_CONTRIBUTOR)
-            .param("--scope", account_id)
+
+def ensure_current_user_blob_data_access(
+    account_name: str,
+    resource_group: str,
+    subscription: str,
+    reporter: InfoReporter,
+) -> None:
+    """Grant the current user 'Storage Blob Data Contributor' on
+    ``account_name`` and wait for RBAC propagation, with a focused error
+    when self-grant is not possible.
+
+    Callers about to do blob data-plane reads or writes (deploy's
+    metadata probe, destroy's metadata read) must invoke this *before*
+    the first blob call so they don't surface Azure's opaque "you do not
+    have the required permissions" error.
+
+    Azure separates control-plane RBAC (Owner / Contributor on the
+    subscription, the resource group, or the storage account itself)
+    from data-plane RBAC. Owner on the resource group manages the
+    Storage Account but does NOT read or write the blobs inside it -
+    that's reserved for the ``Storage Blob Data *`` roles.
+
+    Idempotent: returns silently when the role already exists.
+    """
+    try:
+        role_created = grant_current_user_blob_data_contributor(
+            account_name, resource_group, subscription
         )
-        return True
-    except StorageAccountError:
-        raise
-    except Exception as e:
+    except StorageAccountError as e:
+        object_id = _signed_in_user_object_id() or "<your-object-id>"
         raise StorageAccountError(
-            "Failed to grant Storage Blob Data Contributor role to current user",
-            str(e),
+            "Cannot access existing deployment's Terraform state",
+            f"An Agentless Scanner deployment already exists in resource group\n"
+            f"'{resource_group}', and the current user cannot self-grant\n"
+            f"'Storage Blob Data Contributor' on its state Storage Account\n"
+            f"'{account_name}'.\n"
+            f"\n"
+            f"Note: Azure separates control-plane RBAC (Owner / Contributor on\n"
+            f"a resource group) from data-plane RBAC. Owner on the resource\n"
+            f"group is NOT sufficient to read or write blobs in a Storage\n"
+            f"Account inside it.\n"
+            f"\n"
+            f"Ask a subscription Owner (typically the user who originally\n"
+            f"deployed) to run, in the scanner subscription:\n"
+            f"\n"
+            f"  az role assignment create \\\n"
+            f"    --assignee {object_id} \\\n"
+            f"    --role 'Storage Blob Data Contributor' \\\n"
+            f"    --scope $(az storage account show \\\n"
+            f"      --name {account_name} \\\n"
+            f"      --resource-group {resource_group} \\\n"
+            f"      --subscription {subscription} \\\n"
+            f"      --query id -o tsv)\n"
+            f"\n"
+            f"Then re-run.\n"
+            f"\n"
+            f"Underlying error: {e.detail or e.message}",
         ) from e
 
+    if role_created:
+        wait_for_blob_access(account_name, reporter)
 
-def wait_for_blob_access(account_name: str, reporter: Reporter) -> None:
+
+def wait_for_blob_access(account_name: str, reporter: InfoReporter) -> None:
     """Wait for Storage Blob Data Contributor role to propagate.
 
-    Probes actual blob data-plane access instead of sleeping a fixed
-    duration. Listing containers with --auth-mode login exercises the
-    same Azure AD path that Terraform will use.
+    Probes the exact same data-plane API the wizard will hit next -
+    ``az storage blob show config.json`` - via :func:`metadata.probe_blob`,
+    which classifies the response into PRESENT / MISSING / ERROR using
+    the single classifier shared with :func:`metadata._show_metadata_blob`
+    and :func:`metadata.terraform_state_exists`. PRESENT and MISSING both
+    prove data-plane reachability and exit the loop; ERROR (typically
+    ``AuthorizationPermissionMismatch``) is treated as "role not yet
+    propagated" and retried.
 
-    Uses subprocess directly instead of execute() to avoid noisy
-    log.error output on every expected retry attempt.
+    The previous probe (``az storage container list``) was unreliable
+    on second-user-joining paths: some az CLI builds quietly returned
+    an empty array with ``rc=0`` when the caller lacked the
+    data-plane role (because the CLI silently re-authenticated with
+    storage account keys harvested via the control plane), so the wait
+    returned immediately and the subsequent metadata read failed with
+    a confusing "permissions" error. Mirroring the exact downstream
+    operation eliminates that gap.
+
+    Raises:
+        StorageAccountError: when the role never propagates within the
+        retry window. The previous behaviour of warning and returning
+        silently turned a real RBAC failure into a confusing downstream
+        ``AuthorizationPermissionMismatch`` from ``read_metadata`` (or
+        from Terraform's backend init). Failing here gives the user a
+        single, actionable error at the point the problem is detected.
     """
-    probe_cmd = str(
-        Cmd(["az", "storage", "container", "list"])
-        .param("--account-name", account_name)
-        .param("--auth-mode", "login")
-        .param("--query", "length(@)")
-        .param("--output", "tsv")
-    )
+    from .metadata import METADATA_BLOB, MetadataReadStatus, probe_blob
 
+    last_error_detail = ""
     for attempt in range(RBAC_PROPAGATION_RETRIES):
-        result = subprocess.run(probe_cmd, shell=True, capture_output=True, text=True)
-        if result.returncode == 0:
+        probe = probe_blob(account_name, METADATA_BLOB, query="properties.etag")
+        if probe.status in (MetadataReadStatus.PRESENT, MetadataReadStatus.MISSING):
             return
+
+        last_error_detail = probe.error_detail or ""
 
         remaining = RBAC_PROPAGATION_RETRIES - attempt - 1
         if remaining > 0:
@@ -235,11 +323,35 @@ def wait_for_blob_access(account_name: str, reporter: Reporter) -> None:
             )
             time.sleep(RBAC_PROPAGATION_DELAY)
 
-    reporter.info("Role propagation timeout — proceeding (Terraform will retry if needed)")
+    total = RBAC_PROPAGATION_RETRIES * RBAC_PROPAGATION_DELAY
+    raise StorageAccountError(
+        f"Storage Blob Data Contributor role did not propagate within {total}s",
+        f"Last probe error on storage account '{account_name}':\n"
+        f"  {last_error_detail or 'unknown'}\n"
+        "\n"
+        "This usually means either:\n"
+        "  - the role assignment did not stick (a transient ARM /\n"
+        "    Graph issue); re-running the wizard after a minute or two\n"
+        "    typically clears it, OR\n"
+        "  - the current user is missing\n"
+        "    'Microsoft.Authorization/roleAssignments/write' on the\n"
+        "    storage account scope and the wizard's self-grant produced\n"
+        "    a phantom role assignment. Have a subscription Owner verify:\n"
+        f"      az role assignment list \\\n"
+        f"        --scope $(az storage account show --name {account_name} \\\n"
+        f"          --query id -o tsv) \\\n"
+        f"        --query \"[?roleDefinitionName=='Storage Blob Data Contributor']\"",
+    )
 
 
 def resource_group_exists(resource_group: str, subscription: str) -> bool:
-    """Check whether a resource group exists in the subscription."""
+    """Check whether a resource group exists in the subscription.
+
+    Only ``ResourceGroupNotFound`` / ``ResourceNotFound`` are treated as
+    "missing"; auth/throttling/network failures propagate so the caller
+    surfaces the real problem instead of silently treating an RBAC issue
+    as "no deployment present".
+    """
     try:
         result = execute(
             Cmd(["az", "group", "show"])
@@ -247,9 +359,9 @@ def resource_group_exists(resource_group: str, subscription: str) -> bool:
             .param("--subscription", subscription),
             can_fail=True,
         )
-        return bool(result)
-    except Exception:
+    except (ResourceNotFoundError, ResourceGroupNotFoundError):
         return False
+    return bool(result)
 
 
 def find_agentless_resource_groups(scanner_subscription: str) -> list[str]:
@@ -282,6 +394,7 @@ def find_agentless_resource_groups(scanner_subscription: str) -> list[str]:
     return sorted({line.strip() for line in (raw or "").splitlines() if line.strip()})
 
 
+@wrap_az_errors(StorageAccountError, "Failed to create resource group: {resource_group}")
 def ensure_resource_group(resource_group: str, location: str, subscription: str) -> None:
     """Create the resource group if it doesn't exist.
 
@@ -291,28 +404,22 @@ def ensure_resource_group(resource_group: str, location: str, subscription: str)
     if resource_group_exists(resource_group, subscription):
         return
 
-    try:
-        execute(
-            Cmd(["az", "group", "create"])
-            .param("--name", resource_group)
-            .param("--location", location)
-            .param("--subscription", subscription)
-            .param_list("--tags", ["Datadog=true", "DatadogAgentlessScanner=true"])
-        )
-    except Exception as e:
-        raise StorageAccountError(
-            f"Failed to create resource group: {resource_group}",
-            str(e),
-        ) from e
+    execute(
+        Cmd(["az", "group", "create"])
+        .param("--name", resource_group)
+        .param("--location", location)
+        .param("--subscription", subscription)
+        .param_list("--tags", ["Datadog=true", "DatadogAgentlessScanner=true"])
+    )
 
 
 def prepare_storage_account(config: Config, reporter: Reporter) -> tuple[str, bool]:
     """Ensure the Terraform-state Storage Account exists and the current user
     has Storage Blob Data Contributor on it.
 
-    Splitting this out from ``ensure_state_storage`` lets the orchestrator
-    run the Storage Account and Key Vault control-plane work in parallel
-    and share a single RBAC propagation wait. Caller is responsible for:
+    Control-plane work only, so the orchestrator can run it in parallel
+    with Key Vault preparation and share a single RBAC propagation wait.
+    Caller is responsible for:
 
     * waiting for the role to propagate when the returned ``role_created``
       is ``True``;
@@ -350,7 +457,9 @@ def prepare_storage_account(config: Config, reporter: Reporter) -> tuple[str, bo
             reporter.success(f"Created storage account: {account_name}")
 
     reporter.info("Granting blob data access to current user...")
-    role_created = grant_current_user_blob_data_contributor(account_name, config.resource_group)
+    role_created = grant_current_user_blob_data_contributor(
+        account_name, config.resource_group, config.scanner_subscription
+    )
     return account_name, role_created
 
 
@@ -365,29 +474,3 @@ def finalize_storage_container(account_name: str, reporter: Reporter) -> None:
         reporter.info(f"Creating blob container: {CONTAINER_NAME}")
         create_container(account_name)
 
-
-def ensure_state_storage(config: Config, reporter: Reporter) -> str:
-    """Ensure the Terraform state storage infrastructure exists.
-
-    Sequential wrapper around :func:`prepare_storage_account` +
-    :func:`wait_for_blob_access` + :func:`finalize_storage_container`.
-    Kept for callers that want to provision state storage independently
-    of the Key Vault (the deploy command goes through the parallel
-    orchestrator in ``main.py`` instead).
-    """
-    reporter.start_step("Setting up Terraform state storage", AgentlessStep.CREATE_STATE_STORAGE)
-
-    if not config.state_storage_account:
-        ensure_resource_group(
-            config.resource_group, config.locations[0], config.scanner_subscription
-        )
-
-    account_name, role_created = prepare_storage_account(config, reporter)
-
-    if role_created:
-        wait_for_blob_access(account_name, reporter)
-
-    finalize_storage_container(account_name, reporter)
-
-    reporter.finish_step()
-    return account_name

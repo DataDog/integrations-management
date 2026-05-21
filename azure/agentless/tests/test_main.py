@@ -5,12 +5,12 @@
 and the existing-deployment validation that run before any infrastructure
 mutation."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from azure_agentless_setup.config import Config
-from azure_agentless_setup.errors import ConfigurationError, SetupError
+from azure_agentless_setup.errors import ConfigurationError, SetupError, StorageAccountError
 from azure_agentless_setup.main import (
     _check_existing_deployment,
     _resolve_resource_group_via_tags,
@@ -20,6 +20,10 @@ from azure_agentless_setup.metadata import (
     MetadataReadResult,
     MetadataReadStatus,
 )
+
+
+def _reporter():
+    return MagicMock()
 
 
 def _make_config(
@@ -108,6 +112,7 @@ class TestResolveResourceGroupViaTags:
         assert "rg-a" in exc.value.detail and "rg-b" in exc.value.detail
 
 
+@patch("azure_agentless_setup.main.ensure_current_user_blob_data_access")
 @patch("azure_agentless_setup.main.storage_account_exists", return_value=True)
 class TestCheckExistingDeployment:
     """Metadata-blob inspection when the Storage Account exists.
@@ -118,54 +123,88 @@ class TestCheckExistingDeployment:
     """
 
     @patch("azure_agentless_setup.main.read_metadata")
-    def test_present_matching_rg_returns_result(self, mock_read, _sa_exists):
+    def test_present_matching_rg_returns_result(
+        self, mock_read, _sa_exists, mock_ensure_access
+    ):
         mock_read.return_value = _present("rg-current")
 
-        check = _check_existing_deployment(_make_config())
+        check = _check_existing_deployment(_make_config(), _reporter())
 
         assert check.metadata_result.status == MetadataReadStatus.PRESENT
+        # Blob data plane must be granted *before* the metadata read, so
+        # a second user joining an existing deployment doesn't trip over
+        # an opaque "permissions" error from az storage blob show.
+        mock_ensure_access.assert_called_once()
+        # Storage account name is positional arg 0.
+        assert mock_ensure_access.call_args.args[0].startswith("datadog")
 
     @patch("azure_agentless_setup.main.read_metadata")
-    def test_present_mismatched_rg_raises(self, mock_read, _sa_exists):
+    def test_present_mismatched_rg_raises(
+        self, mock_read, _sa_exists, _ensure_access
+    ):
         """With install-id-scoped SA names, finding a metadata blob at all
-        means we addressed the right install — so a recorded RG that
+        means we addressed the right install, so a recorded RG that
         disagrees with the config can only be blob corruption. We still
         fail loud rather than silently merge."""
         mock_read.return_value = _present("rg-original")
 
         with pytest.raises(ConfigurationError) as exc:
-            _check_existing_deployment(_make_config(resource_group="rg-other"))
+            _check_existing_deployment(
+                _make_config(resource_group="rg-other"), _reporter()
+            )
 
         assert "rg-original" in exc.value.detail
         assert "rg-other" in exc.value.detail
 
     @patch("azure_agentless_setup.main.read_metadata")
-    def test_error_status_raises(self, mock_read, _sa_exists):
+    def test_error_status_raises(self, mock_read, _sa_exists, _ensure_access):
         mock_read.return_value = MetadataReadResult(
             MetadataReadStatus.ERROR, error_detail="auth boom"
         )
 
         with pytest.raises(SetupError) as exc:
-            _check_existing_deployment(_make_config())
+            _check_existing_deployment(_make_config(), _reporter())
 
         assert "auth boom" in exc.value.detail
 
     @patch("azure_agentless_setup.main.read_metadata")
-    def test_missing_first_deploy_returns_missing(self, mock_read, _sa_exists):
+    def test_missing_first_deploy_returns_missing(
+        self, mock_read, _sa_exists, _ensure_access
+    ):
         mock_read.return_value = MetadataReadResult(MetadataReadStatus.MISSING)
 
-        check = _check_existing_deployment(_make_config())
+        check = _check_existing_deployment(_make_config(), _reporter())
 
         assert check.metadata_result.status == MetadataReadStatus.MISSING
 
     @patch("azure_agentless_setup.main.read_metadata")
-    def test_custom_sa_used_as_storage_account_name(self, mock_read, _sa_exists):
+    def test_custom_sa_used_as_storage_account_name(
+        self, mock_read, _sa_exists, _ensure_access
+    ):
         mock_read.return_value = MetadataReadResult(MetadataReadStatus.MISSING)
         config = _make_config(state_storage_account="myacct")
 
-        check = _check_existing_deployment(config)
+        check = _check_existing_deployment(config, _reporter())
 
         assert check.storage_account_name == "myacct"
+
+    @patch("azure_agentless_setup.main.read_metadata")
+    def test_blob_access_failure_short_circuits_before_read(
+        self, mock_read, _sa_exists, mock_ensure_access
+    ):
+        """When the current user lacks privileges to self-grant the
+        data-plane role, the read should not be attempted at all so the
+        caller sees the focused permission error rather than the opaque
+        ``az storage blob show`` stderr."""
+        mock_ensure_access.side_effect = StorageAccountError(
+            "Cannot access existing deployment's Terraform state",
+            "data-plane vs control-plane explanation",
+        )
+
+        with pytest.raises(StorageAccountError):
+            _check_existing_deployment(_make_config(), _reporter())
+
+        mock_read.assert_not_called()
 
 
 class TestCheckExistingDeploymentStorageAccountMissing:
@@ -178,12 +217,16 @@ class TestCheckExistingDeploymentStorageAccountMissing:
     "Could not read deployment metadata" error.
     """
 
+    @patch("azure_agentless_setup.main.ensure_current_user_blob_data_access")
     @patch("azure_agentless_setup.main.read_metadata")
     @patch("azure_agentless_setup.main.storage_account_exists", return_value=False)
     def test_missing_sa_short_circuits_without_blob_read(
-        self, _sa_exists, mock_read
+        self, _sa_exists, mock_read, mock_ensure_access
     ):
-        check = _check_existing_deployment(_make_config())
+        check = _check_existing_deployment(_make_config(), _reporter())
 
         assert check.metadata_result.status == MetadataReadStatus.MISSING
         mock_read.assert_not_called()
+        # Granting blob data access for a Storage Account that doesn't
+        # exist yet would fail; the short-circuit must skip it too.
+        mock_ensure_access.assert_not_called()
