@@ -105,12 +105,8 @@
 #   SCW_INSTANCE_USER     SSH user for the Instance                    [default: root]
 #   SCW_ACCOUNT_NAME      Name for the Datadog integration account     [default: SCW_PROJECT_ID]
 #
-# For private-subnet audit-trail Instances, configure ProxyJump in
-# ~/.ssh/config so the script's ssh/scp calls tunnel transparently:
-#   Host my-private-vm
-#       HostName <private-ip>
-#       ProxyJump bastion@<gateway-ip>:61000
-# See https://www.scaleway.com/en/docs/public-gateways/how-to/use-ssh-bastion/
+# Private-subnet audit-trail Instances: configure ProxyJump in ~/.ssh/config.
+# https://www.scaleway.com/en/docs/public-gateways/how-to/use-ssh-bastion/
 #
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
@@ -313,9 +309,8 @@ IAM_ACCESS_KEY=""
 IAM_SECRET_KEY=""
 _IAM_OLD_KEYS=""
 _AUDIT_DEPLOYED=false
-# True when a collector might already be running with an existing key
-# (tagged Instance from a prior run, or BYO SCW_INSTANCE_IP).  Gates the
-# end-of-run cleanup so we don't revoke a key the live collector still uses.
+# Gates end-of-run IAM cleanup: true when a collector might still reference
+# a key (BYO SCW_INSTANCE_IP, or auto-provisioned tagged Instance).
 _PRE_EXISTING_AUDIT_INSTANCE=false
 # Cockpit Part 1 outcomes — used in main() to decide whether to register the
 # Datadog account.  If nothing worked, we skip Part 3 to avoid leaving a
@@ -871,15 +866,9 @@ _find_audit_instance() {
     | head -1
 }
 
-# True if any Instance tagged AUDIT_INSTANCE_TAG exists in this zone, regardless
-# of state.  Broader than _find_audit_instance (which is "running"-only) so the
-# end-of-run key cleanup gate also catches stopped/archived collectors whose
-# config files still reference an old key.
-#
-# Fail-safe on API errors: assume a collector might exist so cleanup preserves
-# its keys.  Calls scw directly (not _list_audit_instances_json) because that
-# helper swallows failures with `|| echo "[]"` — indistinguishable from a
-# legitimate empty result.
+# True if any tagged audit-trail Instance exists (any state), or if the scw
+# lookup fails — fail-safe so a transient API error never lets cleanup revoke
+# a live collector's keys.
 _has_tagged_audit_instance() {
   local output
   output=$(scw instance server list zone="$SCW_AUDIT_INSTANCE_ZONE" \
@@ -903,11 +892,9 @@ provision_audit_trail_instance() {
     return 0
   fi
 
-  # Detect a pre-existing tagged collector (running OR stopped) before honoring
-  # the PROVISION_INSTANCE=false / dry-run short-circuits below — otherwise an
-  # operator who auto-provisioned on a prior run and now opts out of
-  # provisioning would have the collector's IAM keys revoked by end-of-run
-  # cleanup.  Skipped in dry-run because the helper makes a live scw read.
+  # Probe for an existing collector before the opt-out / dry-run returns
+  # below, so re-runs with PROVISION_INSTANCE=false still preserve its keys.
+  # Skipped in dry-run (the helper makes a live scw read).
   if [[ "$DRY_RUN" != "true" ]]; then
     _has_tagged_audit_instance && _PRE_EXISTING_AUDIT_INSTANCE=true
   fi
@@ -1064,12 +1051,8 @@ setup_audit_trail() {
     || { warn "Failed to create temp dir — skipping audit trail setup"; return 1; }
   trap '[[ -n "${cid:-}" ]] && docker rm -f "$cid" >/dev/null 2>&1 || true; [[ -n "${work_dir:-}" ]] && rm -rf "$work_dir"' RETURN
 
-  # accept-new is TOFU on first contact (same security as the explicit
-  # ssh-keyscan it replaces) but defers to the user's ~/.ssh/config for
-  # ProxyJump, so private-subnet customers get bastion handling for free
-  # via their existing ssh config without needing script-specific env vars.
-  # Inherit the user's default UserKnownHostsFile so existing pins (target
-  # and bastion) are honored and accepted keys persist across runs.
+  # accept-new is TOFU on first contact and lets ssh use the user's
+  # ~/.ssh/config — so ProxyJump applies to every ssh/scp call.
   local -a ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
 
   log "Verifying SSH access to ${SCW_INSTANCE_IP}..."
@@ -1240,11 +1223,9 @@ main() {
 
   register_datadog_account
 
-  # A deployed audit collector that was not redeployed this run still holds the
-  # old key, so revoking it would break log forwarding.  But if no prior
-  # collector exists at all (auto-provision path on first/failed attempts),
-  # there's nothing to break — clean up the staged old keys so they don't
-  # accumulate across runs.
+  # Preserve keys only when a collector might still reference one (just
+  # redeployed, or pre-existing).  Otherwise revoke them so first-run /
+  # failed-run keys don't accumulate.
   if [[ "$SCW_AUDIT_TRAIL_ENABLED" != "true" ]] \
      || [[ "$_AUDIT_DEPLOYED" == "true" ]] \
      || [[ "$_PRE_EXISTING_AUDIT_INSTANCE" != "true" ]]; then
