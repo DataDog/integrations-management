@@ -1068,7 +1068,9 @@ setup_audit_trail() {
   # ssh-keyscan it replaces) but defers to the user's ~/.ssh/config for
   # ProxyJump, so private-subnet customers get bastion handling for free
   # via their existing ssh config without needing script-specific env vars.
-  local -a ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=${work_dir}/known_hosts")
+  # Inherit the user's default UserKnownHostsFile so existing pins (target
+  # and bastion) are honored and accepted keys persist across runs.
+  local -a ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
 
   log "Verifying SSH access to ${SCW_INSTANCE_IP}..."
   if ! ssh "${ssh_opts[@]}" "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}" true 2>/dev/null; then
