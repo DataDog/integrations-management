@@ -105,6 +105,13 @@
 #   SCW_INSTANCE_USER     SSH user for the Instance                    [default: root]
 #   SCW_ACCOUNT_NAME      Name for the Datadog integration account     [default: SCW_PROJECT_ID]
 #
+# For private-subnet audit-trail Instances, configure ProxyJump in
+# ~/.ssh/config so the script's ssh/scp calls tunnel transparently:
+#   Host my-private-vm
+#       HostName <private-ip>
+#       ProxyJump bastion@<gateway-ip>:61000
+# See https://www.scaleway.com/en/docs/public-gateways/how-to/use-ssh-bastion/
+#
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -1021,28 +1028,21 @@ setup_audit_trail() {
     || { warn "Failed to create temp dir — skipping audit trail setup"; return 1; }
   trap '[[ -n "${cid:-}" ]] && docker rm -f "$cid" >/dev/null 2>&1 || true; [[ -n "${work_dir:-}" ]] && rm -rf "$work_dir"' RETURN
 
-  # Fetch and pin the instance's host key so we never skip verification.
-  # StrictHostKeyChecking=no would open a MITM window on a script that deploys
-  # credentials to root — we accept the key once here instead.
-  log "Fetching SSH host key from ${SCW_INSTANCE_IP}..."
-  ssh-keyscan -T 10 "$SCW_INSTANCE_IP" > "$work_dir/known_hosts" 2>/dev/null \
-    || {
-      warn "Could not reach ${SCW_INSTANCE_IP} on port 22 — skipping audit trail."
-      warn "  Check that:"
-      warn "    1. The instance is running and SCW_INSTANCE_IP is correct"
-      warn "    2. Port 22 is open in the instance's security group"
-      warn "    3. Your SSH key is registered in Scaleway:"
-      warn "       https://www.scaleway.com/en/docs/organizations-and-projects/how-to/create-ssh-key/"
-      return 1
-    }
-
-  local -a ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10 -o "UserKnownHostsFile=${work_dir}/known_hosts")
+  # accept-new is TOFU on first contact (same security as the explicit
+  # ssh-keyscan it replaces) but defers to the user's ~/.ssh/config for
+  # ProxyJump, so private-subnet customers get bastion handling for free
+  # via their existing ssh config without needing script-specific env vars.
+  local -a ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=${work_dir}/known_hosts")
 
   log "Verifying SSH access to ${SCW_INSTANCE_IP}..."
   if ! ssh "${ssh_opts[@]}" "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}" true 2>/dev/null; then
     warn "Cannot reach ${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP} via SSH."
-    warn "Make sure your public SSH key is registered in your Scaleway account and re-run:"
-    warn "  https://www.scaleway.com/en/docs/organizations-and-projects/how-to/create-ssh-key/"
+    warn "Check that:"
+    warn "  1. The instance is running and SCW_INSTANCE_IP is correct"
+    warn "  2. Your SSH key is registered in Scaleway:"
+    warn "     https://www.scaleway.com/en/docs/organizations-and-projects/how-to/create-ssh-key/"
+    warn "  3. If the instance is in a private subnet, configure ProxyJump in ~/.ssh/config:"
+    warn "     https://www.scaleway.com/en/docs/public-gateways/how-to/use-ssh-bastion/"
     return 1
   fi
   ok "SSH access verified"
