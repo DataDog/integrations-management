@@ -306,6 +306,13 @@ IAM_ACCESS_KEY=""
 IAM_SECRET_KEY=""
 _IAM_OLD_KEYS=""
 _AUDIT_DEPLOYED=false
+# Set true if there's already an audit-trail collector that *could* be running
+# with an existing IAM key — either a tagged Instance from a prior run, or a
+# user-supplied SCW_INSTANCE_IP (we can't introspect what's on it).  Used to
+# gate end-of-run key cleanup: when no prior collector exists, rotated keys
+# can be deleted safely; when one might exist, we preserve the old key unless
+# audit was redeployed (and thus reconfigured with the new key) this run.
+_PRE_EXISTING_AUDIT_INSTANCE=false
 # Cockpit Part 1 outcomes — used in main() to decide whether to register the
 # Datadog account.  If nothing worked, we skip Part 3 to avoid leaving a
 # dangling integration entry with no data flowing.
@@ -869,7 +876,14 @@ _find_audit_instance() {
 #      reuse on re-runs of the auto-provisioned default.
 #   3. PROVISION_INSTANCE=false — opt out, skip Part 2 entirely.
 provision_audit_trail_instance() {
-  [[ -n "${SCW_INSTANCE_IP:-}" ]] && return 0
+  if [[ -n "${SCW_INSTANCE_IP:-}" ]]; then
+    # BYO Instance — assume conservatively that it might already have a
+    # collector running with an existing key.  Suppresses opportunistic
+    # cleanup of staged old keys at end-of-run unless this run actually
+    # redeploys the collector with the new key.
+    _PRE_EXISTING_AUDIT_INSTANCE=true
+    return 0
+  fi
 
   # Opt-out: skip Part 2 entirely.
   if [[ "$PROVISION_INSTANCE" == "false" ]]; then
@@ -897,9 +911,11 @@ provision_audit_trail_instance() {
     if [[ -n "$ip" && "$ip" != "null" ]]; then
       log "Reusing existing audit-trail Instance ${id} at ${ip}"
       SCW_INSTANCE_IP="$ip"
+      _PRE_EXISTING_AUDIT_INSTANCE=true
       return 0
     fi
     warn "Found existing audit-trail Instance ${id} but it has no public IP — skipping"
+    _PRE_EXISTING_AUDIT_INSTANCE=true
     return 1
   fi
 
@@ -1203,8 +1219,13 @@ main() {
   register_datadog_account
 
   # A deployed audit collector that was not redeployed this run still holds the
-  # old key, so revoking it would break log forwarding.
-  if [[ "$SCW_AUDIT_TRAIL_ENABLED" != "true" ]] || [[ "$_AUDIT_DEPLOYED" == "true" ]]; then
+  # old key, so revoking it would break log forwarding.  But if no prior
+  # collector exists at all (auto-provision path on first/failed attempts),
+  # there's nothing to break — clean up the staged old keys so they don't
+  # accumulate across runs.
+  if [[ "$SCW_AUDIT_TRAIL_ENABLED" != "true" ]] \
+     || [[ "$_AUDIT_DEPLOYED" == "true" ]] \
+     || [[ "$_PRE_EXISTING_AUDIT_INSTANCE" != "true" ]]; then
     # Run the delete with the original (owner-level) creds — the script's
     # current SCW_*_KEY are the app's, which lack IAM write.  Use env-var
     # form so the child `scw` process actually inherits the override.
