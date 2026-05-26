@@ -875,8 +875,17 @@ _find_audit_instance() {
 # of state.  Broader than _find_audit_instance (which is "running"-only) so the
 # end-of-run key cleanup gate also catches stopped/archived collectors whose
 # config files still reference an old key.
+#
+# Fail-safe on API errors: assume a collector might exist so cleanup preserves
+# its keys.  Calls scw directly (not _list_audit_instances_json) because that
+# helper swallows failures with `|| echo "[]"` — indistinguishable from a
+# legitimate empty result.
 _has_tagged_audit_instance() {
-  [[ "$(_list_audit_instances_json | jq 'length' 2>/dev/null || echo 0)" -gt 0 ]]
+  local output
+  output=$(scw instance server list zone="$SCW_AUDIT_INSTANCE_ZONE" \
+           tags.0="$AUDIT_INSTANCE_TAG" -o json 2>/dev/null) \
+    || return 0
+  [[ "$(jq 'length' <<<"$output" 2>/dev/null || echo 0)" -gt 0 ]]
 }
 
 # Ensure SCW_INSTANCE_IP is set, provisioning a new Instance if it isn't.
