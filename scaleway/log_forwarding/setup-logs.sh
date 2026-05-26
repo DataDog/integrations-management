@@ -894,6 +894,15 @@ provision_audit_trail_instance() {
     return 0
   fi
 
+  # Detect a pre-existing tagged collector (running OR stopped) before honoring
+  # the PROVISION_INSTANCE=false / dry-run short-circuits below — otherwise an
+  # operator who auto-provisioned on a prior run and now opts out of
+  # provisioning would have the collector's IAM keys revoked by end-of-run
+  # cleanup.  Skipped in dry-run because the helper makes a live scw read.
+  if [[ "$DRY_RUN" != "true" ]]; then
+    _has_tagged_audit_instance && _PRE_EXISTING_AUDIT_INSTANCE=true
+  fi
+
   # Opt-out: skip Part 2 entirely.
   if [[ "$PROVISION_INSTANCE" == "false" ]]; then
     warn "SCW_INSTANCE_IP is unset and PROVISION_INSTANCE=false — skipping audit trail"
@@ -911,10 +920,6 @@ provision_audit_trail_instance() {
     SCW_INSTANCE_IP="<dry-run-instance-ip>"
     return 0
   fi
-
-  # Mark any tagged Instance (running OR stopped) as pre-existing so end-of-run
-  # cleanup doesn't revoke keys a stopped collector's config still references.
-  _has_tagged_audit_instance && _PRE_EXISTING_AUDIT_INSTANCE=true
 
   # Reuse an existing tagged Instance if present.
   local existing id ip
