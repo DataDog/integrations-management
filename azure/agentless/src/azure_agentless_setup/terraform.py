@@ -30,7 +30,9 @@ from .reporter import Reporter, AgentlessStep
 TERRAFORM_PARALLELISM = 20
 
 # TODO: replace with a release tag once terraform-module-datadog-agentless-scanner cuts one
-MODULE_VERSION = "fbc0d0bb425ae4084433834e68d3b23e566fba0d"
+# Tip of PR #283 (per-region VMSS SKU fallback + vCPU quota preflight); pinned
+# here for end-to-end testing before the PR merges to main.
+MODULE_VERSION = "7fbc786720e59bc4f457d66699f8787ad5e6abb3"
 MODULE_BASE = "git::https://github.com/DataDog/terraform-module-datadog-agentless-scanner//azure/modules"
 
 
