@@ -105,6 +105,9 @@
 #   SCW_INSTANCE_USER     SSH user for the Instance                    [default: root]
 #   SCW_ACCOUNT_NAME      Name for the Datadog integration account     [default: SCW_PROJECT_ID]
 #
+# Private-subnet audit-trail Instances: configure ProxyJump in ~/.ssh/config.
+# https://www.scaleway.com/en/docs/public-gateways/how-to/use-ssh-bastion/
+#
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -306,6 +309,9 @@ IAM_ACCESS_KEY=""
 IAM_SECRET_KEY=""
 _IAM_OLD_KEYS=""
 _AUDIT_DEPLOYED=false
+# Gates end-of-run IAM cleanup: true when a collector might still reference
+# a key (BYO SCW_INSTANCE_IP, or auto-provisioned tagged Instance).
+_PRE_EXISTING_AUDIT_INSTANCE=false
 # Cockpit Part 1 outcomes — used in main() to decide whether to register the
 # Datadog account.  If nothing worked, we skip Part 3 to avoid leaving a
 # dangling integration entry with no data flowing.
@@ -860,6 +866,17 @@ _find_audit_instance() {
     | head -1
 }
 
+# True if any tagged audit-trail Instance exists (any state), or if the scw
+# lookup fails — fail-safe so a transient API error never lets cleanup revoke
+# a live collector's keys.
+_has_tagged_audit_instance() {
+  local output
+  output=$(scw instance server list zone="$SCW_AUDIT_INSTANCE_ZONE" \
+           tags.0="$AUDIT_INSTANCE_TAG" -o json 2>/dev/null) \
+    || return 0
+  [[ "$(jq 'length' <<<"$output" 2>/dev/null || echo 0)" -gt 0 ]]
+}
+
 # Ensure SCW_INSTANCE_IP is set, provisioning a new Instance if it isn't.
 # Honors three short-circuit paths before creating anything new:
 #   1. SCW_INSTANCE_IP already set — BYO escape hatch for customers who want
@@ -869,7 +886,18 @@ _find_audit_instance() {
 #      reuse on re-runs of the auto-provisioned default.
 #   3. PROVISION_INSTANCE=false — opt out, skip Part 2 entirely.
 provision_audit_trail_instance() {
-  [[ -n "${SCW_INSTANCE_IP:-}" ]] && return 0
+  if [[ -n "${SCW_INSTANCE_IP:-}" ]]; then
+    # BYO Instance: conservatively assume it might already host a collector.
+    _PRE_EXISTING_AUDIT_INSTANCE=true
+    return 0
+  fi
+
+  # Probe for an existing collector before the opt-out / dry-run returns
+  # below, so re-runs with PROVISION_INSTANCE=false still preserve its keys.
+  # Skipped in dry-run (the helper makes a live scw read).
+  if [[ "$DRY_RUN" != "true" ]]; then
+    _has_tagged_audit_instance && _PRE_EXISTING_AUDIT_INSTANCE=true
+  fi
 
   # Opt-out: skip Part 2 entirely.
   if [[ "$PROVISION_INSTANCE" == "false" ]]; then
@@ -897,9 +925,11 @@ provision_audit_trail_instance() {
     if [[ -n "$ip" && "$ip" != "null" ]]; then
       log "Reusing existing audit-trail Instance ${id} at ${ip}"
       SCW_INSTANCE_IP="$ip"
+      _PRE_EXISTING_AUDIT_INSTANCE=true
       return 0
     fi
     warn "Found existing audit-trail Instance ${id} but it has no public IP — skipping"
+    _PRE_EXISTING_AUDIT_INSTANCE=true
     return 1
   fi
 
@@ -1021,28 +1051,19 @@ setup_audit_trail() {
     || { warn "Failed to create temp dir — skipping audit trail setup"; return 1; }
   trap '[[ -n "${cid:-}" ]] && docker rm -f "$cid" >/dev/null 2>&1 || true; [[ -n "${work_dir:-}" ]] && rm -rf "$work_dir"' RETURN
 
-  # Fetch and pin the instance's host key so we never skip verification.
-  # StrictHostKeyChecking=no would open a MITM window on a script that deploys
-  # credentials to root — we accept the key once here instead.
-  log "Fetching SSH host key from ${SCW_INSTANCE_IP}..."
-  ssh-keyscan -T 10 "$SCW_INSTANCE_IP" > "$work_dir/known_hosts" 2>/dev/null \
-    || {
-      warn "Could not reach ${SCW_INSTANCE_IP} on port 22 — skipping audit trail."
-      warn "  Check that:"
-      warn "    1. The instance is running and SCW_INSTANCE_IP is correct"
-      warn "    2. Port 22 is open in the instance's security group"
-      warn "    3. Your SSH key is registered in Scaleway:"
-      warn "       https://www.scaleway.com/en/docs/organizations-and-projects/how-to/create-ssh-key/"
-      return 1
-    }
-
-  local -a ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10 -o "UserKnownHostsFile=${work_dir}/known_hosts")
+  # accept-new is TOFU on first contact and lets ssh use the user's
+  # ~/.ssh/config — so ProxyJump applies to every ssh/scp call.
+  local -a ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
 
   log "Verifying SSH access to ${SCW_INSTANCE_IP}..."
   if ! ssh "${ssh_opts[@]}" "${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP}" true 2>/dev/null; then
     warn "Cannot reach ${SCW_INSTANCE_USER}@${SCW_INSTANCE_IP} via SSH."
-    warn "Make sure your public SSH key is registered in your Scaleway account and re-run:"
-    warn "  https://www.scaleway.com/en/docs/organizations-and-projects/how-to/create-ssh-key/"
+    warn "Check that:"
+    warn "  1. The instance is running and SCW_INSTANCE_IP is correct"
+    warn "  2. Your SSH key is registered in Scaleway:"
+    warn "     https://www.scaleway.com/en/docs/organizations-and-projects/how-to/create-ssh-key/"
+    warn "  3. If the instance is in a private subnet, configure ProxyJump in ~/.ssh/config:"
+    warn "     https://www.scaleway.com/en/docs/public-gateways/how-to/use-ssh-bastion/"
     return 1
   fi
   ok "SSH access verified"
@@ -1202,9 +1223,12 @@ main() {
 
   register_datadog_account
 
-  # A deployed audit collector that was not redeployed this run still holds the
-  # old key, so revoking it would break log forwarding.
-  if [[ "$SCW_AUDIT_TRAIL_ENABLED" != "true" ]] || [[ "$_AUDIT_DEPLOYED" == "true" ]]; then
+  # Preserve keys only when a collector might still reference one (just
+  # redeployed, or pre-existing).  Otherwise revoke them so first-run /
+  # failed-run keys don't accumulate.
+  if [[ "$SCW_AUDIT_TRAIL_ENABLED" != "true" ]] \
+     || [[ "$_AUDIT_DEPLOYED" == "true" ]] \
+     || [[ "$_PRE_EXISTING_AUDIT_INSTANCE" != "true" ]]; then
     # Run the delete with the original (owner-level) creds — the script's
     # current SCW_*_KEY are the app's, which lack IAM write.  Use env-var
     # form so the child `scw` process actually inherits the override.
