@@ -60,8 +60,11 @@
 #                DD_SITE=datadoghq.com bash setup-logs.sh --dry-run
 #
 #   --teardown Delete the provisioned audit trail Instance (tagged
-#              'datadog-audit-trail') and its IP/volumes, then exit.  Does
-#              not touch IAM apps, Cockpit exporters, or the Datadog account.
+#              'datadog-audit-trail') and its IP/volumes, then delete the
+#              Datadog integration account.  DD_API_KEY, DD_APP_KEY, and
+#              DD_SITE are required.  SCW credentials and SCW_PROJECT_ID are
+#              read from your scw config automatically.  Does not touch IAM
+#              apps or Cockpit exporters.
 #
 # ── Configuration ─────────────────────────────────────────────────────────────
 #
@@ -369,7 +372,10 @@ dd_request() {
   local args=(-sS -g -w $'\n%{http_code}'
     -H "DD-API-KEY: $DD_API_KEY"
     -H "DD-APPLICATION-KEY: $DD_APP_KEY")
-  [[ "$method" != "GET" ]] && args+=(-X "$method" -H "Content-Type: application/json" -d "$body")
+  if [[ "$method" != "GET" ]]; then
+    args+=(-X "$method")
+    [[ -n "$body" ]] && args+=(-H "Content-Type: application/json" -d "$body")
+  fi
   local resp
   resp=$(curl "${args[@]}" "https://api.${DD_SITE}${path}")
   local http_code="${resp##*$'\n'}" body_out="${resp%$'\n'*}"
@@ -382,6 +388,8 @@ dd_request() {
 dd_get()   { dd_request GET   "$1"; }
 dd_post()  { dd_request POST  "$1" "$2"; }
 dd_patch() { dd_request PATCH "$1" "$2"; }
+
+dd_delete() { dd_request DELETE "$1"; }
 
 # Fetches all pages from a Datadog list endpoint (page[limit]/page[offset]).
 # Returns {"data": [...]} with every item from every page merged.
@@ -858,25 +866,6 @@ _list_audit_instances_json() {
     tags.0="$AUDIT_INSTANCE_TAG" -o json 2>/dev/null || echo "[]"
 }
 
-# Look up a running Scaleway Instance tagged AUDIT_INSTANCE_TAG.  Echoes
-# "<id> <public_ip>" on stdout, or nothing if no match.
-_find_audit_instance() {
-  _list_audit_instances_json \
-    | jq -r '.[] | select(.state == "running") | "\(.id) \(.public_ip.address // "")"' \
-    | head -1
-}
-
-# True if any tagged audit-trail Instance exists (any state), or if the scw
-# lookup fails — fail-safe so a transient API error never lets cleanup revoke
-# a live collector's keys.
-_has_tagged_audit_instance() {
-  local output
-  output=$(scw instance server list zone="$SCW_AUDIT_INSTANCE_ZONE" \
-           tags.0="$AUDIT_INSTANCE_TAG" -o json 2>/dev/null) \
-    || return 0
-  [[ "$(jq 'length' <<<"$output" 2>/dev/null || echo 0)" -gt 0 ]]
-}
-
 # Ensure SCW_INSTANCE_IP is set, provisioning a new Instance if it isn't.
 # Honors three short-circuit paths before creating anything new:
 #   1. SCW_INSTANCE_IP already set — BYO escape hatch for customers who want
@@ -892,11 +881,19 @@ provision_audit_trail_instance() {
     return 0
   fi
 
-  # Probe for an existing collector before the opt-out / dry-run returns
-  # below, so re-runs with PROVISION_INSTANCE=false still preserve its keys.
-  # Skipped in dry-run (the helper makes a live scw read).
+  # Fetch the instance list once: drives both the pre-existing probe and the
+  # reuse check below, avoiding two identical API calls.  Skipped in dry-run.
+  # Call scw directly (not via _list_audit_instances_json) so the exit code is
+  # not swallowed: on scw failure assume an instance exists (fail-safe) so a
+  # transient API error never causes cleanup to revoke a live collector's key.
+  local instances_json="" _scw_rc=0
   if [[ "$DRY_RUN" != "true" ]]; then
-    _has_tagged_audit_instance && _PRE_EXISTING_AUDIT_INSTANCE=true
+    instances_json=$(scw instance server list zone="$SCW_AUDIT_INSTANCE_ZONE" \
+      project-id="$SCW_PROJECT_ID" tags.0="$AUDIT_INSTANCE_TAG" -o json 2>/dev/null) || _scw_rc=$?
+    if (( _scw_rc != 0 )) || [[ "$(jq 'length' <<<"$instances_json" 2>/dev/null || echo 0)" -gt 0 ]]; then
+      _PRE_EXISTING_AUDIT_INSTANCE=true
+    fi
+    (( _scw_rc != 0 )) && instances_json="[]"
   fi
 
   # Opt-out: skip Part 2 entirely.
@@ -917,19 +914,18 @@ provision_audit_trail_instance() {
     return 0
   fi
 
-  # Reuse an existing tagged Instance if present.
+  # Reuse an existing running Instance if present (from the cached list above).
   local existing id ip
-  existing=$(_find_audit_instance)
+  existing=$(jq -r '.[] | select(.state == "running") | "\(.id) \(.public_ip.address // "")"' \
+    <<<"$instances_json" | head -1)
   if [[ -n "$existing" ]]; then
     id="${existing%% *}"; ip="${existing##* }"
     if [[ -n "$ip" && "$ip" != "null" ]]; then
       log "Reusing existing audit-trail Instance ${id} at ${ip}"
       SCW_INSTANCE_IP="$ip"
-      _PRE_EXISTING_AUDIT_INSTANCE=true
       return 0
     fi
     warn "Found existing audit-trail Instance ${id} but it has no public IP — skipping"
-    _PRE_EXISTING_AUDIT_INSTANCE=true
     return 1
   fi
 
@@ -999,32 +995,73 @@ provision_audit_trail_instance() {
   return 1
 }
 
-# Delete all Instances tagged AUDIT_INSTANCE_TAG in the target zone, along with
-# their volumes and IPs.  Idempotent: prints "nothing to do" if no match.
+# Delete all Instances tagged AUDIT_INSTANCE_TAG across every available zone,
+# along with their volumes and IPs.  Searches all zones so the teardown works
+# regardless of which zone the Instance was provisioned in.
 teardown_audit_trail_instance() {
   log "━━━ Teardown: Audit Trail Instance ━━━"
+  command -v jq  &>/dev/null || die "jq is required — install with: brew install jq  or  apt-get install -y jq"
+  command -v scw &>/dev/null || die "scw CLI is required — see https://www.scaleway.com/en/docs/developer-tools/scaleway-cli/reference-content/install-cli/"
 
-  local ids
-  ids=$(_list_audit_instances_json | jq -r '.[].id')
-  if [[ -z "$ids" ]]; then
-    log "No Instances tagged '${AUDIT_INSTANCE_TAG}' in ${SCW_AUDIT_INSTANCE_ZONE} — nothing to do."
+  : "${SCW_PROJECT_ID:?could not determine SCW_PROJECT_ID from scw config — run 'scw init' or set SCW_PROJECT_ID explicitly}"
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    dryrun "Would list zone=all project=${SCW_PROJECT_ID} for Instances tagged '${AUDIT_INSTANCE_TAG}' and delete each with volumes + IP"
     return 0
   fi
 
-  while IFS= read -r id; do
-    [[ -z "$id" ]] && continue
-    if [[ "$DRY_RUN" == "true" ]]; then
-      dryrun "Would delete Instance ${id} (volumes + IP)"
-      continue
-    fi
-    log "Deleting Instance ${id}..."
-    if scw instance server delete "$id" zone="$SCW_AUDIT_INSTANCE_ZONE" \
+  local raw
+  raw=$(scw instance server list zone=all \
+    project-id="$SCW_PROJECT_ID" tags.0="$AUDIT_INSTANCE_TAG" -o json 2>&1) \
+    || die "Could not list Scaleway Instances — check your SCW credentials ('scw config get secret-key'):\n  ${raw}"
+
+  local zone_id_pairs
+  zone_id_pairs=$(jq -r '.[] | "\(.zone):\(.id)"' <<<"$raw")
+  if [[ -z "$zone_id_pairs" ]]; then
+    log "No Instances tagged '${AUDIT_INSTANCE_TAG}' found in any zone — nothing to do."
+    return 0
+  fi
+
+  while IFS=: read -r zone id; do
+    log "Deleting Instance ${id} in ${zone}..."
+    if scw instance server delete "$id" zone="$zone" \
         with-volumes=all with-ip=true force-shutdown=true >/dev/null 2>&1; then
       ok "Deleted ${id}"
     else
-      warn "Failed to delete ${id} — check 'scw instance server get $id'"
+      warn "Failed to delete ${id} — check 'scw instance server get $id zone=$zone'"
     fi
-  done <<<"$ids"
+  done <<<"$zone_id_pairs"
+}
+
+# Deletes the Datadog Scaleway integration account matching SCW_PROJECT_ID.
+teardown_datadog_account() {
+  log "━━━ Teardown: Datadog Integration Account ━━━"
+
+  : "${DD_API_KEY:?DD_API_KEY is required for --teardown (your Datadog API key)}"
+  : "${DD_APP_KEY:?DD_APP_KEY is required for --teardown (your Datadog application key)}"
+  : "${DD_SITE:?DD_SITE is required for --teardown (e.g. datadoghq.com)}"
+  : "${SCW_PROJECT_ID:?could not determine SCW_PROJECT_ID from scw config — run 'scw init' or set SCW_PROJECT_ID explicitly}"
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    dryrun "Would DELETE Datadog Scaleway account for project '${SCW_PROJECT_ID}'"
+    return 0
+  fi
+
+  log "Looking up Datadog Scaleway account for project '${SCW_PROJECT_ID}'..."
+  local accounts_resp account_id
+  accounts_resp=$(dd_get_all "/api/v2/web-integrations/scaleway/accounts") \
+    || { warn "Could not list Datadog accounts — delete manually."; return 1; }
+  account_id=$(jq -r --arg proj "$SCW_PROJECT_ID" \
+    'first(.data[] | select(.attributes.settings.project_id == $proj) | .id) // empty' <<< "$accounts_resp")
+
+  if [[ -z "$account_id" ]]; then
+    log "No Datadog Scaleway account found for project '${SCW_PROJECT_ID}' — nothing to do."
+    return 0
+  fi
+
+  dd_delete "/api/v2/web-integrations/scaleway/accounts/${account_id}" >/dev/null \
+    || { warn "Failed to delete Datadog account ${account_id} — delete manually."; return 1; }
+  ok "Deleted Datadog Scaleway account for project '${SCW_PROJECT_ID}' (id=${account_id})"
 }
 
 setup_audit_trail() {
@@ -1167,6 +1204,7 @@ main() {
   # --teardown is a destructive one-shot: skip the normal setup flow entirely.
   if [[ "$TEARDOWN" == "true" ]]; then
     teardown_audit_trail_instance
+    teardown_datadog_account
     return 0
   fi
 
@@ -1223,12 +1261,16 @@ main() {
 
   register_datadog_account
 
-  # Preserve keys only when a collector might still reference one (just
-  # redeployed, or pre-existing).  Otherwise revoke them so first-run /
-  # failed-run keys don't accumulate.
-  if [[ "$SCW_AUDIT_TRAIL_ENABLED" != "true" ]] \
-     || [[ "$_AUDIT_DEPLOYED" == "true" ]] \
-     || [[ "$_PRE_EXISTING_AUDIT_INSTANCE" != "true" ]]; then
+  # Preserve keys when a pre-existing collector that was not redeployed this
+  # run might still hold one.  Otherwise revoke to prevent key accumulation.
+  if [[ "$SCW_AUDIT_TRAIL_ENABLED" == "true" ]] \
+     && [[ "$_AUDIT_DEPLOYED" != "true" ]] \
+     && [[ "$_PRE_EXISTING_AUDIT_INSTANCE" == "true" ]]; then
+    local stale_keys
+    stale_keys=$(tr '\n' ' ' <<< "$_IAM_OLD_KEYS" | tr -s ' ')
+    stale_keys="${stale_keys# }"; stale_keys="${stale_keys% }"
+    [[ -n "$stale_keys" ]] && warn "Audit collector was not redeployed this run — skipping cleanup of old IAM keys. Rotate manually when safe: ${stale_keys}"
+  else
     # Run the delete with the original (owner-level) creds — the script's
     # current SCW_*_KEY are the app's, which lack IAM write.  Use env-var
     # form so the child `scw` process actually inherits the override.
@@ -1242,11 +1284,6 @@ main() {
         warn "Could not delete old API key ${old_key} — remove it manually from the Scaleway console"
       fi
     done <<< "$_IAM_OLD_KEYS"
-  else
-    local stale_keys
-    stale_keys=$(tr '\n' ' ' <<< "$_IAM_OLD_KEYS" | tr -s ' ')
-    stale_keys="${stale_keys# }"; stale_keys="${stale_keys% }"
-    [[ -n "$stale_keys" ]] && warn "Audit collector was not redeployed this run — skipping cleanup of old IAM keys. Rotate manually when safe: ${stale_keys}"
   fi
 
   ok "Setup complete."
