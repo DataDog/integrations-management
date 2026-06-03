@@ -493,6 +493,7 @@ class TestValidation(TestCase):
             "tag1:value1,tag2:value2,tag3:value3",
             "justValue",
             "two,values",
+            "!datadog:false",
         ]
 
         for valid_filter in valid_filters:

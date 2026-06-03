@@ -293,9 +293,10 @@ def _validate_tag_filters(tag_filters: str):
         if is_empty_or_whitespace(tag_filter):
             raise InputParamValidationError("Tag filters cannot contain empty values")
 
-        # Validate tag starts with a letter
-        if not tag_filter[0].isalpha():
-            raise InputParamValidationError(f"Tag '{tag_filter}' must start with a letter")
+        # Validate tag starts with a letter or ! exclusion
+        first_char = tag_filter[0]
+        if not (first_char.isalpha() or first_char == '!'):
+            raise InputParamValidationError(f"Tag '{tag_filter}' must start with a letter or !")
 
 
 def _validate_pii_scrubber_rules(pii_scrubber_rules: str):
