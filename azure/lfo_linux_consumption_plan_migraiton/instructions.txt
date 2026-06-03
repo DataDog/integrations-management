@@ -1,0 +1,37 @@
+The script will be a Python script that the customer runs in Azure Cloud Shell
+
+Each step of the script will be run in sequence and have a corresponding rollback action. In case of an error in a step, the step’s rollback will be executed, followed by the rollback actions for each preceding step.
+
+The script should be idempotent in case a previous run of the script failed and was not rolled back properly. The script should check if a resource has already been created before attempting to create one.
+
+Phase 1: Set Up
+Use Azure Resource Graph (ARG) to discover all control plane resource groups in all subscriptions
+Run the remaining steps for each LFO installation
+Find the Deployer’s Container App Job and Container App Environment
+
+Phase 2: Creating Container App Jobs
+In the Container App Environment, create 3 paused Container App Jobs (see Appendix on creating paused container app jobs). They should have env variables copied from old functions and have a system-assigned managed identity. 
+
+Phase 3: Creating Role Assignments
+For each monitored subscription (get from MONITORED_SUBSCRIPTIONS env var on Resources Task) assign the following roles to the Job’s managed identity:
+Diagnostic Settings Job: Assign Reader and Data Access role for forwarder resource group and Monitoring Contributor for subscription
+Scaling Task Job: Assign Contributor role for forwarder resource group
+Resources Task Job: Assign Monitoring Reader for subscription
+Assign Container App Job Contributor to Deployer for control plane resource group
+Replacement for Website Contributor in v1 architecture
+
+Phase 4: Enablement
+Pause the deployer. We can use the Container App Job Stop API.
+Pause the 3 old functions with the Function App stop API
+Manually trigger the 3 Jobs and wait for success. On failure, log and rollback
+If there are any customers whose control plane tasks are currently failing due to unknown bugs or issues, this will abort the update. The customer would likely submit a support ticket which would allow us to identify and fix these issues.
+Unpause the 3 new Jobs
+Update the deployer job image to the new image that supports container app jobs
+Unpause the deployer
+
+Phase 5: Clean up
+
+In this phase, any errors will not trigger a rollback. Instead, errors will be shown to the customers to manually clean up the remaining resources.
+
+Delete the 3 functions, function plan, and storage File Shares
+Delete deployer’s Website Contributor role assignment
