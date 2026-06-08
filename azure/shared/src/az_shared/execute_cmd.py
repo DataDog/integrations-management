@@ -83,6 +83,7 @@ def execute(cmd: Cmd, can_fail: bool = False) -> str:
                 raise RuntimeError(
                     f"Command failed: {full_command}\nstdout: {result.stdout}\nstderr: {result.stderr}{get_az_and_python_version()}"
                 )
+            log.debug(f"Result: {result.stdout}")
             return result.stdout
         except subprocess.CalledProcessError as e:
             stderr = str(e.stderr)

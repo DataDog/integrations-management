@@ -2,6 +2,8 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
+import argparse
+import logging
 import os
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
@@ -139,6 +141,11 @@ def submit_integration_config(app_registration: AppRegistration, config: dict) -
 
 
 def main():
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], type=str.upper)
+    args, _ = parser.parse_known_args()
+    logging.basicConfig(level=getattr(logging, args.log_level))
+
     validate_environment_variables()
 
     workflow_id = os.environ["WORKFLOW_ID"]
