@@ -59,12 +59,15 @@
 #                DD_API_KEY=x DD_APP_KEY=x \
 #                DD_SITE=datadoghq.com bash setup-logs.sh --dry-run
 #
-#   --teardown Delete the provisioned audit trail Instance (tagged
-#              'datadog-audit-trail') and its IP/volumes, then delete the
-#              Datadog integration account.  DD_API_KEY, DD_APP_KEY, and
-#              DD_SITE are required.  SCW credentials and SCW_PROJECT_ID are
-#              read from your scw config automatically.  Does not touch IAM
-#              apps or Cockpit exporters.
+#   --teardown Lists the resources it finds and prompts for confirmation,
+#              then deletes: Cockpit log exporters named
+#              datadog-logs-<DD_SITE> across all configured regions, the
+#              provisioned audit trail Instance (tagged 'datadog-audit-trail')
+#              and its IP/volumes, and the Datadog integration account.
+#              DD_API_KEY, DD_APP_KEY, DD_SITE, and SCW credentials are
+#              required (read from your scw config automatically).
+#              Does not touch IAM apps — remove those manually if desired.
+#   --yes      Skip the confirmation prompt in --teardown (for automation).
 #
 # ── Configuration ─────────────────────────────────────────────────────────────
 #
@@ -117,10 +120,12 @@ set -euo pipefail
 # ── Flags ─────────────────────────────────────────────────────────────────────
 DRY_RUN=false
 TEARDOWN=false
+TEARDOWN_YES=false
 for _arg in "$@"; do
   case "$_arg" in
     --dry-run)  DRY_RUN=true ;;
     --teardown) TEARDOWN=true ;;
+    --yes|-y)   TEARDOWN_YES=true ;;
   esac
 done
 unset _arg
@@ -347,7 +352,8 @@ scw_request() {
   fi
   # -g disables curl URL globbing so query params with [] (e.g. page[limit]) pass through verbatim.
   local args=(-sS -g -w $'\n%{http_code}' -H "X-Auth-Token: $SCW_SECRET_KEY")
-  [[ "$method" != "GET" ]] && args+=(-X "$method" -H "Content-Type: application/json" -d "$body")
+  [[ "$method" != "GET" ]] && args+=(-X "$method")
+  [[ -n "$body" ]] && args+=(-H "Content-Type: application/json" -d "$body")
   local resp
   resp=$(curl "${args[@]}" "${SCW_API}${path}")
   local http_code="${resp##*$'\n'}" body_out="${resp%$'\n'*}"
@@ -357,8 +363,9 @@ scw_request() {
   printf '%s\n' "$body_out"
 }
 
-scw_get()  { scw_request GET  "$1"; }
-scw_post() { scw_request POST "$1" "$2"; }
+scw_get()    { scw_request GET    "$1"; }
+scw_post()   { scw_request POST   "$1" "$2"; }
+scw_delete() { scw_request DELETE "$1"; }
 
 # ── Datadog API helpers ───────────────────────────────────────────────────────
 dd_request() {
@@ -1064,6 +1071,109 @@ teardown_datadog_account() {
   ok "Deleted Datadog Scaleway account for project '${SCW_PROJECT_ID}' (id=${account_id})"
 }
 
+# Deletes all Cockpit log exporters named $EXPORTER_NAME across every
+# configured region for the project.
+teardown_cockpit_exports() {
+  log "━━━ Teardown: Cockpit Log Exporters ━━━"
+  command -v jq  &>/dev/null || die "jq is required — install with: brew install jq  or  apt-get install -y jq"
+
+  : "${SCW_PROJECT_ID:?could not determine SCW_PROJECT_ID from scw config — run 'scw init' or set SCW_PROJECT_ID explicitly}"
+
+  IFS=',' read -ra _regions <<< "$SCALEWAY_REGIONS"
+  local deleted=0
+
+  for region in "${_regions[@]}"; do
+    local exporter_ids
+    exporter_ids=$(scw_get "/cockpit/v1/regions/${region}/exporters?project_id=${SCW_PROJECT_ID}&page_size=100" 2>/dev/null \
+      | jq -r --arg name "$EXPORTER_NAME" '.exporters[] | select(.name == $name) | .id' 2>/dev/null \
+      || true)
+    while IFS= read -r eid; do
+      [[ -z "$eid" ]] && continue
+      if [[ "$DRY_RUN" == "true" ]]; then
+        dryrun "Would DELETE /cockpit/v1/regions/${region}/exporters/${eid}"
+        deleted=$((deleted + 1))
+      elif scw_delete "/cockpit/v1/regions/${region}/exporters/${eid}" >/dev/null; then
+        ok "Deleted exporter ${eid} in ${region}"
+        deleted=$((deleted + 1))
+      else
+        warn "Failed to delete exporter ${eid} in ${region} — remove it manually from the Scaleway Console"
+      fi
+    done <<< "$exporter_ids"
+  done
+  unset _regions
+
+  [[ $deleted -gt 0 ]] || log "No exporters named '${EXPORTER_NAME}' found — nothing to delete."
+}
+
+# Scans for all teardown targets, prints a summary, and asks for confirmation.
+# Exits cleanly if the user declines or nothing is found.
+# Pass --yes / -y or set TEARDOWN_YES=true to skip the prompt (automation).
+confirm_teardown() {
+  if [[ "$DRY_RUN" == "true" ]]; then
+    dryrun "Would scan and list Cockpit exporters, audit-trail Instances, and Datadog account, then prompt for confirmation"
+    return 0
+  fi
+
+  log "Scanning for resources to delete..."
+
+  local lines=()
+
+  # Cockpit exporters
+  IFS=',' read -ra _regions <<< "$SCALEWAY_REGIONS"
+  for region in "${_regions[@]}"; do
+    local raw eids
+    raw=$(scw_get "/cockpit/v1/regions/${region}/exporters?project_id=${SCW_PROJECT_ID}&page_size=100" 2>/dev/null \
+      || echo '{"exporters":[]}')
+    eids=$(jq -r --arg name "$EXPORTER_NAME" '.exporters[] | select(.name == $name) | .id' <<< "$raw" 2>/dev/null \
+      || true)
+    while IFS= read -r eid; do
+      [[ -z "$eid" ]] && continue
+      lines+=("Cockpit exporter      region=${region}  name=${EXPORTER_NAME}  (id=${eid})")
+    done <<< "$eids"
+  done
+  unset _regions
+
+  # Audit trail instances
+  local instances_json
+  instances_json=$(scw instance server list zone=all project-id="$SCW_PROJECT_ID" \
+    tags.0="$AUDIT_INSTANCE_TAG" -o json 2>/dev/null || echo "[]")
+  while IFS= read -r entry; do
+    [[ -z "$entry" ]] && continue
+    lines+=("Audit trail Instance  ${entry}")
+  done < <(jq -r '.[] | "zone=\(.zone)  id=\(.id)  ip=\(.public_ip.address // "none")"' \
+    <<< "$instances_json" 2>/dev/null || true)
+
+  # Datadog integration account
+  local dd_info
+  dd_info=$(dd_get_all "/api/v2/web-integrations/scaleway/accounts" 2>/dev/null \
+    | jq -r --arg proj "$SCW_PROJECT_ID" \
+        '.data[] | select(.attributes.settings.project_id == $proj) | "name=\(.attributes.name)  (id=\(.id))"' \
+      2>/dev/null || true)
+  [[ -n "$dd_info" ]] && lines+=("Datadog account       ${dd_info}")
+
+  if [[ ${#lines[@]} -eq 0 ]]; then
+    log "No resources found for project ${SCW_PROJECT_ID} — nothing to delete."
+    exit 0
+  fi
+
+  printf '\n'
+  printf '\033[0;33m[teardown]\033[0m  The following resources will be permanently deleted:\n' >&2
+  for line in "${lines[@]}"; do
+    printf '             \033[0;33m→\033[0m  %s\n' "$line" >&2
+  done
+  printf '\n'
+
+  [[ "$TEARDOWN_YES" == "true" ]] && return 0
+
+  printf '  Proceed? [y/N] ' >&2
+  local ans=""
+  read -r ans </dev/tty || true
+  if [[ ! "$ans" =~ ^[Yy]$ ]]; then
+    log "Teardown cancelled."
+    exit 0
+  fi
+}
+
 setup_audit_trail() {
   log "━━━ Part 2: Audit Trail Export ━━━"
 
@@ -1203,6 +1313,8 @@ main() {
 
   # --teardown is a destructive one-shot: skip the normal setup flow entirely.
   if [[ "$TEARDOWN" == "true" ]]; then
+    confirm_teardown
+    teardown_cockpit_exports
     teardown_audit_trail_instance
     teardown_datadog_account
     return 0
