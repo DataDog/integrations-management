@@ -9,7 +9,7 @@ set -euo pipefail
 # ── Flags ─────────────────────────────────────────────────────────────────────
 DRY_RUN=false
 TEARDOWN=false
-TEARDOWN_YES=false
+TEARDOWN_YES="${TEARDOWN_YES:-false}"
 for _arg in "$@"; do
   case "$_arg" in
     --dry-run)  DRY_RUN=true ;;
