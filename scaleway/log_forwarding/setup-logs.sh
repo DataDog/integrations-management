@@ -148,6 +148,15 @@ confirm_default_yes() {
   [[ ! "$ans" =~ ^[Nn]$ ]]
 }
 
+# Prompt with a default-no [y/N] confirmation.  Returns 0 only if the user
+# explicitly answered Y/y.  Reads from /dev/tty so it works under `bash <(curl …)`.
+confirm_default_no() {
+  local prompt="$1" ans=""
+  printf '  %s [y/N] ' "$prompt" >&2
+  read -r ans </dev/tty || true
+  [[ "$ans" =~ ^[Yy]$ ]]
+}
+
 # ── Bootstrap: ensure scw CLI is installed and initialized ───────────────────
 # On Linux and macOS, offers to install scw via the official Scaleway install
 # script if it's missing, then runs `scw init` interactively when no
@@ -1071,42 +1080,13 @@ teardown_datadog_account() {
   ok "Deleted Datadog Scaleway account for project '${SCW_PROJECT_ID}' (id=${account_id})"
 }
 
-# Deletes all Cockpit log exporters named $EXPORTER_NAME across every
-# configured region for the project.
-teardown_cockpit_exports() {
-  log "━━━ Teardown: Cockpit Log Exporters ━━━"
-  command -v jq  &>/dev/null || die "jq is required — install with: brew install jq  or  apt-get install -y jq"
-
-  : "${SCW_PROJECT_ID:?could not determine SCW_PROJECT_ID from scw config — run 'scw init' or set SCW_PROJECT_ID explicitly}"
-
-  IFS=',' read -ra _regions <<< "$SCALEWAY_REGIONS"
-  local deleted=0
-
-  for region in "${_regions[@]}"; do
-    local exporter_ids
-    exporter_ids=$(scw_get "/cockpit/v1/regions/${region}/exporters?project_id=${SCW_PROJECT_ID}&page_size=100" 2>/dev/null \
-      | jq -r --arg name "$EXPORTER_NAME" '.exporters[] | select(.name == $name) | .id' 2>/dev/null \
-      || true)
-    while IFS= read -r eid; do
-      [[ -z "$eid" ]] && continue
-      if [[ "$DRY_RUN" == "true" ]]; then
-        dryrun "Would DELETE /cockpit/v1/regions/${region}/exporters/${eid}"
-        deleted=$((deleted + 1))
-      elif scw_delete "/cockpit/v1/regions/${region}/exporters/${eid}" >/dev/null; then
-        ok "Deleted exporter ${eid} in ${region}"
-        deleted=$((deleted + 1))
-      else
-        warn "Failed to delete exporter ${eid} in ${region} — remove it manually from the Scaleway Console"
-      fi
-    done <<< "$exporter_ids"
-  done
-  unset _regions
-
-  [[ $deleted -gt 0 ]] || log "No exporters named '${EXPORTER_NAME}' found — nothing to delete."
-}
+# Populated by confirm_teardown as "region:id\n..." so teardown_cockpit_exports
+# can consume the list without repeating the API calls.
+_TEARDOWN_EXPORTER_IDS=""
 
 # Scans for all teardown targets, prints a summary, and asks for confirmation.
-# Exits cleanly if the user declines or nothing is found.
+# Returns 1 (caller should return) if the user declines or nothing is found.
+# Populates _TEARDOWN_EXPORTER_IDS for reuse by teardown_cockpit_exports.
 # Pass --yes / -y or set TEARDOWN_YES=true to skip the prompt (automation).
 confirm_teardown() {
   if [[ "$DRY_RUN" == "true" ]]; then
@@ -1118,7 +1098,8 @@ confirm_teardown() {
 
   local lines=()
 
-  # Cockpit exporters
+  # Cockpit exporters — IDs cached in _TEARDOWN_EXPORTER_IDS to avoid
+  # a duplicate GET per region when teardown_cockpit_exports runs next.
   IFS=',' read -ra _regions <<< "$SCALEWAY_REGIONS"
   for region in "${_regions[@]}"; do
     local raw eids
@@ -1128,6 +1109,7 @@ confirm_teardown() {
       || true)
     while IFS= read -r eid; do
       [[ -z "$eid" ]] && continue
+      _TEARDOWN_EXPORTER_IDS+="${region}:${eid}"$'\n'
       lines+=("Cockpit exporter      region=${region}  name=${EXPORTER_NAME}  (id=${eid})")
     done <<< "$eids"
   done
@@ -1153,7 +1135,7 @@ confirm_teardown() {
 
   if [[ ${#lines[@]} -eq 0 ]]; then
     log "No resources found for project ${SCW_PROJECT_ID} — nothing to delete."
-    exit 0
+    return 1
   fi
 
   printf '\n'
@@ -1165,13 +1147,61 @@ confirm_teardown() {
 
   [[ "$TEARDOWN_YES" == "true" ]] && return 0
 
-  printf '  Proceed? [y/N] ' >&2
-  local ans=""
-  read -r ans </dev/tty || true
-  if [[ ! "$ans" =~ ^[Yy]$ ]]; then
+  if ! confirm_default_no "Proceed?"; then
     log "Teardown cancelled."
-    exit 0
+    return 1
   fi
+}
+
+# Deletes all Cockpit log exporters named $EXPORTER_NAME across every
+# configured region for the project.  Consumes _TEARDOWN_EXPORTER_IDS if
+# already populated by confirm_teardown to avoid duplicate API calls.
+teardown_cockpit_exports() {
+  log "━━━ Teardown: Cockpit Log Exporters ━━━"
+
+  : "${SCW_PROJECT_ID:?could not determine SCW_PROJECT_ID from scw config — run 'scw init' or set SCW_PROJECT_ID explicitly}"
+
+  local deleted=0
+
+  if [[ -n "$_TEARDOWN_EXPORTER_IDS" ]]; then
+    # Fast path: reuse IDs already fetched by confirm_teardown.
+    while IFS=: read -r region eid; do
+      [[ -z "$eid" ]] && continue
+      if [[ "$DRY_RUN" == "true" ]]; then
+        dryrun "Would DELETE /cockpit/v1/regions/${region}/exporters/${eid}"
+        deleted=$((deleted + 1))
+      elif scw_delete "/cockpit/v1/regions/${region}/exporters/${eid}" >/dev/null; then
+        ok "Deleted exporter ${eid} in ${region}"
+        deleted=$((deleted + 1))
+      else
+        warn "Failed to delete exporter ${eid} in ${region} — remove it manually from the Scaleway Console"
+      fi
+    done <<< "$_TEARDOWN_EXPORTER_IDS"
+  else
+    # Standalone path: confirm_teardown was skipped (e.g. dry-run), fetch fresh.
+    IFS=',' read -ra _regions <<< "$SCALEWAY_REGIONS"
+    for region in "${_regions[@]}"; do
+      local exporter_ids
+      exporter_ids=$(scw_get "/cockpit/v1/regions/${region}/exporters?project_id=${SCW_PROJECT_ID}&page_size=100" 2>/dev/null \
+        | jq -r --arg name "$EXPORTER_NAME" '.exporters[] | select(.name == $name) | .id' 2>/dev/null \
+        || true)
+      while IFS= read -r eid; do
+        [[ -z "$eid" ]] && continue
+        if [[ "$DRY_RUN" == "true" ]]; then
+          dryrun "Would DELETE /cockpit/v1/regions/${region}/exporters/${eid}"
+          deleted=$((deleted + 1))
+        elif scw_delete "/cockpit/v1/regions/${region}/exporters/${eid}" >/dev/null; then
+          ok "Deleted exporter ${eid} in ${region}"
+          deleted=$((deleted + 1))
+        else
+          warn "Failed to delete exporter ${eid} in ${region} — remove it manually from the Scaleway Console"
+        fi
+      done <<< "$exporter_ids"
+    done
+    unset _regions
+  fi
+
+  [[ $deleted -gt 0 ]] || log "No exporters named '${EXPORTER_NAME}' found — nothing to delete."
 }
 
 setup_audit_trail() {
@@ -1313,7 +1343,7 @@ main() {
 
   # --teardown is a destructive one-shot: skip the normal setup flow entirely.
   if [[ "$TEARDOWN" == "true" ]]; then
-    confirm_teardown
+    confirm_teardown || return 0
     teardown_cockpit_exports
     teardown_audit_trail_instance
     teardown_datadog_account
