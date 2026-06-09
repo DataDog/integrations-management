@@ -1233,9 +1233,9 @@ main() {
   # --teardown is a destructive one-shot: skip the normal setup flow entirely.
   if [[ "$TEARDOWN" == "true" ]]; then
     confirm_teardown || return 0
+    teardown_datadog_account
     teardown_cockpit_exports
     teardown_audit_trail_instance
-    teardown_datadog_account
     return 0
   fi
 
