@@ -760,12 +760,6 @@ fi
 # ══════════════════════════════════════════════════════════════════════════════
 step "STEP 5: REGISTER DATADOG ACCOUNT"
 
-if [[ -z "$CLIENT_SECRET" ]]; then
-    fatal "client_secret is required for Datadog account registration but could not be retrieved automatically." \
-        "Retrieve it from: OCI Console → Domains → Applications → '${APP_NAME}' → OAuth Configuration" \
-        "Then re-run with the secret stored in DD_CLIENT_SECRET and set it in the payload manually," \
-        "or enter the credentials directly in the Datadog Oracle Fusion integration tile."
-fi
 
 # Default account name to the identity domain hostname
 if [[ -z "$ACCOUNT_NAME" ]]; then
@@ -790,7 +784,8 @@ matched = [a for a in data if a.get('attributes', {}).get('name') == name]
 print(matched[0].get('id', '') if matched else '')
 " 2>/dev/null)
 
-# Build payload — only include optional fields when values are available
+# Build payload — omit optional fields when values are absent;
+# omit secrets entirely when CLIENT_SECRET is empty (PATCH keeps the existing secret).
 payload=$(python3 -c "
 import json, sys
 settings = {
@@ -805,16 +800,11 @@ if fusion_scope:   settings['oauth_scope']      = fusion_scope
 if fusion_base:    settings['fusion_base_url']  = fusion_base
 if epm_scope:      settings['epm_oauth_scope']  = epm_scope
 if epm_base:       settings['epm_base_url']     = epm_base
-print(json.dumps({
-    'data': {
-        'type': 'Account',
-        'attributes': {
-            'name': '${ACCOUNT_NAME}',
-            'settings': settings,
-            'secrets': {'client_secret': '${CLIENT_SECRET}'},
-        }
-    }
-}))
+attrs = {'name': '${ACCOUNT_NAME}', 'settings': settings}
+client_secret = '${CLIENT_SECRET:-}'
+if client_secret:
+    attrs['secrets'] = {'client_secret': client_secret}
+print(json.dumps({'data': {'type': 'Account', 'attributes': attrs}}))
 " 2>/dev/null)
 
 if [[ -n "$existing_account_id" ]]; then
@@ -824,6 +814,10 @@ if [[ -n "$existing_account_id" ]]; then
         "Verify DD_API_KEY and DD_APP_KEY have 'integrations_write' permissions."
     success "Datadog Oracle Fusion account updated (id=${existing_account_id})"
 else
+    [[ -z "${CLIENT_SECRET:-}" ]] && fatal \
+        "client_secret is required to create a new Datadog account but could not be retrieved automatically." \
+        "Retrieve it from: OCI Console → Domains → Applications → '${APP_NAME}' → OAuth Configuration" \
+        "Or enter the credentials directly in the Datadog Oracle Fusion integration tile."
     info "Creating Datadog Oracle Fusion account '${ACCOUNT_NAME}'..."
     create_resp=$(dd_post "/api/v2/web-integrations/oracle-fusion/accounts" "$payload") || fatal \
         "Failed to create Datadog Oracle Fusion account" \
