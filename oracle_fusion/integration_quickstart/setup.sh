@@ -1,0 +1,643 @@
+#!/bin/bash
+# Unless explicitly stated otherwise all files in this repository are licensed under the Apache-2 License.
+
+# This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
+
+# fusion-onboarding.sh
+#
+# Automates the full Oracle Fusion + EPM integration user onboarding for Datadog.
+# Creates the OCI IAM confidential application, Fusion integration user,
+# assigns the required Fusion role, and grants EPM Service Administrator access.
+#
+# Usage:
+#   ./fusion-onboarding.sh [OPTIONS]
+#
+# Options:
+#   --identity-domain-url URL     OCI IAM identity domain URL (required)
+#   --fusion-app-id ID            Hex ID of Fusion SaaS app in OCI IAM (required for Fusion)
+#   --epm-app-id ID               Hex ID of EPM SaaS app in OCI IAM (required for EPM)
+#   --fusion-base-url URL         Fusion environment base URL (required for Fusion)
+#   --epm-base-url URL            EPM environment base URL (required for EPM)
+#   --fusion-admin-username USER  Fusion admin username (required for Fusion)
+#   --fusion-admin-password PASS  Fusion admin password (required for Fusion, not stored)
+#   --resume                      Re-use existing confidential app if found, skip completed steps
+#   --epm-only                    Skip Fusion user/role steps, only provision EPM access
+#   --fusion-only                 Skip EPM steps, only provision Fusion access
+#
+# Example (Fusion + EPM):
+#   ./fusion-onboarding.sh \
+#     --identity-domain-url https://idcs-XXXX.identity.oraclecloud.com \
+#     --fusion-app-id 47196679097c447486306f0023f5ef4d \
+#     --epm-app-id 1fbd4f1bc91a4ffda592776a9841493f \
+#     --fusion-base-url https://icjnjb.fa.ocs.oraclecloud.com \
+#     --epm-base-url https://epmprod-xx.epm.us-ashburn-1.ocs.oraclecloud.com \
+#     --fusion-admin-username admin@company.com \
+#     --fusion-admin-password mypassword
+
+set -euo pipefail
+
+# ── Colours ───────────────────────────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+info()    { echo -e "${BLUE}  •${NC} $*"; }
+success() { echo -e "${GREEN}  ✓${NC} $*"; }
+warn()    { echo -e "${YELLOW}  ⚠${NC} $*"; }
+step()    { echo -e "\n${BOLD}━━━ $* ━━━${NC}"; }
+
+fatal() {
+    local message="$1"; shift
+    echo -e "\n${RED}${BOLD}  ✗ FAILED: ${message}${NC}"
+    if [[ $# -gt 0 ]]; then
+        echo -e "${YELLOW}${BOLD}  How to fix:${NC}"
+        for line in "$@"; do
+            echo -e "  → ${line}"
+        done
+    fi
+    echo ""
+    exit 1
+}
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
+IDENTITY_DOMAIN_URL=""
+FUSION_APP_ID=""
+EPM_APP_ID=""
+FUSION_BASE_URL=""
+EPM_BASE_URL=""
+FUSION_ADMIN_USERNAME=""
+FUSION_ADMIN_PASSWORD=""
+RESUME=false
+EPM_ONLY=false
+FUSION_ONLY=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --identity-domain-url)   IDENTITY_DOMAIN_URL="$2";   shift 2 ;;
+        --fusion-app-id)         FUSION_APP_ID="$2";         shift 2 ;;
+        --epm-app-id)            EPM_APP_ID="$2";            shift 2 ;;
+        --fusion-base-url)       FUSION_BASE_URL="$2";       shift 2 ;;
+        --epm-base-url)          EPM_BASE_URL="$2";          shift 2 ;;
+        --fusion-admin-username) FUSION_ADMIN_USERNAME="$2"; shift 2 ;;
+        --fusion-admin-password) FUSION_ADMIN_PASSWORD="$2"; shift 2 ;;
+        --resume)                RESUME=true;                shift 1 ;;
+        --epm-only)              EPM_ONLY=true;              shift 1 ;;
+        --fusion-only)           FUSION_ONLY=true;           shift 1 ;;
+        *) echo "Unknown argument: $1"; exit 1 ;;
+    esac
+done
+
+# ── URL normalisation ─────────────────────────────────────────────────────────
+normalise_url() {
+    local url="$1"
+    url="${url%/}"           # strip trailing slash
+    url="${url%:443}"        # strip trailing :443
+    echo "$url"
+}
+
+[[ -n "$IDENTITY_DOMAIN_URL" ]] && IDENTITY_DOMAIN_URL=$(normalise_url "$IDENTITY_DOMAIN_URL")
+[[ -n "$FUSION_BASE_URL" ]]     && FUSION_BASE_URL=$(normalise_url "$FUSION_BASE_URL")
+[[ -n "$EPM_BASE_URL" ]]        && EPM_BASE_URL=$(normalise_url "$EPM_BASE_URL")
+TOKEN_URL="${IDENTITY_DOMAIN_URL}/oauth2/v1/token"
+
+# ── Temp file cleanup ─────────────────────────────────────────────────────────
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+# ── State tracking ────────────────────────────────────────────────────────────
+CLIENT_ID=""
+CLIENT_SECRET=""
+FUSION_USER_ID=""
+OCI_IAM_USER_ID=""
+
+# ══════════════════════════════════════════════════════════════════════════════
+echo ""
+echo -e "${BOLD}Datadog Oracle Fusion / EPM Integration Onboarding${NC}"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# ══════════════════════════════════════════════════════════════════════════════
+step "PREREQUISITE CHECKS"
+
+# 1. Required arguments
+info "Checking required inputs..."
+[[ -z "$IDENTITY_DOMAIN_URL" ]] && fatal \
+    "--identity-domain-url is required" \
+    "Provide your OCI IAM identity domain URL." \
+    "Find it at: OCI Console → Identity & Security → Domains → copy the Domain URL"
+
+if [[ "$EPM_ONLY" == false && -z "$FUSION_APP_ID" && -z "$EPM_APP_ID" ]]; then
+    fatal "At least one of --fusion-app-id or --epm-app-id is required" \
+        "Find these in: OCI Console → Identity & Security → Domains → Applications" \
+        "Click on the Fusion or EPM app → copy the Application ID"
+fi
+
+if [[ "$EPM_ONLY" == false ]]; then
+    [[ -z "$FUSION_APP_ID" ]] && warn "No --fusion-app-id provided — skipping Fusion scope"
+    [[ -z "$FUSION_BASE_URL" ]] && [[ -n "$FUSION_APP_ID" ]] && fatal \
+        "--fusion-base-url is required when --fusion-app-id is provided" \
+        "Provide your Oracle Fusion environment URL, e.g. https://icjnjb.fa.ocs.oraclecloud.com"
+    [[ -z "$FUSION_ADMIN_USERNAME" ]] && [[ -n "$FUSION_APP_ID" ]] && fatal \
+        "--fusion-admin-username is required for Fusion user provisioning" \
+        "Provide a Fusion admin account username. These credentials are used only for" \
+        "provisioning and are never stored by Datadog."
+    [[ -z "$FUSION_ADMIN_PASSWORD" ]] && [[ -n "$FUSION_APP_ID" ]] && fatal \
+        "--fusion-admin-password is required for Fusion user provisioning"
+fi
+
+if [[ "$FUSION_ONLY" == false ]]; then
+    [[ -z "$EPM_APP_ID" ]] && warn "No --epm-app-id provided — skipping EPM provisioning"
+    [[ -z "$EPM_BASE_URL" ]] && [[ -n "$EPM_APP_ID" ]] && fatal \
+        "--epm-base-url is required when --epm-app-id is provided" \
+        "Provide your Oracle Fusion EPM environment URL," \
+        "e.g. https://epmprod-xx.epm.us-ashburn-1.ocs.oraclecloud.com"
+fi
+success "Required inputs present"
+
+# 2. OCI CLI configured
+info "Checking OCI CLI credentials..."
+if ! oci iam region list --output json > /dev/null 2>&1; then
+    fatal "OCI CLI credentials are invalid or not configured" \
+        "Run: oci setup config" \
+        "Your OCI user must have identity domain administrator permissions." \
+        "Docs: https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm"
+fi
+success "OCI CLI credentials valid"
+
+# 3. Fusion app ID resolves in identity domain
+if [[ -n "$FUSION_APP_ID" ]]; then
+    info "Verifying Fusion app ID '${FUSION_APP_ID}' exists in identity domain..."
+    fusion_app_resp=$(oci identity-domains apps list \
+        --endpoint "$IDENTITY_DOMAIN_URL" \
+        --filter "id eq \"${FUSION_APP_ID}\"" \
+        --output json 2>/dev/null)
+    fusion_app_name=$(echo "$fusion_app_resp" | python3 -c "
+import sys,json
+apps = json.load(sys.stdin).get('data',{}).get('resources',[])
+print(apps[0].get('display-name','') if apps else '')
+" 2>/dev/null)
+    [[ -z "$fusion_app_name" ]] && fatal \
+        "Fusion app ID '${FUSION_APP_ID}' was not found in identity domain '${IDENTITY_DOMAIN_URL}'" \
+        "Verify the Application ID at: OCI Console → Domains → Applications → Fusion Apps Cloud Service" \
+        "Ensure you are using the hex Application ID, not the OCID."
+    FUSION_SCOPE=$(echo "$fusion_app_resp" | python3 -c "
+import sys,json
+app = json.load(sys.stdin).get('data',{}).get('resources',[])[0]
+audience = app.get('audience','')
+print(audience if 'consumer::all' in audience else audience + 'urn:opc:resource:consumer::all')
+" 2>/dev/null)
+    success "Fusion app found: '${fusion_app_name}' — scope derived"
+fi
+
+# 4. EPM app ID resolves in identity domain
+if [[ -n "$EPM_APP_ID" ]]; then
+    info "Verifying EPM app ID '${EPM_APP_ID}' exists in identity domain..."
+    epm_app_resp=$(oci identity-domains apps list \
+        --endpoint "$IDENTITY_DOMAIN_URL" \
+        --filter "id eq \"${EPM_APP_ID}\"" \
+        --output json 2>/dev/null)
+    epm_app_name=$(echo "$epm_app_resp" | python3 -c "
+import sys,json
+apps = json.load(sys.stdin).get('data',{}).get('resources',[])
+print(apps[0].get('display-name','') if apps else '')
+" 2>/dev/null)
+    [[ -z "$epm_app_name" ]] && fatal \
+        "EPM app ID '${EPM_APP_ID}' was not found in identity domain '${IDENTITY_DOMAIN_URL}'" \
+        "Verify the Application ID at: OCI Console → Domains → Applications → your EPM app" \
+        "Ensure you are using the hex Application ID, not the OCID."
+    EPM_SCOPE=$(echo "$epm_app_resp" | python3 -c "
+import sys,json
+app = json.load(sys.stdin).get('data',{}).get('resources',[])[0]
+audience = app.get('audience','')
+print(audience if 'consumer::all' in audience else audience + 'urn:opc:resource:consumer::all')
+" 2>/dev/null)
+    success "EPM app found: '${epm_app_name}' — scope derived"
+fi
+
+# 5. Validate Fusion admin credentials + connectivity
+if [[ -n "$FUSION_APP_ID" && "$EPM_ONLY" == false ]]; then
+    info "Validating Fusion admin credentials and connectivity..."
+    fusion_auth_status=$(curl -s --compressed -o /dev/null -w "%{http_code}" \
+        "${FUSION_BASE_URL}/hcmRestApi/scim/Users?count=1" \
+        -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" 2>/dev/null)
+    if [[ "$fusion_auth_status" == "000" ]]; then
+        fatal "Cannot reach Fusion at '${FUSION_BASE_URL}'" \
+            "Check that the URL is correct and reachable from this machine." \
+            "Try: curl -I ${FUSION_BASE_URL}/hcmRestApi/scim/Users"
+    elif [[ "$fusion_auth_status" == "401" || "$fusion_auth_status" == "403" ]]; then
+        fatal "Fusion admin credentials rejected (HTTP ${fusion_auth_status})" \
+            "Verify --fusion-admin-username and --fusion-admin-password are correct." \
+            "The admin account must have HCM user management permissions."
+    fi
+    success "Fusion admin credentials valid (HTTP ${fusion_auth_status})"
+fi
+
+# 6. EPM URL reachable
+if [[ -n "$EPM_APP_ID" && "$FUSION_ONLY" == false ]]; then
+    info "Checking EPM URL reachability..."
+    epm_status=$(curl -s -o /dev/null -w "%{http_code}" \
+        "${EPM_BASE_URL}/HyperionPlanning/rest/v3/applications" 2>/dev/null)
+    [[ "$epm_status" == "000" ]] && fatal \
+        "Cannot reach EPM at '${EPM_BASE_URL}'" \
+        "Check that the EPM base URL is correct and reachable from this machine."
+    success "EPM URL reachable (HTTP ${epm_status})"
+fi
+
+# 7. DD_INTEGRATION_ROLE exists in Fusion and is accessible via API
+#    We check the role CODE (the 'name' field in SCIM).
+#    The role code must be exactly 'DD_INTEGRATION_ROLE'.
+if [[ -n "$FUSION_APP_ID" && "$EPM_ONLY" == false ]]; then
+    info "Checking for role with code 'DD_INTEGRATION_ROLE' in Fusion..."
+    info "(The role CODE must be exactly 'DD_INTEGRATION_ROLE')"
+    role_check=$(curl -s --compressed \
+        "${FUSION_BASE_URL}/hcmRestApi/scim/Roles?filter=name+eq+%22DD_INTEGRATION_ROLE%22" \
+        -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" \
+        -H "Accept: application/json" 2>/dev/null)
+    role_count=$(echo "$role_check" | python3 -c "
+import sys,json; print(json.load(sys.stdin).get('itemsPerPage',0))
+" 2>/dev/null)
+    if [[ "$role_count" == "0" ]]; then
+        fatal "No role with code 'DD_INTEGRATION_ROLE' was found in Fusion or it is not API-assignable" \
+            "This custom role must be created in Oracle Fusion Security Console before onboarding." \
+            "Steps:" \
+            "  1. Log in to Oracle Fusion as an administrator" \
+            "  2. Navigate to: Navigator → Tools → Security Console → Roles → Create Role" \
+            "  3. Set the following:" \
+            "       Role Name:     (any descriptive name)" \
+            "       Role Code:     DD_INTEGRATION_ROLE  ← must be exactly this" \
+            "       Role Category: Default" \
+            "  4. Under 'Role Hierarchy', add these 3 roles by their codes:" \
+            "       ESSMonitor" \
+            "       ORA_FND_INTEGRATION_SPECIALIST_JOB" \
+            "       ORA_FND_INTERNAL_AUDITOR_JOB" \
+            "     Note: Fusion will likely pull in sub-roles automatically for each of these." \
+            "     This is expected — keep all sub-roles that are added." \
+            "  5. Save the role" \
+            "  6. Make the role API-assignable via Role Provisioning Rules:" \
+            "     Setup and Maintenance → Manage Role Provisioning Rules → Add DD_INTEGRATION_ROLE" \
+            "     Check 'Requestable' to allow API assignment"
+    fi
+    DD_INTEGRATION_ROLE_ID=$(echo "$role_check" | python3 -c "
+import sys,json; rs=json.load(sys.stdin).get('Resources',[]); print(rs[0].get('id','') if rs else '')
+" 2>/dev/null)
+    success "'DD_INTEGRATION_ROLE' found and accessible via API"
+fi
+
+# 8. Idempotency — check if confidential app already exists
+APP_NAME="Datadog Fusion Integration"
+info "Checking if '${APP_NAME}' already exists in OCI IAM..."
+existing_app=$(oci identity-domains apps list \
+    --endpoint "$IDENTITY_DOMAIN_URL" \
+    --filter "displayName eq \"${APP_NAME}\"" \
+    --output json 2>/dev/null)
+existing_app_id=$(echo "$existing_app" | python3 -c "
+import sys,json
+apps=json.load(sys.stdin).get('data',{}).get('resources',[])
+print(apps[0].get('name','') if apps else '')
+" 2>/dev/null)
+
+APP_EXISTS=false
+if [[ -n "$existing_app_id" ]]; then
+    APP_EXISTS=true
+    if [[ "$RESUME" == false ]]; then
+        echo ""
+        echo -e "${YELLOW}${BOLD}  A confidential application named '${APP_NAME}' already exists.${NC}"
+        echo -e "  client_id: ${existing_app_id}"
+        echo ""
+        echo -e "  Options:"
+        echo -e "    --resume     Re-use this app and continue provisioning the integration user"
+        echo -e "                 (recommended if a previous run was interrupted)"
+        echo ""
+        exit 0
+    fi
+    CLIENT_ID="$existing_app_id"
+    warn "Existing app found — resuming with client_id: ${CLIENT_ID}"
+fi
+
+# 9. Idempotency — check if user already exists
+#    For Fusion+EPM: check Fusion SCIM (user was created there)
+#    For EPM-only: check OCI IAM directly (user created there instead)
+FUSION_USER_EXISTS=false
+OCI_IAM_USER_EXISTS=false
+if [[ -n "$CLIENT_ID" ]]; then
+    if [[ -n "$FUSION_APP_ID" && "$EPM_ONLY" == false ]]; then
+        info "Checking if Fusion user '${CLIENT_ID}' already exists..."
+        existing_user=$(curl -s --compressed \
+            "${FUSION_BASE_URL}/hcmRestApi/scim/Users?filter=userName+eq+%22${CLIENT_ID}%22" \
+            -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" \
+            -H "Accept: application/json" 2>/dev/null)
+        existing_user_id=$(echo "$existing_user" | python3 -c "
+import sys,json; rs=json.load(sys.stdin).get('Resources',[]); print(rs[0].get('id','') if rs else '')
+" 2>/dev/null)
+        if [[ -n "$existing_user_id" ]]; then
+            FUSION_USER_EXISTS=true
+            FUSION_USER_ID="$existing_user_id"
+            warn "Fusion user already exists (id: ${FUSION_USER_ID}) — skipping creation"
+        fi
+    elif [[ "$EPM_ONLY" == true ]]; then
+        info "Checking if OCI IAM user '${CLIENT_ID}' already exists..."
+        existing_oci_user=$(oci identity-domains users list \
+            --endpoint "$IDENTITY_DOMAIN_URL" \
+            --filter "userName eq \"${CLIENT_ID}\"" \
+            --output json 2>/dev/null)
+        existing_oci_user_id=$(echo "$existing_oci_user" | python3 -c "
+import sys,json
+rs=json.load(sys.stdin).get('data',{}).get('resources',[])
+print(rs[0].get('id','') if rs else '')
+" 2>/dev/null)
+        if [[ -n "$existing_oci_user_id" ]]; then
+            OCI_IAM_USER_EXISTS=true
+            OCI_IAM_USER_ID="$existing_oci_user_id"
+            warn "OCI IAM user already exists (id: ${OCI_IAM_USER_ID}) — skipping creation"
+        fi
+    fi
+fi
+
+success "Prerequisite checks passed"
+
+# ══════════════════════════════════════════════════════════════════════════════
+step "STEP 1: CREATE CONFIDENTIAL APPLICATION"
+
+if [[ "$APP_EXISTS" == true ]]; then
+    info "Skipping — using existing app (client_id: ${CLIENT_ID})"
+else
+    info "Building allowed scopes list..."
+    SCOPES_JSON="["
+    FIRST=true
+    if [[ -n "${FUSION_SCOPE:-}" ]]; then
+        SCOPES_JSON+="{\"fqs\": \"${FUSION_SCOPE}\"}"
+        FIRST=false
+    fi
+    if [[ -n "${EPM_SCOPE:-}" ]]; then
+        [[ "$FIRST" == false ]] && SCOPES_JSON+=", "
+        SCOPES_JSON+="{\"fqs\": \"${EPM_SCOPE}\"}"
+    fi
+    SCOPES_JSON+="]"
+
+    info "Creating confidential application '${APP_NAME}' in OCI IAM..."
+    app_result=$(oci identity-domains app create \
+        --endpoint "$IDENTITY_DOMAIN_URL" \
+        --schemas '["urn:ietf:params:scim:schemas:oracle:idcs:App"]' \
+        --display-name "$APP_NAME" \
+        --description "Datadog integration for Oracle Fusion and Fusion EPM monitoring" \
+        --based-on-template '{"value": "CustomWebAppTemplateId", "wellKnownId": "CustomWebAppTemplateId"}' \
+        --is-o-auth-client true \
+        --allowed-grants '["client_credentials"]' \
+        --client-type "confidential" \
+        --client-ip-checking "anywhere" \
+        --bypass-consent true \
+        --active true \
+        --allowed-scopes "$SCOPES_JSON" \
+        --output json 2>/dev/null) || fatal \
+        "Failed to create confidential application in OCI IAM" \
+        "Ensure your OCI credentials have 'Identity Domain Administrator' permissions." \
+        "Check: OCI Console → Identity & Security → Domains → your domain → Administrators"
+
+    CLIENT_ID=$(echo "$app_result" | python3 -c "
+import sys,json; print(json.load(sys.stdin).get('data',{}).get('name',''))
+" 2>/dev/null)
+    APP_OCID=$(echo "$app_result" | python3 -c "
+import sys,json; print(json.load(sys.stdin).get('data',{}).get('ocid',''))
+" 2>/dev/null)
+    CLIENT_SECRET=$(echo "$app_result" | python3 -c "
+import sys,json; print(json.load(sys.stdin).get('data',{}).get('client-secret',''))
+" 2>/dev/null)
+
+    # If not in creation response, retrieve via app get
+    if [[ -z "$CLIENT_SECRET" ]]; then
+        CLIENT_SECRET=$(oci identity-domains app get \
+            --endpoint "$IDENTITY_DOMAIN_URL" \
+            --app-id "$APP_OCID" \
+            --output json 2>/dev/null | python3 -c "
+import sys,json; print(json.load(sys.stdin).get('data',{}).get('client-secret',''))
+" 2>/dev/null)
+    fi
+
+    [[ -z "$CLIENT_ID" ]] && fatal \
+        "Application was created but client_id could not be retrieved" \
+        "Check OCI Console → Domains → Applications → '${APP_NAME}' for the Application ID"
+
+    success "Confidential application created"
+    echo ""
+    echo -e "  ${BOLD}client_id:${NC}     ${CLIENT_ID}"
+    echo -e "  ${BOLD}app_ocid:${NC}      ${APP_OCID}"
+    if [[ -n "$CLIENT_SECRET" ]]; then
+        echo -e "  ${BOLD}client_secret:${NC} ${CLIENT_SECRET}"
+    else
+        echo -e "  ${YELLOW}client_secret: retrieve from OCI Console → Applications → '${APP_NAME}' → OAuth Configuration${NC}"
+    fi
+    echo ""
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+# EPM-only: create the user directly in OCI IAM (no Fusion SCIM needed)
+# The OCI IAM user is required for the EPM Service Administrator grant in Step 4.
+if [[ "$EPM_ONLY" == true && -n "$EPM_APP_ID" ]]; then
+
+    step "STEP 2: CREATE OCI IAM USER (EPM-only)"
+
+    if [[ "$OCI_IAM_USER_EXISTS" == true ]]; then
+        info "Skipping — OCI IAM user already exists (id: ${OCI_IAM_USER_ID})"
+    else
+        info "Creating OCI IAM user with username '${CLIENT_ID}'..."
+        oci_user_result=$(oci identity-domains user create \
+            --endpoint "$IDENTITY_DOMAIN_URL" \
+            --schemas '["urn:ietf:params:scim:schemas:core:2.0:User"]' \
+            --user-name "$CLIENT_ID" \
+            --name '{"familyName": "Datadog Integration"}' \
+            --active true \
+            --output json 2>/dev/null) || fatal \
+            "Failed to create OCI IAM user '${CLIENT_ID}'" \
+            "Ensure your OCI credentials have permission to create users in the identity domain." \
+            "Check: OCI Console → Domains → Administrators"
+
+        OCI_IAM_USER_ID=$(echo "$oci_user_result" | python3 -c "
+import sys,json; print(json.load(sys.stdin).get('data',{}).get('id',''))
+" 2>/dev/null)
+        [[ -z "$OCI_IAM_USER_ID" ]] && fatal \
+            "OCI IAM user was created but ID could not be retrieved" \
+            "Check OCI Console → Domains → Users for the new user."
+        success "OCI IAM user created (id: ${OCI_IAM_USER_ID})"
+    fi
+
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+if [[ -n "$FUSION_APP_ID" && "$EPM_ONLY" == false ]]; then
+
+    step "STEP 2: CREATE FUSION INTEGRATION USER"
+
+    if [[ "$FUSION_USER_EXISTS" == true ]]; then
+        info "Skipping — Fusion user already exists (id: ${FUSION_USER_ID})"
+    else
+        info "Creating Fusion user with username '${CLIENT_ID}'..."
+        user_response=$(curl -s --compressed -w "|||%{http_code}" \
+            -X POST "${FUSION_BASE_URL}/hcmRestApi/scim/Users" \
+            -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -d "{
+                \"schemas\": [\"urn:scim:schemas:core:2.0:User\"],
+                \"userName\": \"${CLIENT_ID}\",
+                \"name\": {\"familyName\": \"Datadog Integration\"},
+                \"active\": true
+            }" 2>/dev/null)
+        user_status="${user_response##*|||}"
+        user_body="${user_response%|||*}"
+
+        if [[ "$user_status" != "201" ]]; then
+            fatal "Failed to create Fusion user (HTTP ${user_status})" \
+                "Response: $(echo "${user_body}" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("Errors",[{}])[0].get("description","unknown error"))' 2>/dev/null)" \
+                "Ensure --fusion-admin-username has HCM User Management permissions." \
+                "The admin must have the 'IT Security Manager' or equivalent role in Fusion."
+        fi
+
+        FUSION_USER_ID=$(echo "${user_body}" | python3 -c "
+import sys,json; print(json.load(sys.stdin).get('id',''))
+")
+        success "Fusion user created (internal id: ${FUSION_USER_ID})"
+    fi
+
+    # ══════════════════════════════════════════════════════════════════════════
+    step "STEP 3: ASSIGN FUSION ROLE (DD_INTEGRATION_ROLE)"
+
+    info "Assigning 'DD_INTEGRATION_ROLE' to user..."
+    patch_result=$(curl -s --compressed -w "\n%{http_code}" \
+        -X PATCH "${FUSION_BASE_URL}/hcmRestApi/scim/Roles/${DD_INTEGRATION_ROLE_ID}" \
+        -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" \
+        -H "Content-Type: application/json" \
+        -H "Accept: application/json" \
+        -d "{
+            \"schemas\": [\"urn:oracle:apps:scim:schemas:fa:1.0:Role\"],
+            \"members\": [{\"value\": \"${FUSION_USER_ID}\", \"operation\": \"ADD\"}]
+        }" 2>/dev/null)
+
+    patch_status=$(echo "$patch_result" | tail -1)
+
+    if [[ "$patch_status" != "204" && "$patch_status" != "200" ]]; then
+        fatal "Failed to assign DD_INTEGRATION_ROLE (HTTP ${patch_status})" \
+            "Verify that 'DD_INTEGRATION_ROLE' is in Fusion Role Provisioning Rules:" \
+            "  Setup and Maintenance → Manage Role Provisioning Rules" \
+            "The role must be marked as 'Requestable' to be assignable via API."
+    fi
+    success "DD_INTEGRATION_ROLE assigned to Fusion user"
+
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+if [[ -n "$EPM_APP_ID" && "$FUSION_ONLY" == false ]]; then
+
+    step "STEP 4: GRANT EPM SERVICE ADMINISTRATOR ROLE"
+
+    # Look up OCI IAM user ID — retry up to 5 times with 10s sleep between attempts.
+    # A Fusion user created in Step 2 may take a moment to propagate into OCI IAM.
+    info "Looking up OCI IAM user ID for '${CLIENT_ID}'..."
+    OCI_IAM_USER_ID=""
+    for attempt in 1 2 3 4 5; do
+        user_resp=$(oci identity-domains users list \
+            --endpoint "$IDENTITY_DOMAIN_URL" \
+            --filter "userName eq \"${CLIENT_ID}\"" \
+            --output json 2>/dev/null)
+        OCI_IAM_USER_ID=$(echo "$user_resp" | python3 -c "
+import sys,json
+rs=json.load(sys.stdin).get('data',{}).get('resources',[])
+print(rs[0].get('id','') if rs else '')
+" 2>/dev/null)
+        if [[ -n "$OCI_IAM_USER_ID" ]]; then
+            break
+        fi
+        if [[ $attempt -lt 5 ]]; then
+            info "User not yet visible in OCI IAM — waiting 10 seconds (attempt ${attempt}/5)..."
+            sleep 10
+        fi
+    done
+
+    [[ -z "$OCI_IAM_USER_ID" ]] && fatal \
+        "Could not find OCI IAM user with userName '${CLIENT_ID}' after 5 attempts (50 seconds)" \
+        "The Fusion user may not have synced to OCI IAM yet." \
+        "Wait a few minutes and re-run with --resume."
+
+    success "OCI IAM user found (id: ${OCI_IAM_USER_ID})"
+
+    # Find EPM Service Administrator role ID
+    info "Finding EPM Service Administrator role..."
+    ROLES_TMP="${TMP_DIR}/app_roles.json"
+    oci identity-domains app-roles list \
+        --endpoint "$IDENTITY_DOMAIN_URL" \
+        --count 200 \
+        --output json 2>/dev/null > "$ROLES_TMP"
+
+    SERVICE_ADMIN_ROLE_ID=$(python3 - "$ROLES_TMP" "$EPM_APP_ID" << 'PYEOF'
+import sys, json
+tmp_file, app_id = sys.argv[1], sys.argv[2]
+with open(tmp_file) as f:
+    d = json.load(f)
+resources = d.get('data', {}).get('resources', [])
+matched = [r for r in resources
+    if r.get('app', {}).get('value') == app_id
+    and r.get('display-name', '').lower() == 'service administrator']
+print(matched[0].get('id', '') if matched else '')
+PYEOF
+)
+
+    [[ -z "$SERVICE_ADMIN_ROLE_ID" ]] && fatal \
+        "Could not find 'Service Administrator' role for EPM app '${EPM_APP_ID}'" \
+        "Verify the EPM app ID is correct." \
+        "Check: OCI Console → Domains → Applications → your EPM app → Application ID"
+
+    success "EPM Service Administrator role found (id: ${SERVICE_ADMIN_ROLE_ID})"
+
+    # Check if grant already exists
+    info "Checking if EPM role grant already exists..."
+    existing_grant=$(oci identity-domains grants list \
+        --endpoint "$IDENTITY_DOMAIN_URL" \
+        --filter "grantee.value eq \"${OCI_IAM_USER_ID}\" and app.value eq \"${EPM_APP_ID}\"" \
+        --output json 2>/dev/null | python3 -c "
+import sys,json
+rs=json.load(sys.stdin).get('data',{}).get('resources',[])
+print(len(rs))
+" 2>/dev/null)
+
+    if [[ "$existing_grant" -gt 0 ]]; then
+        warn "EPM Service Administrator grant already exists — skipping"
+    else
+        info "Creating EPM Service Administrator grant..."
+        grant_result=$(oci identity-domains grant create \
+            --endpoint "$IDENTITY_DOMAIN_URL" \
+            --schemas '["urn:ietf:params:scim:schemas:oracle:idcs:Grant"]' \
+            --grant-mechanism "ADMINISTRATOR_TO_USER" \
+            --grantee "{\"type\": \"User\", \"value\": \"${OCI_IAM_USER_ID}\"}" \
+            --app "{\"value\": \"${EPM_APP_ID}\"}" \
+            --entitlement "{\"attributeName\": \"appRoles\", \"attributeValue\": \"${SERVICE_ADMIN_ROLE_ID}\"}" \
+            --output json 2>/dev/null) || fatal \
+            "Failed to create EPM Service Administrator grant" \
+            "Ensure your OCI credentials have Identity Domain Administrator permissions." \
+            "Check: OCI Console → Domains → Administrators"
+
+        success "EPM Service Administrator role granted"
+    fi
+
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+echo ""
+echo -e "${GREEN}${BOLD}━━━ ONBOARDING COMPLETE ━━━${NC}"
+echo ""
+echo -e "  ${BOLD}Summary:${NC}"
+echo -e "  client_id:       ${CLIENT_ID}"
+echo -e "  client_secret:   ${CLIENT_SECRET:-retrieve from OCI Console → Applications → '${APP_NAME}' → OAuth Configuration}"
+echo -e "  token_url:       ${TOKEN_URL}"
+[[ -n "${FUSION_SCOPE:-}" ]] && echo -e "  fusion_scope:    ${FUSION_SCOPE}"
+[[ -n "${EPM_SCOPE:-}" ]]    && echo -e "  epm_scope:       ${EPM_SCOPE}"
+[[ -n "$FUSION_BASE_URL" ]]  && echo -e "  fusion_base_url: ${FUSION_BASE_URL}"
+[[ -n "$EPM_BASE_URL" ]]     && echo -e "  epm_base_url:    ${EPM_BASE_URL}"
+echo ""
+echo -e "  ${YELLOW}${BOLD}Next steps:${NC}"
+echo -e "  1. Retrieve the client_secret from OCI Console if you haven't already:"
+echo -e "     OCI Console → Domains → Applications → '${APP_NAME}' → OAuth Configuration"
+echo -e "  2. Enter all values above into the Datadog Oracle Fusion integration tile"
+echo -e "  3. Allow 1-2 minutes for EPM Access Control to sync before testing"
+echo ""
