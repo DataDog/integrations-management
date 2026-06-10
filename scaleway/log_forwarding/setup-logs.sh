@@ -167,6 +167,7 @@ SCW_ORGANIZATION_ID="${SCW_ORGANIZATION_ID:-$(scw_config_get default-organizatio
 : "${DD_APP_KEY:?DD_APP_KEY is required (your Datadog application key)}"
 : "${DD_SITE:?DD_SITE is required (e.g. datadoghq.com)}"
 DD_API_BASE_URL="${DD_API_BASE_URL:-https://api.${DD_SITE}}"
+DD_LOGS_INTAKE_URL="${DD_LOGS_INTAKE_URL:-https://http-intake.logs.${DD_SITE}}"
 
 # ── Optional / defaults ───────────────────────────────────────────────────────
 SCW_PROJECT_ID="${SCW_PROJECT_ID:-$(scw_config_get default-project-id)}"
@@ -683,7 +684,7 @@ create_exporter() {
     --arg  name     "$EXPORTER_NAME" \
     --arg  ds_id    "$datasource_id" \
     --arg  api_key  "$DD_API_KEY" \
-    --arg  endpoint "https://http-intake.logs.${DD_SITE}" \
+    --arg  endpoint "${DD_LOGS_INTAKE_URL}" \
     --argjson prods "$products_json" \
     '{
       name:              $name,
