@@ -805,7 +805,24 @@ print(json.dumps({'data': {'type': 'Account', 'attributes': attrs}}))
 " 2>/dev/null)
 
 if [[ -n "$existing_account_id" ]]; then
-    info "Account exists — updating (id=${existing_account_id})..."
+    info "Account exists — merging settings (id=${existing_account_id})..."
+    # Fetch the existing account to merge settings — the PATCH endpoint replaces by default,
+    # so we must send the full merged settings to avoid clearing fields like enabled_services.
+    existing_resp=$(dd_get "/api/v2/web-integrations/oracle-fusion/accounts/${existing_account_id}") || fatal \
+        "Failed to fetch existing Datadog Oracle Fusion account" \
+        "Verify DD_API_KEY and DD_APP_KEY have 'integrations_read' permissions."
+    printf '%s' "$existing_resp" > "${TMP_DIR}/existing_account.json"
+    printf '%s' "$payload"       > "${TMP_DIR}/new_payload.json"
+    payload=$(python3 - "${TMP_DIR}/existing_account.json" "${TMP_DIR}/new_payload.json" <<'PYEOF'
+import sys, json
+with open(sys.argv[1]) as f: existing = json.load(f).get('data', {})
+with open(sys.argv[2]) as f: new_attrs = json.load(f)['data']['attributes']
+existing_settings = existing.get('attributes', {}).get('settings', {})
+existing_settings.update(new_attrs.get('settings', {}))
+new_attrs['settings'] = existing_settings
+print(json.dumps({'data': {'type': 'Account', 'attributes': new_attrs}}))
+PYEOF
+)
     dd_patch "/api/v2/web-integrations/oracle-fusion/accounts/${existing_account_id}" "$payload" > /dev/null || fatal \
         "Failed to update Datadog Oracle Fusion account" \
         "Verify DD_API_KEY and DD_APP_KEY have 'integrations_write' permissions."
