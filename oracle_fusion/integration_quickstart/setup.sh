@@ -20,7 +20,10 @@
 #   --epm-base-url URL            EPM environment base URL (required for EPM)
 #   --fusion-admin-username USER  Fusion admin username (required for Fusion)
 #   --fusion-admin-password PASS  Fusion admin password (required for Fusion, not stored)
-#   --account-name NAME           Name for the Datadog integration account [default: hostname from identity domain URL]
+#   --account-name NAME           Datadog integration account name. If a matching account already
+#                                 exists, its credentials are fetched and the account is updated.
+#                                 When --identity-domain-url is omitted, it is derived from the
+#                                 existing account's token_url (add-EPM-to-existing-account flow).
 #   --resume                      Re-use existing confidential app if found, skip completed steps
 #   --epm-only                    Skip Fusion user/role steps, only provision EPM access
 #   --fusion-only                 Skip EPM steps, only provision Fusion access
@@ -29,6 +32,15 @@
 #   DD_API_KEY    Your Datadog API key
 #   DD_APP_KEY    Your Datadog application key
 #   DD_SITE       Your Datadog site (e.g. datadoghq.com, datadoghq.eu, us3.datadoghq.com)
+#
+# Example (add EPM to an existing Fusion account):
+#   export DD_API_KEY=<your-api-key>
+#   export DD_APP_KEY=<your-app-key>
+#   ./setup.sh \
+#     --account-name "My Fusion Account" \
+#     --epm-only \
+#     --epm-app-id 1fbd4f1bc91a4ffda592776a9841493f \
+#     --epm-base-url https://epmprod-xx.epm.us-ashburn-1.ocs.oraclecloud.com
 #
 # Example (Fusion + EPM):
 #   export DD_API_KEY=<your-api-key>
@@ -158,10 +170,14 @@ step "PREREQUISITE CHECKS"
 
 # 1. Required arguments
 info "Checking required inputs..."
-[[ -z "$IDENTITY_DOMAIN_URL" ]] && fatal \
-    "--identity-domain-url is required" \
-    "Provide your OCI IAM identity domain URL." \
-    "Find it at: OCI Console → Identity & Security → Domains → copy the Domain URL"
+# IDENTITY_DOMAIN_URL may be omitted when --account-name names an existing DD account;
+# it will be derived from the account's token_url after DD credentials are validated.
+if [[ -z "$IDENTITY_DOMAIN_URL" && -z "$ACCOUNT_NAME" ]]; then
+    fatal "--identity-domain-url is required" \
+        "Provide your OCI IAM identity domain URL." \
+        "Find it at: OCI Console → Identity & Security → Domains → copy the Domain URL" \
+        "Or provide --account-name to look up an existing Datadog account and derive the URL automatically."
+fi
 
 if [[ -z "$FUSION_APP_ID" && -z "$EPM_APP_ID" ]]; then
     fatal "At least one of --fusion-app-id or --epm-app-id is required" \
@@ -222,6 +238,45 @@ dd_get "/api/v1/validate" > /dev/null 2>&1 || fatal \
     "Verify DD_API_KEY and DD_APP_KEY are correct." \
     "Verify DD_SITE matches your Datadog site (e.g. datadoghq.com, datadoghq.eu, us3.datadoghq.com)"
 success "Datadog credentials valid"
+
+# If --account-name was given without --identity-domain-url, fetch the existing account
+# to obtain client_id and derive the identity domain URL.
+if [[ -n "$ACCOUNT_NAME" && -z "$IDENTITY_DOMAIN_URL" ]]; then
+    info "Fetching existing Datadog account '${ACCOUNT_NAME}'..."
+    _accounts_resp=$(dd_get "/api/v2/web-integrations/oracle-fusion/accounts") || fatal \
+        "Failed to list Datadog Oracle Fusion accounts" \
+        "Verify DD_API_KEY and DD_APP_KEY have 'integrations_read' permissions."
+    _account_fields=$(echo "$_accounts_resp" | python3 -c "
+import sys, json
+data = json.load(sys.stdin).get('data', [])
+matched = [a for a in data if a.get('attributes', {}).get('name') == '${ACCOUNT_NAME}']
+if matched:
+    s = matched[0].get('attributes', {}).get('settings', {})
+    print(s.get('client_id', '') + '|' + s.get('token_url', ''))
+else:
+    print('|')
+" 2>/dev/null)
+    _fetched_client_id="${_account_fields%%|*}"
+    _fetched_token_url="${_account_fields##*|}"
+    [[ -z "$_fetched_client_id" ]] && fatal \
+        "No Datadog Oracle Fusion account named '${ACCOUNT_NAME}' found" \
+        "Verify the account name matches exactly what is shown in the Datadog integration tile." \
+        "Run without --account-name to create a new account instead."
+    CLIENT_ID="$_fetched_client_id"
+    IDENTITY_DOMAIN_URL=$(python3 -c "
+from urllib.parse import urlparse
+u = urlparse('${_fetched_token_url}')
+print(u.scheme + '://' + u.netloc)
+" 2>/dev/null)
+    IDENTITY_DOMAIN_URL=$(normalise_url "$IDENTITY_DOMAIN_URL")
+    TOKEN_URL="$_fetched_token_url"
+    success "Account found — client_id: ${CLIENT_ID}, identity domain: ${IDENTITY_DOMAIN_URL}"
+fi
+
+[[ -z "$IDENTITY_DOMAIN_URL" ]] && fatal \
+    "--identity-domain-url is required" \
+    "Provide your OCI IAM identity domain URL." \
+    "Find it at: OCI Console → Identity & Security → Domains → copy the Domain URL"
 
 # 3. Required tools
 info "Checking required tools..."
