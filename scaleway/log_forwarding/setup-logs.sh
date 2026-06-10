@@ -166,6 +166,7 @@ SCW_ORGANIZATION_ID="${SCW_ORGANIZATION_ID:-$(scw_config_get default-organizatio
 : "${DD_API_KEY:?DD_API_KEY is required (your Datadog API key)}"
 : "${DD_APP_KEY:?DD_APP_KEY is required (your Datadog application key)}"
 : "${DD_SITE:?DD_SITE is required (e.g. datadoghq.com)}"
+DD_API_BASE_URL="${DD_API_BASE_URL:-https://api.${DD_SITE}}"
 
 # ── Optional / defaults ───────────────────────────────────────────────────────
 SCW_PROJECT_ID="${SCW_PROJECT_ID:-$(scw_config_get default-project-id)}"
@@ -269,7 +270,7 @@ scw_delete() { scw_request DELETE "$1"; }
 dd_request() {
   local method="$1" path="$2" body="${3:-}"
   if [[ "$DRY_RUN" == "true" ]]; then
-    dryrun "${method} https://api.${DD_SITE}${path}"
+    dryrun "${method} ${DD_API_BASE_URL}${path}"
     [[ -n "$body" ]] && dryrun "body ${body}"
     echo "$_DRY_RUN_STUB"; return
   fi
@@ -282,7 +283,7 @@ dd_request() {
     [[ -n "$body" ]] && args+=(-H "Content-Type: application/json" -d "$body")
   fi
   local resp
-  resp=$(curl "${args[@]}" "https://api.${DD_SITE}${path}")
+  resp=$(curl "${args[@]}" "${DD_API_BASE_URL}${path}")
   local http_code="${resp##*$'\n'}" body_out="${resp%$'\n'*}"
   if [[ "$http_code" -ge 400 ]]; then
     printf '%s\n' "$body_out" >&2; return 1
@@ -370,7 +371,7 @@ preflight_check_datadog_access() {
   log "Verifying Datadog API key can manage Scaleway integration accounts..."
 
   if [[ "$DRY_RUN" == "true" ]]; then
-    dryrun "DELETE https://api.${DD_SITE}/api/v2/web-integrations/scaleway/accounts/<probe-uuid> (pre-flight)"
+    dryrun "DELETE ${DD_API_BASE_URL}/api/v2/web-integrations/scaleway/accounts/<probe-uuid> (pre-flight)"
     return 0
   fi
 
@@ -381,8 +382,8 @@ preflight_check_datadog_access() {
   resp=$(curl -sS -g -X DELETE -w $'\n%{http_code}' \
     -H "DD-API-KEY: $DD_API_KEY" \
     -H "DD-APPLICATION-KEY: $DD_APP_KEY" \
-    "https://api.${DD_SITE}/api/v2/web-integrations/scaleway/accounts/${probe_id}" 2>&1) \
-    || die "Could not reach Datadog API at https://api.${DD_SITE} — check DD_SITE and network connectivity."
+    "${DD_API_BASE_URL}/api/v2/web-integrations/scaleway/accounts/${probe_id}" 2>&1) \
+    || die "Could not reach Datadog API at ${DD_API_BASE_URL} — check DD_SITE and network connectivity."
 
   http_code="${resp##*$'\n'}"
   body_out="${resp%$'\n'*}"
