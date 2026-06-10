@@ -3,14 +3,14 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-# fusion-onboarding.sh
+# setup.sh
 #
 # Automates the full Oracle Fusion + EPM integration user onboarding for Datadog.
 # Creates the OCI IAM confidential application, Fusion integration user,
 # assigns the required Fusion role, and grants EPM Service Administrator access.
 #
 # Usage:
-#   ./fusion-onboarding.sh [OPTIONS]
+#   ./setup.sh [OPTIONS]
 #
 # Options:
 #   --identity-domain-url URL     OCI IAM identity domain URL (required)
@@ -25,7 +25,7 @@
 #   --fusion-only                 Skip EPM steps, only provision Fusion access
 #
 # Example (Fusion + EPM):
-#   ./fusion-onboarding.sh \
+#   ./setup.sh \
 #     --identity-domain-url https://idcs-XXXX.identity.oraclecloud.com \
 #     --fusion-app-id 47196679097c447486306f0023f5ef4d \
 #     --epm-app-id 1fbd4f1bc91a4ffda592776a9841493f \
@@ -129,10 +129,26 @@ info "Checking required inputs..."
     "Provide your OCI IAM identity domain URL." \
     "Find it at: OCI Console → Identity & Security → Domains → copy the Domain URL"
 
-if [[ "$EPM_ONLY" == false && -z "$FUSION_APP_ID" && -z "$EPM_APP_ID" ]]; then
+if [[ -z "$FUSION_APP_ID" && -z "$EPM_APP_ID" ]]; then
     fatal "At least one of --fusion-app-id or --epm-app-id is required" \
         "Find these in: OCI Console → Identity & Security → Domains → Applications" \
         "Click on the Fusion or EPM app → copy the Application ID"
+fi
+
+if [[ "$EPM_ONLY" == true && -z "$EPM_APP_ID" ]]; then
+    fatal "--epm-only requires --epm-app-id" \
+        "Provide your EPM application ID." \
+        "Find it at: OCI Console → Identity & Security → Domains → Applications → your EPM app"
+fi
+
+if [[ "$FUSION_ONLY" == true && -z "$FUSION_APP_ID" ]]; then
+    fatal "--fusion-only requires --fusion-app-id" \
+        "Provide your Fusion application ID." \
+        "Find it at: OCI Console → Identity & Security → Domains → Applications → Fusion Apps Cloud Service"
+fi
+
+if [[ "$EPM_ONLY" == true && "$FUSION_ONLY" == true ]]; then
+    fatal "--epm-only and --fusion-only are mutually exclusive"
 fi
 
 if [[ "$EPM_ONLY" == false ]]; then
@@ -157,7 +173,20 @@ if [[ "$FUSION_ONLY" == false ]]; then
 fi
 success "Required inputs present"
 
-# 2. OCI CLI configured
+# 2. Required tools
+info "Checking required tools..."
+if ! command -v python3 &>/dev/null; then
+    fatal "python3 is required but not found" \
+        "Install Python 3: https://www.python.org/downloads/" \
+        "On macOS: brew install python3" \
+        "On Debian/Ubuntu: apt-get install python3"
+fi
+if ! command -v curl &>/dev/null; then
+    fatal "curl is required but not found"
+fi
+success "Required tools present"
+
+# 3. OCI CLI configured
 info "Checking OCI CLI credentials..."
 if ! oci iam region list --output json > /dev/null 2>&1; then
     fatal "OCI CLI credentials are invalid or not configured" \
@@ -187,7 +216,7 @@ print(apps[0].get('display-name','') if apps else '')
 import sys,json
 app = json.load(sys.stdin).get('data',{}).get('resources',[])[0]
 audience = app.get('audience','')
-print(audience if 'consumer::all' in audience else audience + 'urn:opc:resource:consumer::all')
+print(audience if audience.endswith('consumer::all') else audience + 'urn:opc:resource:consumer::all')
 " 2>/dev/null)
     success "Fusion app found: '${fusion_app_name}' — scope derived"
 fi
@@ -212,7 +241,7 @@ print(apps[0].get('display-name','') if apps else '')
 import sys,json
 app = json.load(sys.stdin).get('data',{}).get('resources',[])[0]
 audience = app.get('audience','')
-print(audience if 'consumer::all' in audience else audience + 'urn:opc:resource:consumer::all')
+print(audience if audience.endswith('consumer::all') else audience + 'urn:opc:resource:consumer::all')
 " 2>/dev/null)
     success "EPM app found: '${epm_app_name}' — scope derived"
 fi
@@ -257,9 +286,9 @@ if [[ -n "$FUSION_APP_ID" && "$EPM_ONLY" == false ]]; then
         -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" \
         -H "Accept: application/json" 2>/dev/null)
     role_count=$(echo "$role_check" | python3 -c "
-import sys,json; print(json.load(sys.stdin).get('itemsPerPage',0))
+import sys,json; print(json.load(sys.stdin).get('totalResults',0))
 " 2>/dev/null)
-    if [[ "$role_count" == "0" ]]; then
+    if [[ -z "$role_count" || "$role_count" == "0" ]]; then
         fatal "No role with code 'DD_INTEGRATION_ROLE' was found in Fusion or it is not API-assignable" \
             "This custom role must be created in Oracle Fusion Security Console before onboarding." \
             "Steps:" \
@@ -567,6 +596,7 @@ print(rs[0].get('id','') if rs else '')
     ROLES_TMP="${TMP_DIR}/app_roles.json"
     oci identity-domains app-roles list \
         --endpoint "$IDENTITY_DOMAIN_URL" \
+        --filter "app.value eq \"${EPM_APP_ID}\"" \
         --count 200 \
         --output json 2>/dev/null > "$ROLES_TMP"
 
@@ -601,7 +631,7 @@ rs=json.load(sys.stdin).get('data',{}).get('resources',[])
 print(len(rs))
 " 2>/dev/null)
 
-    if [[ "$existing_grant" -gt 0 ]]; then
+    if [[ "${existing_grant:-0}" -gt 0 ]]; then
         warn "EPM Service Administrator grant already exists — skipping"
     else
         info "Creating EPM Service Administrator grant..."
