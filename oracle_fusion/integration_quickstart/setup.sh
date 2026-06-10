@@ -20,11 +20,20 @@
 #   --epm-base-url URL            EPM environment base URL (required for EPM)
 #   --fusion-admin-username USER  Fusion admin username (required for Fusion)
 #   --fusion-admin-password PASS  Fusion admin password (required for Fusion, not stored)
+#   --account-name NAME           Name for the Datadog integration account [default: hostname from identity domain URL]
 #   --resume                      Re-use existing confidential app if found, skip completed steps
 #   --epm-only                    Skip Fusion user/role steps, only provision EPM access
 #   --fusion-only                 Skip EPM steps, only provision Fusion access
 #
+# Environment variables (required for Datadog account registration):
+#   DD_API_KEY    Your Datadog API key
+#   DD_APP_KEY    Your Datadog application key
+#   DD_SITE       Your Datadog site (e.g. datadoghq.com, datadoghq.eu, us3.datadoghq.com)
+#
 # Example (Fusion + EPM):
+#   export DD_API_KEY=<your-api-key>
+#   export DD_APP_KEY=<your-app-key>
+#   export DD_SITE=datadoghq.com
 #   ./setup.sh \
 #     --identity-domain-url https://idcs-XXXX.identity.oraclecloud.com \
 #     --fusion-app-id 47196679097c447486306f0023f5ef4d \
@@ -74,6 +83,7 @@ FUSION_ADMIN_PASSWORD=""
 RESUME=false
 EPM_ONLY=false
 FUSION_ONLY=false
+ACCOUNT_NAME=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -84,6 +94,7 @@ while [[ $# -gt 0 ]]; do
         --epm-base-url)          EPM_BASE_URL="$2";          shift 2 ;;
         --fusion-admin-username) FUSION_ADMIN_USERNAME="$2"; shift 2 ;;
         --fusion-admin-password) FUSION_ADMIN_PASSWORD="$2"; shift 2 ;;
+        --account-name)          ACCOUNT_NAME="$2";          shift 2 ;;
         --resume)                RESUME=true;                shift 1 ;;
         --epm-only)              EPM_ONLY=true;              shift 1 ;;
         --fusion-only)           FUSION_ONLY=true;           shift 1 ;;
@@ -103,6 +114,29 @@ normalise_url() {
 [[ -n "$FUSION_BASE_URL" ]]     && FUSION_BASE_URL=$(normalise_url "$FUSION_BASE_URL")
 [[ -n "$EPM_BASE_URL" ]]        && EPM_BASE_URL=$(normalise_url "$EPM_BASE_URL")
 TOKEN_URL="${IDENTITY_DOMAIN_URL}/oauth2/v1/token"
+
+# ── Datadog API helper ────────────────────────────────────────────────────────
+DD_SITE="${DD_SITE:-datadoghq.com}"
+
+dd_request() {
+    local method="$1" path="$2" body="${3:-}"
+    local args=(-sS -w $'\n%{http_code}'
+        -H "DD-API-KEY: ${DD_API_KEY:-}"
+        -H "DD-APPLICATION-KEY: ${DD_APP_KEY:-}")
+    [[ "$method" != "GET" ]] && args+=(-X "$method")
+    [[ -n "$body" ]] && args+=(-H "Content-Type: application/json" -d "$body")
+    local resp http_code body_out
+    resp=$(curl "${args[@]}" "https://api.${DD_SITE}${path}")
+    http_code="${resp##*$'\n'}"
+    body_out="${resp%$'\n'*}"
+    if [[ "$http_code" -ge 400 ]]; then
+        printf '%s\n' "$body_out" >&2; return 1
+    fi
+    printf '%s\n' "$body_out"
+}
+dd_get()   { dd_request GET   "$1"; }
+dd_post()  { dd_request POST  "$1" "$2"; }
+dd_patch() { dd_request PATCH "$1" "$2"; }
 
 # ── Temp file cleanup ─────────────────────────────────────────────────────────
 TMP_DIR=$(mktemp -d)
@@ -173,7 +207,23 @@ if [[ "$FUSION_ONLY" == false ]]; then
 fi
 success "Required inputs present"
 
-# 2. Required tools
+# 2. Datadog credentials
+info "Checking Datadog credentials..."
+[[ -z "${DD_API_KEY:-}" ]] && fatal \
+    "DD_API_KEY is required" \
+    "Export your Datadog API key: export DD_API_KEY=<your-api-key>" \
+    "Generate one at: https://app.datadoghq.com/organization-settings/api-keys"
+[[ -z "${DD_APP_KEY:-}" ]] && fatal \
+    "DD_APP_KEY is required" \
+    "Export your Datadog application key: export DD_APP_KEY=<your-app-key>" \
+    "Generate one at: https://app.datadoghq.com/organization-settings/application-keys"
+dd_get "/api/v1/validate" > /dev/null 2>&1 || fatal \
+    "Datadog API credentials are invalid or unreachable (site: ${DD_SITE})" \
+    "Verify DD_API_KEY and DD_APP_KEY are correct." \
+    "Verify DD_SITE matches your Datadog site (e.g. datadoghq.com, datadoghq.eu, us3.datadoghq.com)"
+success "Datadog credentials valid"
+
+# 3. Required tools
 info "Checking required tools..."
 if ! command -v python3 &>/dev/null; then
     fatal "python3 is required but not found" \
@@ -653,12 +703,89 @@ print(len(rs))
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
+step "STEP 5: REGISTER DATADOG ACCOUNT"
+
+if [[ -z "$CLIENT_SECRET" ]]; then
+    fatal "client_secret is required for Datadog account registration but could not be retrieved automatically." \
+        "Retrieve it from: OCI Console → Domains → Applications → '${APP_NAME}' → OAuth Configuration" \
+        "Then re-run with the secret stored in DD_CLIENT_SECRET and set it in the payload manually," \
+        "or enter the credentials directly in the Datadog Oracle Fusion integration tile."
+fi
+
+# Default account name to the identity domain hostname
+if [[ -z "$ACCOUNT_NAME" ]]; then
+    ACCOUNT_NAME=$(python3 -c "
+import sys
+from urllib.parse import urlparse
+print(urlparse('${IDENTITY_DOMAIN_URL}').hostname or '${IDENTITY_DOMAIN_URL}')
+" 2>/dev/null)
+    ACCOUNT_NAME="${ACCOUNT_NAME:-Oracle Fusion Integration}"
+fi
+
+info "Checking for existing Datadog Oracle Fusion account '${ACCOUNT_NAME}'..."
+accounts_resp=$(dd_get "/api/v2/web-integrations/oracle-fusion/accounts") || fatal \
+    "Failed to list Datadog Oracle Fusion accounts" \
+    "Verify DD_API_KEY and DD_APP_KEY have the 'integrations_read' and 'integrations_write' permissions."
+
+existing_account_id=$(echo "$accounts_resp" | python3 -c "
+import sys,json
+data = json.load(sys.stdin).get('data', [])
+name = '${ACCOUNT_NAME}'
+matched = [a for a in data if a.get('attributes', {}).get('name') == name]
+print(matched[0].get('id', '') if matched else '')
+" 2>/dev/null)
+
+# Build payload — only include optional fields when values are available
+payload=$(python3 -c "
+import json, sys
+settings = {
+    'client_id':  '${CLIENT_ID}',
+    'token_url':  '${TOKEN_URL}',
+}
+fusion_scope   = '${FUSION_SCOPE:-}'
+epm_scope      = '${EPM_SCOPE:-}'
+fusion_base    = '${FUSION_BASE_URL:-}'
+epm_base       = '${EPM_BASE_URL:-}'
+if fusion_scope:   settings['oauth_scope']      = fusion_scope
+if fusion_base:    settings['fusion_base_url']  = fusion_base
+if epm_scope:      settings['epm_oauth_scope']  = epm_scope
+if epm_base:       settings['epm_base_url']     = epm_base
+print(json.dumps({
+    'data': {
+        'type': 'Account',
+        'attributes': {
+            'name': '${ACCOUNT_NAME}',
+            'settings': settings,
+            'secrets': {'client_secret': '${CLIENT_SECRET}'},
+        }
+    }
+}))
+" 2>/dev/null)
+
+if [[ -n "$existing_account_id" ]]; then
+    info "Account exists — updating (id=${existing_account_id})..."
+    dd_patch "/api/v2/web-integrations/oracle-fusion/accounts/${existing_account_id}" "$payload" > /dev/null || fatal \
+        "Failed to update Datadog Oracle Fusion account" \
+        "Verify DD_API_KEY and DD_APP_KEY have 'integrations_write' permissions."
+    success "Datadog Oracle Fusion account updated (id=${existing_account_id})"
+else
+    info "Creating Datadog Oracle Fusion account '${ACCOUNT_NAME}'..."
+    create_resp=$(dd_post "/api/v2/web-integrations/oracle-fusion/accounts" "$payload") || fatal \
+        "Failed to create Datadog Oracle Fusion account" \
+        "Verify DD_API_KEY and DD_APP_KEY have 'integrations_write' permissions."
+    new_account_id=$(echo "$create_resp" | python3 -c "
+import sys,json; print(json.load(sys.stdin).get('data',{}).get('id',''))
+" 2>/dev/null)
+    success "Datadog Oracle Fusion account created (id=${new_account_id:-unknown})"
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
 echo ""
 echo -e "${GREEN}${BOLD}━━━ ONBOARDING COMPLETE ━━━${NC}"
 echo ""
 echo -e "  ${BOLD}Summary:${NC}"
+echo -e "  account_name:    ${ACCOUNT_NAME}"
 echo -e "  client_id:       ${CLIENT_ID}"
-echo -e "  client_secret:   ${CLIENT_SECRET:-retrieve from OCI Console → Applications → '${APP_NAME}' → OAuth Configuration}"
 echo -e "  token_url:       ${TOKEN_URL}"
 [[ -n "${FUSION_SCOPE:-}" ]] && echo -e "  fusion_scope:    ${FUSION_SCOPE}"
 [[ -n "${EPM_SCOPE:-}" ]]    && echo -e "  epm_scope:       ${EPM_SCOPE}"
@@ -666,8 +793,6 @@ echo -e "  token_url:       ${TOKEN_URL}"
 [[ -n "$EPM_BASE_URL" ]]     && echo -e "  epm_base_url:    ${EPM_BASE_URL}"
 echo ""
 echo -e "  ${YELLOW}${BOLD}Next steps:${NC}"
-echo -e "  1. Retrieve the client_secret from OCI Console if you haven't already:"
-echo -e "     OCI Console → Domains → Applications → '${APP_NAME}' → OAuth Configuration"
-echo -e "  2. Enter all values above into the Datadog Oracle Fusion integration tile"
-echo -e "  3. Allow 1-2 minutes for EPM Access Control to sync before testing"
+echo -e "  1. Allow 1-2 minutes for EPM Access Control to sync before testing"
+echo -e "  2. Verify the integration is active in the Datadog Oracle Fusion tile"
 echo ""
