@@ -489,11 +489,19 @@ print(json.dumps(scopes))
             oci identity-domains app patch \
                 --endpoint "$IDENTITY_DOMAIN_URL" \
                 --app-id "$existing_app_ocid" \
-                --operations "[{\"op\": \"replace\", \"path\": \"allowedScopes\", \"value\": ${_new_scopes}}]" \
+                --operations "[
+                    {\"op\": \"replace\", \"path\": \"allowedScopes\",   \"value\": ${_new_scopes}},
+                    {\"op\": \"replace\", \"path\": \"isOAuthClient\",   \"value\": true},
+                    {\"op\": \"replace\", \"path\": \"allowedGrants\",   \"value\": [\"client_credentials\"]},
+                    {\"op\": \"replace\", \"path\": \"clientType\",      \"value\": \"confidential\"},
+                    {\"op\": \"replace\", \"path\": \"clientIPChecking\",\"value\": \"anywhere\"},
+                    {\"op\": \"replace\", \"path\": \"bypassConsent\",   \"value\": true},
+                    {\"op\": \"replace\", \"path\": \"active\",          \"value\": true}
+                ]" \
                 --output json > /dev/null 2>/dev/null || fatal \
-                "Failed to add EPM scope to existing confidential app" \
+                "Failed to update existing confidential app" \
                 "Ensure your OCI credentials have 'Identity Domain Administrator' permissions."
-            success "EPM scope added to confidential app"
+            success "EPM scope added and app configuration verified"
         fi
     fi
 else
