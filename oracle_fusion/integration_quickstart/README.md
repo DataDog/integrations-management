@@ -27,7 +27,7 @@ assigns the required Fusion role, and grants EPM Service Administrator access.
 | `--epm-base-url URL` | EPM environment base URL (required for EPM) |
 | `--fusion-admin-username USER` | Fusion admin username (required for Fusion) |
 | `--fusion-admin-password PASS` | Fusion admin password (required for Fusion, not stored) |
-| `--user-email EMAIL` | Email address to attach to the created integration user. Required by some OCI identity domains. |
+| `--user-email EMAIL` | Email address to attach to the created integration user. Only include if required by legacy identity domain. |
 | `--account-name NAME` | Datadog integration account name. If a matching account already exists, its credentials are fetched and the account is updated. When `--identity-domain-url` is omitted, it is derived from the existing account's `token_url` (add-EPM-to-existing-account flow). |
 | `--resume` | Re-use existing confidential app if found, skip completed steps |
 | `--epm-only` | Skip Fusion user/role steps, only provision EPM access |
