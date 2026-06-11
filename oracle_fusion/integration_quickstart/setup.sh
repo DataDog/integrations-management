@@ -133,20 +133,20 @@ fi
 
 [[ -z "$FUSION_APP_ID" ]] && warn "No --fusion-app-id provided — skipping Fusion scope"
 if [[ -n "$FUSION_APP_ID" ]]; then
-    [[ -z "$FUSION_BASE_URL" ]] && [[ -n "$FUSION_APP_ID" ]] && fatal \
+    [[ -z "$FUSION_BASE_URL" ]] && fatal \
         "--fusion-base-url is required when --fusion-app-id is provided" \
         "Provide your Oracle Fusion environment URL, e.g. https://icjnjb.fa.ocs.oraclecloud.com"
-    [[ -z "$FUSION_ADMIN_USERNAME" ]] && [[ -n "$FUSION_APP_ID" ]] && fatal \
+    [[ -z "$FUSION_ADMIN_USERNAME" ]] && fatal \
         "--fusion-admin-username is required for Fusion user provisioning" \
         "Provide a Fusion admin account username. These credentials are used only for" \
         "provisioning and are never stored by Datadog."
-    [[ -z "$FUSION_ADMIN_PASSWORD" ]] && [[ -n "$FUSION_APP_ID" ]] && fatal \
+    [[ -z "$FUSION_ADMIN_PASSWORD" ]] && fatal \
         "--fusion-admin-password is required for Fusion user provisioning"
 fi
 
 [[ -z "$EPM_APP_ID" ]] && warn "No --epm-app-id provided — skipping EPM provisioning"
 if [[ -n "$EPM_APP_ID" ]]; then
-    [[ -z "$EPM_BASE_URL" ]] && [[ -n "$EPM_APP_ID" ]] && fatal \
+    [[ -z "$EPM_BASE_URL" ]] && fatal \
         "--epm-base-url is required when --epm-app-id is provided" \
         "Provide your Oracle Fusion EPM environment URL," \
         "e.g. https://epmprod-xx.epm.us-ashburn-1.ocs.oraclecloud.com"
