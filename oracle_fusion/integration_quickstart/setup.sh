@@ -756,7 +756,7 @@ print(len(rs))
     if [[ "${existing_grant:-0}" -gt 0 ]]; then
         warn "EPM Service Administrator grant already exists — skipping"
     else
-        info "Creating EPM Service Administrator grant..."
+        info "Creating EPM role grant..."
         grant_result=$(oci identity-domains grant create \
             --endpoint "$IDENTITY_DOMAIN_URL" \
             --schemas '["urn:ietf:params:scim:schemas:oracle:idcs:Grant"]' \
