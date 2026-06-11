@@ -468,12 +468,6 @@ step "STEP 1: CREATE CONFIDENTIAL APPLICATION"
 if [[ "$APP_EXISTS" == true ]]; then
     info "Using existing app (client_id: ${CLIENT_ID})"
     # Add EPM scope to the existing app if not already present
-    if [[ -n "${EPM_SCOPE:-}" && -z "$existing_app_ocid" ]]; then
-        fatal "Cannot add EPM scope — confidential application OCID could not be determined" \
-            "If your app is not named '${APP_NAME}', provide its application ID:" \
-            "  --confidential-application-id <application-id>" \
-            "Find it at: OCI Console → Domains → Integrated Applications → your app → Application ID"
-    fi
     if [[ -n "${EPM_SCOPE:-}" && -n "$existing_app_ocid" ]]; then
         existing_scopes=$(echo "$existing_app" | python3 -c "
 import sys,json
