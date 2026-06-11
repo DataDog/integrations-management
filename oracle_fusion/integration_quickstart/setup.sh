@@ -172,10 +172,10 @@ if [[ -n "$ACCOUNT_NAME" && -z "$IDENTITY_DOMAIN_URL" ]]; then
     _accounts_resp=$(dd_get "/api/v2/web-integrations/oracle-fusion/accounts") || fatal \
         "Failed to list Datadog Oracle Fusion accounts" \
         "Verify DD_APP_KEY have 'integrations_read' permissions."
-    _account_fields=$(echo "$_accounts_resp" | python3 -c "
-import sys, json
+    _account_fields=$(echo "$_accounts_resp" | ACCOUNT_NAME="$ACCOUNT_NAME" python3 -c "
+import sys, json, os
 data = json.load(sys.stdin).get('data', [])
-matched = [a for a in data if a.get('attributes', {}).get('name') == '${ACCOUNT_NAME}']
+matched = [a for a in data if a.get('attributes', {}).get('name') == os.environ['ACCOUNT_NAME']]
 if matched:
     s = matched[0].get('attributes', {}).get('settings', {})
     print(s.get('client_id', '') + '|' + s.get('token_url', ''))
@@ -189,9 +189,10 @@ else:
         "Verify the account name matches exactly what is shown in the Datadog integration tile." \
         "Run without --account-name to create a new account instead."
     CLIENT_ID="$_fetched_client_id"
-    IDENTITY_DOMAIN_URL=$(python3 -c "
+    IDENTITY_DOMAIN_URL=$(TOKEN_URL="$_fetched_token_url" python3 -c "
+import os
 from urllib.parse import urlparse
-u = urlparse('${_fetched_token_url}')
+u = urlparse(os.environ['TOKEN_URL'])
 print(u.scheme + '://' + u.netloc)
 " 2>/dev/null)
     IDENTITY_DOMAIN_URL=$(normalise_url "$IDENTITY_DOMAIN_URL")
@@ -217,7 +218,7 @@ if ! command -v curl &>/dev/null; then
 fi
 success "Required tools present"
 
-# 3. OCI CLI configured
+# 4. OCI CLI configured
 info "Checking OCI CLI credentials..."
 if ! oci iam region list --output json > /dev/null 2>&1; then
     fatal "OCI CLI credentials are invalid or not configured" \
@@ -227,7 +228,7 @@ if ! oci iam region list --output json > /dev/null 2>&1; then
 fi
 success "OCI CLI credentials valid"
 
-# 3. Fusion app ID resolves in identity domain
+# 5. Fusion app ID resolves in identity domain
 if [[ -n "$FUSION_APP_ID" ]]; then
     info "Verifying Fusion app ID '${FUSION_APP_ID}' exists in identity domain..."
     fusion_app_resp=$(oci identity-domains apps list \
@@ -257,7 +258,7 @@ else:
     success "Fusion app found: '${fusion_app_name}' — scope derived"
 fi
 
-# 4. EPM app ID resolves in identity domain
+# 6. EPM app ID resolves in identity domain
 if [[ -n "$EPM_APP_ID" ]]; then
     info "Verifying EPM app ID '${EPM_APP_ID}' exists in identity domain..."
     epm_app_resp=$(oci identity-domains apps list \
@@ -287,7 +288,7 @@ else:
     success "EPM app found: '${epm_app_name}' — scope derived"
 fi
 
-# 5. Validate Fusion admin credentials + connectivity
+# 7. Validate Fusion admin credentials + connectivity
 if [[ -n "$FUSION_APP_ID" ]]; then
     info "Validating Fusion admin credentials and connectivity..."
     fusion_auth_status=$(curl -s --compressed -o /dev/null -w "%{http_code}" \
@@ -305,7 +306,7 @@ if [[ -n "$FUSION_APP_ID" ]]; then
     success "Fusion admin credentials valid (HTTP ${fusion_auth_status})"
 fi
 
-# 6. EPM URL reachable
+# 8. EPM URL reachable
 if [[ -n "$EPM_APP_ID" ]]; then
     info "Checking EPM URL reachability..."
     epm_status=$(curl -s -o /dev/null -w "%{http_code}" \
@@ -316,7 +317,7 @@ if [[ -n "$EPM_APP_ID" ]]; then
     success "EPM URL reachable (HTTP ${epm_status})"
 fi
 
-# 7. DD_INTEGRATION_ROLE exists in Fusion and is accessible via API
+# 9. DD_INTEGRATION_ROLE exists in Fusion and is accessible via API
 #    We check the role CODE (the 'name' field in SCIM).
 #    The role code must be exactly 'DD_INTEGRATION_ROLE'.
 if [[ -n "$FUSION_APP_ID" ]]; then
@@ -357,7 +358,7 @@ import sys,json; rs=json.load(sys.stdin).get('Resources',[]); print(rs[0].get('i
     success "'DD_INTEGRATION_ROLE' found and accessible via API"
 fi
 
-# 8. Idempotency — check if confidential app already exists
+# 10. Idempotency — check if confidential app already exists
 APP_NAME="Datadog Fusion Integration"
 info "Checking if '${APP_NAME}' already exists in OCI IAM..."
 existing_app=$(oci identity-domains apps list \
@@ -422,7 +423,7 @@ elif [[ "$RESUME" == true || -n "$CLIENT_ID" ]]; then
         "Find it at: OCI Console → Domains → Integrated Applications → your app → Application ID"
 fi
 
-# 9. Idempotency — check if user already exists
+# 11. Idempotency — check if user already exists
 #    For Fusion+EPM: check Fusion SCIM (user was created there)
 #    For EPM-only: check OCI IAM directly (user created there instead)
 FUSION_USER_EXISTS=false
@@ -480,11 +481,11 @@ print(' '.join(scopes))
             info "EPM scope already present on app — skipping"
         else
             info "Adding EPM scope to existing confidential app..."
-            _new_scopes=$(echo "$existing_app" | python3 -c "
-import sys,json
+            _new_scopes=$(echo "$existing_app" | EPM_SCOPE="$EPM_SCOPE" python3 -c "
+import sys,json,os
 apps=json.load(sys.stdin).get('data',{}).get('resources',[])
 scopes=[{'fqs': s.get('fqs','')} for s in apps[0].get('allowed-scopes',[]) if apps] if apps else []
-scopes.append({'fqs': '${EPM_SCOPE}'})
+scopes.append({'fqs': os.environ['EPM_SCOPE']})
 print(json.dumps(scopes))
 " 2>/dev/null)
             oci identity-domains app patch \
@@ -621,15 +622,15 @@ if [[ -n "$FUSION_APP_ID" ]]; then
         info "Skipping — Fusion user already exists (id: ${FUSION_USER_ID})"
     else
         info "Creating Fusion user with username '${CLIENT_ID}'..."
-        _fusion_user_body=$(python3 -c "
-import json
+        _fusion_user_body=$(CLIENT_ID="$CLIENT_ID" USER_EMAIL="${USER_EMAIL:-}" python3 -c "
+import json, os
 body = {
     'schemas': ['urn:scim:schemas:core:2.0:User'],
-    'userName': '${CLIENT_ID}',
+    'userName': os.environ['CLIENT_ID'],
     'name': {'familyName': 'Datadog Integration'},
     'active': True,
 }
-email = '${USER_EMAIL:-}'
+email = os.environ.get('USER_EMAIL', '')
 if email:
     body['emails'] = [{'value': email, 'type': 'work', 'primary': True}]
 print(json.dumps(body))
@@ -805,23 +806,26 @@ print(matched[0].get('id', '') if matched else '')
 
 # Build payload — omit optional fields when values are absent;
 # include client_secret when available (new app); omit when empty (PATCH keeps existing secret).
-payload=$(python3 -c "
-import json, sys
+payload=$(CLIENT_ID="$CLIENT_ID" TOKEN_URL="$TOKEN_URL" \
+    FUSION_SCOPE="${FUSION_SCOPE:-}" EPM_SCOPE="${EPM_SCOPE:-}" \
+    FUSION_BASE_URL="${FUSION_BASE_URL:-}" EPM_BASE_URL="${EPM_BASE_URL:-}" \
+    ACCOUNT_NAME="$ACCOUNT_NAME" CLIENT_SECRET="${CLIENT_SECRET:-}" python3 -c "
+import json, os
 settings = {
-    'client_id':  '${CLIENT_ID}',
-    'token_url':  '${TOKEN_URL}',
+    'client_id': os.environ['CLIENT_ID'],
+    'token_url':  os.environ['TOKEN_URL'],
 }
-fusion_scope   = '${FUSION_SCOPE:-}'
-epm_scope      = '${EPM_SCOPE:-}'
-fusion_base    = '${FUSION_BASE_URL:-}'
-epm_base       = '${EPM_BASE_URL:-}'
-if fusion_scope:   settings['oauth_scope']      = fusion_scope
-if fusion_base:    settings['fusion_base_url']  = fusion_base
-if epm_scope:      settings['epm_oauth_scope']  = epm_scope
-if epm_base:       settings['epm_base_url']     = epm_base
-attrs = {'name': '${ACCOUNT_NAME}', 'settings': settings}
-client_secret = '${CLIENT_SECRET:-}'
-if client_secret:  attrs['secrets'] = {'client_secret': client_secret}
+fusion_scope = os.environ.get('FUSION_SCOPE', '')
+epm_scope    = os.environ.get('EPM_SCOPE', '')
+fusion_base  = os.environ.get('FUSION_BASE_URL', '')
+epm_base     = os.environ.get('EPM_BASE_URL', '')
+if fusion_scope: settings['oauth_scope']     = fusion_scope
+if fusion_base:  settings['fusion_base_url'] = fusion_base
+if epm_scope:    settings['epm_oauth_scope'] = epm_scope
+if epm_base:     settings['epm_base_url']    = epm_base
+attrs = {'name': os.environ['ACCOUNT_NAME'], 'settings': settings}
+client_secret = os.environ.get('CLIENT_SECRET', '')
+if client_secret: attrs['secrets'] = {'client_secret': client_secret}
 print(json.dumps({'data': {'type': 'Account', 'attributes': attrs}}))
 " 2>/dev/null)
 
