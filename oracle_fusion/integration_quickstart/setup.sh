@@ -803,7 +803,7 @@ print(matched[0].get('id', '') if matched else '')
 " 2>/dev/null)
 
 # Build payload — omit optional fields when values are absent;
-# omit secrets entirely when CLIENT_SECRET is empty (PATCH keeps the existing secret).
+# include client_secret when available (new app); omit when empty (PATCH keeps existing secret).
 payload=$(python3 -c "
 import json, sys
 settings = {
@@ -819,6 +819,8 @@ if fusion_base:    settings['fusion_base_url']  = fusion_base
 if epm_scope:      settings['epm_oauth_scope']  = epm_scope
 if epm_base:       settings['epm_base_url']     = epm_base
 attrs = {'name': '${ACCOUNT_NAME}', 'settings': settings}
+client_secret = '${CLIENT_SECRET:-}'
+if client_secret:  attrs['secrets'] = {'client_secret': client_secret}
 print(json.dumps({'data': {'type': 'Account', 'attributes': attrs}}))
 " 2>/dev/null)
 
@@ -853,7 +855,11 @@ echo -e "  token_url:       ${TOKEN_URL}"
 [[ -n "$EPM_BASE_URL" ]]     && echo -e "  epm_base_url:    ${EPM_BASE_URL}"
 echo ""
 echo -e "  ${YELLOW}${BOLD}Next steps:${NC}"
-echo -e "  1. Enter the client_secret in the Datadog Oracle Fusion integration tile:"
-echo -e "     OCI Console → Domains → Integrated Applications → '${APP_NAME}' → OAuth Configuration"
-echo -e "  2. Allow 1-2 minutes for EPM Access Control to sync before testing"
+if [[ -z "$CLIENT_SECRET" ]]; then
+    echo -e "  1. Enter the client_secret in the Datadog Oracle Fusion integration tile:"
+    echo -e "     OCI Console → Domains → Integrated Applications → '${APP_NAME}' → OAuth Configuration"
+    echo -e "  2. Allow 1-2 minutes for EPM Access Control to sync before testing"
+else
+    echo -e "  1. Allow 1-2 minutes for EPM Access Control to sync before testing"
+fi
 echo ""
