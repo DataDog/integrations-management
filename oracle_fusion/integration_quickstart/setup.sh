@@ -20,6 +20,8 @@
 #   --epm-base-url URL            EPM environment base URL (required for EPM)
 #   --fusion-admin-username USER  Fusion admin username (required for Fusion)
 #   --fusion-admin-password PASS  Fusion admin password (required for Fusion, not stored)
+#   --user-email EMAIL            Email address to attach to the created integration user.
+#                                 Required by some OCI identity domains.
 #   --account-name NAME           Datadog integration account name. If a matching account already
 #                                 exists, its credentials are fetched and the account is updated.
 #                                 When --identity-domain-url is omitted, it is derived from the
@@ -96,6 +98,7 @@ RESUME=false
 EPM_ONLY=false
 FUSION_ONLY=false
 ACCOUNT_NAME=""
+USER_EMAIL=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -106,6 +109,7 @@ while [[ $# -gt 0 ]]; do
         --epm-base-url)          EPM_BASE_URL="$2";          shift 2 ;;
         --fusion-admin-username) FUSION_ADMIN_USERNAME="$2"; shift 2 ;;
         --fusion-admin-password) FUSION_ADMIN_PASSWORD="$2"; shift 2 ;;
+        --user-email)            USER_EMAIL="$2";            shift 2 ;;
         --account-name)          ACCOUNT_NAME="$2";          shift 2 ;;
         --resume)                RESUME=true;                shift 1 ;;
         --epm-only)              EPM_ONLY=true;              shift 1 ;;
@@ -577,12 +581,15 @@ if [[ "$EPM_ONLY" == true && -n "$EPM_APP_ID" ]]; then
         info "Skipping — OCI IAM user already exists (id: ${OCI_IAM_USER_ID})"
     else
         info "Creating OCI IAM user with username '${CLIENT_ID}'..."
+        _oci_emails_arg=()
+        [[ -n "$USER_EMAIL" ]] && _oci_emails_arg=(--emails "[{\"value\": \"${USER_EMAIL}\", \"type\": \"work\", \"primary\": true}]")
         oci_user_result=$(oci identity-domains user create \
             --endpoint "$IDENTITY_DOMAIN_URL" \
             --schemas '["urn:ietf:params:scim:schemas:core:2.0:User"]' \
             --user-name "$CLIENT_ID" \
             --name '{"familyName": "Datadog Integration"}' \
             --active true \
+            "${_oci_emails_arg[@]}" \
             --output json 2>/dev/null) || fatal \
             "Failed to create OCI IAM user '${CLIENT_ID}'" \
             "Ensure your OCI credentials have permission to create users in the identity domain." \
@@ -608,17 +615,25 @@ if [[ -n "$FUSION_APP_ID" && "$EPM_ONLY" == false ]]; then
         info "Skipping — Fusion user already exists (id: ${FUSION_USER_ID})"
     else
         info "Creating Fusion user with username '${CLIENT_ID}'..."
+        _fusion_user_body=$(python3 -c "
+import json
+body = {
+    'schemas': ['urn:scim:schemas:core:2.0:User'],
+    'userName': '${CLIENT_ID}',
+    'name': {'familyName': 'Datadog Integration'},
+    'active': True,
+}
+email = '${USER_EMAIL:-}'
+if email:
+    body['emails'] = [{'value': email, 'type': 'work', 'primary': True}]
+print(json.dumps(body))
+")
         user_response=$(curl -s --compressed -w "|||%{http_code}" \
             -X POST "${FUSION_BASE_URL}/hcmRestApi/scim/Users" \
             -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
-            -d "{
-                \"schemas\": [\"urn:scim:schemas:core:2.0:User\"],
-                \"userName\": \"${CLIENT_ID}\",
-                \"name\": {\"familyName\": \"Datadog Integration\"},
-                \"active\": true
-            }" 2>/dev/null)
+            -d "$_fusion_user_body" 2>/dev/null)
         user_status="${user_response##*|||}"
         user_body="${user_response%|||*}"
 
