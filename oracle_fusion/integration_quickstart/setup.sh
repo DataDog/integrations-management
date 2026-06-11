@@ -61,6 +61,40 @@ while [[ $# -gt 0 ]]; do
         --account-name)               ACCOUNT_NAME="$2";          shift 2 ;;
         --confidential-application-id) CONFIDENTIAL_APP_ID="$2"; shift 2 ;;
         --resume)                     RESUME=true;                shift 1 ;;
+        --help|-h)
+            cat <<'EOF'
+Usage: ./setup.sh [OPTIONS]
+
+Automates Oracle Fusion / EPM integration onboarding for Datadog.
+
+Required (at least one of):
+  --fusion-app-id ID            Fusion SaaS app ID in OCI IAM
+  --epm-app-id ID               EPM SaaS app ID in OCI IAM
+
+Required (when --fusion-app-id is set):
+  --fusion-base-url URL         Fusion environment base URL
+  --fusion-admin-username USER  Fusion admin username
+  --fusion-admin-password PASS  Fusion admin password
+
+Required (when --epm-app-id is set):
+  --epm-base-url URL            EPM environment base URL
+
+Required (unless --account-name is given):
+  --identity-domain-url URL     OCI IAM identity domain URL
+
+Optional:
+  --account-name NAME           Existing Datadog account name to update
+  --confidential-application-id ID  Existing confidential app ID (if not named "Datadog Fusion Integration")
+  --user-email EMAIL            Email to attach to the created integration user
+  --resume                      Re-use existing confidential app; skip completed steps
+
+Environment variables:
+  DD_APP_KEY   Datadog application key (required)
+  DD_SITE      Datadog site, e.g. datadoghq.com (default: datadoghq.com)
+
+See README.md for full details and examples.
+EOF
+            exit 0 ;;
         *) echo "Unknown argument: $1"; exit 1 ;;
     esac
 done
