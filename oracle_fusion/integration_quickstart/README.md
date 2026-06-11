@@ -37,7 +37,6 @@ assigns the required Fusion role, and grants EPM Service Administrator access.
 
 | Variable | Description |
 |----------|-------------|
-| `DD_API_KEY` | Your Datadog API key |
 | `DD_APP_KEY` | Your Datadog application key |
 | `DD_SITE` | Your Datadog site (e.g. `datadoghq.com`, `datadoghq.eu`, `us3.datadoghq.com`) |
 
@@ -46,27 +45,24 @@ assigns the required Fusion role, and grants EPM Service Administrator access.
 **Full Fusion + EPM onboarding:**
 
 ```bash
-export DD_API_KEY=<your-api-key>
 export DD_APP_KEY=<your-app-key>
 export DD_SITE=datadoghq.com
 ./setup.sh \
-  --identity-domain-url https://idcs-XXXX.identity.oraclecloud.com \
-  --fusion-app-id 47196679097c447486306f0023f5ef4d \
-  --epm-app-id 1fbd4f1bc91a4ffda592776a9841493f \
-  --fusion-base-url https://icjnjb.fa.ocs.oraclecloud.com \
-  --epm-base-url https://epmprod-xx.epm.us-ashburn-1.ocs.oraclecloud.com \
-  --fusion-admin-username admin@company.com \
+  --identity-domain-url https://idcs-abc123def456.identity.oraclecloud.com \
+  --fusion-app-id a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4 \
+  --epm-app-id b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5 \
+  --fusion-base-url https://your-fusion-env.fa.ocs.oraclecloud.com \
+  --epm-base-url https://your-epm-env.epm.us-ashburn-1.ocs.oraclecloud.com \
+  --fusion-admin-username admin@example.com \
   --fusion-admin-password mypassword
 ```
 
 **Add EPM to an existing Fusion account:**
 
 ```bash
-export DD_API_KEY=<your-api-key>
 export DD_APP_KEY=<your-app-key>
 ./setup.sh \
   --account-name "My Fusion Account" \
-  --epm-only \
-  --epm-app-id 1fbd4f1bc91a4ffda592776a9841493f \
-  --epm-base-url https://epmprod-xx.epm.us-ashburn-1.ocs.oraclecloud.com
+  --epm-app-id b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5 \
+  --epm-base-url https://your-epm-env.epm.us-ashburn-1.ocs.oraclecloud.com
 ```

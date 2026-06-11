@@ -44,8 +44,6 @@ EPM_BASE_URL=""
 FUSION_ADMIN_USERNAME=""
 FUSION_ADMIN_PASSWORD=""
 RESUME=false
-EPM_ONLY=false
-FUSION_ONLY=false
 ACCOUNT_NAME=""
 USER_EMAIL=""
 
@@ -61,8 +59,6 @@ while [[ $# -gt 0 ]]; do
         --user-email)            USER_EMAIL="$2";            shift 2 ;;
         --account-name)          ACCOUNT_NAME="$2";          shift 2 ;;
         --resume)                RESUME=true;                shift 1 ;;
-        --epm-only)              EPM_ONLY=true;              shift 1 ;;
-        --fusion-only)           FUSION_ONLY=true;           shift 1 ;;
         *) echo "Unknown argument: $1"; exit 1 ;;
     esac
 done
@@ -86,7 +82,6 @@ DD_SITE="${DD_SITE:-datadoghq.com}"
 dd_request() {
     local method="$1" path="$2" body="${3:-}"
     local args=(-sS -w $'\n%{http_code}'
-        -H "DD-API-KEY: ${DD_API_KEY:-}"
         -H "DD-APPLICATION-KEY: ${DD_APP_KEY:-}")
     [[ "$method" != "GET" ]] && args+=(-X "$method")
     [[ -n "$body" ]] && args+=(-H "Content-Type: application/json" -d "$body")
@@ -138,24 +133,8 @@ if [[ -z "$FUSION_APP_ID" && -z "$EPM_APP_ID" ]]; then
         "Click on the Fusion or EPM app → copy the Application ID"
 fi
 
-if [[ "$EPM_ONLY" == true && -z "$EPM_APP_ID" ]]; then
-    fatal "--epm-only requires --epm-app-id" \
-        "Provide your EPM application ID." \
-        "Find it at: OCI Console → Identity & Security → Domains → Applications → your EPM app"
-fi
-
-if [[ "$FUSION_ONLY" == true && -z "$FUSION_APP_ID" ]]; then
-    fatal "--fusion-only requires --fusion-app-id" \
-        "Provide your Fusion application ID." \
-        "Find it at: OCI Console → Identity & Security → Domains → Applications → Fusion Apps Cloud Service"
-fi
-
-if [[ "$EPM_ONLY" == true && "$FUSION_ONLY" == true ]]; then
-    fatal "--epm-only and --fusion-only are mutually exclusive"
-fi
-
-if [[ "$EPM_ONLY" == false ]]; then
-    [[ -z "$FUSION_APP_ID" ]] && warn "No --fusion-app-id provided — skipping Fusion scope"
+[[ -z "$FUSION_APP_ID" ]] && warn "No --fusion-app-id provided — skipping Fusion scope"
+if [[ -n "$FUSION_APP_ID" ]]; then
     [[ -z "$FUSION_BASE_URL" ]] && [[ -n "$FUSION_APP_ID" ]] && fatal \
         "--fusion-base-url is required when --fusion-app-id is provided" \
         "Provide your Oracle Fusion environment URL, e.g. https://icjnjb.fa.ocs.oraclecloud.com"
@@ -167,8 +146,8 @@ if [[ "$EPM_ONLY" == false ]]; then
         "--fusion-admin-password is required for Fusion user provisioning"
 fi
 
-if [[ "$FUSION_ONLY" == false ]]; then
-    [[ -z "$EPM_APP_ID" ]] && warn "No --epm-app-id provided — skipping EPM provisioning"
+[[ -z "$EPM_APP_ID" ]] && warn "No --epm-app-id provided — skipping EPM provisioning"
+if [[ -n "$EPM_APP_ID" ]]; then
     [[ -z "$EPM_BASE_URL" ]] && [[ -n "$EPM_APP_ID" ]] && fatal \
         "--epm-base-url is required when --epm-app-id is provided" \
         "Provide your Oracle Fusion EPM environment URL," \
@@ -178,17 +157,13 @@ success "Required inputs present"
 
 # 2. Datadog credentials
 info "Checking Datadog credentials..."
-[[ -z "${DD_API_KEY:-}" ]] && fatal \
-    "DD_API_KEY is required" \
-    "Export your Datadog API key: export DD_API_KEY=<your-api-key>" \
-    "Generate one at: https://app.datadoghq.com/organization-settings/api-keys"
 [[ -z "${DD_APP_KEY:-}" ]] && fatal \
     "DD_APP_KEY is required" \
     "Export your Datadog application key: export DD_APP_KEY=<your-app-key>" \
     "Generate one at: https://app.datadoghq.com/organization-settings/application-keys"
-dd_get "/api/v1/validate" > /dev/null 2>&1 || fatal \
-    "Datadog API credentials are invalid or unreachable (site: ${DD_SITE})" \
-    "Verify DD_API_KEY and DD_APP_KEY are correct." \
+dd_get "/api/v2/web-integrations/oracle-fusion/accounts" > /dev/null 2>&1 || fatal \
+    "Datadog application key is invalid or unreachable (site: ${DD_SITE})" \
+    "Verify DD_APP_KEY is correct." \
     "Verify DD_SITE matches your Datadog site (e.g. datadoghq.com, datadoghq.eu, us3.datadoghq.com)"
 success "Datadog credentials valid"
 
@@ -198,7 +173,7 @@ if [[ -n "$ACCOUNT_NAME" && -z "$IDENTITY_DOMAIN_URL" ]]; then
     info "Fetching existing Datadog account '${ACCOUNT_NAME}'..."
     _accounts_resp=$(dd_get "/api/v2/web-integrations/oracle-fusion/accounts") || fatal \
         "Failed to list Datadog Oracle Fusion accounts" \
-        "Verify DD_API_KEY and DD_APP_KEY have 'integrations_read' permissions."
+        "Verify DD_APP_KEY have 'integrations_read' permissions."
     _account_fields=$(echo "$_accounts_resp" | python3 -c "
 import sys, json
 data = json.load(sys.stdin).get('data', [])
@@ -305,7 +280,7 @@ print(audience if audience.endswith('consumer::all') else audience + 'urn:opc:re
 fi
 
 # 5. Validate Fusion admin credentials + connectivity
-if [[ -n "$FUSION_APP_ID" && "$EPM_ONLY" == false ]]; then
+if [[ -n "$FUSION_APP_ID" ]]; then
     info "Validating Fusion admin credentials and connectivity..."
     fusion_auth_status=$(curl -s --compressed -o /dev/null -w "%{http_code}" \
         "${FUSION_BASE_URL}/hcmRestApi/scim/Users?count=1" \
@@ -323,7 +298,7 @@ if [[ -n "$FUSION_APP_ID" && "$EPM_ONLY" == false ]]; then
 fi
 
 # 6. EPM URL reachable
-if [[ -n "$EPM_APP_ID" && "$FUSION_ONLY" == false ]]; then
+if [[ -n "$EPM_APP_ID" ]]; then
     info "Checking EPM URL reachability..."
     epm_status=$(curl -s -o /dev/null -w "%{http_code}" \
         "${EPM_BASE_URL}/HyperionPlanning/rest/v3/applications" 2>/dev/null)
@@ -336,7 +311,7 @@ fi
 # 7. DD_INTEGRATION_ROLE exists in Fusion and is accessible via API
 #    We check the role CODE (the 'name' field in SCIM).
 #    The role code must be exactly 'DD_INTEGRATION_ROLE'.
-if [[ -n "$FUSION_APP_ID" && "$EPM_ONLY" == false ]]; then
+if [[ -n "$FUSION_APP_ID" ]]; then
     info "Checking for role with code 'DD_INTEGRATION_ROLE' in Fusion..."
     info "(The role CODE must be exactly 'DD_INTEGRATION_ROLE')"
     role_check=$(curl -s --compressed \
@@ -410,7 +385,7 @@ fi
 FUSION_USER_EXISTS=false
 OCI_IAM_USER_EXISTS=false
 if [[ -n "$CLIENT_ID" ]]; then
-    if [[ -n "$FUSION_APP_ID" && "$EPM_ONLY" == false ]]; then
+    if [[ -n "$FUSION_APP_ID" ]]; then
         info "Checking if Fusion user '${CLIENT_ID}' already exists..."
         existing_user=$(curl -s --compressed \
             "${FUSION_BASE_URL}/hcmRestApi/scim/Users?filter=userName+eq+%22${CLIENT_ID}%22" \
@@ -424,7 +399,7 @@ import sys,json; rs=json.load(sys.stdin).get('Resources',[]); print(rs[0].get('i
             FUSION_USER_ID="$existing_user_id"
             warn "Fusion user already exists (id: ${FUSION_USER_ID}) — skipping creation"
         fi
-    elif [[ "$EPM_ONLY" == true ]]; then
+    elif [[ -z "$FUSION_APP_ID" ]]; then
         info "Checking if OCI IAM user '${CLIENT_ID}' already exists..."
         existing_oci_user=$(oci identity-domains users list \
             --endpoint "$IDENTITY_DOMAIN_URL" \
@@ -520,9 +495,9 @@ import sys,json; print(json.load(sys.stdin).get('data',{}).get('client-secret','
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
-# EPM-only: create the user directly in OCI IAM (no Fusion SCIM needed)
+# No Fusion app: create the user directly in OCI IAM (no Fusion SCIM needed)
 # The OCI IAM user is required for the EPM Service Administrator grant in Step 4.
-if [[ "$EPM_ONLY" == true && -n "$EPM_APP_ID" ]]; then
+if [[ -z "$FUSION_APP_ID" && -n "$EPM_APP_ID" ]]; then
 
     step "STEP 2: CREATE OCI IAM USER (EPM-only)"
 
@@ -556,7 +531,7 @@ import sys,json; print(json.load(sys.stdin).get('data',{}).get('id',''))
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
-if [[ -n "$FUSION_APP_ID" && "$EPM_ONLY" == false ]]; then
+if [[ -n "$FUSION_APP_ID" ]]; then
 
     step "STEP 2: CREATE FUSION INTEGRATION USER"
 
@@ -626,7 +601,7 @@ import sys,json; print(json.load(sys.stdin).get('id',''))
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
-if [[ -n "$EPM_APP_ID" && "$FUSION_ONLY" == false ]]; then
+if [[ -n "$EPM_APP_ID" ]]; then
 
     step "STEP 4: GRANT EPM SERVICE ADMINISTRATOR ROLE"
 
@@ -738,7 +713,7 @@ fi
 info "Checking for existing Datadog Oracle Fusion account '${ACCOUNT_NAME}'..."
 accounts_resp=$(dd_get "/api/v2/web-integrations/oracle-fusion/accounts") || fatal \
     "Failed to list Datadog Oracle Fusion accounts" \
-    "Verify DD_API_KEY and DD_APP_KEY have the 'integrations_read' and 'integrations_write' permissions."
+    "Verify DD_APP_KEY have the 'integrations_read' and 'integrations_write' permissions."
 
 existing_account_id=$(echo "$accounts_resp" | python3 -c "
 import sys,json
@@ -774,7 +749,7 @@ if [[ -n "$existing_account_id" ]]; then
     # so we must send the full merged settings to avoid clearing fields like enabled_services.
     existing_resp=$(dd_get "/api/v2/web-integrations/oracle-fusion/accounts/${existing_account_id}") || fatal \
         "Failed to fetch existing Datadog Oracle Fusion account" \
-        "Verify DD_API_KEY and DD_APP_KEY have 'integrations_read' permissions."
+        "Verify DD_APP_KEY have 'integrations_read' permissions."
     printf '%s' "$existing_resp" > "${TMP_DIR}/existing_account.json"
     printf '%s' "$payload"       > "${TMP_DIR}/new_payload.json"
     payload=$(python3 - "${TMP_DIR}/existing_account.json" "${TMP_DIR}/new_payload.json" <<'PYEOF'
@@ -789,13 +764,13 @@ PYEOF
 )
     dd_patch "/api/v2/web-integrations/oracle-fusion/accounts/${existing_account_id}" "$payload" > /dev/null || fatal \
         "Failed to update Datadog Oracle Fusion account" \
-        "Verify DD_API_KEY and DD_APP_KEY have 'integrations_write' permissions."
+        "Verify DD_APP_KEY have 'integrations_write' permissions."
     success "Datadog Oracle Fusion account updated (id=${existing_account_id})"
 else
     info "Creating Datadog Oracle Fusion account '${ACCOUNT_NAME}'..."
     create_resp=$(dd_post "/api/v2/web-integrations/oracle-fusion/accounts" "$payload") || fatal \
         "Failed to create Datadog Oracle Fusion account" \
-        "Verify DD_API_KEY and DD_APP_KEY have 'integrations_write' permissions."
+        "Verify DD_APP_KEY have 'integrations_write' permissions."
     new_account_id=$(echo "$create_resp" | python3 -c "
 import sys,json; print(json.load(sys.stdin).get('data',{}).get('id',''))
 " 2>/dev/null)
