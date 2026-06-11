@@ -346,7 +346,8 @@ import sys,json; print(json.load(sys.stdin).get('totalResults',0))
             "  5. Save the role" \
             "  6. Make the role API-assignable via Role Provisioning Rules:" \
             "     Setup and Maintenance → Manage Role Provisioning Rules → Add DD_INTEGRATION_ROLE" \
-            "     Check 'Requestable' to allow API assignment"
+            "     Check 'Requestable' to allow API assignment" \
+            "  Once complete, re-run this script to continue onboarding."
     fi
     DD_INTEGRATION_ROLE_ID=$(echo "$role_check" | python3 -c "
 import sys,json; rs=json.load(sys.stdin).get('Resources',[]); print(rs[0].get('id','') if rs else '')
