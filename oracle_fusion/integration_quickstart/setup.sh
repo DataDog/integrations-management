@@ -329,7 +329,7 @@ import sys,json; print(json.load(sys.stdin).get('totalResults',0))
 " 2>/dev/null)
     if [[ -z "$role_count" || "$role_count" == "0" ]]; then
         fatal "No role with code 'DD_INTEGRATION_ROLE' was found in Fusion or it is not API-assignable" \
-            "This custom role must be created in Oracle Fusion Security Console before onboarding." \
+            "This custom role must be created in Oracle Fusion Security Console manually due to Oracle Fusion endpoint limitations. This is the last manual step required for integration onboarding." \
             "Steps:" \
             "  1. Log in to Oracle Fusion as an administrator" \
             "  2. Navigate to: Navigator → Tools → Security Console → Roles → Create Role" \
