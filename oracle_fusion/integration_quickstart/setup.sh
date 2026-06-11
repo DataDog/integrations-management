@@ -364,7 +364,7 @@ existing_app=$(oci identity-domains apps list \
     --endpoint "$IDENTITY_DOMAIN_URL" \
     --filter "displayName eq \"${APP_NAME}\"" \
     --output json 2>/dev/null)
-existing_app_id=$(echo "$existing_app" | python3 -c "
+existing_client_id=$(echo "$existing_app" | python3 -c "
 import sys,json
 apps=json.load(sys.stdin).get('data',{}).get('resources',[])
 print(apps[0].get('name','') if apps else '')
@@ -376,12 +376,12 @@ print(apps[0].get('ocid','') if apps else '')
 " 2>/dev/null)
 
 APP_EXISTS=false
-if [[ -n "$existing_app_id" ]]; then
+if [[ -n "$existing_client_id" ]]; then
     APP_EXISTS=true
     if [[ "$RESUME" == false ]]; then
         echo ""
         echo -e "${YELLOW}${BOLD}  A confidential application named '${APP_NAME}' already exists.${NC}"
-        echo -e "  client_id: ${existing_app_id}"
+        echo -e "  client_id: ${existing_client_id}"
         echo ""
         echo -e "  Options:"
         echo -e "    --resume     Re-use this app and continue provisioning the integration user"
@@ -389,7 +389,7 @@ if [[ -n "$existing_app_id" ]]; then
         echo ""
         exit 0
     fi
-    CLIENT_ID="$existing_app_id"
+    CLIENT_ID="$existing_client_id"
     warn "Existing app found — resuming with client_id: ${CLIENT_ID}"
 elif [[ -n "$CONFIDENTIAL_APP_ID" ]]; then
     info "Looking up confidential app by ID '${CONFIDENTIAL_APP_ID}'..."
