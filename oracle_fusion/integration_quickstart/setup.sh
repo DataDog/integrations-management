@@ -414,6 +414,7 @@ print(apps[0].get('ocid','') if apps else '')
     APP_EXISTS=true
     CLIENT_ID="$conf_app_client_id"
     existing_app_ocid="$conf_app_ocid"
+    existing_app="$conf_app_resp"
     warn "Using provided confidential app — client_id: ${CLIENT_ID}"
 elif [[ "$RESUME" == true || -n "$CLIENT_ID" ]]; then
     fatal "No confidential application named '${APP_NAME}' was found in identity domain '${IDENTITY_DOMAIN_URL}'" \
