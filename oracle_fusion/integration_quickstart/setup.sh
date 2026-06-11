@@ -558,8 +558,9 @@ import sys,json; print(json.load(sys.stdin).get('data',{}).get('client-secret','
     fi
 
     [[ -z "$CLIENT_ID" ]] && fatal \
-        "Application was created but client_id could not be retrieved" \
-        "Check OCI Console → Domains → Integrated Applications → '${APP_NAME}' for the Application ID"
+        "Application '${APP_NAME}' was created but its OAuth client ID could not be parsed from the OCI response" \
+        "Find the application ID in OCI Console → Domains → Integrated Applications → '${APP_NAME}'" \
+        "Then re-run with: --resume --confidential-application-id <application-id>"
 
     success "Confidential application created"
     echo ""
