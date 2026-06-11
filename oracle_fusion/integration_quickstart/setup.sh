@@ -46,19 +46,21 @@ FUSION_ADMIN_PASSWORD=""
 RESUME=false
 ACCOUNT_NAME=""
 USER_EMAIL=""
+CONFIDENTIAL_APP_ID=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --identity-domain-url)   IDENTITY_DOMAIN_URL="$2";   shift 2 ;;
-        --fusion-app-id)         FUSION_APP_ID="$2";         shift 2 ;;
-        --epm-app-id)            EPM_APP_ID="$2";            shift 2 ;;
-        --fusion-base-url)       FUSION_BASE_URL="$2";       shift 2 ;;
-        --epm-base-url)          EPM_BASE_URL="$2";          shift 2 ;;
-        --fusion-admin-username) FUSION_ADMIN_USERNAME="$2"; shift 2 ;;
-        --fusion-admin-password) FUSION_ADMIN_PASSWORD="$2"; shift 2 ;;
-        --user-email)            USER_EMAIL="$2";            shift 2 ;;
-        --account-name)          ACCOUNT_NAME="$2";          shift 2 ;;
-        --resume)                RESUME=true;                shift 1 ;;
+        --identity-domain-url)        IDENTITY_DOMAIN_URL="$2";   shift 2 ;;
+        --fusion-app-id)              FUSION_APP_ID="$2";         shift 2 ;;
+        --epm-app-id)                 EPM_APP_ID="$2";            shift 2 ;;
+        --fusion-base-url)            FUSION_BASE_URL="$2";       shift 2 ;;
+        --epm-base-url)               EPM_BASE_URL="$2";          shift 2 ;;
+        --fusion-admin-username)      FUSION_ADMIN_USERNAME="$2"; shift 2 ;;
+        --fusion-admin-password)      FUSION_ADMIN_PASSWORD="$2"; shift 2 ;;
+        --user-email)                 USER_EMAIL="$2";            shift 2 ;;
+        --account-name)               ACCOUNT_NAME="$2";          shift 2 ;;
+        --confidential-application-id) CONFIDENTIAL_APP_ID="$2"; shift 2 ;;
+        --resume)                     RESUME=true;                shift 1 ;;
         *) echo "Unknown argument: $1"; exit 1 ;;
     esac
 done
@@ -389,6 +391,29 @@ if [[ -n "$existing_app_id" ]]; then
     fi
     CLIENT_ID="$existing_app_id"
     warn "Existing app found — resuming with client_id: ${CLIENT_ID}"
+elif [[ -n "$CONFIDENTIAL_APP_ID" ]]; then
+    info "Looking up confidential app by ID '${CONFIDENTIAL_APP_ID}'..."
+    conf_app_resp=$(oci identity-domains apps list \
+        --endpoint "$IDENTITY_DOMAIN_URL" \
+        --filter "id eq \"${CONFIDENTIAL_APP_ID}\"" \
+        --output json 2>/dev/null)
+    conf_app_client_id=$(echo "$conf_app_resp" | python3 -c "
+import sys,json
+apps=json.load(sys.stdin).get('data',{}).get('resources',[])
+print(apps[0].get('name','') if apps else '')
+" 2>/dev/null)
+    conf_app_ocid=$(echo "$conf_app_resp" | python3 -c "
+import sys,json
+apps=json.load(sys.stdin).get('data',{}).get('resources',[])
+print(apps[0].get('ocid','') if apps else '')
+" 2>/dev/null)
+    [[ -z "$conf_app_client_id" ]] && fatal \
+        "Confidential application '${CONFIDENTIAL_APP_ID}' was not found in identity domain '${IDENTITY_DOMAIN_URL}'" \
+        "Verify the application ID at: OCI Console → Domains → Applications"
+    APP_EXISTS=true
+    CLIENT_ID="$conf_app_client_id"
+    existing_app_ocid="$conf_app_ocid"
+    warn "Using provided confidential app — client_id: ${CLIENT_ID}"
 fi
 
 # 9. Idempotency — check if user already exists
@@ -438,6 +463,12 @@ step "STEP 1: CREATE CONFIDENTIAL APPLICATION"
 if [[ "$APP_EXISTS" == true ]]; then
     info "Using existing app (client_id: ${CLIENT_ID})"
     # Add EPM scope to the existing app if not already present
+    if [[ -n "${EPM_SCOPE:-}" && -z "$existing_app_ocid" ]]; then
+        fatal "Cannot add EPM scope — confidential application OCID could not be determined" \
+            "If your app is not named '${APP_NAME}', provide its hex ID:" \
+            "  --confidential-application-id <hex-id>" \
+            "Find it at: OCI Console → Domains → Applications → your app → Application ID"
+    fi
     if [[ -n "${EPM_SCOPE:-}" && -n "$existing_app_ocid" ]]; then
         existing_scopes=$(echo "$existing_app" | python3 -c "
 import sys,json
