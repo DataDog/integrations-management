@@ -367,6 +367,11 @@ import sys,json
 apps=json.load(sys.stdin).get('data',{}).get('resources',[])
 print(apps[0].get('name','') if apps else '')
 " 2>/dev/null)
+existing_app_ocid=$(echo "$existing_app" | python3 -c "
+import sys,json
+apps=json.load(sys.stdin).get('data',{}).get('resources',[])
+print(apps[0].get('ocid','') if apps else '')
+" 2>/dev/null)
 
 APP_EXISTS=false
 if [[ -n "$existing_app_id" ]]; then
@@ -431,7 +436,36 @@ success "Prerequisite checks passed"
 step "STEP 1: CREATE CONFIDENTIAL APPLICATION"
 
 if [[ "$APP_EXISTS" == true ]]; then
-    info "Skipping — using existing app (client_id: ${CLIENT_ID})"
+    info "Using existing app (client_id: ${CLIENT_ID})"
+    # Add EPM scope to the existing app if not already present
+    if [[ -n "${EPM_SCOPE:-}" && -n "$existing_app_ocid" ]]; then
+        existing_scopes=$(echo "$existing_app" | python3 -c "
+import sys,json
+apps=json.load(sys.stdin).get('data',{}).get('resources',[])
+scopes=[s.get('fqs','') for s in apps[0].get('allowed-scopes',[]) if apps] if apps else []
+print(' '.join(scopes))
+" 2>/dev/null)
+        if echo "$existing_scopes" | grep -qF "${EPM_SCOPE}"; then
+            info "EPM scope already present on app — skipping"
+        else
+            info "Adding EPM scope to existing confidential app..."
+            _new_scopes=$(echo "$existing_app" | python3 -c "
+import sys,json
+apps=json.load(sys.stdin).get('data',{}).get('resources',[])
+scopes=[{'fqs': s.get('fqs','')} for s in apps[0].get('allowed-scopes',[]) if apps] if apps else []
+scopes.append({'fqs': '${EPM_SCOPE}'})
+print(json.dumps(scopes))
+" 2>/dev/null)
+            oci identity-domains app patch \
+                --endpoint "$IDENTITY_DOMAIN_URL" \
+                --app-id "$existing_app_ocid" \
+                --operations "[{\"op\": \"replace\", \"path\": \"allowedScopes\", \"value\": ${_new_scopes}}]" \
+                --output json > /dev/null 2>/dev/null || fatal \
+                "Failed to add EPM scope to existing confidential app" \
+                "Ensure your OCI credentials have 'Identity Domain Administrator' permissions."
+            success "EPM scope added to confidential app"
+        fi
+    fi
 else
     info "Building allowed scopes list..."
     SCOPES_JSON="["
