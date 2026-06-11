@@ -247,6 +247,10 @@ app = json.load(sys.stdin).get('data',{}).get('resources',[])[0]
 audience = app.get('audience','')
 print(audience if audience.endswith('consumer::all') else audience + 'urn:opc:resource:consumer::all')
 " 2>/dev/null)
+    [[ -z "$FUSION_SCOPE" ]] && fatal \
+        "Could not derive OAuth scope from Fusion app '${FUSION_APP_ID}'" \
+        "The app may be missing an audience configuration." \
+        "Contact Datadog support if this issue persists."
     success "Fusion app found: '${fusion_app_name}' — scope derived"
 fi
 
@@ -272,6 +276,10 @@ app = json.load(sys.stdin).get('data',{}).get('resources',[])[0]
 audience = app.get('audience','')
 print(audience if audience.endswith('consumer::all') else audience + 'urn:opc:resource:consumer::all')
 " 2>/dev/null)
+    [[ -z "$EPM_SCOPE" ]] && fatal \
+        "Could not derive OAuth scope from EPM app '${EPM_APP_ID}'" \
+        "The app may be missing an audience configuration." \
+        "Contact Datadog support if this issue persists."
     success "EPM app found: '${epm_app_name}' — scope derived"
 fi
 
