@@ -378,7 +378,7 @@ print(apps[0].get('ocid','') if apps else '')
 APP_EXISTS=false
 if [[ -n "$existing_client_id" ]]; then
     APP_EXISTS=true
-    if [[ "$RESUME" == false ]]; then
+    if [[ "$RESUME" == false && -z "$ACCOUNT_NAME" ]]; then
         echo ""
         echo -e "${YELLOW}${BOLD}  A confidential application named '${APP_NAME}' already exists.${NC}"
         echo -e "  client_id: ${existing_client_id}"
