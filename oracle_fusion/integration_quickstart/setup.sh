@@ -465,8 +465,8 @@ if [[ "$APP_EXISTS" == true ]]; then
     # Add EPM scope to the existing app if not already present
     if [[ -n "${EPM_SCOPE:-}" && -z "$existing_app_ocid" ]]; then
         fatal "Cannot add EPM scope — confidential application OCID could not be determined" \
-            "If your app is not named '${APP_NAME}', provide its hex ID:" \
-            "  --confidential-application-id <hex-id>" \
+            "If your app is not named '${APP_NAME}', provide its application ID:" \
+            "  --confidential-application-id <application-id>" \
             "Find it at: OCI Console → Domains → Applications → your app → Application ID"
     fi
     if [[ -n "${EPM_SCOPE:-}" && -n "$existing_app_ocid" ]]; then

@@ -29,7 +29,7 @@ assigns the required Fusion role, and grants EPM Service Administrator access.
 | `--fusion-admin-password PASS` | Fusion admin password (required for Fusion, not stored) |
 | `--user-email EMAIL` | Email address to attach to the created integration user. Only include if required by legacy identity domain. |
 | `--account-name NAME` | Datadog integration account name. If a matching account already exists, its credentials are fetched and the account is updated. When `--identity-domain-url` is omitted, it is derived from the existing account's `token_url` (add-EPM-to-existing-account flow). |
-| `--confidential-application-id ID` | Hex ID of an existing confidential app. Only required when resuming or adding EPM to an existing account and your app is not named "Datadog Fusion Integration". |
+| `--confidential-application-id ID` | Application ID of an existing confidential app. Only required when resuming or adding EPM to an existing account and your app is not named "Datadog Fusion Integration". |
 | `--resume` | Re-use existing confidential app if found, skip completed steps |
 
 ## Environment Variables
