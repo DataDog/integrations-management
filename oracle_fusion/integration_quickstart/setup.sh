@@ -416,8 +416,9 @@ print(apps[0].get('ocid','') if apps else '')
     warn "Using provided confidential app — client_id: ${CLIENT_ID}"
 elif [[ "$RESUME" == true || -n "$CLIENT_ID" ]]; then
     fatal "No confidential application named '${APP_NAME}' was found in identity domain '${IDENTITY_DOMAIN_URL}'" \
-        "If your app has a different name, provide its application ID:" \
-        "  --confidential-application-id <application-id>" \
+        "--resume requires the confidential app to already exist (either by the standard name or via --confidential-application-id)." \
+        "If your app has a different name, re-run with its application ID:" \
+        "  --resume --confidential-application-id <application-id>" \
         "Find it at: OCI Console → Domains → Integrated Applications → your app → Application ID"
 fi
 
