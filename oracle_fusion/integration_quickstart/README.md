@@ -30,8 +30,6 @@ assigns the required Fusion role, and grants EPM Service Administrator access.
 | `--user-email EMAIL` | Email address to attach to the created integration user. Only include if required by legacy identity domain. |
 | `--account-name NAME` | Datadog integration account name. If a matching account already exists, its credentials are fetched and the account is updated. When `--identity-domain-url` is omitted, it is derived from the existing account's `token_url` (add-EPM-to-existing-account flow). |
 | `--resume` | Re-use existing confidential app if found, skip completed steps |
-| `--epm-only` | Skip Fusion user/role steps, only provision EPM access |
-| `--fusion-only` | Skip EPM steps, only provision Fusion access |
 
 ## Environment Variables
 
@@ -55,6 +53,21 @@ export DD_SITE=datadoghq.com
   --epm-base-url https://your-epm-env.epm.us-ashburn-1.ocs.oraclecloud.com \
   --fusion-admin-username admin@example.com \
   --fusion-admin-password mypassword
+```
+
+**Resume an interrupted run:**
+
+If the script fails partway through, re-run with `--resume` to skip the confidential app creation and continue from where it left off:
+
+```bash
+export DD_APP_KEY=<your-app-key>
+./setup.sh \
+  --identity-domain-url https://idcs-abc123def456.identity.oraclecloud.com \
+  --fusion-app-id a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4 \
+  --fusion-base-url https://your-fusion-env.fa.ocs.oraclecloud.com \
+  --fusion-admin-username admin@example.com \
+  --fusion-admin-password mypassword \
+  --resume
 ```
 
 **Add EPM to an existing Fusion account:**
