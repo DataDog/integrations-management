@@ -740,7 +740,7 @@ print(matched[0].get('id', '') if matched else '')
         "Check: OCI Console → Domains → Oracle Cloud Services → your EPM app → Application ID" \
         "Once resolved, re-run with --resume to skip recreating the confidential app."
 
-    success "EPM Service Administrator role found (id: ${SERVICE_ADMIN_ROLE_ID})"
+    success "EPM role found (id: ${SERVICE_ADMIN_ROLE_ID})"
 
     # Check if grant already exists
     info "Checking if EPM role grant already exists..."
