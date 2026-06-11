@@ -127,7 +127,7 @@ fi
 
 if [[ -z "$FUSION_APP_ID" && -z "$EPM_APP_ID" ]]; then
     fatal "At least one of --fusion-app-id or --epm-app-id is required" \
-        "Find these in: OCI Console → Identity & Security → Domains → Applications" \
+        "Find these in: OCI Console → Domains → Oracle Cloud Services" \
         "Click on the Fusion or EPM app → copy the Application ID"
 fi
 
@@ -241,7 +241,7 @@ print(apps[0].get('display-name','') if apps else '')
 " 2>/dev/null)
     [[ -z "$fusion_app_name" ]] && fatal \
         "Fusion app ID '${FUSION_APP_ID}' was not found in identity domain '${IDENTITY_DOMAIN_URL}'" \
-        "Verify the Application ID at: OCI Console → Domains → Applications → Fusion Apps Cloud Service" \
+        "Verify the Application ID at: OCI Console → Domains → Oracle Cloud Services → Fusion Apps Cloud Service" \
         "Ensure you are using the hex Application ID, not the OCID."
     FUSION_SCOPE=$(echo "$fusion_app_resp" | python3 -c "
 import sys,json
@@ -271,7 +271,7 @@ print(apps[0].get('display-name','') if apps else '')
 " 2>/dev/null)
     [[ -z "$epm_app_name" ]] && fatal \
         "EPM app ID '${EPM_APP_ID}' was not found in identity domain '${IDENTITY_DOMAIN_URL}'" \
-        "Verify the Application ID at: OCI Console → Domains → Applications → your EPM app" \
+        "Verify the Application ID at: OCI Console → Domains → Oracle Cloud Services → your EPM app" \
         "Ensure you are using the hex Application ID, not the OCID."
     EPM_SCOPE=$(echo "$epm_app_resp" | python3 -c "
 import sys,json
@@ -409,7 +409,7 @@ print(apps[0].get('ocid','') if apps else '')
 " 2>/dev/null)
     [[ -z "$conf_app_client_id" ]] && fatal \
         "Confidential application '${CONFIDENTIAL_APP_ID}' was not found in identity domain '${IDENTITY_DOMAIN_URL}'" \
-        "Verify the application ID at: OCI Console → Domains → Applications"
+        "Verify the application ID at: OCI Console → Domains → Integrated Applications"
     APP_EXISTS=true
     CLIENT_ID="$conf_app_client_id"
     existing_app_ocid="$conf_app_ocid"
@@ -418,7 +418,7 @@ elif [[ "$RESUME" == true || -n "$CLIENT_ID" ]]; then
     fatal "No confidential application named '${APP_NAME}' was found in identity domain '${IDENTITY_DOMAIN_URL}'" \
         "If your app has a different name, provide its application ID:" \
         "  --confidential-application-id <application-id>" \
-        "Find it at: OCI Console → Domains → Applications → your app → Application ID"
+        "Find it at: OCI Console → Domains → Integrated Applications → your app → Application ID"
 fi
 
 # 9. Idempotency — check if user already exists
@@ -472,7 +472,7 @@ if [[ "$APP_EXISTS" == true ]]; then
         fatal "Cannot add EPM scope — confidential application OCID could not be determined" \
             "If your app is not named '${APP_NAME}', provide its application ID:" \
             "  --confidential-application-id <application-id>" \
-            "Find it at: OCI Console → Domains → Applications → your app → Application ID"
+            "Find it at: OCI Console → Domains → Integrated Applications → your app → Application ID"
     fi
     if [[ -n "${EPM_SCOPE:-}" && -n "$existing_app_ocid" ]]; then
         existing_scopes=$(echo "$existing_app" | python3 -c "
@@ -557,7 +557,7 @@ import sys,json; print(json.load(sys.stdin).get('data',{}).get('client-secret','
 
     [[ -z "$CLIENT_ID" ]] && fatal \
         "Application was created but client_id could not be retrieved" \
-        "Check OCI Console → Domains → Applications → '${APP_NAME}' for the Application ID"
+        "Check OCI Console → Domains → Integrated Applications → '${APP_NAME}' for the Application ID"
 
     success "Confidential application created"
     echo ""
@@ -566,7 +566,7 @@ import sys,json; print(json.load(sys.stdin).get('data',{}).get('client-secret','
     if [[ -n "$CLIENT_SECRET" ]]; then
         echo -e "  ${BOLD}client_secret:${NC} ${CLIENT_SECRET}"
     else
-        echo -e "  ${YELLOW}client_secret: retrieve from OCI Console → Applications → '${APP_NAME}' → OAuth Configuration${NC}"
+        echo -e "  ${YELLOW}client_secret: retrieve from OCI Console → Domains → Integrated Applications → '${APP_NAME}' → OAuth Configuration${NC}"
     fi
     echo ""
 fi
@@ -731,7 +731,7 @@ print(matched[0].get('id', '') if matched else '')
     [[ -z "$SERVICE_ADMIN_ROLE_ID" ]] && fatal \
         "Could not find 'Service Administrator' role for EPM app '${EPM_APP_ID}'" \
         "Verify the EPM app ID is correct." \
-        "Check: OCI Console → Domains → Applications → your EPM app → Application ID"
+        "Check: OCI Console → Domains → Oracle Cloud Services → your EPM app → Application ID"
 
     success "EPM Service Administrator role found (id: ${SERVICE_ADMIN_ROLE_ID})"
 
@@ -846,6 +846,6 @@ echo -e "  token_url:       ${TOKEN_URL}"
 echo ""
 echo -e "  ${YELLOW}${BOLD}Next steps:${NC}"
 echo -e "  1. Enter the client_secret in the Datadog Oracle Fusion integration tile:"
-echo -e "     OCI Console → Domains → Applications → '${APP_NAME}' → OAuth Configuration"
+echo -e "     OCI Console → Domains → Integrated Applications → '${APP_NAME}' → OAuth Configuration"
 echo -e "  2. Allow 1-2 minutes for EPM Access Control to sync before testing"
 echo ""
