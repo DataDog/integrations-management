@@ -725,12 +725,12 @@ fi
 step "STEP 5: REGISTER DATADOG ACCOUNT"
 
 
-# Default account name to the identity domain hostname
+# Default account name to the hostname from the Fusion or EPM base URL
 if [[ -z "$ACCOUNT_NAME" ]]; then
+    _base_url="${FUSION_BASE_URL:-${EPM_BASE_URL:-}}"
     ACCOUNT_NAME=$(python3 -c "
-import sys
 from urllib.parse import urlparse
-print(urlparse('${IDENTITY_DOMAIN_URL}').hostname or '${IDENTITY_DOMAIN_URL}')
+print(urlparse('${_base_url}').hostname or '')
 " 2>/dev/null)
     ACCOUNT_NAME="${ACCOUNT_NAME:-Oracle Fusion Integration}"
 fi
