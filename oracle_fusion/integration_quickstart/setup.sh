@@ -98,10 +98,6 @@ dd_get()   { dd_request GET   "$1"; }
 dd_post()  { dd_request POST  "$1" "$2"; }
 dd_patch() { dd_request PATCH "$1" "$2"; }
 
-# ── Temp file cleanup ─────────────────────────────────────────────────────────
-TMP_DIR=$(mktemp -d)
-trap 'rm -rf "$TMP_DIR"' EXIT
-
 # ── State tracking ────────────────────────────────────────────────────────────
 CLIENT_ID=""
 CLIENT_SECRET=""
@@ -637,25 +633,19 @@ print(rs[0].get('id','') if rs else '')
 
     # Find EPM Service Administrator role ID
     info "Finding EPM Service Administrator role..."
-    ROLES_TMP="${TMP_DIR}/app_roles.json"
-    oci identity-domains app-roles list \
+    SERVICE_ADMIN_ROLE_ID=$(oci identity-domains app-roles list \
         --endpoint "$IDENTITY_DOMAIN_URL" \
         --filter "app.value eq \"${EPM_APP_ID}\"" \
         --count 200 \
-        --output json 2>/dev/null > "$ROLES_TMP"
-
-    SERVICE_ADMIN_ROLE_ID=$(python3 - "$ROLES_TMP" "$EPM_APP_ID" << 'PYEOF'
+        --output json 2>/dev/null | python3 -c "
 import sys, json
-tmp_file, app_id = sys.argv[1], sys.argv[2]
-with open(tmp_file) as f:
-    d = json.load(f)
-resources = d.get('data', {}).get('resources', [])
+app_id = '${EPM_APP_ID}'
+resources = json.load(sys.stdin).get('data', {}).get('resources', [])
 matched = [r for r in resources
     if r.get('app', {}).get('value') == app_id
     and r.get('display-name', '').lower() == 'service administrator']
 print(matched[0].get('id', '') if matched else '')
-PYEOF
-)
+")
 
     [[ -z "$SERVICE_ADMIN_ROLE_ID" ]] && fatal \
         "Could not find 'Service Administrator' role for EPM app '${EPM_APP_ID}'" \
@@ -744,24 +734,7 @@ print(json.dumps({'data': {'type': 'Account', 'attributes': attrs}}))
 " 2>/dev/null)
 
 if [[ -n "$existing_account_id" ]]; then
-    info "Account exists — merging settings (id=${existing_account_id})..."
-    # Fetch the existing account to merge settings — the PATCH endpoint replaces by default,
-    # so we must send the full merged settings to avoid clearing fields like enabled_services.
-    existing_resp=$(dd_get "/api/v2/web-integrations/oracle-fusion/accounts/${existing_account_id}") || fatal \
-        "Failed to fetch existing Datadog Oracle Fusion account" \
-        "Verify DD_APP_KEY have 'integrations_read' permissions."
-    printf '%s' "$existing_resp" > "${TMP_DIR}/existing_account.json"
-    printf '%s' "$payload"       > "${TMP_DIR}/new_payload.json"
-    payload=$(python3 - "${TMP_DIR}/existing_account.json" "${TMP_DIR}/new_payload.json" <<'PYEOF'
-import sys, json
-with open(sys.argv[1]) as f: existing = json.load(f).get('data', {})
-with open(sys.argv[2]) as f: new_attrs = json.load(f)['data']['attributes']
-existing_settings = existing.get('attributes', {}).get('settings', {})
-existing_settings.update(new_attrs.get('settings', {}))
-new_attrs['settings'] = existing_settings
-print(json.dumps({'data': {'type': 'Account', 'attributes': new_attrs}}))
-PYEOF
-)
+    info "Account exists — updating (id=${existing_account_id})..."
     dd_patch "/api/v2/web-integrations/oracle-fusion/accounts/${existing_account_id}" "$payload" > /dev/null || fatal \
         "Failed to update Datadog Oracle Fusion account" \
         "Verify DD_APP_KEY have 'integrations_write' permissions."
