@@ -719,7 +719,7 @@ print(rs[0].get('id','') if rs else '')
     success "OCI IAM user found (id: ${OCI_IAM_USER_ID})"
 
     # Find EPM Service Administrator role ID
-    info "Finding EPM Service Administrator role..."
+    info "Finding EPM role..."
     SERVICE_ADMIN_ROLE_ID=$(oci identity-domains app-roles list \
         --endpoint "$IDENTITY_DOMAIN_URL" \
         --filter "app.value eq \"${EPM_APP_ID}\"" \
