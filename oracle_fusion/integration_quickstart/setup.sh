@@ -603,8 +603,8 @@ if [[ -z "$FUSION_APP_ID" && -n "$EPM_APP_ID" ]]; then
 import sys,json; print(json.load(sys.stdin).get('data',{}).get('id',''))
 " 2>/dev/null)
         [[ -z "$OCI_IAM_USER_ID" ]] && fatal \
-            "OCI IAM user was created but ID could not be retrieved" \
-            "Check OCI Console → Domains → Users for the new user."
+            "OCI IAM user was created but its ID could not be parsed from the OCI response" \
+            "Re-run with --resume to retry. If the issue persists, contact Datadog support."
         success "OCI IAM user created (id: ${OCI_IAM_USER_ID})"
     fi
 
