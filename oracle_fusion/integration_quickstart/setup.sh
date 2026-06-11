@@ -770,7 +770,7 @@ print(len(rs))
             "Check: OCI Console → Domains → Administrators" \
             "Once resolved, re-run with --resume to skip recreating the confidential app."
 
-        success "EPM Service Administrator role granted"
+        success "EPM role granted"
     fi
 
 fi
