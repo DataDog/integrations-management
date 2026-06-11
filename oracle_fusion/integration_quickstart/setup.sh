@@ -414,6 +414,11 @@ print(apps[0].get('ocid','') if apps else '')
     CLIENT_ID="$conf_app_client_id"
     existing_app_ocid="$conf_app_ocid"
     warn "Using provided confidential app — client_id: ${CLIENT_ID}"
+elif [[ "$RESUME" == true || -n "$CLIENT_ID" ]]; then
+    fatal "No confidential application named '${APP_NAME}' was found in identity domain '${IDENTITY_DOMAIN_URL}'" \
+        "If your app has a different name, provide its application ID:" \
+        "  --confidential-application-id <application-id>" \
+        "Find it at: OCI Console → Domains → Applications → your app → Application ID"
 fi
 
 # 9. Idempotency — check if user already exists
