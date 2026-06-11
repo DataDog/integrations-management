@@ -444,7 +444,7 @@ import sys,json; rs=json.load(sys.stdin).get('Resources',[]); print(rs[0].get('i
             FUSION_USER_ID="$existing_user_id"
             warn "Fusion user already exists (id: ${FUSION_USER_ID}) — skipping creation"
         fi
-    elif [[ -z "$FUSION_APP_ID" ]]; then
+    else
         info "Checking if OCI IAM user '${CLIENT_ID}' already exists..."
         existing_oci_user=$(oci identity-domains users list \
             --endpoint "$IDENTITY_DOMAIN_URL" \
