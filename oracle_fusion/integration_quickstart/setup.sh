@@ -854,12 +854,5 @@ echo -e "  token_url:       ${TOKEN_URL}"
 [[ -n "$FUSION_BASE_URL" ]]  && echo -e "  fusion_base_url: ${FUSION_BASE_URL}"
 [[ -n "$EPM_BASE_URL" ]]     && echo -e "  epm_base_url:    ${EPM_BASE_URL}"
 echo ""
-echo -e "  ${YELLOW}${BOLD}Next steps:${NC}"
-if [[ -z "$CLIENT_SECRET" ]]; then
-    echo -e "  1. Enter the client_secret in the Datadog Oracle Fusion integration tile:"
-    echo -e "     OCI Console → Domains → Integrated Applications → '${APP_NAME}' → OAuth Configuration"
-    echo -e "  2. Allow 1-2 minutes for EPM Access Control to sync before testing"
-else
-    echo -e "  1. Allow 1-2 minutes for EPM Access Control to sync before testing"
-fi
+echo -e "  Please allow at least 15 minutes for EPM roles to propagate before testing."
 echo ""
