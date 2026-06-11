@@ -110,7 +110,7 @@ normalise_url() {
 [[ -n "$IDENTITY_DOMAIN_URL" ]] && IDENTITY_DOMAIN_URL=$(normalise_url "$IDENTITY_DOMAIN_URL")
 [[ -n "$FUSION_BASE_URL" ]]     && FUSION_BASE_URL=$(normalise_url "$FUSION_BASE_URL")
 [[ -n "$EPM_BASE_URL" ]]        && EPM_BASE_URL=$(normalise_url "$EPM_BASE_URL")
-TOKEN_URL="${IDENTITY_DOMAIN_URL}/oauth2/v1/token"
+TOKEN_URL=""
 
 # ── Datadog API helper ────────────────────────────────────────────────────────
 DD_SITE="${DD_SITE:-datadoghq.com}"
@@ -238,6 +238,8 @@ fi
     "--identity-domain-url is required" \
     "Provide your OCI IAM identity domain URL." \
     "Find it at: OCI Console → Identity & Security → Domains → copy the Domain URL"
+# TOKEN_URL is set here, after IDENTITY_DOMAIN_URL is fully resolved (either from --identity-domain-url or --account-name)
+[[ -z "$TOKEN_URL" ]] && TOKEN_URL="${IDENTITY_DOMAIN_URL}/oauth2/v1/token"
 
 # 3. Required tools
 info "Checking required tools..."
