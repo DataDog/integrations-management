@@ -72,6 +72,20 @@ class TestExecuteCmd(CmdExecutionTestCase):
         self.assertEqual(result, "success output")
         self.subprocess_mock.assert_called_once()
 
+    def test_execute_success_logs_result_at_debug(self):
+        """Successful commands log their stdout at DEBUG level."""
+        cmd = Cmd(["az", "functionapp", "create"]).param("--name", "test")
+        mock_result = Mock()
+        mock_result.stdout = "success output"
+        mock_result.returncode = 0
+        self.subprocess_mock.return_value = mock_result
+
+        with mock_patch("az_shared.execute_cmd.log") as log_mock:
+            execute(cmd)
+
+        debug_calls = [str(call) for call in log_mock.debug.call_args_list]
+        self.assertTrue(any("success output" in call for call in debug_calls))
+
     def test_execute_authorization_error(self):
         """Test execute handles authorization errors"""
         cmd = Cmd(["az", "functionapp", "create"])
