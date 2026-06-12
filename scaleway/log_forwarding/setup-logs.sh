@@ -3,124 +3,18 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Scaleway Cloud Logs → Datadog  |  Setup Script
-# ─────────────────────────────────────────────────────────────────────────────
-#
-# Sets up log forwarding from Scaleway to Datadog in three steps:
-#
-#   Step 0 – IAM Application Provisioning  (runs first, always)
-#             Creates a dedicated least-privilege IAM application named
-#             "datadog-integration" with an ObservabilityFullAccess policy,
-#             generates an API key pair, and uses those credentials for all
-#             subsequent API calls.  Idempotent — reuses the app if it exists.
-#
-#   Part 1 – Cockpit Native Exports
-#             Forwards Scaleway product logs from all projects × regions to
-#             Datadog using Scaleway Cockpit's built-in data exporter feature.
-#             Requires no agent — Scaleway pushes logs directly.
-#
-#   Part 2 – Audit Trail Export  (optional, requires Docker)
-#             Builds and deploys an OpenTelemetry Collector with the
-#             scwaudittrail receiver to forward IAM/org-level audit events
-#             to Datadog Logs.
-#
-#   Part 3 – Datadog Account Registration  (runs last, always)
-#             Calls the Datadog API to create (or update) the Scaleway
-#             integration account with the provisioned credentials.
-#             No manual tile entry required.
-#
-# Prerequisites:
-#   scw CLI            On Linux and macOS, the script offers to install and
-#                       initialize it for you on first run via the official
-#                       Scaleway install script.  On other platforms, install
-#                       manually: https://github.com/scaleway/scaleway-cli
-#                       The credentials provided to 'scw init' must have IAM
-#                       Manager or Org Owner permissions (used only for Step 0)
-#                       — generate a key at
-#                       https://console.scaleway.com/iam/api-keys
-#   curl, jq           (required for Part 1)
-#   Docker, ssh, scp   (required for Part 2 — Docker daemon must be running
-#                       on the host running this script; the collector binary
-#                       is built locally before being deployed to the Instance)
-#
-# Usage:
-#   export DD_API_KEY=...
-#   export DD_APP_KEY=...
-#   export DD_SITE=datadoghq.com
-#   bash setup-logs.sh [--dry-run]
-#
-#   Scaleway credentials are read automatically from your scw CLI config.
-#   Override any value by setting the corresponding environment variable.
-#
-#   --dry-run  Print every API call (method, URL, body) without executing it.
-#              All env vars must still be set, but fake values are fine:
-#                SCW_SECRET_KEY=x SCW_ACCESS_KEY=x SCW_PROJECT_ID=x \
-#                DD_API_KEY=x DD_APP_KEY=x \
-#                DD_SITE=datadoghq.com bash setup-logs.sh --dry-run
-#
-#   --teardown Delete the provisioned audit trail Instance (tagged
-#              'datadog-audit-trail') and its IP/volumes, then delete the
-#              Datadog integration account.  DD_API_KEY, DD_APP_KEY, and
-#              DD_SITE are required.  SCW credentials and SCW_PROJECT_ID are
-#              read from your scw config automatically.  Does not touch IAM
-#              apps or Cockpit exporters.
-#
-# ── Configuration ─────────────────────────────────────────────────────────────
-#
-#   DD_API_KEY            Your Datadog API key                         [required]
-#   DD_APP_KEY            Your Datadog application key                 [required]
-#   DD_SITE               Your Datadog site                            [required]
-#                         e.g. datadoghq.com, datadoghq.eu,
-#                              us3.datadoghq.com, us5.datadoghq.com
-#
-#   SCW_SECRET_KEY        Scaleway IAM secret key  [default: from scw config]
-#   SCW_ACCESS_KEY        Scaleway IAM access key  [default: from scw config]
-#                         Generate a key pair at:
-#                         https://console.scaleway.com/iam/api-keys
-#                         (Or just let 'scw init' walk you through it.)
-#
-#   SCW_PROJECT_ID        Scaleway project ID to set up exports for    [default: from scw config]
-#                         Only set this to target a non-default project.
-#   SCALEWAY_REGIONS      Comma-separated Cockpit regions              [default: fr-par,nl-ams,pl-waw]
-#   SCALEWAY_PRODUCTS     Comma-separated Scaleway products to export  [default: all]
-#                         Use "all" to export every Cockpit-integrated product.
-#                         Example: "kubernetes,rdb,object-storage"
-#   SCW_AUDIT_TRAIL_ENABLED  Set up the audit trail collector          [default: true]
-#                            Set by the integration tile UI's audit
-#                            trail toggle.  When explicitly set, the
-#                            provisioning prompt is suppressed (the
-#                            UI toggle already implied consent).
-#   SCW_INSTANCE_IP       IP of an existing Scaleway Instance to use   [default: auto-provision]
-#                         If unset, the script provisions a new
-#                         Instance (see PROVISION_INSTANCE below).
-#   PROVISION_INSTANCE    Auto-provision an Instance for the audit     [default: auto, or
-#                         trail when SCW_INSTANCE_IP is unset.          'true' if SCW_AUDIT_
-#                         Values: 'auto' (prompts), 'true' (skip        TRAIL_ENABLED is
-#                         prompt), 'false' (don't provision; skip       explicitly set]
-#                         Part 2).
-#   SCW_AUDIT_INSTANCE_TYPE  Commercial type for the provisioned Instance [default: DEV1-S]
-#                            DEV1-S is ~€6.34/mo and available in all
-#                            zones; STARDUST1-S in nl-ams-1 is cheaper
-#                            (~€0.11/mo) when available.
-#   SCW_AUDIT_INSTANCE_ZONE  Zone for the provisioned Instance         [default: ${SCW_REGION}-1]
-#   SCW_AUDIT_INSTANCE_IMAGE Image label for the provisioned Instance  [default: ubuntu_jammy]
-#   SCW_INSTANCE_USER     SSH user for the Instance                    [default: root]
-#   SCW_ACCOUNT_NAME      Name for the Datadog integration account     [default: SCW_PROJECT_ID]
-#
-# Private-subnet audit-trail Instances: configure ProxyJump in ~/.ssh/config.
-# https://www.scaleway.com/en/docs/public-gateways/how-to/use-ssh-bastion/
-#
-# ─────────────────────────────────────────────────────────────────────────────
+# See README.md for prerequisites, configuration reference, and usage.
 set -euo pipefail
 
 # ── Flags ─────────────────────────────────────────────────────────────────────
 DRY_RUN=false
 TEARDOWN=false
+TEARDOWN_YES="${TEARDOWN_YES:-false}"
 for _arg in "$@"; do
   case "$_arg" in
     --dry-run)  DRY_RUN=true ;;
     --teardown) TEARDOWN=true ;;
+    --yes|-y)   TEARDOWN_YES=true ;;
   esac
 done
 unset _arg
@@ -141,6 +35,15 @@ confirm_default_yes() {
   printf '  %s [Y/n] ' "$prompt" >&2
   read -r ans </dev/tty || true
   [[ ! "$ans" =~ ^[Nn]$ ]]
+}
+
+# Prompt with a default-no [y/N] confirmation.  Returns 0 only if the user
+# explicitly answered Y/y.  Reads from /dev/tty so it works under `bash <(curl …)`.
+confirm_default_no() {
+  local prompt="$1" ans=""
+  printf '  %s [y/N] ' "$prompt" >&2
+  read -r ans </dev/tty || true
+  [[ "$ans" =~ ^[Yy]$ ]]
 }
 
 # ── Bootstrap: ensure scw CLI is installed and initialized ───────────────────
@@ -263,6 +166,7 @@ SCW_ORGANIZATION_ID="${SCW_ORGANIZATION_ID:-$(scw_config_get default-organizatio
 : "${DD_API_KEY:?DD_API_KEY is required (your Datadog API key)}"
 : "${DD_APP_KEY:?DD_APP_KEY is required (your Datadog application key)}"
 : "${DD_SITE:?DD_SITE is required (e.g. datadoghq.com)}"
+DD_API_BASE_URL="${DD_API_BASE_URL:-https://api.${DD_SITE}}"
 
 # ── Optional / defaults ───────────────────────────────────────────────────────
 SCW_PROJECT_ID="${SCW_PROJECT_ID:-$(scw_config_get default-project-id)}"
@@ -347,7 +251,8 @@ scw_request() {
   fi
   # -g disables curl URL globbing so query params with [] (e.g. page[limit]) pass through verbatim.
   local args=(-sS -g -w $'\n%{http_code}' -H "X-Auth-Token: $SCW_SECRET_KEY")
-  [[ "$method" != "GET" ]] && args+=(-X "$method" -H "Content-Type: application/json" -d "$body")
+  [[ "$method" != "GET" ]] && args+=(-X "$method")
+  [[ -n "$body" ]] && args+=(-H "Content-Type: application/json" -d "$body")
   local resp
   resp=$(curl "${args[@]}" "${SCW_API}${path}")
   local http_code="${resp##*$'\n'}" body_out="${resp%$'\n'*}"
@@ -357,14 +262,15 @@ scw_request() {
   printf '%s\n' "$body_out"
 }
 
-scw_get()  { scw_request GET  "$1"; }
-scw_post() { scw_request POST "$1" "$2"; }
+scw_get()    { scw_request GET    "$1"; }
+scw_post()   { scw_request POST   "$1" "$2"; }
+scw_delete() { scw_request DELETE "$1"; }
 
 # ── Datadog API helpers ───────────────────────────────────────────────────────
 dd_request() {
   local method="$1" path="$2" body="${3:-}"
   if [[ "$DRY_RUN" == "true" ]]; then
-    dryrun "${method} https://api.${DD_SITE}${path}"
+    dryrun "${method} ${DD_API_BASE_URL}${path}"
     [[ -n "$body" ]] && dryrun "body ${body}"
     echo "$_DRY_RUN_STUB"; return
   fi
@@ -377,7 +283,7 @@ dd_request() {
     [[ -n "$body" ]] && args+=(-H "Content-Type: application/json" -d "$body")
   fi
   local resp
-  resp=$(curl "${args[@]}" "https://api.${DD_SITE}${path}")
+  resp=$(curl "${args[@]}" "${DD_API_BASE_URL}${path}")
   local http_code="${resp##*$'\n'}" body_out="${resp%$'\n'*}"
   if [[ "$http_code" -ge 400 ]]; then
     printf '%s\n' "$body_out" >&2; return 1
@@ -465,7 +371,7 @@ preflight_check_datadog_access() {
   log "Verifying Datadog API key can manage Scaleway integration accounts..."
 
   if [[ "$DRY_RUN" == "true" ]]; then
-    dryrun "DELETE https://api.${DD_SITE}/api/v2/web-integrations/scaleway/accounts/<probe-uuid> (pre-flight)"
+    dryrun "DELETE ${DD_API_BASE_URL}/api/v2/web-integrations/scaleway/accounts/<probe-uuid> (pre-flight)"
     return 0
   fi
 
@@ -476,8 +382,8 @@ preflight_check_datadog_access() {
   resp=$(curl -sS -g -X DELETE -w $'\n%{http_code}' \
     -H "DD-API-KEY: $DD_API_KEY" \
     -H "DD-APPLICATION-KEY: $DD_APP_KEY" \
-    "https://api.${DD_SITE}/api/v2/web-integrations/scaleway/accounts/${probe_id}" 2>&1) \
-    || die "Could not reach Datadog API at https://api.${DD_SITE} — check DD_SITE and network connectivity."
+    "${DD_API_BASE_URL}/api/v2/web-integrations/scaleway/accounts/${probe_id}" 2>&1) \
+    || die "Could not reach Datadog API at ${DD_API_BASE_URL} — check DD_SITE and network connectivity."
 
   http_code="${resp##*$'\n'}"
   body_out="${resp%$'\n'*}"
@@ -1064,6 +970,130 @@ teardown_datadog_account() {
   ok "Deleted Datadog Scaleway account for project '${SCW_PROJECT_ID}' (id=${account_id})"
 }
 
+# Populated by confirm_teardown as "region:id\n..." so teardown_cockpit_exports
+# can consume the list without repeating the API calls.
+_TEARDOWN_EXPORTER_IDS=""
+
+# Scans for all teardown targets, prints a summary, and asks for confirmation.
+# Returns 1 (caller should return) if the user declines or nothing is found.
+# Populates _TEARDOWN_EXPORTER_IDS for reuse by teardown_cockpit_exports.
+# Pass --yes / -y or set TEARDOWN_YES=true to skip the prompt (automation).
+confirm_teardown() {
+  if [[ "$DRY_RUN" == "true" ]]; then
+    dryrun "Would scan and list Cockpit exporters, audit-trail Instances, and Datadog account, then prompt for confirmation"
+    return 0
+  fi
+
+  log "Scanning for resources to delete..."
+
+  local lines=()
+
+  # Cockpit exporters — IDs cached in _TEARDOWN_EXPORTER_IDS to avoid
+  # a duplicate GET per region when teardown_cockpit_exports runs next.
+  IFS=',' read -ra _regions <<< "$SCALEWAY_REGIONS"
+  for region in "${_regions[@]}"; do
+    local raw eids
+    raw=$(scw_get "/cockpit/v1/regions/${region}/exporters?project_id=${SCW_PROJECT_ID}&page_size=100" 2>/dev/null \
+      || echo '{"exporters":[]}')
+    eids=$(jq -r --arg name "$EXPORTER_NAME" '.exporters[] | select(.name == $name) | .id' <<< "$raw" 2>/dev/null \
+      || true)
+    while IFS= read -r eid; do
+      [[ -z "$eid" ]] && continue
+      _TEARDOWN_EXPORTER_IDS+="${region}:${eid}"$'\n'
+      lines+=("Cockpit exporter      region=${region}  name=${EXPORTER_NAME}  (id=${eid})")
+    done <<< "$eids"
+  done
+  unset _regions
+
+  # Audit trail instances
+  local instances_json
+  instances_json=$(scw instance server list zone=all project-id="$SCW_PROJECT_ID" \
+    tags.0="$AUDIT_INSTANCE_TAG" -o json 2>/dev/null || echo "[]")
+  while IFS= read -r entry; do
+    [[ -z "$entry" ]] && continue
+    lines+=("Audit trail Instance  ${entry}")
+  done < <(jq -r '.[] | "zone=\(.zone)  id=\(.id)  ip=\(.public_ip.address // "none")"' \
+    <<< "$instances_json" 2>/dev/null || true)
+
+  # Datadog integration account
+  local dd_info
+  dd_info=$(dd_get_all "/api/v2/web-integrations/scaleway/accounts" 2>/dev/null \
+    | jq -r --arg proj "$SCW_PROJECT_ID" \
+        '.data[] | select(.attributes.settings.project_id == $proj) | "name=\(.attributes.name)  (id=\(.id))"' \
+      2>/dev/null || true)
+  [[ -n "$dd_info" ]] && lines+=("Datadog account       ${dd_info}")
+
+  if [[ ${#lines[@]} -eq 0 ]]; then
+    log "No resources found for project ${SCW_PROJECT_ID} — nothing to delete."
+    return 1
+  fi
+
+  printf '\n'
+  printf '\033[0;33m[teardown]\033[0m  The following resources will be permanently deleted:\n' >&2
+  for line in "${lines[@]}"; do
+    printf '             \033[0;33m→\033[0m  %s\n' "$line" >&2
+  done
+  printf '\n'
+
+  [[ "$TEARDOWN_YES" == "true" ]] && return 0
+
+  if ! confirm_default_no "Proceed?"; then
+    log "Teardown cancelled."
+    return 1
+  fi
+}
+
+# Deletes all Cockpit log exporters named $EXPORTER_NAME across every
+# configured region for the project.  Consumes _TEARDOWN_EXPORTER_IDS if
+# already populated by confirm_teardown to avoid duplicate API calls.
+teardown_cockpit_exports() {
+  log "━━━ Teardown: Cockpit Log Exporters ━━━"
+
+  : "${SCW_PROJECT_ID:?could not determine SCW_PROJECT_ID from scw config — run 'scw init' or set SCW_PROJECT_ID explicitly}"
+
+  local deleted=0
+
+  if [[ -n "$_TEARDOWN_EXPORTER_IDS" ]]; then
+    # Fast path: reuse IDs already fetched by confirm_teardown.
+    while IFS=: read -r region eid; do
+      [[ -z "$eid" ]] && continue
+      if [[ "$DRY_RUN" == "true" ]]; then
+        dryrun "Would DELETE /cockpit/v1/regions/${region}/exporters/${eid}"
+        deleted=$((deleted + 1))
+      elif scw_delete "/cockpit/v1/regions/${region}/exporters/${eid}" >/dev/null; then
+        ok "Deleted exporter ${eid} in ${region}"
+        deleted=$((deleted + 1))
+      else
+        warn "Failed to delete exporter ${eid} in ${region} — remove it manually from the Scaleway Console"
+      fi
+    done <<< "$_TEARDOWN_EXPORTER_IDS"
+  else
+    # Standalone path: confirm_teardown was skipped (e.g. dry-run), fetch fresh.
+    IFS=',' read -ra _regions <<< "$SCALEWAY_REGIONS"
+    for region in "${_regions[@]}"; do
+      local exporter_ids
+      exporter_ids=$(scw_get "/cockpit/v1/regions/${region}/exporters?project_id=${SCW_PROJECT_ID}&page_size=100" 2>/dev/null \
+        | jq -r --arg name "$EXPORTER_NAME" '.exporters[] | select(.name == $name) | .id' 2>/dev/null \
+        || true)
+      while IFS= read -r eid; do
+        [[ -z "$eid" ]] && continue
+        if [[ "$DRY_RUN" == "true" ]]; then
+          dryrun "Would DELETE /cockpit/v1/regions/${region}/exporters/${eid}"
+          deleted=$((deleted + 1))
+        elif scw_delete "/cockpit/v1/regions/${region}/exporters/${eid}" >/dev/null; then
+          ok "Deleted exporter ${eid} in ${region}"
+          deleted=$((deleted + 1))
+        else
+          warn "Failed to delete exporter ${eid} in ${region} — remove it manually from the Scaleway Console"
+        fi
+      done <<< "$exporter_ids"
+    done
+    unset _regions
+  fi
+
+  [[ $deleted -gt 0 ]] || log "No exporters named '${EXPORTER_NAME}' found — nothing to delete."
+}
+
 setup_audit_trail() {
   log "━━━ Part 2: Audit Trail Export ━━━"
 
@@ -1203,8 +1233,10 @@ main() {
 
   # --teardown is a destructive one-shot: skip the normal setup flow entirely.
   if [[ "$TEARDOWN" == "true" ]]; then
-    teardown_audit_trail_instance
+    confirm_teardown || return 0
     teardown_datadog_account
+    teardown_cockpit_exports
+    teardown_audit_trail_instance
     return 0
   fi
 
