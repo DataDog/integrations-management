@@ -16,6 +16,7 @@ from az_shared.errors import (
     InteractiveAuthenticationRequiredError,
 )
 from az_shared.execute_cmd import execute, execute_json
+from az_shared.script_status import Status, StatusReporter
 from azure_integration_quickstart.constants import APP_REGISTRATION_WORKFLOW_TYPE
 from azure_integration_quickstart.extension.vm_extension import list_vms_for_subscriptions, set_extension_latest
 from azure_integration_quickstart.quickstart_shared import (
@@ -33,7 +34,6 @@ from azure_integration_quickstart.scopes import (
     flatten_scopes_to_unique_subscriptions,
     report_available_scopes,
 )
-from az_shared.script_status import Status, StatusReporter
 from azure_integration_quickstart.user_selections import receive_app_registration_selections
 from azure_integration_quickstart.util import dd_request
 from common.shell import Cmd
@@ -51,6 +51,7 @@ class AppRegistration:
 APP_REGISTRATION_NAME_PREFIX = "datadog-azure-integration"
 APP_REGISTRATION_CLIENT_SECRET_TTL_YEARS = 2
 APP_REGISTRATION_ROLE = "Monitoring Reader"
+APP_REGISTRATION_UNSTORED_FIELDS = {"external_id"}
 
 FEDERATED_AUTH_SECRET_PLACEHOLDER = "SECRETLESS_AUTH"
 FEDERATED_CREDENTIAL_NAME = "datadog"
@@ -127,7 +128,7 @@ def submit_integration_config(app_registration: AppRegistration, config: dict) -
             "POST",
             "/api/v1/integration/azure",
             {
-                **config,
+                **{k: v for k, v in config.items() if k not in APP_REGISTRATION_UNSTORED_FIELDS},
                 "client_id": app_registration.client_id,
                 "client_secret": app_registration.client_secret,
                 "tenant_name": app_registration.tenant_id,
@@ -193,9 +194,7 @@ def main():
         selected_subs = flatten_scopes_to_unique_subscriptions(selections.scopes)
         # App registration flow is add-only: when an LFO exists, monitored scopes becomes existing ∪ selected.
         if existing_lfo:
-            existing_subs = {
-                Subscription(id=sub_id, name=name) for sub_id, name in existing_lfo.monitored_subs.items()
-            }
+            existing_subs = {Subscription(id=sub_id, name=name) for sub_id, name in existing_lfo.monitored_subs.items()}
             final_scopes = existing_subs | selected_subs
         else:
             final_scopes = selected_subs
