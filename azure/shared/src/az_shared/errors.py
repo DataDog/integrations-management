@@ -27,6 +27,10 @@ class ExistenceCheckError(FatalError):
     """Error occurred when checking if a resource exists."""
 
 
+class MissingExternalIdError(FatalError):
+    """An external id is required for secretless auth, but none was provided."""
+
+
 def format_error_details(error_message: str) -> str:
     return f"\n\nError Details:\n{error_message}"
 

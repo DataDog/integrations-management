@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Optional
 from urllib.error import URLError
 
 from az_shared.errors import (
@@ -14,6 +15,7 @@ from az_shared.errors import (
     AppRegistrationCreationPermissionsError,
     FederatedCredentialCreationPermissionsError,
     InteractiveAuthenticationRequiredError,
+    MissingExternalIdError,
 )
 from az_shared.execute_cmd import execute, execute_json
 from az_shared.script_status import Status, StatusReporter
@@ -56,7 +58,7 @@ APP_REGISTRATION_UNSTORED_FIELDS = {"external_id"}
 FEDERATED_AUTH_SECRET_PLACEHOLDER = "SECRETLESS_AUTH"
 FEDERATED_CREDENTIAL_NAME = "datadog"
 FEDERATED_AUTH_ISSUER = "https://jjmc4r9f5i.execute-api.us-east-1.amazonaws.com/pine"
-FEDERATED_AUTH_SUBJECT = "datadog-oidc"
+FEDERATED_AUTH_SUBJECT_PREFIX = "datadog-oidc:external-auth-id:"
 FEDERATED_CREDENTIAL_DESCRIPTION = (
     "Federated credential that permits Datadog to authenticate without storing a client secret"
 )
@@ -77,7 +79,9 @@ def run_app_reg_create_cmd(cmd: Cmd):
         raise InteractiveAuthenticationRequiredError(e.commands, str(e))
 
 
-def create_app_registration_with_permissions(scopes: Iterable[Scope], use_secretless_auth=False) -> AppRegistration:
+def create_app_registration_with_permissions(
+    scopes: Iterable[Scope], use_secretless_auth: bool, external_id: Optional[str]
+) -> AppRegistration:
     """Create an app registration with the necessary permissions for Datadog to function over the given scopes."""
     cmd = (
         Cmd(["az", "ad", "sp", "create-for-rbac"])
@@ -86,6 +90,10 @@ def create_app_registration_with_permissions(scopes: Iterable[Scope], use_secret
         .param_list("--scopes", [s.scope for s in scopes])
     )
     if use_secretless_auth:
+        if not external_id:
+            raise MissingExternalIdError(
+                "Secretless auth is enabled, but no external id was provided so we cannot create a properly scoped federated credential."
+            )
         result = run_app_reg_create_cmd(cmd)
         try:
             execute(
@@ -96,7 +104,7 @@ def create_app_registration_with_permissions(scopes: Iterable[Scope], use_secret
                     f"""{{
                         "name": "{FEDERATED_CREDENTIAL_NAME}",
                         "issuer": "{FEDERATED_AUTH_ISSUER}",
-                        "subject": "{FEDERATED_AUTH_SUBJECT}",
+                        "subject": "{FEDERATED_AUTH_SUBJECT_PREFIX}{external_id}",
                         "description": "{FEDERATED_CREDENTIAL_DESCRIPTION}",
                         "audiences": ["{FEDERATED_AUTH_AUDIENCE}"]
                     }}""",
@@ -176,7 +184,9 @@ def main():
         selections = receive_app_registration_selections(workflow_id)
     with status.report_step("app_registration", "Creating app registration in Azure"):
         app_registration = create_app_registration_with_permissions(
-            selections.scopes, selections.app_registration_config.get("secretless_auth_enabled", False)
+            selections.scopes,
+            selections.app_registration_config.get("secretless_auth_enabled", False),
+            selections.app_registration_config.get("external_id"),
         )
     with status.report_step("integration_config", "Submitting new configuration to Datadog"):
         submit_integration_config(app_registration, selections.app_registration_config)
