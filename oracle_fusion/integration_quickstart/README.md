@@ -29,8 +29,7 @@ assigns the required Fusion role, and grants EPM Service Administrator access.
 | `--fusion-admin-password PASS` | Fusion admin password (required for Fusion, not stored) |
 | `--user-email EMAIL` | Email address to attach to the created integration user. Only include if required by legacy identity domain. |
 | `--account-name NAME` | Datadog integration account name. If a matching account already exists, its credentials are fetched and the account is updated. Requires both `--fusion-app-id` and `--epm-app-id` so OAuth scopes on the confidential app are updated correctly for both products. |
-| `--confidential-application-id ID` | Application ID of an existing confidential app. Only required when resuming and your app is not named "Datadog Fusion Integration". |
-| `--resume` | Re-use existing confidential app if found, skip completed steps |
+| `--confidential-application-id ID` | Application ID of an existing confidential app. Only required when your app is not named "Datadog Fusion Integration". |
 
 ## Environment Variables
 
@@ -59,18 +58,7 @@ export DD_SITE=datadoghq.com
 
 **Resume an interrupted run:**
 
-If the script fails partway through, re-run with `--resume` to skip the confidential app creation and continue from where it left off:
-
-```bash
-export DD_APP_KEY=<your-app-key>
-./setup.sh \
-  --identity-domain-url https://idcs-abc123def456.identity.oraclecloud.com \
-  --fusion-app-id a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4 \
-  --fusion-base-url https://your-fusion-env.fa.ocs.oraclecloud.com \
-  --fusion-admin-username admin@example.com \
-  --fusion-admin-password mypassword \
-  --resume
-```
+If the script fails partway through, simply re-run it with the same arguments — it automatically detects and reuses any existing confidential app, integration user, and EPM grants, skipping steps that are already complete.
 
 **Add EPM to an existing Fusion account:**
 

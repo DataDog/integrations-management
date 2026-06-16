@@ -43,7 +43,6 @@ FUSION_BASE_URL=""
 EPM_BASE_URL=""
 FUSION_ADMIN_USERNAME=""
 FUSION_ADMIN_PASSWORD=""
-RESUME=false
 ACCOUNT_NAME=""
 USER_EMAIL=""
 CONFIDENTIAL_APP_ID=""
@@ -60,7 +59,7 @@ while [[ $# -gt 0 ]]; do
         --user-email)                 USER_EMAIL="$2";            shift 2 ;;
         --account-name)               ACCOUNT_NAME="$2";          shift 2 ;;
         --confidential-application-id) CONFIDENTIAL_APP_ID="$2"; shift 2 ;;
-        --resume)                     RESUME=true;                shift 1 ;;
+        --resume)                     warn "--resume is no longer needed; the script automatically reuses existing resources"; shift 1 ;;
         --help|-h)
             cat <<'EOF'
 Usage: ./setup.sh [OPTIONS]
@@ -86,7 +85,6 @@ Optional:
   --account-name NAME           Existing Datadog account name to update
   --confidential-application-id ID  Existing confidential app ID (if not named "Datadog Fusion Integration")
   --user-email EMAIL            Email to attach to the created integration user
-  --resume                      Re-use existing confidential app; skip completed steps
 
 Environment variables:
   DD_API_KEY   Datadog API key (required)
@@ -494,12 +492,6 @@ except Exception:
     existing_app_ocid="$conf_app_ocid"
     existing_app="$conf_app_resp"
     warn "Using provided confidential app — client_id: ${CLIENT_ID}"
-elif [[ "$RESUME" == true || -n "$CLIENT_ID" ]]; then
-    fatal "No confidential application named '${APP_NAME}' was found in identity domain '${IDENTITY_DOMAIN_URL}'" \
-        "--resume requires the confidential app to already exist (either by the standard name or via --confidential-application-id)." \
-        "If your app has a different name, re-run with its application ID:" \
-        "  --resume --confidential-application-id <application-id>" \
-        "Find it at: OCI Console → Domains → Integrated Applications → your app → Application ID"
 fi
 
 # 11. Idempotency — check if user already exists
@@ -686,7 +678,7 @@ import sys,json; print(json.load(sys.stdin).get('data',{}).get('client-secret','
     [[ -z "$CLIENT_ID" ]] && fatal \
         "Application '${APP_NAME}' was created but its OAuth client ID could not be parsed from the OCI response" \
         "Find the application ID in OCI Console → Domains → Integrated Applications → '${APP_NAME}'" \
-        "Then re-run with: --resume --confidential-application-id <application-id>"
+        "If your app has a non-standard name, re-run with: --confidential-application-id <application-id>"
 
     success "Confidential application created"
     echo ""
@@ -724,14 +716,14 @@ if [[ -z "$FUSION_APP_ID" && -n "$EPM_APP_ID" ]]; then
             "Failed to create OCI IAM user '${CLIENT_ID}'" \
             "Ensure your OCI credentials have permission to create users in the identity domain." \
             "Check: OCI Console → Domains → Administrators" \
-            "Once resolved, re-run with --resume to skip recreating the confidential app."
+            "Once resolved, re-run the script — it will automatically pick up where it left off."
 
         OCI_IAM_USER_ID=$(echo "$oci_user_result" | python3 -c "
 import sys,json; print(json.load(sys.stdin).get('data',{}).get('id',''))
 " 2>/dev/null)
         [[ -z "$OCI_IAM_USER_ID" ]] && fatal \
             "OCI IAM user was created but its ID could not be parsed from the OCI response" \
-            "Re-run with --resume to retry. If the issue persists, contact Datadog support."
+            "Re-run the script to retry — it will pick up where it left off. If the issue persists, contact Datadog support."
         success "OCI IAM user created (id: ${OCI_IAM_USER_ID})"
     fi
 
@@ -773,7 +765,7 @@ print(json.dumps(body))
                 "Response: $(echo "${user_body}" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("Errors",[{}])[0].get("description","unknown error"))' 2>/dev/null)" \
                 "Ensure --fusion-admin-username has HCM User Management permissions." \
                 "The admin must have the 'IT Security Manager' or equivalent role in Fusion." \
-                "Once resolved, re-run with --resume to skip recreating the confidential app."
+                "Once resolved, re-run the script — it will automatically pick up where it left off."
         fi
 
         FUSION_USER_ID=$(echo "${user_body}" | python3 -c "
@@ -803,7 +795,7 @@ import sys,json; print(json.load(sys.stdin).get('id',''))
             "Verify that 'DD_INTEGRATION_ROLE' is in Fusion Role Provisioning Rules:" \
             "  Setup and Maintenance → Manage Role Provisioning Rules" \
             "The role must be marked as 'Requestable' to be assignable via API." \
-            "Once resolved, re-run with --resume to skip recreating the confidential app."
+            "Once resolved, re-run the script — it will automatically pick up where it left off."
     fi
     success "DD_INTEGRATION_ROLE assigned to Fusion user"
 
@@ -840,7 +832,7 @@ print(rs[0].get('id','') if rs else '')
     [[ -z "$OCI_IAM_USER_ID" ]] && fatal \
         "Could not find OCI IAM user with userName '${CLIENT_ID}' after 5 attempts (50 seconds)" \
         "The Fusion user may not have synced to OCI IAM yet." \
-        "Wait a few minutes and re-run with --resume."
+        "Wait a few minutes and re-run the script — it will pick up where it left off."
 
     success "OCI IAM user found (id: ${OCI_IAM_USER_ID})"
 
@@ -864,7 +856,7 @@ print(matched[0].get('id', '') if matched else '')
         "Could not find 'Service Administrator' role for EPM app '${EPM_APP_ID}'" \
         "Verify the EPM app ID is correct." \
         "Check: OCI Console → Domains → Oracle Cloud Services → your EPM app → Application ID" \
-        "Once resolved, re-run with --resume to skip recreating the confidential app."
+        "Once resolved, re-run the script — it will automatically pick up where it left off."
 
     success "EPM role found (id: ${SERVICE_ADMIN_ROLE_ID})"
 
@@ -894,7 +886,7 @@ print(len(rs))
             "Failed to create EPM Service Administrator grant" \
             "Ensure your OCI credentials have Identity Domain Administrator permissions." \
             "Check: OCI Console → Domains → Administrators" \
-            "Once resolved, re-run with --resume to skip recreating the confidential app."
+            "Once resolved, re-run the script — it will automatically pick up where it left off."
 
         success "EPM role granted"
     fi
@@ -973,7 +965,7 @@ except Exception: print('')
     [[ -z "$CLIENT_SECRET" ]] && fatal \
         "Could not retrieve client secret for existing confidential app '${APP_NAME}'" \
         "Retrieve the secret manually from OCI Console → Domains → Integrated Applications → '${APP_NAME}' → OAuth Configuration" \
-        "Then re-run with: --resume --confidential-application-id <application-id>"
+        "If your app has a non-standard name, re-run with: --confidential-application-id <application-id>"
     success "Client secret regenerated"
 fi
 
