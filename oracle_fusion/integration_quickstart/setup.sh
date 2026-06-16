@@ -723,7 +723,7 @@ if [[ -z "$FUSION_APP_ID" && -n "$EPM_APP_ID" ]]; then
             --user-name "$CLIENT_ID" \
             --name '{"familyName": "Datadog Integration"}' \
             --active true \
-            "${_oci_emails_arg[@]}" \
+            ${_oci_emails_arg[@]+"${_oci_emails_arg[@]}"} \
             --output json 2>/dev/null) || fatal \
             "Failed to create OCI IAM user '${CLIENT_ID}'" \
             "Ensure your OCI credentials have permission to create users in the identity domain." \
