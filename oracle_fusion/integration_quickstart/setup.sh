@@ -164,6 +164,14 @@ if [[ -z "$FUSION_APP_ID" && -z "$EPM_APP_ID" ]]; then
         "Find these in: OCI Console → Domains → Oracle Cloud Services" \
         "Click on the Fusion or EPM app → copy the Application ID"
 fi
+if [[ -n "$ACCOUNT_NAME" ]]; then
+    [[ -z "$FUSION_APP_ID" ]] && fatal \
+        "Both --fusion-app-id and --epm-app-id are required when --account-name is provided" \
+        "This ensures the confidential application's OAuth scopes are updated correctly for both products."
+    [[ -z "$EPM_APP_ID" ]] && fatal \
+        "Both --fusion-app-id and --epm-app-id are required when --account-name is provided" \
+        "This ensures the confidential application's OAuth scopes are updated correctly for both products."
+fi
 
 [[ -z "$FUSION_APP_ID" ]] && warn "No --fusion-app-id provided — skipping Fusion scope"
 if [[ -n "$FUSION_APP_ID" ]]; then
@@ -248,18 +256,6 @@ print(u.scheme + '://' + u.netloc)
     [[ -z "$FUSION_SCOPE" ]]    && FUSION_SCOPE="$_fetched_fusion_scope"
     [[ -z "$EPM_BASE_URL" ]]    && EPM_BASE_URL="$_fetched_epm_base"
     [[ -z "$EPM_SCOPE" ]]       && EPM_SCOPE="$_fetched_epm_scope"
-    # Block partial updates against a fully configured account — both app IDs are
-    # required so neither product's provisioning is silently skipped.
-    if [[ -n "$_fetched_fusion_base" && -n "$_fetched_epm_base" ]]; then
-        [[ -z "$FUSION_APP_ID" ]] && fatal \
-            "Account '${ACCOUNT_NAME}' already has both Fusion and EPM configured." \
-            "Provide --fusion-app-id to include Fusion in this run." \
-            "If you only want to update EPM, create a separate account instead."
-        [[ -z "$EPM_APP_ID" ]] && fatal \
-            "Account '${ACCOUNT_NAME}' already has both Fusion and EPM configured." \
-            "Provide --epm-app-id to include EPM in this run." \
-            "If you only want to update Fusion, create a separate account instead."
-    fi
     success "Account found — client_id: ${CLIENT_ID}, identity domain: ${IDENTITY_DOMAIN_URL}"
 fi
 
