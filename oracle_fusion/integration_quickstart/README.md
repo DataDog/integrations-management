@@ -80,3 +80,15 @@ export DD_APP_KEY=<your-app-key>
   --epm-app-id b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5 \
   --epm-base-url https://your-epm-env.epm.us-ashburn-1.ocs.oraclecloud.com
 ```
+
+**Add Fusion to an existing EPM account:**
+
+```bash
+export DD_APP_KEY=<your-app-key>
+./setup.sh \
+  --account-name "My EPM Account" \
+  --fusion-app-id a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4 \
+  --fusion-base-url https://your-fusion-env.fa.us2.oraclecloud.com \
+  --fusion-admin-username admin@example.com \
+  --fusion-admin-password '<your-admin-password>'
+```
