@@ -36,6 +36,7 @@ assigns the required Fusion role, and grants EPM Service Administrator access.
 
 | Variable | Description |
 |----------|-------------|
+| `DD_API_KEY` | Your Datadog API key |
 | `DD_APP_KEY` | Your Datadog application key |
 | `DD_SITE` | Your Datadog site (e.g. `datadoghq.com`, `datadoghq.eu`, `us3.datadoghq.com`) |
 

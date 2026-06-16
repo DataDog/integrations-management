@@ -89,6 +89,7 @@ Optional:
   --resume                      Re-use existing confidential app; skip completed steps
 
 Environment variables:
+  DD_API_KEY   Datadog API key (required)
   DD_APP_KEY   Datadog application key (required)
   DD_SITE      Datadog site, e.g. datadoghq.com (default: datadoghq.com)
 
@@ -118,6 +119,7 @@ DD_SITE="${DD_SITE:-datadoghq.com}"
 dd_request() {
     local method="$1" path="$2" body="${3:-}"
     local args=(-sS -w $'\n%{http_code}'
+        -H "DD-API-KEY: ${DD_API_KEY:-}"
         -H "DD-APPLICATION-KEY: ${DD_APP_KEY:-}")
     [[ "$method" != "GET" ]] && args+=(-X "$method")
     [[ -n "$body" ]] && args+=(-H "Content-Type: application/json" -d "$body")
@@ -197,6 +199,10 @@ success "Required inputs present"
 
 # 2. Datadog credentials
 info "Checking Datadog credentials..."
+[[ -z "${DD_API_KEY:-}" ]] && fatal \
+    "DD_API_KEY is required" \
+    "Export your Datadog API key: export DD_API_KEY=<your-api-key>" \
+    "Generate one at: https://app.datadoghq.com/organization-settings/api-keys"
 [[ -z "${DD_APP_KEY:-}" ]] && fatal \
     "DD_APP_KEY is required" \
     "Export your Datadog application key: export DD_APP_KEY=<your-app-key>" \
