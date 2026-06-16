@@ -208,8 +208,8 @@ info "Checking Datadog credentials..."
     "Export your Datadog application key: export DD_APP_KEY=<your-app-key>" \
     "Generate one at: https://app.datadoghq.com/organization-settings/application-keys"
 dd_get "/api/v2/web-integrations/oracle-fusion/accounts" > /dev/null 2>&1 || fatal \
-    "Datadog application key is invalid or unreachable (site: ${DD_SITE})" \
-    "Verify DD_APP_KEY is correct." \
+    "Datadog application or API key is invalid or unreachable (site: ${DD_SITE})" \
+    "Verify DD_API_KEY and DD_APP_KEY are correct." \
     "Verify DD_SITE matches your Datadog site (e.g. datadoghq.com, datadoghq.eu, us3.datadoghq.com)"
 success "Datadog credentials valid"
 
@@ -301,7 +301,7 @@ if [[ -n "$FUSION_APP_ID" ]]; then
     fusion_app_resp=$(oci identity-domains apps list \
         --endpoint "$IDENTITY_DOMAIN_URL" \
         --filter "id eq \"${FUSION_APP_ID}\"" \
-        --output json 2>/dev/null)
+        --output json 2>/dev/null) || true
     fusion_app_name=$(echo "$fusion_app_resp" | python3 -c "
 import sys,json
 apps = json.load(sys.stdin).get('data',{}).get('resources',[])
@@ -331,7 +331,7 @@ if [[ -n "$EPM_APP_ID" ]]; then
     epm_app_resp=$(oci identity-domains apps list \
         --endpoint "$IDENTITY_DOMAIN_URL" \
         --filter "id eq \"${EPM_APP_ID}\"" \
-        --output json 2>/dev/null)
+        --output json 2>/dev/null) || true
     epm_app_name=$(echo "$epm_app_resp" | python3 -c "
 import sys,json
 apps = json.load(sys.stdin).get('data',{}).get('resources',[])
@@ -431,7 +431,7 @@ info "Checking if '${APP_NAME}' already exists in OCI IAM..."
 existing_app=$(oci identity-domains apps list \
     --endpoint "$IDENTITY_DOMAIN_URL" \
     --filter "displayName eq \"${APP_NAME}\"" \
-    --output json 2>/dev/null)
+    --output json 2>/dev/null) || true
 existing_client_id=$(echo "$existing_app" | python3 -c "
 import sys,json
 apps=json.load(sys.stdin).get('data',{}).get('resources',[])
@@ -464,7 +464,7 @@ elif [[ -n "$CONFIDENTIAL_APP_ID" ]]; then
     conf_app_resp=$(oci identity-domains apps list \
         --endpoint "$IDENTITY_DOMAIN_URL" \
         --filter "id eq \"${CONFIDENTIAL_APP_ID}\"" \
-        --output json 2>/dev/null)
+        --output json 2>/dev/null) || true
     conf_app_client_id=$(echo "$conf_app_resp" | python3 -c "
 import sys,json
 apps=json.load(sys.stdin).get('data',{}).get('resources',[])
@@ -516,7 +516,7 @@ import sys,json; rs=json.load(sys.stdin).get('Resources',[]); print(rs[0].get('i
         existing_oci_user=$(oci identity-domains users list \
             --endpoint "$IDENTITY_DOMAIN_URL" \
             --filter "userName eq \"${CLIENT_ID}\"" \
-            --output json 2>/dev/null)
+            --output json 2>/dev/null) || true
         existing_oci_user_id=$(echo "$existing_oci_user" | python3 -c "
 import sys,json
 rs=json.load(sys.stdin).get('data',{}).get('resources',[])
