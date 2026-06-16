@@ -304,8 +304,11 @@ if [[ -n "$FUSION_APP_ID" ]]; then
         --output json 2>/dev/null) || true
     fusion_app_name=$(echo "$fusion_app_resp" | python3 -c "
 import sys,json
-apps = json.load(sys.stdin).get('data',{}).get('resources',[])
-print(apps[0].get('display-name','') if apps else '')
+try:
+    apps = json.load(sys.stdin).get('data',{}).get('resources',[])
+    print(apps[0].get('display-name','') if apps else '')
+except Exception:
+    print('')
 " 2>/dev/null)
     [[ -z "$fusion_app_name" ]] && fatal \
         "Fusion app ID '${FUSION_APP_ID}' was not found in identity domain '${IDENTITY_DOMAIN_URL}'" \
@@ -334,8 +337,11 @@ if [[ -n "$EPM_APP_ID" ]]; then
         --output json 2>/dev/null) || true
     epm_app_name=$(echo "$epm_app_resp" | python3 -c "
 import sys,json
-apps = json.load(sys.stdin).get('data',{}).get('resources',[])
-print(apps[0].get('display-name','') if apps else '')
+try:
+    apps = json.load(sys.stdin).get('data',{}).get('resources',[])
+    print(apps[0].get('display-name','') if apps else '')
+except Exception:
+    print('')
 " 2>/dev/null)
     [[ -z "$epm_app_name" ]] && fatal \
         "EPM app ID '${EPM_APP_ID}' was not found in identity domain '${IDENTITY_DOMAIN_URL}'" \
@@ -434,13 +440,19 @@ existing_app=$(oci identity-domains apps list \
     --output json 2>/dev/null) || true
 existing_client_id=$(echo "$existing_app" | python3 -c "
 import sys,json
-apps=json.load(sys.stdin).get('data',{}).get('resources',[])
-print(apps[0].get('name','') if apps else '')
+try:
+    apps=json.load(sys.stdin).get('data',{}).get('resources',[])
+    print(apps[0].get('name','') if apps else '')
+except Exception:
+    print('')
 " 2>/dev/null)
 existing_app_ocid=$(echo "$existing_app" | python3 -c "
 import sys,json
-apps=json.load(sys.stdin).get('data',{}).get('resources',[])
-print(apps[0].get('ocid','') if apps else '')
+try:
+    apps=json.load(sys.stdin).get('data',{}).get('resources',[])
+    print(apps[0].get('ocid','') if apps else '')
+except Exception:
+    print('')
 " 2>/dev/null)
 
 APP_EXISTS=false
@@ -467,13 +479,19 @@ elif [[ -n "$CONFIDENTIAL_APP_ID" ]]; then
         --output json 2>/dev/null) || true
     conf_app_client_id=$(echo "$conf_app_resp" | python3 -c "
 import sys,json
-apps=json.load(sys.stdin).get('data',{}).get('resources',[])
-print(apps[0].get('name','') if apps else '')
+try:
+    apps=json.load(sys.stdin).get('data',{}).get('resources',[])
+    print(apps[0].get('name','') if apps else '')
+except Exception:
+    print('')
 " 2>/dev/null)
     conf_app_ocid=$(echo "$conf_app_resp" | python3 -c "
 import sys,json
-apps=json.load(sys.stdin).get('data',{}).get('resources',[])
-print(apps[0].get('ocid','') if apps else '')
+try:
+    apps=json.load(sys.stdin).get('data',{}).get('resources',[])
+    print(apps[0].get('ocid','') if apps else '')
+except Exception:
+    print('')
 " 2>/dev/null)
     [[ -z "$conf_app_client_id" ]] && fatal \
         "Confidential application '${CONFIDENTIAL_APP_ID}' was not found in identity domain '${IDENTITY_DOMAIN_URL}'" \
