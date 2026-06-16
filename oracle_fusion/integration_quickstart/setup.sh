@@ -366,7 +366,7 @@ if [[ -n "$FUSION_APP_ID" ]]; then
     info "Validating Fusion admin credentials and connectivity..."
     fusion_auth_status=$(curl -s --compressed -o /dev/null -w "%{http_code}" \
         "${FUSION_BASE_URL}/hcmRestApi/scim/Users?count=1" \
-        -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" 2>/dev/null)
+        -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" 2>/dev/null) || true
     if [[ "$fusion_auth_status" == "000" ]]; then
         fatal "Cannot reach Fusion at '${FUSION_BASE_URL}'" \
             "Check that the URL is correct and reachable from this machine." \
@@ -383,7 +383,7 @@ fi
 if [[ -n "$EPM_APP_ID" ]]; then
     info "Checking EPM URL reachability..."
     epm_status=$(curl -s -o /dev/null -w "%{http_code}" \
-        "${EPM_BASE_URL}/HyperionPlanning/rest/v3/applications" 2>/dev/null)
+        "${EPM_BASE_URL}/HyperionPlanning/rest/v3/applications" 2>/dev/null) || true
     [[ "$epm_status" == "000" ]] && fatal \
         "Cannot reach EPM at '${EPM_BASE_URL}'" \
         "Check that the EPM base URL is correct and reachable from this machine."
@@ -399,9 +399,13 @@ if [[ -n "$FUSION_APP_ID" ]]; then
     role_check=$(curl -s --compressed \
         "${FUSION_BASE_URL}/hcmRestApi/scim/Roles?filter=name+eq+%22DD_INTEGRATION_ROLE%22" \
         -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" \
-        -H "Accept: application/json" 2>/dev/null)
+        -H "Accept: application/json" 2>/dev/null) || true
     role_count=$(echo "$role_check" | python3 -c "
-import sys,json; print(json.load(sys.stdin).get('totalResults',0))
+import sys,json
+try:
+    print(json.load(sys.stdin).get('totalResults',0))
+except Exception:
+    print('')
 " 2>/dev/null)
     if [[ -z "$role_count" || "$role_count" == "0" ]]; then
         fatal "No role with code 'DD_INTEGRATION_ROLE' was found in Fusion or it is not API-assignable" \
