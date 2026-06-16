@@ -423,8 +423,13 @@ except Exception:
             "     This is expected — keep all sub-roles that are added." \
             "  5. Save the role" \
             "  6. Make the role API-assignable via Role Provisioning Rules:" \
-            "     Setup and Maintenance → Manage Role Provisioning Rules → Add DD_INTEGRATION_ROLE" \
-            "     Check 'Requestable' to allow API assignment" \
+            "     Setup and Maintenance → search 'Manage Role Provisioning Rules' → open it" \
+            "     Click 'Add' to create a new mapping:" \
+            "       Mapping Name: DD Integration Role Mapping (or any name)" \
+            "       From Date:    today's date" \
+            "       Conditions:   leave all blank" \
+            "     Under 'Associated Roles' → Add Row → search DD_INTEGRATION_ROLE" \
+            "     Check 'Requestable' → leave other checkboxes unchecked → Save and Close" \
             "  Once complete, re-run this script to continue onboarding."
     fi
     DD_INTEGRATION_ROLE_ID=$(echo "$role_check" | python3 -c "
@@ -792,9 +797,10 @@ import sys,json; print(json.load(sys.stdin).get('id',''))
 
     if [[ "$patch_status" != "204" && "$patch_status" != "200" ]]; then
         fatal "Failed to assign DD_INTEGRATION_ROLE (HTTP ${patch_status})" \
-            "Verify that 'DD_INTEGRATION_ROLE' is in Fusion Role Provisioning Rules:" \
-            "  Setup and Maintenance → Manage Role Provisioning Rules" \
-            "The role must be marked as 'Requestable' to be assignable via API." \
+            "Verify that 'DD_INTEGRATION_ROLE' is marked Requestable in Role Provisioning Rules:" \
+            "  Setup and Maintenance → search 'Manage Role Provisioning Rules' → open it" \
+            "  Click 'Add', leave all Conditions blank, add DD_INTEGRATION_ROLE under Associated Roles" \
+            "  Check 'Requestable' → Save and Close" \
             "Once resolved, re-run the script — it will automatically pick up where it left off."
     fi
     success "DD_INTEGRATION_ROLE assigned to Fusion user"
