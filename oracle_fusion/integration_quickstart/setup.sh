@@ -326,6 +326,9 @@ try:
 except Exception:
     print('')
 " 2>/dev/null) || true
+    [[ -z "$FUSION_SCOPE" ]] && fatal \
+        "Failed to derive OAuth scope from Fusion app '${FUSION_APP_ID}'" \
+        "Verify the app exists and your OCI credentials have permission to read it."
     success "Fusion app found: '${fusion_app_name}' — scope derived"
 fi
 
@@ -363,6 +366,9 @@ try:
 except Exception:
     print('')
 " 2>/dev/null) || true
+    [[ -z "$EPM_SCOPE" ]] && fatal \
+        "Failed to derive OAuth scope from EPM app '${EPM_APP_ID}'" \
+        "Verify the app exists and your OCI credentials have permission to read it."
     success "EPM app found: '${epm_app_name}' — scope derived"
 fi
 
