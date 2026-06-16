@@ -59,8 +59,7 @@ while [[ $# -gt 0 ]]; do
         --user-email)                 USER_EMAIL="$2";            shift 2 ;;
         --account-name)               ACCOUNT_NAME="$2";          shift 2 ;;
         --confidential-application-id) CONFIDENTIAL_APP_ID="$2"; shift 2 ;;
-        --resume)                     warn "--resume is no longer needed; the script automatically reuses existing resources"; shift 1 ;;
-        --help|-h)
+--help|-h)
             cat <<'EOF'
 Usage: ./setup.sh [OPTIONS]
 
