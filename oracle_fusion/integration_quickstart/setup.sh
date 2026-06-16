@@ -954,6 +954,28 @@ if [[ -n "$existing_account_id" ]]; then
     [[ -z "$EPM_SCOPE" ]]       && EPM_SCOPE="$_existing_epm_scope"
 fi
 
+# When reusing an existing confidential app for a new Datadog account, the client
+# secret is not available from the creation response. Regenerate it so it can be
+# included in the create payload (the API requires secrets on create).
+if [[ "$APP_EXISTS" == true && -z "$CLIENT_SECRET" && -z "$existing_account_id" ]]; then
+    info "Regenerating client secret for existing confidential app..."
+    regen_resp=$(oci identity-domains app patch \
+        --endpoint "$IDENTITY_DOMAIN_URL" \
+        --app-id "$existing_app_ocid" \
+        --operations '[{"op":"replace","path":"clientSecret","value":""}]' \
+        --output json 2>/dev/null) || true
+    CLIENT_SECRET=$(echo "$regen_resp" | python3 -c "
+import sys,json
+try: print(json.load(sys.stdin).get('data',{}).get('client-secret',''))
+except Exception: print('')
+" 2>/dev/null)
+    [[ -z "$CLIENT_SECRET" ]] && fatal \
+        "Could not retrieve client secret for existing confidential app '${APP_NAME}'" \
+        "Retrieve the secret manually from OCI Console → Domains → Integrated Applications → '${APP_NAME}' → OAuth Configuration" \
+        "Then re-run with: --resume --confidential-application-id <application-id>"
+    success "Client secret regenerated"
+fi
+
 # Build payload — omit optional fields when values are absent;
 # include client_secret when available (new app); omit when empty (PATCH keeps existing secret).
 payload=$(CLIENT_ID="$CLIENT_ID" TOKEN_URL="$TOKEN_URL" \
