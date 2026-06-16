@@ -799,8 +799,12 @@ import sys,json; print(json.load(sys.stdin).get('id',''))
         fatal "Failed to assign DD_INTEGRATION_ROLE (HTTP ${patch_status})" \
             "Verify that 'DD_INTEGRATION_ROLE' is marked Requestable in Role Provisioning Rules:" \
             "  Setup and Maintenance → search 'Manage Role Provisioning Rules' → open it" \
-            "  Click 'Add', leave all Conditions blank, add DD_INTEGRATION_ROLE under Associated Roles" \
-            "  Check 'Requestable' → Save and Close" \
+            "  Click 'Add' to create a new mapping:" \
+            "    Mapping Name: DD Integration Role Mapping (or any name)" \
+            "    From Date:    today's date" \
+            "    Conditions:   leave all blank (applies to all users)" \
+            "  Under 'Associated Roles' → Add Row → search DD_INTEGRATION_ROLE" \
+            "  Check 'Requestable' → leave other checkboxes unchecked → Save and Close" \
             "Once resolved, re-run the script — it will automatically pick up where it left off."
     fi
     success "DD_INTEGRATION_ROLE assigned to Fusion user"
