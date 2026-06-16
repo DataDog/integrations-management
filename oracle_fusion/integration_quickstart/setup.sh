@@ -212,12 +212,23 @@ data = json.load(sys.stdin).get('data', [])
 matched = [a for a in data if a.get('attributes', {}).get('name') == os.environ['ACCOUNT_NAME']]
 if matched:
     s = matched[0].get('attributes', {}).get('settings', {})
-    print(s.get('client_id', '') + '|' + s.get('token_url', ''))
+    print('|'.join([
+        s.get('client_id', ''),
+        s.get('token_url', ''),
+        s.get('fusion_base_url', ''),
+        s.get('oauth_scope', ''),
+        s.get('epm_base_url', ''),
+        s.get('epm_oauth_scope', ''),
+    ]))
 else:
-    print('|')
+    print('|||||')
 " 2>/dev/null)
-    _fetched_client_id="${_account_fields%%|*}"
-    _fetched_token_url="${_account_fields##*|}"
+    _fetched_client_id=$(echo "$_account_fields"   | cut -d'|' -f1)
+    _fetched_token_url=$(echo "$_account_fields"   | cut -d'|' -f2)
+    _fetched_fusion_base=$(echo "$_account_fields" | cut -d'|' -f3)
+    _fetched_fusion_scope=$(echo "$_account_fields"| cut -d'|' -f4)
+    _fetched_epm_base=$(echo "$_account_fields"    | cut -d'|' -f5)
+    _fetched_epm_scope=$(echo "$_account_fields"   | cut -d'|' -f6)
     [[ -z "$_fetched_client_id" ]] && fatal \
         "No Datadog Oracle Fusion account named '${ACCOUNT_NAME}' found" \
         "Verify the account name matches exactly what is shown in the Datadog integration tile." \
@@ -231,6 +242,12 @@ print(u.scheme + '://' + u.netloc)
 " 2>/dev/null)
     IDENTITY_DOMAIN_URL=$(normalise_url "$IDENTITY_DOMAIN_URL")
     TOKEN_URL="$_fetched_token_url"
+    # Back-fill any existing account fields not supplied on this run so the PATCH
+    # payload doesn't wipe the other product's settings.
+    [[ -z "$FUSION_BASE_URL" ]] && FUSION_BASE_URL="$_fetched_fusion_base"
+    [[ -z "$FUSION_SCOPE" ]]    && FUSION_SCOPE="$_fetched_fusion_scope"
+    [[ -z "$EPM_BASE_URL" ]]    && EPM_BASE_URL="$_fetched_epm_base"
+    [[ -z "$EPM_SCOPE" ]]       && EPM_SCOPE="$_fetched_epm_scope"
     success "Account found — client_id: ${CLIENT_ID}, identity domain: ${IDENTITY_DOMAIN_URL}"
 fi
 
@@ -506,14 +523,59 @@ step "STEP 1: CREATE CONFIDENTIAL APPLICATION"
 
 if [[ "$APP_EXISTS" == true ]]; then
     info "Using existing app (client_id: ${CLIENT_ID})"
-    # Add EPM scope to the existing app if not already present
-    if [[ -n "${EPM_SCOPE:-}" && -n "$existing_app_ocid" ]]; then
-        existing_scopes=$(echo "$existing_app" | python3 -c "
+    # Fetch existing scopes once — used by both Fusion and EPM checks below
+    existing_scopes=$(echo "$existing_app" | python3 -c "
 import sys,json
 apps=json.load(sys.stdin).get('data',{}).get('resources',[])
 scopes=[s.get('fqs','') for s in apps[0].get('allowed-scopes',[]) if apps] if apps else []
 print(' '.join(scopes))
 " 2>/dev/null)
+
+    # Add Fusion scope to the existing app if not already present
+    if [[ -n "${FUSION_SCOPE:-}" && -n "$existing_app_ocid" ]]; then
+        if echo "$existing_scopes" | grep -qF "${FUSION_SCOPE}"; then
+            info "Fusion scope already present on app — skipping"
+        else
+            info "Adding Fusion scope to existing confidential app..."
+            _new_scopes=$(echo "$existing_app" | FUSION_SCOPE="$FUSION_SCOPE" python3 -c "
+import sys,json,os
+apps=json.load(sys.stdin).get('data',{}).get('resources',[])
+scopes=[{'fqs': s.get('fqs','')} for s in apps[0].get('allowed-scopes',[]) if apps] if apps else []
+scopes.append({'fqs': os.environ['FUSION_SCOPE']})
+print(json.dumps(scopes))
+" 2>/dev/null)
+            oci identity-domains app patch \
+                --endpoint "$IDENTITY_DOMAIN_URL" \
+                --app-id "$existing_app_ocid" \
+                --operations "[
+                    {\"op\": \"replace\", \"path\": \"allowedScopes\",   \"value\": ${_new_scopes}},
+                    {\"op\": \"replace\", \"path\": \"isOAuthClient\",   \"value\": true},
+                    {\"op\": \"replace\", \"path\": \"allowedGrants\",   \"value\": [\"client_credentials\"]},
+                    {\"op\": \"replace\", \"path\": \"clientType\",      \"value\": \"confidential\"},
+                    {\"op\": \"replace\", \"path\": \"clientIPChecking\",\"value\": \"anywhere\"},
+                    {\"op\": \"replace\", \"path\": \"bypassConsent\",   \"value\": true},
+                    {\"op\": \"replace\", \"path\": \"active\",          \"value\": true}
+                ]" \
+                --output json > /dev/null 2>/dev/null || fatal \
+                "Failed to update existing confidential app" \
+                "Ensure your OCI credentials have 'Identity Domain Administrator' permissions."
+            success "Fusion scope added and app configuration verified"
+            # Re-fetch app so the EPM check below sees the updated scopes
+            existing_app=$(oci identity-domains apps list \
+                --endpoint "$IDENTITY_DOMAIN_URL" \
+                --filter "displayName eq \"${APP_NAME}\"" \
+                --output json 2>/dev/null)
+            existing_scopes=$(echo "$existing_app" | python3 -c "
+import sys,json
+apps=json.load(sys.stdin).get('data',{}).get('resources',[])
+scopes=[s.get('fqs','') for s in apps[0].get('allowed-scopes',[]) if apps] if apps else []
+print(' '.join(scopes))
+" 2>/dev/null)
+        fi
+    fi
+
+    # Add EPM scope to the existing app if not already present
+    if [[ -n "${EPM_SCOPE:-}" && -n "$existing_app_ocid" ]]; then
         if echo "$existing_scopes" | grep -qF "${EPM_SCOPE}"; then
             info "EPM scope already present on app — skipping"
         else
@@ -785,7 +847,7 @@ print(matched[0].get('id', '') if matched else '')
     info "Checking if EPM role grant already exists..."
     existing_grant=$(oci identity-domains grants list \
         --endpoint "$IDENTITY_DOMAIN_URL" \
-        --filter "grantee.value eq \"${OCI_IAM_USER_ID}\" and app.value eq \"${EPM_APP_ID}\"" \
+        --filter "grantee.value eq \"${OCI_IAM_USER_ID}\" and app.value eq \"${EPM_APP_ID}\" and entitlement.attributeValue eq \"${SERVICE_ADMIN_ROLE_ID}\"" \
         --output json 2>/dev/null | python3 -c "
 import sys,json
 rs=json.load(sys.stdin).get('data',{}).get('resources',[])
@@ -833,13 +895,36 @@ accounts_resp=$(dd_get "/api/v2/web-integrations/oracle-fusion/accounts") || fat
     "Failed to list Datadog Oracle Fusion accounts" \
     "Verify DD_APP_KEY have the 'integrations_read' and 'integrations_write' permissions."
 
-existing_account_id=$(echo "$accounts_resp" | python3 -c "
-import sys,json
+existing_account_fields=$(echo "$accounts_resp" | ACCOUNT_NAME="$ACCOUNT_NAME" python3 -c "
+import sys,json,os
 data = json.load(sys.stdin).get('data', [])
-name = '${ACCOUNT_NAME}'
-matched = [a for a in data if a.get('attributes', {}).get('name') == name]
-print(matched[0].get('id', '') if matched else '')
+matched = [a for a in data if a.get('attributes', {}).get('name') == os.environ['ACCOUNT_NAME']]
+if matched:
+    s = matched[0].get('attributes', {}).get('settings', {})
+    print('|'.join([
+        matched[0].get('id', ''),
+        s.get('fusion_base_url', ''),
+        s.get('oauth_scope', ''),
+        s.get('epm_base_url', ''),
+        s.get('epm_oauth_scope', ''),
+    ]))
+else:
+    print('||||')
 " 2>/dev/null)
+existing_account_id=$(echo "$existing_account_fields"    | cut -d'|' -f1)
+_existing_fusion_base=$(echo "$existing_account_fields"  | cut -d'|' -f2)
+_existing_fusion_scope=$(echo "$existing_account_fields" | cut -d'|' -f3)
+_existing_epm_base=$(echo "$existing_account_fields"     | cut -d'|' -f4)
+_existing_epm_scope=$(echo "$existing_account_fields"    | cut -d'|' -f5)
+
+# Back-fill any existing account fields not supplied on this run so the PATCH
+# payload doesn't wipe the other product's settings.
+if [[ -n "$existing_account_id" ]]; then
+    [[ -z "$FUSION_BASE_URL" ]] && FUSION_BASE_URL="$_existing_fusion_base"
+    [[ -z "$FUSION_SCOPE" ]]    && FUSION_SCOPE="$_existing_fusion_scope"
+    [[ -z "$EPM_BASE_URL" ]]    && EPM_BASE_URL="$_existing_epm_base"
+    [[ -z "$EPM_SCOPE" ]]       && EPM_SCOPE="$_existing_epm_scope"
+fi
 
 # Build payload — omit optional fields when values are absent;
 # include client_secret when available (new app); omit when empty (PATCH keeps existing secret).
