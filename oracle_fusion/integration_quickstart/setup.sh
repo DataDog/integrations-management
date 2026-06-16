@@ -467,11 +467,17 @@ if [[ -n "$existing_client_id" ]]; then
         echo -e "${YELLOW}${BOLD}  A confidential application named '${APP_NAME}' already exists.${NC}"
         echo -e "  client_id: ${existing_client_id}"
         echo ""
-        echo -e "  Options:"
-        echo -e "    --resume     Re-use this app and continue provisioning the integration user"
-        echo -e "                 (recommended if a previous run was interrupted)"
+        echo -e "  Re-run with ${BOLD}--resume${NC} to reuse this app (recommended if a previous run was interrupted)."
+        echo -e "  Or continue below to create a new confidential application."
         echo ""
-        exit 0
+        printf "  Create a new confidential application? [y/N] "
+        read -r _confirm
+        if [[ "$_confirm" != "y" && "$_confirm" != "Y" ]]; then
+            echo ""
+            info "Exiting. Re-run with --resume to reuse the existing app."
+            exit 0
+        fi
+        APP_EXISTS=false
     fi
     CLIENT_ID="$existing_client_id"
     warn "Existing app found — resuming with client_id: ${CLIENT_ID}"
