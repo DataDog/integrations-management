@@ -462,27 +462,8 @@ except Exception:
 APP_EXISTS=false
 if [[ -n "$existing_client_id" ]]; then
     APP_EXISTS=true
-    if [[ "$RESUME" == false && -z "$ACCOUNT_NAME" ]]; then
-        echo ""
-        echo -e "${YELLOW}${BOLD}  A confidential application named '${APP_NAME}' already exists.${NC}"
-        echo -e "  client_id: ${existing_client_id}"
-        echo ""
-        echo -e "  Re-run with ${BOLD}--resume${NC} to reuse this app (recommended if a previous run was interrupted)."
-        echo -e "  Or continue below to create a new confidential application."
-        echo ""
-        printf "  Create a new confidential application? [y/N] "
-        read -r _confirm
-        if [[ "$_confirm" != "y" && "$_confirm" != "Y" ]]; then
-            echo ""
-            info "Exiting. Re-run with --resume to reuse the existing app."
-            exit 0
-        fi
-        APP_EXISTS=false
-    fi
-    if [[ "$APP_EXISTS" == true ]]; then
-        CLIENT_ID="$existing_client_id"
-        warn "Existing app found — resuming with client_id: ${CLIENT_ID}"
-    fi
+    CLIENT_ID="$existing_client_id"
+    warn "Confidential application '${APP_NAME}' already exists — reusing (client_id: ${CLIENT_ID})"
 elif [[ -n "$CONFIDENTIAL_APP_ID" ]]; then
     info "Looking up confidential app by ID '${CONFIDENTIAL_APP_ID}'..."
     conf_app_resp=$(oci identity-domains apps list \
