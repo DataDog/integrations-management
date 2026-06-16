@@ -957,11 +957,12 @@ fi
 # When reusing an existing confidential app for a new Datadog account, the client
 # secret is not available from the creation response. Regenerate it so it can be
 # included in the create payload (the API requires secrets on create).
-if [[ "$APP_EXISTS" == true && -z "$CLIENT_SECRET" && -z "$existing_account_id" ]]; then
+if [[ "$APP_EXISTS" == true && -z "$CLIENT_SECRET" ]]; then
     info "Regenerating client secret for existing confidential app..."
     regen_resp=$(oci identity-domains app patch \
         --endpoint "$IDENTITY_DOMAIN_URL" \
         --app-id "$existing_app_ocid" \
+        --schemas '["urn:ietf:params:scim:api:messages:2.0:PatchOp"]' \
         --operations '[{"op":"replace","path":"clientSecret","value":""}]' \
         --output json 2>/dev/null) || true
     CLIENT_SECRET=$(echo "$regen_resp" | python3 -c "
