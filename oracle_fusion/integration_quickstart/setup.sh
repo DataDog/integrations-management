@@ -479,8 +479,10 @@ if [[ -n "$existing_client_id" ]]; then
         fi
         APP_EXISTS=false
     fi
-    CLIENT_ID="$existing_client_id"
-    warn "Existing app found — resuming with client_id: ${CLIENT_ID}"
+    if [[ "$APP_EXISTS" == true ]]; then
+        CLIENT_ID="$existing_client_id"
+        warn "Existing app found — resuming with client_id: ${CLIENT_ID}"
+    fi
 elif [[ -n "$CONFIDENTIAL_APP_ID" ]]; then
     info "Looking up confidential app by ID '${CONFIDENTIAL_APP_ID}'..."
     conf_app_resp=$(oci identity-domains apps list \
