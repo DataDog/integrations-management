@@ -314,15 +314,19 @@ except Exception:
         "Ensure you are using the hex Application ID, not the OCID."
     FUSION_SCOPE=$(echo "$fusion_app_resp" | python3 -c "
 import sys,json
-app = json.load(sys.stdin).get('data',{}).get('resources',[])[0]
-audience = app.get('audience','')
-if not audience:
-    print('urn:opc:resource:consumer::all')
-elif audience.endswith('consumer::all'):
-    print(audience)
-else:
-    print(audience + 'urn:opc:resource:consumer::all')
-" 2>/dev/null)
+try:
+    apps=json.load(sys.stdin).get('data',{}).get('resources',[])
+    app=apps[0] if apps else {}
+    audience=app.get('audience','')
+    if not audience:
+        print('urn:opc:resource:consumer::all')
+    elif audience.endswith('consumer::all'):
+        print(audience)
+    else:
+        print(audience + 'urn:opc:resource:consumer::all')
+except Exception:
+    print('')
+" 2>/dev/null) || true
     success "Fusion app found: '${fusion_app_name}' — scope derived"
 fi
 
@@ -347,15 +351,19 @@ except Exception:
         "Ensure you are using the hex Application ID, not the OCID."
     EPM_SCOPE=$(echo "$epm_app_resp" | python3 -c "
 import sys,json
-app = json.load(sys.stdin).get('data',{}).get('resources',[])[0]
-audience = app.get('audience','')
-if not audience:
-    print('urn:opc:resource:consumer::all')
-elif audience.endswith('consumer::all'):
-    print(audience)
-else:
-    print(audience + 'urn:opc:resource:consumer::all')
-" 2>/dev/null)
+try:
+    apps=json.load(sys.stdin).get('data',{}).get('resources',[])
+    app=apps[0] if apps else {}
+    audience=app.get('audience','')
+    if not audience:
+        print('urn:opc:resource:consumer::all')
+    elif audience.endswith('consumer::all'):
+        print(audience)
+    else:
+        print(audience + 'urn:opc:resource:consumer::all')
+except Exception:
+    print('')
+" 2>/dev/null) || true
     success "EPM app found: '${epm_app_name}' — scope derived"
 fi
 
@@ -401,7 +409,8 @@ if [[ -n "$FUSION_APP_ID" ]]; then
     role_count=$(echo "$role_check" | python3 -c "
 import sys,json
 try:
-    print(json.load(sys.stdin).get('totalResults',0))
+    d=json.load(sys.stdin)
+    print(d.get('totalResults') or len(d.get('Resources',[])))
 except Exception:
     print('')
 " 2>/dev/null)
@@ -430,7 +439,8 @@ except Exception:
             "       Conditions:   leave all blank" \
             "     Under 'Associated Roles' → Add Row → search DD_INTEGRATION_ROLE" \
             "     Check 'Requestable' → leave other checkboxes unchecked → Save and Close" \
-            "  Once complete, re-run this script to continue onboarding."
+            "  Once complete, re-run this script to continue onboarding." \
+            "  Note: if the role and mapping already exist, this check can fail transiently — try re-running the script before making changes."
     fi
     DD_INTEGRATION_ROLE_ID=$(echo "$role_check" | python3 -c "
 import sys,json; rs=json.load(sys.stdin).get('Resources',[]); print(rs[0].get('id','') if rs else '')
@@ -545,13 +555,17 @@ step "STEP 1: CREATE CONFIDENTIAL APPLICATION"
 
 if [[ "$APP_EXISTS" == true ]]; then
     info "Using existing app (client_id: ${CLIENT_ID})"
-    # Fetch existing scopes once — used by both Fusion and EPM checks below
+    # Derive existing scopes from the OCI app response.
+    # OCI apps list does not always include allowed-scopes; fall back to empty.
     existing_scopes=$(echo "$existing_app" | python3 -c "
 import sys,json
-apps=json.load(sys.stdin).get('data',{}).get('resources',[])
-scopes=[s.get('fqs','') for s in apps[0].get('allowed-scopes',[]) if apps] if apps else []
-print(' '.join(scopes))
-" 2>/dev/null)
+try:
+    apps=json.load(sys.stdin).get('data',{}).get('resources',[])
+    scopes=[s.get('fqs','') for s in (apps[0].get('allowed-scopes',[]) if apps else [])]
+    print(' '.join(scopes))
+except Exception:
+    print('')
+" 2>/dev/null) || true
 
     # Add Fusion scope to the existing app if not already present
     if [[ -n "${FUSION_SCOPE:-}" && -n "$existing_app_ocid" ]]; then
@@ -559,16 +573,17 @@ print(' '.join(scopes))
             info "Fusion scope already present on app — skipping"
         else
             info "Adding Fusion scope to existing confidential app..."
-            _new_scopes=$(echo "$existing_app" | FUSION_SCOPE="$FUSION_SCOPE" python3 -c "
-import sys,json,os
-apps=json.load(sys.stdin).get('data',{}).get('resources',[])
-scopes=[{'fqs': s.get('fqs','')} for s in apps[0].get('allowed-scopes',[]) if apps] if apps else []
-scopes.append({'fqs': os.environ['FUSION_SCOPE']})
+            _new_scopes=$(FUSION_SCOPE="${FUSION_SCOPE}" EPM_SCOPE="${EPM_SCOPE:-}" python3 -c "
+import os,json
+scopes=[]
+if os.environ.get('FUSION_SCOPE'): scopes.append({'fqs':os.environ['FUSION_SCOPE']})
+if os.environ.get('EPM_SCOPE'):    scopes.append({'fqs':os.environ['EPM_SCOPE']})
 print(json.dumps(scopes))
-" 2>/dev/null)
+")
             oci identity-domains app patch \
                 --endpoint "$IDENTITY_DOMAIN_URL" \
                 --app-id "$existing_app_ocid" \
+                --schemas '["urn:ietf:params:scim:api:messages:2.0:PatchOp"]' \
                 --operations "[
                     {\"op\": \"replace\", \"path\": \"allowedScopes\",   \"value\": ${_new_scopes}},
                     {\"op\": \"replace\", \"path\": \"isOAuthClient\",   \"value\": true},
@@ -582,17 +597,8 @@ print(json.dumps(scopes))
                 "Failed to update existing confidential app" \
                 "Ensure your OCI credentials have 'Identity Domain Administrator' permissions."
             success "Fusion scope added and app configuration verified"
-            # Re-fetch app so the EPM check below sees the updated scopes
-            existing_app=$(oci identity-domains apps list \
-                --endpoint "$IDENTITY_DOMAIN_URL" \
-                --filter "displayName eq \"${APP_NAME}\"" \
-                --output json 2>/dev/null)
-            existing_scopes=$(echo "$existing_app" | python3 -c "
-import sys,json
-apps=json.load(sys.stdin).get('data',{}).get('resources',[])
-scopes=[s.get('fqs','') for s in apps[0].get('allowed-scopes',[]) if apps] if apps else []
-print(' '.join(scopes))
-" 2>/dev/null)
+            # Update existing_scopes so the EPM check below doesn't re-patch unnecessarily
+            existing_scopes="${FUSION_SCOPE} ${EPM_SCOPE:-}"
         fi
     fi
 
@@ -602,16 +608,17 @@ print(' '.join(scopes))
             info "EPM scope already present on app — skipping"
         else
             info "Adding EPM scope to existing confidential app..."
-            _new_scopes=$(echo "$existing_app" | EPM_SCOPE="$EPM_SCOPE" python3 -c "
-import sys,json,os
-apps=json.load(sys.stdin).get('data',{}).get('resources',[])
-scopes=[{'fqs': s.get('fqs','')} for s in apps[0].get('allowed-scopes',[]) if apps] if apps else []
-scopes.append({'fqs': os.environ['EPM_SCOPE']})
+            _new_scopes=$(FUSION_SCOPE="${FUSION_SCOPE:-}" EPM_SCOPE="${EPM_SCOPE}" python3 -c "
+import os,json
+scopes=[]
+if os.environ.get('FUSION_SCOPE'): scopes.append({'fqs':os.environ['FUSION_SCOPE']})
+if os.environ.get('EPM_SCOPE'):    scopes.append({'fqs':os.environ['EPM_SCOPE']})
 print(json.dumps(scopes))
-" 2>/dev/null)
+")
             oci identity-domains app patch \
                 --endpoint "$IDENTITY_DOMAIN_URL" \
                 --app-id "$existing_app_ocid" \
+                --schemas '["urn:ietf:params:scim:api:messages:2.0:PatchOp"]' \
                 --operations "[
                     {\"op\": \"replace\", \"path\": \"allowedScopes\",   \"value\": ${_new_scopes}},
                     {\"op\": \"replace\", \"path\": \"isOAuthClient\",   \"value\": true},
@@ -794,6 +801,7 @@ import sys,json; print(json.load(sys.stdin).get('id',''))
         }" 2>/dev/null)
 
     patch_status=$(echo "$patch_result" | tail -1)
+    patch_body=$(echo "$patch_result" | head -n -1)
 
     if [[ "$patch_status" != "204" && "$patch_status" != "200" ]]; then
         fatal "Failed to assign DD_INTEGRATION_ROLE (HTTP ${patch_status})" \
@@ -1018,13 +1026,15 @@ if [[ -n "$existing_account_id" ]]; then
     info "Account exists — updating (id=${existing_account_id})..."
     dd_patch "/api/v2/web-integrations/oracle-fusion/accounts/${existing_account_id}" "$payload" > /dev/null || fatal \
         "Failed to update Datadog Oracle Fusion account" \
-        "Verify DD_APP_KEY have 'integrations_write' permissions."
+        "Verify DD_APP_KEY have 'integrations_write' permissions." \
+        "If credentials were just created or updated, try re-running the script — OCI changes can take a moment to propagate."
     success "Datadog Oracle Fusion account updated (id=${existing_account_id})"
 else
     info "Creating Datadog Oracle Fusion account '${ACCOUNT_NAME}'..."
     create_resp=$(dd_post "/api/v2/web-integrations/oracle-fusion/accounts" "$payload") || fatal \
         "Failed to create Datadog Oracle Fusion account" \
-        "Verify DD_APP_KEY have 'integrations_write' permissions."
+        "Verify DD_APP_KEY have 'integrations_write' permissions." \
+        "If credentials were just created or updated, try re-running the script — OCI changes can take a moment to propagate."
     new_account_id=$(echo "$create_resp" | python3 -c "
 import sys,json; print(json.load(sys.stdin).get('data',{}).get('id',''))
 " 2>/dev/null)
