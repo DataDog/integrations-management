@@ -512,6 +512,11 @@ if [[ -n "$existing_client_id" ]]; then
     APP_EXISTS=true
     CLIENT_ID="$existing_client_id"
     warn "Confidential application '${APP_NAME}' already exists — reusing (client_id: ${CLIENT_ID})"
+elif [[ -n "$ACCOUNT_NAME" && -z "$CONFIDENTIAL_APP_ID" ]]; then
+    fatal "No confidential application named '${APP_NAME}' was found in this identity domain" \
+        "When using --account-name, the confidential application must already exist." \
+        "If your app has a different name, provide its ID with --confidential-application-id." \
+        "Find the application ID in OCI Console → Domains → Integrated Applications."
 elif [[ -n "$CONFIDENTIAL_APP_ID" ]]; then
     info "Looking up confidential app by ID '${CONFIDENTIAL_APP_ID}'..."
     conf_app_resp=$(oci identity-domains apps list \
