@@ -552,18 +552,25 @@ FUSION_USER_EXISTS=false
 OCI_IAM_USER_EXISTS=false
 if [[ -n "$CLIENT_ID" ]]; then
     if [[ -n "$FUSION_APP_ID" ]]; then
-        info "Checking if Fusion user '${CLIENT_ID}' already exists..."
-        existing_user=$(curl -s --compressed \
-            "${FUSION_BASE_URL}/hcmRestApi/scim/Users?filter=userName+eq+%22${CLIENT_ID}%22" \
-            -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" \
-            -H "Accept: application/json" 2>/dev/null)
-        existing_user_id=$(echo "$existing_user" | python3 -c "
-import sys,json; rs=json.load(sys.stdin).get('Resources',[]); print(rs[0].get('id','') if rs else '')
-" 2>/dev/null)
-        if [[ -n "$existing_user_id" ]]; then
+        if [[ "$FUSION_ALREADY_PROVISIONED" == true ]]; then
             FUSION_USER_EXISTS=true
-            FUSION_USER_ID="$existing_user_id"
-            warn "Fusion user already exists (id: ${FUSION_USER_ID}) — skipping creation"
+            info "Fusion user already provisioned — skipping check"
+        else
+            info "Checking if Fusion user '${CLIENT_ID}' already exists..."
+            existing_user=$(curl -s --compressed \
+                "${FUSION_BASE_URL}/hcmRestApi/scim/Users?filter=userName+eq+%22${CLIENT_ID}%22" \
+                -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" \
+                -H "Accept: application/json" 2>/dev/null) || true
+            existing_user_id=$(echo "$existing_user" | python3 -c "
+import sys,json
+try: rs=json.load(sys.stdin).get('Resources',[]); print(rs[0].get('id','') if rs else '')
+except Exception: print('')
+" 2>/dev/null) || true
+            if [[ -n "$existing_user_id" ]]; then
+                FUSION_USER_EXISTS=true
+                FUSION_USER_ID="$existing_user_id"
+                warn "Fusion user already exists (id: ${FUSION_USER_ID}) — skipping creation"
+            fi
         fi
     else
         info "Checking if OCI IAM user '${CLIENT_ID}' already exists..."
