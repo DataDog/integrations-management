@@ -847,8 +847,8 @@ import sys,json; print(json.load(sys.stdin).get('id',''))
             \"members\": [{\"value\": \"${FUSION_USER_ID}\", \"operation\": \"ADD\"}]
         }" 2>/dev/null)
 
-    patch_status=$(echo "$patch_result" | tail -1)
-    patch_body=$(echo "$patch_result" | head -n -1)
+    patch_status="${patch_result##*$'\n'}"
+    patch_body="${patch_result%$'\n'*}"
 
     if [[ "$patch_status" != "204" && "$patch_status" != "200" ]]; then
         fatal "Failed to assign DD_INTEGRATION_ROLE (HTTP ${patch_status})" \
