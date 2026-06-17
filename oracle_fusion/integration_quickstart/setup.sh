@@ -1073,6 +1073,7 @@ else
     info "Creating Datadog Oracle Fusion account '${ACCOUNT_NAME}'..."
     create_resp=$(dd_post "/api/v2/web-integrations/oracle-fusion/accounts" "$payload") || fatal \
         "Failed to create Datadog Oracle Fusion account" \
+        "Confirm an account named '${ACCOUNT_NAME}' does not already exist in the Datadog integration tile." \
         "Verify DD_APP_KEY have 'integrations_write' permissions." \
         "If credentials were just created or updated, try re-running the script — OCI changes can take a moment to propagate."
     new_account_id=$(echo "$create_resp" | python3 -c "
