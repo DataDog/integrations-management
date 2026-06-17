@@ -810,14 +810,14 @@ if email:
     body['emails'] = [{'value': email, 'type': 'work', 'primary': True}]
 print(json.dumps(body))
 ")
-        user_response=$(curl -s --compressed -w "|||%{http_code}" \
+        user_response=$(curl -s --compressed -w $'\n%{http_code}' \
             -X POST "${FUSION_BASE_URL}/hcmRestApi/scim/Users" \
             -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
             -d "$_fusion_user_body" 2>/dev/null)
-        user_status="${user_response##*|||}"
-        user_body="${user_response%|||*}"
+        user_status="${user_response##*$'\n'}"
+        user_body="${user_response%$'\n'*}"
 
         if [[ "$user_status" != "201" ]]; then
             fatal "Failed to create Fusion user (HTTP ${user_status})" \
@@ -1037,8 +1037,7 @@ fi
 payload=$(CLIENT_ID="$CLIENT_ID" TOKEN_URL="$TOKEN_URL" \
     FUSION_SCOPE="${FUSION_SCOPE:-}" EPM_SCOPE="${EPM_SCOPE:-}" \
     FUSION_BASE_URL="${FUSION_BASE_URL:-}" EPM_BASE_URL="${EPM_BASE_URL:-}" \
-    ACCOUNT_NAME="$ACCOUNT_NAME" CLIENT_SECRET="${CLIENT_SECRET:-}" \
-    EXISTING_ACCOUNT_ID="${existing_account_id:-}" python3 -c "
+    ACCOUNT_NAME="$ACCOUNT_NAME" CLIENT_SECRET="${CLIENT_SECRET:-}" python3 -c "
 import json, os
 settings = {
     'client_id': os.environ['CLIENT_ID'],
