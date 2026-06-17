@@ -1099,7 +1099,7 @@ echo -e "  Please allow at least 15 minutes for EPM roles to propagate before te
 echo ""
 if [[ -n "${EPM_BASE_URL:-}" ]]; then
     echo -e "  ${YELLOW}${BOLD}Note:${NC} To sync the EPM integration user with your account, sign in to your EPM"
-    echo -e "  instance and navigate to Tools → Access Control → Manage Users, and verify the"
+    echo -e "  instance and navigate to Tools → Access Control → Role Assignment Report, and verify the"
     echo -e "  Datadog Integration user is present. Otherwise, EPM does not sync the user"
     echo -e "  automatically until the next automatic refresh."
     echo ""
