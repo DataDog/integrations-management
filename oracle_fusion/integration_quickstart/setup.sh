@@ -213,9 +213,9 @@ dd_get "/api/v2/web-integrations/oracle-fusion/accounts" > /dev/null 2>&1 || fat
     "Verify DD_SITE matches your Datadog site (e.g. datadoghq.com, datadoghq.eu, us3.datadoghq.com)"
 success "Datadog credentials valid"
 
-# If --account-name was given without --identity-domain-url, fetch the existing account
-# to obtain client_id and derive the identity domain URL.
-if [[ -n "$ACCOUNT_NAME" && -z "$IDENTITY_DOMAIN_URL" ]]; then
+# If --account-name was given, fetch the existing account to back-fill credentials and URLs.
+# When --identity-domain-url is also provided it is kept; otherwise it is derived from token_url.
+if [[ -n "$ACCOUNT_NAME" ]]; then
     info "Fetching existing Datadog account '${ACCOUNT_NAME}'..."
     _accounts_resp=$(dd_get "/api/v2/web-integrations/oracle-fusion/accounts") || fatal \
         "Failed to list Datadog Oracle Fusion accounts" \
@@ -248,13 +248,15 @@ else:
         "Verify the account name matches exactly what is shown in the Datadog integration tile." \
         "Run without --account-name to create a new account instead."
     CLIENT_ID="$_fetched_client_id"
-    IDENTITY_DOMAIN_URL=$(TOKEN_URL="$_fetched_token_url" python3 -c "
+    if [[ -z "$IDENTITY_DOMAIN_URL" ]]; then
+        IDENTITY_DOMAIN_URL=$(TOKEN_URL="$_fetched_token_url" python3 -c "
 import os
 from urllib.parse import urlparse
 u = urlparse(os.environ['TOKEN_URL'])
 print(u.scheme + '://' + u.netloc)
 " 2>/dev/null)
-    IDENTITY_DOMAIN_URL=$(normalise_url "$IDENTITY_DOMAIN_URL")
+        IDENTITY_DOMAIN_URL=$(normalise_url "$IDENTITY_DOMAIN_URL")
+    fi
     TOKEN_URL="$_fetched_token_url"
     # Back-fill any existing account fields not supplied on this run so the PATCH
     # payload doesn't wipe the other product's settings.
