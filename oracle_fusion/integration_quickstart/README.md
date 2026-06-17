@@ -23,10 +23,10 @@ assigns the required Fusion role, and grants EPM Service Administrator access.
 | `--identity-domain-url URL` | OCI IAM identity domain URL (required unless `--account-name` is used) |
 | `--fusion-app-id ID` | Hex ID of the Fusion SaaS app in OCI IAM (required for Fusion) |
 | `--epm-app-id ID` | Hex ID of the EPM SaaS app in OCI IAM (required for EPM) |
-| `--fusion-base-url URL` | Fusion environment base URL (required for Fusion) |
+| `--fusion-base-url URL` | Fusion environment base URL (required for Fusion, unless adding EPM to an existing Fusion account) |
 | `--epm-base-url URL` | EPM environment base URL (required for EPM) |
-| `--fusion-admin-username USER` | Fusion admin username (required for Fusion) |
-| `--fusion-admin-password PASS` | Fusion admin password (required for Fusion, not stored) |
+| `--fusion-admin-username USER` | Fusion admin username (required for Fusion, unless adding EPM to an existing Fusion account) |
+| `--fusion-admin-password PASS` | Fusion admin password (required for Fusion, unless adding EPM to an existing Fusion account; not stored) |
 | `--user-email EMAIL` | Email address to attach to the created integration user. Only include if required by legacy identity domain. |
 | `--account-name NAME` | Datadog integration account name. If a matching account already exists, its credentials are fetched and the account is updated. Requires both `--fusion-app-id` and `--epm-app-id` so OAuth scopes on the confidential app are updated correctly for both products. |
 | `--confidential-application-id ID` | Application ID of an existing confidential app. Only required when your app is not named "Datadog Fusion Integration". |
@@ -67,9 +67,6 @@ export DD_APP_KEY=<your-app-key>
 ./setup.sh \
   --account-name "My Fusion Account" \
   --fusion-app-id a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4 \
-  --fusion-base-url https://your-fusion-env.fa.ocs.oraclecloud.com \
-  --fusion-admin-username admin@example.com \
-  --fusion-admin-password '<your-admin-password>' \
   --epm-app-id b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5 \
   --epm-base-url https://your-epm-env.epm.us-ashburn-1.ocs.oraclecloud.com
 ```
