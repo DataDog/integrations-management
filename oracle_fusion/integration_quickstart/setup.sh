@@ -173,7 +173,10 @@ if [[ -n "$ACCOUNT_NAME" ]]; then
 fi
 
 [[ -z "$FUSION_APP_ID" ]] && warn "No --fusion-app-id provided — skipping Fusion scope"
-if [[ -n "$FUSION_APP_ID" ]]; then
+# Fusion base URL and admin credentials are only required for fresh Fusion provisioning.
+# When --account-name is provided and the account already has Fusion, these are not needed
+# (Fusion user and role are already set up). We check this after back-fill below.
+if [[ -n "$FUSION_APP_ID" && -z "$ACCOUNT_NAME" ]]; then
     [[ -z "$FUSION_BASE_URL" ]] && fatal \
         "--fusion-base-url is required when --fusion-app-id is provided" \
         "Provide your Oracle Fusion environment URL, e.g. https://icjnjb.fa.ocs.oraclecloud.com"
@@ -259,8 +262,25 @@ print(u.scheme + '://' + u.netloc)
     [[ -z "$FUSION_SCOPE" ]]    && FUSION_SCOPE="$_fetched_fusion_scope"
     [[ -z "$EPM_BASE_URL" ]]    && EPM_BASE_URL="$_fetched_epm_base"
     [[ -z "$EPM_SCOPE" ]]       && EPM_SCOPE="$_fetched_epm_scope"
+    # Fusion user and role are already provisioned if the existing account has a Fusion base URL.
+    # In that case, skip Fusion admin credential requirements and provisioning steps.
+    FUSION_ALREADY_PROVISIONED=false
+    [[ -n "$_fetched_fusion_base" ]] && FUSION_ALREADY_PROVISIONED=true
+    # If Fusion is NOT already provisioned (adding Fusion to EPM-only account), credentials are required.
+    if [[ -n "$FUSION_APP_ID" && "$FUSION_ALREADY_PROVISIONED" == false ]]; then
+        [[ -z "$FUSION_BASE_URL" ]] && fatal \
+            "--fusion-base-url is required when adding Fusion to an existing account" \
+            "Provide your Oracle Fusion environment URL, e.g. https://icjnjb.fa.ocs.oraclecloud.com"
+        [[ -z "$FUSION_ADMIN_USERNAME" ]] && fatal \
+            "--fusion-admin-username is required for Fusion user provisioning" \
+            "Provide a Fusion admin account username. These credentials are used only for" \
+            "provisioning and are never stored by Datadog."
+        [[ -z "$FUSION_ADMIN_PASSWORD" ]] && fatal \
+            "--fusion-admin-password is required for Fusion user provisioning"
+    fi
     success "Account found — client_id: ${CLIENT_ID}, identity domain: ${IDENTITY_DOMAIN_URL}"
 fi
+FUSION_ALREADY_PROVISIONED="${FUSION_ALREADY_PROVISIONED:-false}"
 
 [[ -z "$IDENTITY_DOMAIN_URL" ]] && fatal \
     "--identity-domain-url is required" \
@@ -373,7 +393,7 @@ except Exception:
 fi
 
 # 7. Validate Fusion admin credentials + connectivity
-if [[ -n "$FUSION_APP_ID" ]]; then
+if [[ -n "$FUSION_APP_ID" && "$FUSION_ALREADY_PROVISIONED" != true ]]; then
     info "Validating Fusion admin credentials and connectivity..."
     fusion_auth_status=$(curl -s --compressed -o /dev/null -w "%{http_code}" \
         "${FUSION_BASE_URL}/hcmRestApi/scim/Users?count=1" \
@@ -404,7 +424,7 @@ fi
 # 9. DD_INTEGRATION_ROLE exists in Fusion and is accessible via API
 #    We check the role CODE (the 'name' field in SCIM).
 #    The role code must be exactly 'DD_INTEGRATION_ROLE'.
-if [[ -n "$FUSION_APP_ID" ]]; then
+if [[ -n "$FUSION_APP_ID" && "$FUSION_ALREADY_PROVISIONED" != true ]]; then
     info "Checking for role with code 'DD_INTEGRATION_ROLE' in Fusion..."
     info "(The role CODE must be exactly 'DD_INTEGRATION_ROLE')"
     role_check=$(curl -s --compressed \
@@ -747,7 +767,7 @@ import sys,json; print(json.load(sys.stdin).get('data',{}).get('id',''))
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
-if [[ -n "$FUSION_APP_ID" ]]; then
+if [[ -n "$FUSION_APP_ID" && "$FUSION_ALREADY_PROVISIONED" != true ]]; then
 
     step "STEP 2: CREATE FUSION INTEGRATION USER"
 
