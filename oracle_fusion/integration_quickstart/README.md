@@ -81,6 +81,5 @@ export DD_APP_KEY=<your-app-key>
   --fusion-base-url https://your-fusion-env.fa.us2.oraclecloud.com \
   --fusion-admin-username admin@example.com \
   --fusion-admin-password '<your-admin-password>' \
-  --epm-app-id b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5 \
-  --epm-base-url https://your-epm-env.epm.us-ashburn-1.ocs.oraclecloud.com
+  --epm-app-id b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5
 ```
