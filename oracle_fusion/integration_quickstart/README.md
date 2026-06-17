@@ -24,7 +24,7 @@ assigns the required Fusion role, and grants EPM Service Administrator access.
 | `--fusion-app-id ID` | Hex ID of the Fusion SaaS app in OCI IAM (required for Fusion) |
 | `--epm-app-id ID` | Hex ID of the EPM SaaS app in OCI IAM (required for EPM) |
 | `--fusion-base-url URL` | Fusion environment base URL (required for Fusion, unless adding EPM to an existing Fusion account) |
-| `--epm-base-url URL` | EPM environment base URL (required for EPM) |
+| `--epm-base-url URL` | EPM environment base URL (required for EPM, unless adding Fusion to an existing EPM account) |
 | `--fusion-admin-username USER` | Fusion admin username (required for Fusion, unless adding EPM to an existing Fusion account) |
 | `--fusion-admin-password PASS` | Fusion admin password (required for Fusion, unless adding EPM to an existing Fusion account; not stored) |
 | `--user-email EMAIL` | Email address to attach to the created integration user. Only include if required by legacy identity domain. |

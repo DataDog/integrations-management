@@ -191,7 +191,7 @@ if [[ -n "$FUSION_APP_ID" && -z "$ACCOUNT_NAME" ]]; then
 fi
 
 [[ -z "$EPM_APP_ID" ]] && warn "No --epm-app-id provided — skipping EPM provisioning"
-if [[ -n "$EPM_APP_ID" ]]; then
+if [[ -n "$EPM_APP_ID" && -z "$ACCOUNT_NAME" ]]; then
     [[ -z "$EPM_BASE_URL" ]] && fatal \
         "--epm-base-url is required when --epm-app-id is provided" \
         "Provide your Oracle Fusion EPM environment URL," \
@@ -281,6 +281,13 @@ print(u.scheme + '://' + u.netloc)
             "provisioning and are never stored by Datadog."
         [[ -z "$FUSION_ADMIN_PASSWORD" ]] && fatal \
             "--fusion-admin-password is required for Fusion user provisioning"
+    fi
+    # If EPM is NOT already provisioned (adding EPM to a Fusion-only account), EPM base URL is required.
+    if [[ -n "$EPM_APP_ID" && -z "$_fetched_epm_base" ]]; then
+        [[ -z "$EPM_BASE_URL" ]] && fatal \
+            "--epm-base-url is required when adding EPM to an existing account" \
+            "Provide your Oracle Fusion EPM environment URL," \
+            "e.g. https://epmprod-xx.epm.us-ashburn-1.ocs.oraclecloud.com"
     fi
     success "Account found — client_id: ${CLIENT_ID}, identity domain: ${IDENTITY_DOMAIN_URL}"
 fi
