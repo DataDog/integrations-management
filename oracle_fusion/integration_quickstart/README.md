@@ -23,12 +23,12 @@ assigns the required Fusion role, and grants EPM Service Administrator access.
 | `--identity-domain-url URL` | OCI IAM identity domain URL (required unless `--account-name` is used) |
 | `--fusion-app-id ID` | Hex ID of the Fusion SaaS app in OCI IAM (required for Fusion) |
 | `--epm-app-id ID` | Hex ID of the EPM SaaS app in OCI IAM (required for EPM) |
-| `--fusion-base-url URL` | Fusion environment base URL (required for Fusion, unless adding EPM to an existing Fusion account) |
-| `--epm-base-url URL` | EPM environment base URL (required for EPM, unless adding Fusion to an existing EPM account) |
-| `--fusion-admin-username USER` | Fusion admin username (required for Fusion, unless adding EPM to an existing Fusion account) |
-| `--fusion-admin-password PASS` | Fusion admin password (required for Fusion, unless adding EPM to an existing Fusion account; not stored) |
+| `--fusion-base-url URL` | Fusion environment base URL (required for Fusion; not used with `--account-name`) |
+| `--epm-base-url URL` | EPM environment base URL (required for EPM fresh onboarding; optional with `--account-name` if already set on account) |
+| `--fusion-admin-username USER` | Fusion admin username (required for Fusion; not used with `--account-name`) |
+| `--fusion-admin-password PASS` | Fusion admin password (required for Fusion; not used with `--account-name`; not stored) |
 | `--user-email EMAIL` | Email address to attach to the created integration user. Only include if required by legacy identity domain. |
-| `--account-name NAME` | Datadog integration account name. If a matching account already exists, its credentials are fetched and the account is updated. Requires both `--fusion-app-id` and `--epm-app-id` so OAuth scopes on the confidential app are updated correctly for both products. |
+| `--account-name NAME` | Name of an existing Datadog Fusion account to add EPM to. Requires `--fusion-app-id` and `--epm-app-id`. Cannot be used with `--identity-domain-url`, `--fusion-base-url`, `--fusion-admin-username`, `--fusion-admin-password`, or `--user-email`. |
 | `--confidential-application-id ID` | Application ID of an existing confidential app. Only required when your app is not named "Datadog Fusion Integration". |
 
 ## Environment Variables
@@ -71,15 +71,3 @@ export DD_APP_KEY=<your-app-key>
   --epm-base-url https://your-epm-env.epm.us-ashburn-1.ocs.oraclecloud.com
 ```
 
-**Add Fusion to an existing EPM account:**
-
-```bash
-export DD_APP_KEY=<your-app-key>
-./setup.sh \
-  --account-name "My EPM Account" \
-  --fusion-app-id a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4 \
-  --fusion-base-url https://your-fusion-env.fa.us2.oraclecloud.com \
-  --fusion-admin-username admin@example.com \
-  --fusion-admin-password '<your-admin-password>' \
-  --epm-app-id b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5
-```

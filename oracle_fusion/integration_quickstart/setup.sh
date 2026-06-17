@@ -67,25 +67,23 @@ Usage: ./setup.sh [OPTIONS]
 
 Automates Oracle Fusion / EPM integration onboarding for Datadog.
 
-Required (at least one of):
-  --fusion-app-id ID            Fusion SaaS app ID in OCI IAM
-  --epm-app-id ID               EPM SaaS app ID in OCI IAM
-
-Required (when --fusion-app-id is set):
-  --fusion-base-url URL         Fusion environment base URL
-  --fusion-admin-username USER  Fusion admin username
-  --fusion-admin-password PASS  Fusion admin password
-
-Required (when --epm-app-id is set):
-  --epm-base-url URL            EPM environment base URL
-
-Required (unless --account-name is given):
-  --identity-domain-url URL     OCI IAM identity domain URL
-
-Optional:
-  --account-name NAME           Existing Datadog account name to update
+Fresh Fusion + EPM onboarding (no --account-name):
+  --identity-domain-url URL     OCI IAM identity domain URL (required)
+  --fusion-app-id ID            Fusion SaaS app ID in OCI IAM (required for Fusion)
+  --epm-app-id ID               EPM SaaS app ID in OCI IAM (required for EPM)
+  --fusion-base-url URL         Fusion environment base URL (required for Fusion)
+  --fusion-admin-username USER  Fusion admin username (required for Fusion)
+  --fusion-admin-password PASS  Fusion admin password (required for Fusion)
+  --epm-base-url URL            EPM environment base URL (required for EPM)
   --confidential-application-id ID  Existing confidential app ID (if not named "Datadog Fusion Integration")
   --user-email EMAIL            Email to attach to the created integration user
+
+Add EPM to an existing Fusion account (--account-name):
+  --account-name NAME           Existing Datadog Fusion account name
+  --fusion-app-id ID            Fusion SaaS app ID in OCI IAM (required)
+  --epm-app-id ID               EPM SaaS app ID in OCI IAM (required)
+  --epm-base-url URL            EPM environment base URL (required if not already set)
+  --confidential-application-id ID  Existing confidential app ID (if not named "Datadog Fusion Integration")
 
 Environment variables:
   DD_API_KEY   Datadog API key (required)
@@ -166,12 +164,23 @@ if [[ -z "$FUSION_APP_ID" && -z "$EPM_APP_ID" ]]; then
         "Click on the Fusion or EPM app → copy the Application ID"
 fi
 if [[ -n "$ACCOUNT_NAME" ]]; then
+    _account_name_forbidden=()
+    [[ -n "$IDENTITY_DOMAIN_URL" ]]    && _account_name_forbidden+=("--identity-domain-url")
+    [[ -n "$FUSION_BASE_URL" ]]        && _account_name_forbidden+=("--fusion-base-url")
+    [[ -n "$FUSION_ADMIN_USERNAME" ]]  && _account_name_forbidden+=("--fusion-admin-username")
+    [[ -n "$FUSION_ADMIN_PASSWORD" ]]  && _account_name_forbidden+=("--fusion-admin-password")
+    [[ -n "$USER_EMAIL" ]]             && _account_name_forbidden+=("--user-email")
+    if [[ ${#_account_name_forbidden[@]} -gt 0 ]]; then
+        fatal "Invalid flags provided with --account-name: ${_account_name_forbidden[*]}" \
+            "When --account-name is provided, only the following flags are allowed:" \
+            "  --fusion-app-id, --epm-app-id, --epm-base-url, --confidential-application-id"
+    fi
     [[ -z "$FUSION_APP_ID" ]] && fatal \
-        "Both --fusion-app-id and --epm-app-id are required when --account-name is provided" \
-        "This ensures the confidential application's OAuth scopes are updated correctly for both products."
+        "--fusion-app-id is required when --account-name is provided" \
+        "When --account-name is provided, only adding EPM to an existing Fusion account is supported."
     [[ -z "$EPM_APP_ID" ]] && fatal \
-        "Both --fusion-app-id and --epm-app-id are required when --account-name is provided" \
-        "This ensures the confidential application's OAuth scopes are updated correctly for both products."
+        "--epm-app-id is required when --account-name is provided" \
+        "When --account-name is provided, only adding EPM to an existing Fusion account is supported."
 fi
 
 [[ -z "$FUSION_APP_ID" ]] && warn "No --fusion-app-id provided — skipping Fusion scope"
@@ -266,23 +275,13 @@ print(u.scheme + '://' + u.netloc)
     [[ -z "$FUSION_SCOPE" ]]    && FUSION_SCOPE="$_fetched_fusion_scope"
     [[ -z "$EPM_BASE_URL" ]]    && EPM_BASE_URL="$_fetched_epm_base"
     [[ -z "$EPM_SCOPE" ]]       && EPM_SCOPE="$_fetched_epm_scope"
-    # Fusion user and role are already provisioned if the existing account has a Fusion base URL.
-    # In that case, skip Fusion admin credential requirements and provisioning steps.
-    FUSION_ALREADY_PROVISIONED=false
-    [[ -n "$_fetched_fusion_base" ]] && FUSION_ALREADY_PROVISIONED=true
-    # If Fusion is NOT already provisioned (adding Fusion to EPM-only account), credentials are required.
-    if [[ -n "$FUSION_APP_ID" && "$FUSION_ALREADY_PROVISIONED" == false ]]; then
-        [[ -z "$FUSION_BASE_URL" ]] && fatal \
-            "--fusion-base-url is required when adding Fusion to an existing account" \
-            "Provide your Oracle Fusion environment URL, e.g. https://icjnjb.fa.ocs.oraclecloud.com"
-        [[ -z "$FUSION_ADMIN_USERNAME" ]] && fatal \
-            "--fusion-admin-username is required for Fusion user provisioning" \
-            "Provide a Fusion admin account username. These credentials are used only for" \
-            "provisioning and are never stored by Datadog."
-        [[ -z "$FUSION_ADMIN_PASSWORD" ]] && fatal \
-            "--fusion-admin-password is required for Fusion user provisioning"
-    fi
-    # If EPM is NOT already provisioned (adding EPM to a Fusion-only account), EPM base URL is required.
+    # Only adding EPM to an existing Fusion account is supported via --account-name.
+    [[ -z "$_fetched_fusion_base" ]] && fatal \
+        "Account '${ACCOUNT_NAME}' does not have a Fusion integration configured" \
+        "Adding EPM via --account-name is only supported for existing Fusion accounts." \
+        "To set up a new Fusion + EPM account, run without --account-name."
+    FUSION_ALREADY_PROVISIONED=true
+    # EPM base URL is required if it's not already set on the account.
     if [[ -n "$EPM_APP_ID" && -z "$_fetched_epm_base" ]]; then
         [[ -z "$EPM_BASE_URL" ]] && fatal \
             "--epm-base-url is required when adding EPM to an existing account" \
