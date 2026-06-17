@@ -979,24 +979,22 @@ data = json.load(sys.stdin).get('data', [])
 matched = [a for a in data if a.get('attributes', {}).get('name') == os.environ['ACCOUNT_NAME']]
 if matched:
     s = matched[0].get('attributes', {}).get('settings', {})
-    enabled = json.dumps(s.get('logs_config', {}).get('enabled_services', []))
     print('|'.join([
         matched[0].get('id', ''),
         s.get('fusion_base_url', ''),
         s.get('oauth_scope', ''),
         s.get('epm_base_url', ''),
         s.get('epm_oauth_scope', ''),
-        enabled,
     ]))
 else:
-    print('|||||[]')
+    print('||||')
 " 2>/dev/null)
 existing_account_id=$(echo "$existing_account_fields"        | cut -d'|' -f1)
 _existing_fusion_base=$(echo "$existing_account_fields"      | cut -d'|' -f2)
 _existing_fusion_scope=$(echo "$existing_account_fields"     | cut -d'|' -f3)
 _existing_epm_base=$(echo "$existing_account_fields"         | cut -d'|' -f4)
 _existing_epm_scope=$(echo "$existing_account_fields"        | cut -d'|' -f5)
-_existing_enabled_services=$(echo "$existing_account_fields" | cut -d'|' -f6)
+
 
 # Back-fill any existing account fields not supplied on this run so the PATCH
 # payload doesn't wipe the other product's settings.
@@ -1036,8 +1034,7 @@ payload=$(CLIENT_ID="$CLIENT_ID" TOKEN_URL="$TOKEN_URL" \
     FUSION_SCOPE="${FUSION_SCOPE:-}" EPM_SCOPE="${EPM_SCOPE:-}" \
     FUSION_BASE_URL="${FUSION_BASE_URL:-}" EPM_BASE_URL="${EPM_BASE_URL:-}" \
     ACCOUNT_NAME="$ACCOUNT_NAME" CLIENT_SECRET="${CLIENT_SECRET:-}" \
-    EXISTING_ACCOUNT_ID="${existing_account_id:-}" \
-    EXISTING_ENABLED_SERVICES="${_existing_enabled_services:-[]}" python3 -c "
+    EXISTING_ACCOUNT_ID="${existing_account_id:-}" python3 -c "
 import json, os
 settings = {
     'client_id': os.environ['CLIENT_ID'],
@@ -1051,12 +1048,9 @@ if fusion_scope: settings['oauth_scope']     = fusion_scope
 if fusion_base:  settings['fusion_base_url'] = fusion_base
 if epm_scope:    settings['epm_oauth_scope'] = epm_scope
 if epm_base:     settings['epm_base_url']    = epm_base
-if os.environ.get('EXISTING_ACCOUNT_ID'):
-    enabled = json.loads(os.environ.get('EXISTING_ENABLED_SERVICES', '[]'))
-else:
-    enabled = []
-    if fusion_base: enabled += ['ess', 'audit']
-    if epm_base:    enabled += ['epm_jobs', 'epm_audit']
+enabled = []
+if fusion_base: enabled += ['ess', 'audit']
+if epm_base:    enabled += ['epm_jobs', 'epm_audit']
 if enabled:
     settings['logs_config'] = {'enabled_services': enabled}
 attrs = {'name': os.environ['ACCOUNT_NAME'], 'settings': settings}
