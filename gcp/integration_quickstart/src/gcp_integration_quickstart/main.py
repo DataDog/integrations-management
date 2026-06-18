@@ -50,7 +50,7 @@ class OnboardingStep(str, Enum):
     CREATE_LOGS_FORWARDING_INTEGRATION = "create_logs_forwarding_integration"
 
 
-def _resolve_service_account(step_reporter: StepStatusReporter, user_selections: dict) -> str:
+def _resolve_service_account(step_reporter: StepStatusReporter, user_selections: dict, defaul_project_id: str) -> str:
     existing_email = user_selections.get("existing_service_account_email")
     if existing_email:
         if not is_valid_service_account_email(existing_email):
@@ -63,6 +63,7 @@ def _resolve_service_account(step_reporter: StepStatusReporter, user_selections:
         step_reporter,
         user_selections["service_account_id"],
         user_selections["default_project_id"],
+        default_project_id,
     )
 
 
@@ -98,11 +99,7 @@ def main():
     with workflow_reporter.report_step(
         OnboardingStep.CREATE_SERVICE_ACCOUNT
     ) as step_reporter:
-        service_account_email = find_or_create_service_account(
-            step_reporter,
-            user_selections["service_account_id"],
-            default_project_id,
-        )
+        service_account_email = _resolve_service_account(step_reporter, user_selections, default_project_id)
     with workflow_reporter.report_step(
         OnboardingStep.ASSIGN_DELEGATE_PERMISSIONS
     ) as step_reporter:
