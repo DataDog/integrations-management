@@ -8,12 +8,16 @@ import sys
 from enum import Enum
 from typing import Optional
 
+from gcp_shared.ensure_permissions import (
+    is_valid_service_account_email,
+    validate_service_account_in_project,
+)
 from gcp_shared.models import (
     ConfigurationScope,
     Project,
     from_dict_recursive,
 )
-from gcp_shared.reporter import WorkflowReporter
+from gcp_shared.reporter import StepStatusReporter, WorkflowReporter
 from gcp_shared.scopes import collect_configuration_scopes
 from gcp_shared.service_accounts import find_or_create_service_account
 from .models import LogsForwardingConfiguration
@@ -42,6 +46,22 @@ class OnboardingStep(str, Enum):
     ASSIGN_DELEGATE_PERMISSIONS = "assign_delegate_permissions"
     CREATE_INTEGRATION_WITH_PERMISSIONS = "create_integration_with_permissions"
     CREATE_LOGS_FORWARDING_INTEGRATION = "create_logs_forwarding_integration"
+
+
+def _resolve_service_account(step_reporter: StepStatusReporter, user_selections: dict) -> str:
+    existing_email = user_selections.get("existing_service_account_email")
+    if existing_email:
+        if not is_valid_service_account_email(existing_email):
+            raise ValueError(f"Invalid service account email: '{existing_email}'")
+        validate_service_account_in_project(
+            step_reporter, existing_email, user_selections["default_project_id"]
+        )
+        return existing_email
+    return find_or_create_service_account(
+        step_reporter,
+        user_selections["service_account_id"],
+        user_selections["default_project_id"],
+    )
 
 
 def main():
@@ -75,11 +95,7 @@ def main():
     with workflow_reporter.report_step(
         OnboardingStep.CREATE_SERVICE_ACCOUNT
     ) as step_reporter:
-        service_account_email = find_or_create_service_account(
-            step_reporter,
-            user_selections["service_account_id"],
-            user_selections["default_project_id"],
-        )
+        service_account_email = _resolve_service_account(step_reporter, user_selections)
     with workflow_reporter.report_step(
         OnboardingStep.ASSIGN_DELEGATE_PERMISSIONS
     ) as step_reporter:

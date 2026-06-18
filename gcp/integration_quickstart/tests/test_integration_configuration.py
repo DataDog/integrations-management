@@ -551,5 +551,106 @@ class TestMainLogsForwardingConfiguration(unittest.TestCase):
         self.assertEqual(df_args[4].max_workers, 7)
         self.assertEqual(df_args[4].batch_size, 111)
 
+class TestMainExistingServiceAccount(unittest.TestCase):
+    def setUp(self):
+        self.env = {
+            "DD_API_KEY": "x",
+            "DD_APP_KEY": "y",
+            "DD_SITE": "datad0g.com",
+            "WORKFLOW_ID": "11111111-1111-1111-1111-111111111111",
+        }
+        self.base_selections = {
+            "default_project_id": "my-project",
+            "projects": [],
+            "folders": [],
+            "integration_configuration": {
+                "metric_namespace_configs": [],
+                "monitored_resource_configs": [],
+                "account_tags": [],
+                "resource_collection_enabled": True,
+                "automute": False,
+                "region_filter_configs": [],
+                "is_global_location_enabled": True,
+            },
+        }
+
+    def _make_workflow_reporter(self, mock_cls, user_selections):
+        step_reporter = Mock()
+        workflow_reporter = Mock()
+        workflow_reporter.is_valid_workflow_id.return_value = True
+        workflow_reporter.is_scopes_step_already_completed.return_value = True
+        workflow_reporter.receive_user_selections.return_value = user_selections
+        workflow_reporter.report_step.side_effect = lambda *_a, **_k: _step_ctx(step_reporter)
+        mock_cls.return_value = workflow_reporter
+        return step_reporter
+
+    @patch("gcp_integration_quickstart.main.signal.signal")
+    @patch("gcp_integration_quickstart.main.create_integration_with_permissions")
+    @patch("gcp_integration_quickstart.main.assign_delegate_permissions")
+    @patch("gcp_integration_quickstart.main.validate_service_account_in_project")
+    @patch("gcp_integration_quickstart.main.find_or_create_service_account")
+    @patch("gcp_integration_quickstart.main.WorkflowReporter")
+    def test_main_uses_existing_sa_when_provided(
+        self,
+        mock_workflow_reporter_cls,
+        mock_find_or_create,
+        mock_validate,
+        _mock_assign,
+        _mock_create_integration,
+        _mock_signal,
+    ):
+        selections = {
+            **self.base_selections,
+            "existing_service_account_email": "existing@my-project.iam.gserviceaccount.com",
+        }
+        self._make_workflow_reporter(mock_workflow_reporter_cls, selections)
+
+        with patch.dict(os.environ, self.env, clear=True):
+            main()
+
+        mock_find_or_create.assert_not_called()
+        mock_validate.assert_called_once_with(
+            mock_validate.call_args[0][0],
+            "existing@my-project.iam.gserviceaccount.com",
+            "my-project",
+        )
+
+    @patch("gcp_integration_quickstart.main.signal.signal")
+    @patch("gcp_integration_quickstart.main.create_integration_with_permissions")
+    @patch("gcp_integration_quickstart.main.assign_delegate_permissions")
+    @patch("gcp_integration_quickstart.main.find_or_create_service_account")
+    @patch("gcp_integration_quickstart.main.WorkflowReporter")
+    def test_main_falls_back_to_create_when_no_existing_sa(
+        self,
+        mock_workflow_reporter_cls,
+        mock_find_or_create,
+        _mock_assign,
+        _mock_create_integration,
+        _mock_signal,
+    ):
+        selections = {**self.base_selections, "service_account_id": "my-sa"}
+        self._make_workflow_reporter(mock_workflow_reporter_cls, selections)
+        mock_find_or_create.return_value = "my-sa@my-project.iam.gserviceaccount.com"
+
+        with patch.dict(os.environ, self.env, clear=True):
+            main()
+
+        mock_find_or_create.assert_called_once()
+
+    @patch("gcp_integration_quickstart.main.signal.signal")
+    @patch("gcp_integration_quickstart.main.WorkflowReporter")
+    def test_main_rejects_invalid_existing_sa_email(
+        self, mock_workflow_reporter_cls, _mock_signal
+    ):
+        selections = {**self.base_selections, "existing_service_account_email": "not-a-valid-email"}
+        self._make_workflow_reporter(mock_workflow_reporter_cls, selections)
+
+        with patch.dict(os.environ, self.env, clear=True):
+            with self.assertRaises(ValueError) as ctx:
+                main()
+
+        self.assertIn("Invalid service account email", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
