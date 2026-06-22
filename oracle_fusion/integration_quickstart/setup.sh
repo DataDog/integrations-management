@@ -475,7 +475,6 @@ except Exception:
             "       Conditions:   leave all blank" \
             "     Under 'Associated Roles' → Add Row → search DD_INTEGRATION_ROLE" \
             "     Check 'Requestable' → leave other checkboxes unchecked → Save and Close" \
-            "  Once complete, re-run this script to continue onboarding." \
             "  Note: if the role and mapping already exist, this check can fail transiently — try re-running the script before making changes."
     fi
     DD_INTEGRATION_ROLE_ID=$(echo "$role_check" | python3 -c "
@@ -775,15 +774,14 @@ if [[ -z "$FUSION_APP_ID" && -n "$EPM_APP_ID" ]]; then
             --output json 2>/dev/null) || fatal \
             "Failed to create OCI IAM user '${CLIENT_ID}'" \
             "Ensure your OCI credentials have permission to create users in the identity domain." \
-            "Check: OCI Console → Domains → Administrators" \
-            "Once resolved, re-run the script — it will automatically pick up where it left off."
+            "Check: OCI Console → Domains → Administrators"
 
         OCI_IAM_USER_ID=$(echo "$oci_user_result" | python3 -c "
 import sys,json; print(json.load(sys.stdin).get('data',{}).get('id',''))
 " 2>/dev/null)
         [[ -z "$OCI_IAM_USER_ID" ]] && fatal \
             "OCI IAM user was created but its ID could not be parsed from the OCI response" \
-            "Re-run the script to retry — it will pick up where it left off. If the issue persists, contact Datadog support."
+            "If the issue persists, contact Datadog support."
         success "OCI IAM user created (id: ${OCI_IAM_USER_ID})"
     fi
 
@@ -824,8 +822,7 @@ print(json.dumps(body))
             fatal "Failed to create Fusion user (HTTP ${user_status})" \
                 "Response: $(echo "${user_body}" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("Errors",[{}])[0].get("description","unknown error"))' 2>/dev/null)" \
                 "Ensure --fusion-admin-username has HCM User Management permissions." \
-                "The admin must have the 'IT Security Manager' or equivalent role in Fusion." \
-                "Once resolved, re-run the script — it will automatically pick up where it left off."
+                "The admin must have the 'IT Security Manager' or equivalent role in Fusion."
         fi
 
         FUSION_USER_ID=$(echo "${user_body}" | python3 -c "
@@ -860,8 +857,7 @@ import sys,json; print(json.load(sys.stdin).get('id',''))
             "    From Date:    today's date" \
             "    Conditions:   leave all blank (applies to all users)" \
             "  Under 'Associated Roles' → Add Row → search DD_INTEGRATION_ROLE" \
-            "  Check 'Requestable' → leave other checkboxes unchecked → Save and Close" \
-            "Once resolved, re-run the script — it will automatically pick up where it left off."
+            "  Check 'Requestable' → leave other checkboxes unchecked → Save and Close"
     fi
     success "DD_INTEGRATION_ROLE assigned to Fusion user"
 
@@ -921,8 +917,7 @@ print(matched[0].get('id', '') if matched else '')
     [[ -z "$SERVICE_ADMIN_ROLE_ID" ]] && fatal \
         "Could not find 'Service Administrator' role for EPM app '${EPM_APP_ID}'" \
         "Verify the EPM app ID is correct." \
-        "Check: OCI Console → Domains → Oracle Cloud Services → your EPM app → Application ID" \
-        "Once resolved, re-run the script — it will automatically pick up where it left off."
+        "Check: OCI Console → Domains → Oracle Cloud Services → your EPM app → Application ID"
 
     success "EPM role found (id: ${SERVICE_ADMIN_ROLE_ID})"
 
@@ -951,8 +946,7 @@ print(len(rs))
             --output json 2>/dev/null) || fatal \
             "Failed to create EPM Service Administrator grant" \
             "Ensure your OCI credentials have Identity Domain Administrator permissions." \
-            "Check: OCI Console → Domains → Administrators" \
-            "Once resolved, re-run the script — it will automatically pick up where it left off."
+            "Check: OCI Console → Domains → Administrators"
 
         success "EPM role granted"
     fi
