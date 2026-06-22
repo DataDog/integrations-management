@@ -31,6 +31,7 @@ fatal() {
             echo -e "  → ${line}"
         done
     fi
+    echo -e "  → Once resolved, rerun the script to continue."
     echo ""
     exit 1
 }
