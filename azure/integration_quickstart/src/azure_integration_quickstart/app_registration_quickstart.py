@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Optional
 from urllib.error import URLError
 
 from az_shared.errors import (
@@ -14,8 +15,10 @@ from az_shared.errors import (
     AppRegistrationCreationPermissionsError,
     FederatedCredentialCreationPermissionsError,
     InteractiveAuthenticationRequiredError,
+    MissingExternalIdError,
 )
 from az_shared.execute_cmd import execute, execute_json
+from az_shared.script_status import Status, StatusReporter
 from azure_integration_quickstart.constants import APP_REGISTRATION_WORKFLOW_TYPE
 from azure_integration_quickstart.extension.vm_extension import list_vms_for_subscriptions, set_extension_latest
 from azure_integration_quickstart.quickstart_shared import (
@@ -33,7 +36,6 @@ from azure_integration_quickstart.scopes import (
     flatten_scopes_to_unique_subscriptions,
     report_available_scopes,
 )
-from az_shared.script_status import Status, StatusReporter
 from azure_integration_quickstart.user_selections import receive_app_registration_selections
 from azure_integration_quickstart.util import dd_request
 from common.shell import Cmd
@@ -51,11 +53,12 @@ class AppRegistration:
 APP_REGISTRATION_NAME_PREFIX = "datadog-azure-integration"
 APP_REGISTRATION_CLIENT_SECRET_TTL_YEARS = 2
 APP_REGISTRATION_ROLE = "Monitoring Reader"
+APP_REGISTRATION_UNSTORED_FIELDS = {"external_id"}
 
 FEDERATED_AUTH_SECRET_PLACEHOLDER = "SECRETLESS_AUTH"
 FEDERATED_CREDENTIAL_NAME = "datadog"
 FEDERATED_AUTH_ISSUER = "https://jjmc4r9f5i.execute-api.us-east-1.amazonaws.com/pine"
-FEDERATED_AUTH_SUBJECT = "datadog-oidc"
+FEDERATED_AUTH_SUBJECT_PREFIX = "datadog-oidc:external-auth-id:"
 FEDERATED_CREDENTIAL_DESCRIPTION = (
     "Federated credential that permits Datadog to authenticate without storing a client secret"
 )
@@ -76,7 +79,9 @@ def run_app_reg_create_cmd(cmd: Cmd):
         raise InteractiveAuthenticationRequiredError(e.commands, str(e))
 
 
-def create_app_registration_with_permissions(scopes: Iterable[Scope], use_secretless_auth=False) -> AppRegistration:
+def create_app_registration_with_permissions(
+    scopes: Iterable[Scope], use_secretless_auth: bool, external_id: Optional[str]
+) -> AppRegistration:
     """Create an app registration with the necessary permissions for Datadog to function over the given scopes."""
     cmd = (
         Cmd(["az", "ad", "sp", "create-for-rbac"])
@@ -85,6 +90,10 @@ def create_app_registration_with_permissions(scopes: Iterable[Scope], use_secret
         .param_list("--scopes", [s.scope for s in scopes])
     )
     if use_secretless_auth:
+        if not external_id:
+            raise MissingExternalIdError(
+                "Secretless auth is enabled, but no external id was provided so we cannot create a properly scoped federated credential."
+            )
         result = run_app_reg_create_cmd(cmd)
         try:
             execute(
@@ -95,7 +104,7 @@ def create_app_registration_with_permissions(scopes: Iterable[Scope], use_secret
                     f"""{{
                         "name": "{FEDERATED_CREDENTIAL_NAME}",
                         "issuer": "{FEDERATED_AUTH_ISSUER}",
-                        "subject": "{FEDERATED_AUTH_SUBJECT}",
+                        "subject": "{FEDERATED_AUTH_SUBJECT_PREFIX}{external_id}",
                         "description": "{FEDERATED_CREDENTIAL_DESCRIPTION}",
                         "audiences": ["{FEDERATED_AUTH_AUDIENCE}"]
                     }}""",
@@ -127,7 +136,7 @@ def submit_integration_config(app_registration: AppRegistration, config: dict) -
             "POST",
             "/api/v1/integration/azure",
             {
-                **config,
+                **{k: v for k, v in config.items() if k not in APP_REGISTRATION_UNSTORED_FIELDS},
                 "client_id": app_registration.client_id,
                 "client_secret": app_registration.client_secret,
                 "tenant_name": app_registration.tenant_id,
@@ -175,7 +184,9 @@ def main():
         selections = receive_app_registration_selections(workflow_id)
     with status.report_step("app_registration", "Creating app registration in Azure"):
         app_registration = create_app_registration_with_permissions(
-            selections.scopes, selections.app_registration_config.get("secretless_auth_enabled", False)
+            selections.scopes,
+            selections.app_registration_config.get("secretless_auth_enabled", False),
+            selections.app_registration_config.get("external_id"),
         )
     with status.report_step("integration_config", "Submitting new configuration to Datadog"):
         submit_integration_config(app_registration, selections.app_registration_config)
@@ -193,9 +204,7 @@ def main():
         selected_subs = flatten_scopes_to_unique_subscriptions(selections.scopes)
         # App registration flow is add-only: when an LFO exists, monitored scopes becomes existing ∪ selected.
         if existing_lfo:
-            existing_subs = {
-                Subscription(id=sub_id, name=name) for sub_id, name in existing_lfo.monitored_subs.items()
-            }
+            existing_subs = {Subscription(id=sub_id, name=name) for sub_id, name in existing_lfo.monitored_subs.items()}
             final_scopes = existing_subs | selected_subs
         else:
             final_scopes = selected_subs
