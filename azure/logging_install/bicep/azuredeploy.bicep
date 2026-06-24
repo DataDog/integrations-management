@@ -77,7 +77,6 @@ module controlPlane './control_plane.bicep' = {
     resourceTagFilters: resourceTagFilters
     piiScrubberRules: piiScrubberRules
     imageRegistry: imageRegistry
-    storageAccountUrl: storageAccountUrl
     logLevel: logLevel
   }
   dependsOn: [
