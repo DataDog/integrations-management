@@ -1027,6 +1027,7 @@ if fusion_base: enabled += ['ess', 'audit']
 if epm_base:    enabled += ['epm_jobs', 'epm_audit']
 if enabled:
     settings['logs_config'] = {'enabled_services': enabled}
+settings['version'] = '1.0'
 attrs = {'name': os.environ['ACCOUNT_NAME'], 'settings': settings}
 client_secret = os.environ.get('CLIENT_SECRET', '')
 if client_secret: attrs['secrets'] = {'client_secret': client_secret}
