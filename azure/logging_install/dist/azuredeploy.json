@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.40.2.10011",
-      "templateHash": "148953225882531621"
+      "templateHash": "3893983718074925038"
     }
   },
   "functions": [
@@ -278,7 +278,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.40.2.10011",
-              "templateHash": "13318934267776130845"
+              "templateHash": "2407251337167258871"
             }
           },
           "parameters": {
@@ -420,7 +420,7 @@
             {
               "type": "Microsoft.App/managedEnvironments",
               "apiVersion": "2024-03-01",
-              "name": "[format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation'))]",
+              "name": "[format('control-plane-env-{0}', parameters('controlPlaneId'))]",
               "location": "[parameters('controlPlaneLocation')]",
               "properties": {
                 "workloadProfiles": [
@@ -440,14 +440,14 @@
                 "type": "SystemAssigned"
               },
               "properties": {
-                "environmentId": "[resourceId('Microsoft.App/managedEnvironments', format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation')))]",
+                "environmentId": "[resourceId('Microsoft.App/managedEnvironments', format('control-plane-env-{0}', parameters('controlPlaneId')))]",
                 "configuration": {
                   "triggerType": "Schedule",
                   "scheduleTriggerConfig": {
                     "cronExpression": "*/5 * * * *"
                   },
-                  "replicaRetryLimit": 1,
-                  "replicaTimeout": 1800,
+                  "replicaRetryLimit": 0,
+                  "replicaTimeout": 300,
                   "secrets": [
                     {
                       "name": "[variables('CONNECTION_STRING_SECRET')]",
@@ -474,7 +474,7 @@
                 }
               },
               "dependsOn": [
-                "[resourceId('Microsoft.App/managedEnvironments', format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation')))]",
+                "[resourceId('Microsoft.App/managedEnvironments', format('control-plane-env-{0}', parameters('controlPlaneId')))]",
                 "[resourceId('Microsoft.Storage/storageAccounts', format('lfostorage{0}', parameters('controlPlaneId')))]"
               ]
             },
@@ -487,14 +487,14 @@
                 "type": "SystemAssigned"
               },
               "properties": {
-                "environmentId": "[resourceId('Microsoft.App/managedEnvironments', format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation')))]",
+                "environmentId": "[resourceId('Microsoft.App/managedEnvironments', format('control-plane-env-{0}', parameters('controlPlaneId')))]",
                 "configuration": {
                   "triggerType": "Schedule",
                   "scheduleTriggerConfig": {
                     "cronExpression": "*/5 * * * *"
                   },
-                  "replicaRetryLimit": 1,
-                  "replicaTimeout": 1800,
+                  "replicaRetryLimit": 0,
+                  "replicaTimeout": 300,
                   "secrets": [
                     {
                       "name": "[variables('CONNECTION_STRING_SECRET')]",
@@ -521,7 +521,7 @@
                 }
               },
               "dependsOn": [
-                "[resourceId('Microsoft.App/managedEnvironments', format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation')))]",
+                "[resourceId('Microsoft.App/managedEnvironments', format('control-plane-env-{0}', parameters('controlPlaneId')))]",
                 "[resourceId('Microsoft.Storage/storageAccounts', format('lfostorage{0}', parameters('controlPlaneId')))]"
               ]
             },
@@ -534,14 +534,14 @@
                 "type": "SystemAssigned"
               },
               "properties": {
-                "environmentId": "[resourceId('Microsoft.App/managedEnvironments', format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation')))]",
+                "environmentId": "[resourceId('Microsoft.App/managedEnvironments', format('control-plane-env-{0}', parameters('controlPlaneId')))]",
                 "configuration": {
                   "triggerType": "Schedule",
                   "scheduleTriggerConfig": {
                     "cronExpression": "*/5 * * * *"
                   },
-                  "replicaRetryLimit": 1,
-                  "replicaTimeout": 1800,
+                  "replicaRetryLimit": 0,
+                  "replicaTimeout": 300,
                   "secrets": [
                     {
                       "name": "[variables('CONNECTION_STRING_SECRET')]",
@@ -568,7 +568,7 @@
                 }
               },
               "dependsOn": [
-                "[resourceId('Microsoft.App/managedEnvironments', format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation')))]",
+                "[resourceId('Microsoft.App/managedEnvironments', format('control-plane-env-{0}', parameters('controlPlaneId')))]",
                 "[resourceId('Microsoft.Storage/storageAccounts', format('lfostorage{0}', parameters('controlPlaneId')))]"
               ]
             },

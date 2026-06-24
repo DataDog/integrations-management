@@ -90,7 +90,7 @@ var commonEnv = [
 ]
 
 resource controlPlaneEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
-  name: 'dd-log-forwarder-env-${controlPlaneId}-${controlPlaneLocation}'
+  name: 'control-plane-env-${controlPlaneId}'
   location: controlPlaneLocation
   properties: {
     workloadProfiles: [
@@ -116,8 +116,8 @@ resource resourceTask 'Microsoft.App/jobs@2024-03-01' = {
       scheduleTriggerConfig: {
         cronExpression: '*/5 * * * *'
       }
-      replicaRetryLimit: 1
-      replicaTimeout: 1800
+      replicaRetryLimit: 0
+      replicaTimeout: 300
       secrets: commonSecrets
     }
     template: {
@@ -153,8 +153,8 @@ resource diagnosticSettingsTask 'Microsoft.App/jobs@2024-03-01' = {
       scheduleTriggerConfig: {
         cronExpression: '*/5 * * * *'
       }
-      replicaRetryLimit: 1
-      replicaTimeout: 1800
+      replicaRetryLimit: 0
+      replicaTimeout: 300
       secrets: commonSecrets
     }
     template: {
@@ -189,8 +189,8 @@ resource scalingTask 'Microsoft.App/jobs@2024-03-01' = {
       scheduleTriggerConfig: {
         cronExpression: '*/5 * * * *'
       }
-      replicaRetryLimit: 1
-      replicaTimeout: 1800
+      replicaRetryLimit: 0
+      replicaTimeout: 300
       secrets: commonSecrets
     }
     template: {
