@@ -6,29 +6,19 @@ Deploys an Azure Policy initiative that configures diagnostic settings on suppor
 
 Registers the initiative and assigns it to the current subscription in a single step.
 
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2FYOUR_GITHUB_RAW_URL%2Ftemplates%2Farm%2Fdeploy.json)
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/RAW_GITHUB_URL)
 
 ```bash
 az deployment sub create \
   --name diag-policies \
   --location eastus \
-  --template-file templates/bicep/deploy.bicep \
-  --parameters @templates/parameters.example.json
+  --template-file bicep/deploy.bicep \
+  --parameters @bicep/parameters.example.json
 ```
-
-## Deploy to Azure button setup
-
-Replace `YOUR_GITHUB_RAW_URL` in the button URL with the base raw URL of this repo, e.g.:
-
-```
-https://raw.githubusercontent.com/YOUR_ORG/YOUR_REPO/main
-```
-
-The full URL should point to `templates/arm/deploy.json`, URL-encoded.
 
 ## Parameters
 
-See [`templates/parameters.example.json`](templates/parameters.example.json) for a full example. Key parameters:
+See [`bicep/parameters.example.json`](bicep/parameters.example.json) for a full example. Key parameters:
 
 | Parameter | Required | Description |
 |---|---|---|
