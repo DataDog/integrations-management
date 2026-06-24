@@ -190,7 +190,7 @@ resource scalingTask 'Microsoft.App/jobs@2024-03-01' = {
         cronExpression: '*/5 * * * *'
       }
       replicaRetryLimit: 0
-      replicaTimeout: 300
+      replicaTimeout: 600
       secrets: commonSecrets
     }
     template: {

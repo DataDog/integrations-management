@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.40.2.10011",
-      "templateHash": "3893983718074925038"
+      "templateHash": "18228257903931924044"
     }
   },
   "functions": [
@@ -278,7 +278,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.40.2.10011",
-              "templateHash": "2407251337167258871"
+              "templateHash": "14080280685917934444"
             }
           },
           "parameters": {
@@ -541,7 +541,7 @@
                     "cronExpression": "*/5 * * * *"
                   },
                   "replicaRetryLimit": 0,
-                  "replicaTimeout": 300,
+                  "replicaTimeout": 600,
                   "secrets": [
                     {
                       "name": "[variables('CONNECTION_STRING_SECRET')]",
