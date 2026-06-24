@@ -134,6 +134,55 @@ dd_get()   { dd_request GET   "$1"; }
 dd_post()  { dd_request POST  "$1" "$2"; }
 dd_patch() { dd_request PATCH "$1" "$2"; }
 
+# ── OCI helper utilities ──────────────────────────────────────────────────────
+
+# oci_app_field <json> <field>
+# Extract a single field from the first resource in an OCI apps-list response.
+oci_app_field() {
+    local json="$1" field="$2"
+    echo "$json" | FIELD="$field" python3 -c "
+import sys,json,os
+try:
+    apps=json.load(sys.stdin).get('data',{}).get('resources',[])
+    print(apps[0].get(os.environ['FIELD'],'') if apps else '')
+except Exception:
+    print('')
+" 2>/dev/null
+}
+
+# oci_derive_scope <json>
+# Derive the OAuth scope string from the first app in an OCI apps-list response.
+oci_derive_scope() {
+    local json="$1"
+    echo "$json" | python3 -c "
+import sys,json
+try:
+    apps=json.load(sys.stdin).get('data',{}).get('resources',[])
+    app=apps[0] if apps else {}
+    audience=app.get('audience','')
+    if not audience:
+        print('urn:opc:resource:consumer::all')
+    elif audience.endswith('consumer::all'):
+        print(audience)
+    else:
+        print(audience + 'urn:opc:resource:consumer::all')
+except Exception:
+    print('')
+" 2>/dev/null
+}
+
+# oci_build_scopes_json
+# Emit a JSON array of {fqs:...} objects for FUSION_SCOPE and EPM_SCOPE env vars.
+oci_build_scopes_json() {
+    FUSION_SCOPE="${FUSION_SCOPE:-}" EPM_SCOPE="${EPM_SCOPE:-}" python3 -c "
+import os,json
+scopes=[]
+if os.environ.get('FUSION_SCOPE'): scopes.append({'fqs':os.environ['FUSION_SCOPE']})
+if os.environ.get('EPM_SCOPE'):    scopes.append({'fqs':os.environ['EPM_SCOPE']})
+print(json.dumps(scopes))
+"
+}
+
 # ── State tracking ────────────────────────────────────────────────────────────
 CLIENT_ID=""
 CLIENT_SECRET=""
@@ -342,21 +391,7 @@ except Exception:
         "Fusion app ID '${FUSION_APP_ID}' was not found in identity domain '${IDENTITY_DOMAIN_URL}'" \
         "Verify the Application ID at: OCI Console → Domains → Oracle Cloud Services → Fusion Apps Cloud Service" \
         "Ensure you are using the hex Application ID, not the OCID."
-    FUSION_SCOPE=$(echo "$fusion_app_resp" | python3 -c "
-import sys,json
-try:
-    apps=json.load(sys.stdin).get('data',{}).get('resources',[])
-    app=apps[0] if apps else {}
-    audience=app.get('audience','')
-    if not audience:
-        print('urn:opc:resource:consumer::all')
-    elif audience.endswith('consumer::all'):
-        print(audience)
-    else:
-        print(audience + 'urn:opc:resource:consumer::all')
-except Exception:
-    print('')
-" 2>/dev/null) || true
+    FUSION_SCOPE=$(oci_derive_scope "$fusion_app_resp") || true
     [[ -z "$FUSION_SCOPE" ]] && fatal \
         "Failed to derive OAuth scope from Fusion app '${FUSION_APP_ID}'" \
         "Verify the app exists and your OCI credentials have permission to read it."
@@ -382,21 +417,7 @@ except Exception:
         "EPM app ID '${EPM_APP_ID}' was not found in identity domain '${IDENTITY_DOMAIN_URL}'" \
         "Verify the Application ID at: OCI Console → Domains → Oracle Cloud Services → your EPM app" \
         "Ensure you are using the hex Application ID, not the OCID."
-    EPM_SCOPE=$(echo "$epm_app_resp" | python3 -c "
-import sys,json
-try:
-    apps=json.load(sys.stdin).get('data',{}).get('resources',[])
-    app=apps[0] if apps else {}
-    audience=app.get('audience','')
-    if not audience:
-        print('urn:opc:resource:consumer::all')
-    elif audience.endswith('consumer::all'):
-        print(audience)
-    else:
-        print(audience + 'urn:opc:resource:consumer::all')
-except Exception:
-    print('')
-" 2>/dev/null) || true
+    EPM_SCOPE=$(oci_derive_scope "$epm_app_resp") || true
     [[ -z "$EPM_SCOPE" ]] && fatal \
         "Failed to derive OAuth scope from EPM app '${EPM_APP_ID}'" \
         "Verify the app exists and your OCI credentials have permission to read it."
@@ -490,22 +511,8 @@ existing_app=$(oci identity-domains apps list \
     --endpoint "$IDENTITY_DOMAIN_URL" \
     --filter "displayName eq \"${APP_NAME}\"" \
     --output json 2>/dev/null) || true
-existing_client_id=$(echo "$existing_app" | python3 -c "
-import sys,json
-try:
-    apps=json.load(sys.stdin).get('data',{}).get('resources',[])
-    print(apps[0].get('name','') if apps else '')
-except Exception:
-    print('')
-" 2>/dev/null)
-existing_app_ocid=$(echo "$existing_app" | python3 -c "
-import sys,json
-try:
-    apps=json.load(sys.stdin).get('data',{}).get('resources',[])
-    print(apps[0].get('ocid','') if apps else '')
-except Exception:
-    print('')
-" 2>/dev/null)
+existing_client_id=$(oci_app_field "$existing_app" name)
+existing_app_ocid=$(oci_app_field "$existing_app" ocid)
 
 APP_EXISTS=false
 if [[ -n "$existing_client_id" ]]; then
@@ -523,22 +530,8 @@ elif [[ -n "$CONFIDENTIAL_APP_ID" ]]; then
         --endpoint "$IDENTITY_DOMAIN_URL" \
         --filter "id eq \"${CONFIDENTIAL_APP_ID}\"" \
         --output json 2>/dev/null) || true
-    conf_app_client_id=$(echo "$conf_app_resp" | python3 -c "
-import sys,json
-try:
-    apps=json.load(sys.stdin).get('data',{}).get('resources',[])
-    print(apps[0].get('name','') if apps else '')
-except Exception:
-    print('')
-" 2>/dev/null)
-    conf_app_ocid=$(echo "$conf_app_resp" | python3 -c "
-import sys,json
-try:
-    apps=json.load(sys.stdin).get('data',{}).get('resources',[])
-    print(apps[0].get('ocid','') if apps else '')
-except Exception:
-    print('')
-" 2>/dev/null)
+    conf_app_client_id=$(oci_app_field "$conf_app_resp" name)
+    conf_app_ocid=$(oci_app_field "$conf_app_resp" ocid)
     [[ -z "$conf_app_client_id" ]] && fatal \
         "Confidential application '${CONFIDENTIAL_APP_ID}' was not found in identity domain '${IDENTITY_DOMAIN_URL}'" \
         "Verify the application ID at: OCI Console → Domains → Integrated Applications"
@@ -620,13 +613,7 @@ except Exception:
             info "Fusion scope already present on app — skipping"
         else
             info "Adding Fusion scope to existing confidential app..."
-            _new_scopes=$(FUSION_SCOPE="${FUSION_SCOPE}" EPM_SCOPE="${EPM_SCOPE:-}" python3 -c "
-import os,json
-scopes=[]
-if os.environ.get('FUSION_SCOPE'): scopes.append({'fqs':os.environ['FUSION_SCOPE']})
-if os.environ.get('EPM_SCOPE'):    scopes.append({'fqs':os.environ['EPM_SCOPE']})
-print(json.dumps(scopes))
-")
+            _new_scopes=$(oci_build_scopes_json)
             oci identity-domains app patch \
                 --endpoint "$IDENTITY_DOMAIN_URL" \
                 --app-id "$existing_app_ocid" \
@@ -655,13 +642,7 @@ print(json.dumps(scopes))
             info "EPM scope already present on app — skipping"
         else
             info "Adding EPM scope to existing confidential app..."
-            _new_scopes=$(FUSION_SCOPE="${FUSION_SCOPE:-}" EPM_SCOPE="${EPM_SCOPE}" python3 -c "
-import os,json
-scopes=[]
-if os.environ.get('FUSION_SCOPE'): scopes.append({'fqs':os.environ['FUSION_SCOPE']})
-if os.environ.get('EPM_SCOPE'):    scopes.append({'fqs':os.environ['EPM_SCOPE']})
-print(json.dumps(scopes))
-")
+            _new_scopes=$(oci_build_scopes_json)
             oci identity-domains app patch \
                 --endpoint "$IDENTITY_DOMAIN_URL" \
                 --app-id "$existing_app_ocid" \
@@ -683,17 +664,7 @@ print(json.dumps(scopes))
     fi
 else
     info "Building allowed scopes list..."
-    SCOPES_JSON="["
-    FIRST=true
-    if [[ -n "${FUSION_SCOPE:-}" ]]; then
-        SCOPES_JSON+="{\"fqs\": \"${FUSION_SCOPE}\"}"
-        FIRST=false
-    fi
-    if [[ -n "${EPM_SCOPE:-}" ]]; then
-        [[ "$FIRST" == false ]] && SCOPES_JSON+=", "
-        SCOPES_JSON+="{\"fqs\": \"${EPM_SCOPE}\"}"
-    fi
-    SCOPES_JSON+="]"
+    SCOPES_JSON=$(oci_build_scopes_json)
 
     info "Creating confidential application '${APP_NAME}' in OCI IAM..."
     app_result=$(oci identity-domains app create \
@@ -968,9 +939,14 @@ print(urlparse('${_base_url}').hostname or '')
 fi
 
 info "Checking for existing Datadog Oracle Fusion account '${ACCOUNT_NAME}'..."
-accounts_resp=$(dd_get "/api/v2/web-integrations/oracle-fusion/accounts") || fatal \
-    "Failed to list Datadog Oracle Fusion accounts" \
-    "Verify DD_APP_KEY have the 'integrations_read' and 'integrations_write' permissions."
+# Reuse the response already fetched in the --account-name back-fill block if available.
+if [[ -n "${_accounts_resp:-}" ]]; then
+    accounts_resp="$_accounts_resp"
+else
+    accounts_resp=$(dd_get "/api/v2/web-integrations/oracle-fusion/accounts") || fatal \
+        "Failed to list Datadog Oracle Fusion accounts" \
+        "Verify DD_APP_KEY have the 'integrations_read' and 'integrations_write' permissions."
+fi
 
 existing_account_fields=$(echo "$accounts_resp" | ACCOUNT_NAME="$ACCOUNT_NAME" python3 -c "
 import sys,json,os
@@ -1051,7 +1027,6 @@ if fusion_base: enabled += ['ess', 'audit']
 if epm_base:    enabled += ['epm_jobs', 'epm_audit']
 if enabled:
     settings['logs_config'] = {'enabled_services': enabled}
-settings['version'] = '1.0'
 attrs = {'name': os.environ['ACCOUNT_NAME'], 'settings': settings}
 client_secret = os.environ.get('CLIENT_SECRET', '')
 if client_secret: attrs['secrets'] = {'client_secret': client_secret}
