@@ -1067,8 +1067,6 @@ echo -e "  token_url:       ${TOKEN_URL}"
 [[ -n "$FUSION_BASE_URL" ]]  && echo -e "  fusion_base_url: ${FUSION_BASE_URL}"
 [[ -n "$EPM_BASE_URL" ]]     && echo -e "  epm_base_url:    ${EPM_BASE_URL}"
 echo ""
-echo -e "  Please allow at least 15 minutes for EPM roles to propagate before testing."
-echo ""
 if [[ -n "${EPM_BASE_URL:-}" ]]; then
     echo -e "  ${YELLOW}${BOLD}Note:${NC} To sync the EPM integration user with your account, sign in to your EPM"
     echo -e "  instance and navigate to Tools → Access Control → Role Assignment Report, and verify the"
