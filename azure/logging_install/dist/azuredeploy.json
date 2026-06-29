@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.40.2.10011",
-      "templateHash": "18228257903931924044"
+      "templateHash": "3592996583141111386"
     }
   },
   "functions": [
@@ -267,6 +267,9 @@
           "imageRegistry": {
             "value": "[parameters('imageRegistry')]"
           },
+          "storageAccountUrl": {
+            "value": "[parameters('storageAccountUrl')]"
+          },
           "logLevel": {
             "value": "[parameters('logLevel')]"
           }
@@ -278,7 +281,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.40.2.10011",
-              "templateHash": "14080280685917934444"
+              "templateHash": "1886375237266362114"
             }
           },
           "parameters": {
@@ -298,6 +301,9 @@
               "type": "string"
             },
             "imageRegistry": {
+              "type": "string"
+            },
+            "storageAccountUrl": {
               "type": "string"
             },
             "datadogApiKey": {
@@ -320,6 +326,7 @@
             }
           },
           "variables": {
+            "deployerTaskImage": "[format('{0}/deployer-caj:latest', parameters('imageRegistry'))]",
             "forwarderImage": "[format('{0}/forwarder:latest', parameters('imageRegistry'))]",
             "resourcesTaskImage": "[format('{0}/resources-task:latest', parameters('imageRegistry'))]",
             "diagnosticSettingsTaskImage": "[format('{0}/diagnostic-settings-task:latest', parameters('imageRegistry'))]",
@@ -338,6 +345,7 @@
             "PII_SCRUBBER_RULES_SETTING": "PII_SCRUBBER_RULES",
             "LOG_LEVEL_SETTING": "LOG_LEVEL",
             "AZURE_AUTHORITY_SETTING": "AZURE_AUTHORITY",
+            "STORAGE_ACCOUNT_URL_SETTING": "STORAGE_ACCOUNT_URL",
             "DD_API_KEY_SECRET": "dd-api-key",
             "CONNECTION_STRING_SECRET": "connection-string",
             "commonEnv": [
@@ -380,7 +388,9 @@
             ],
             "resourceTaskName": "[format('resources-task-{0}', parameters('controlPlaneId'))]",
             "diagnosticSettingsTaskName": "[format('diagnostic-settings-task-{0}', parameters('controlPlaneId'))]",
-            "scalingTaskName": "[format('scaling-task-{0}', parameters('controlPlaneId'))]"
+            "scalingTaskName": "[format('scaling-task-{0}', parameters('controlPlaneId'))]",
+            "deployerTaskName": "[format('deployer-task-{0}', parameters('controlPlaneId'))]",
+            "containerAppStartRoleName": "[format('ContainerAppStartRole{0}', parameters('controlPlaneId'))]"
           },
           "resources": [
             {
@@ -462,7 +472,7 @@
                 "template": {
                   "containers": [
                     {
-                      "name": "[variables('resourceTaskName')]",
+                      "name": "resources-task",
                       "image": "[variables('resourcesTaskImage')]",
                       "resources": {
                         "cpu": "[json('0.5')]",
@@ -509,7 +519,7 @@
                 "template": {
                   "containers": [
                     {
-                      "name": "[variables('diagnosticSettingsTaskName')]",
+                      "name": "diagnostic-settings-task",
                       "image": "[variables('diagnosticSettingsTaskImage')]",
                       "resources": {
                         "cpu": "[json('0.5')]",
@@ -556,7 +566,7 @@
                 "template": {
                   "containers": [
                     {
-                      "name": "[variables('scalingTaskName')]",
+                      "name": "scaling-task",
                       "image": "[variables('scalingTaskImage')]",
                       "resources": {
                         "cpu": "[json('0.5')]",
@@ -573,10 +583,164 @@
               ]
             },
             {
+              "type": "Microsoft.App/managedEnvironments",
+              "apiVersion": "2024-03-01",
+              "name": "[format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation'))]",
+              "location": "[parameters('controlPlaneLocation')]",
+              "properties": {
+                "workloadProfiles": [
+                  {
+                    "name": "Consumption",
+                    "workloadProfileType": "Consumption"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.App/jobs",
+              "apiVersion": "2024-03-01",
+              "name": "[variables('deployerTaskName')]",
+              "location": "[parameters('controlPlaneLocation')]",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "properties": {
+                "environmentId": "[resourceId('Microsoft.App/managedEnvironments', format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation')))]",
+                "configuration": {
+                  "triggerType": "Schedule",
+                  "scheduleTriggerConfig": {
+                    "cronExpression": "*/30 * * * *"
+                  },
+                  "replicaRetryLimit": 0,
+                  "replicaTimeout": 1800,
+                  "secrets": [
+                    {
+                      "name": "[variables('CONNECTION_STRING_SECRET')]",
+                      "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};EndpointSuffix={1};AccountKey={2}', format('lfostorage{0}', parameters('controlPlaneId')), environment().suffixes.storage, listKeys(resourceId('Microsoft.Storage/storageAccounts', format('lfostorage{0}', parameters('controlPlaneId'))), '2019-06-01').keys[0].value)]"
+                    },
+                    {
+                      "name": "[variables('DD_API_KEY_SECRET')]",
+                      "value": "[parameters('datadogApiKey')]"
+                    }
+                  ]
+                },
+                "template": {
+                  "containers": [
+                    {
+                      "name": "deployer-task",
+                      "image": "[variables('deployerTaskImage')]",
+                      "resources": {
+                        "cpu": "[json('0.5')]",
+                        "memory": "1Gi"
+                      },
+                      "env": [
+                        {
+                          "name": "[variables('STORAGE_CONNECTION_SETTING')]",
+                          "secretRef": "[variables('CONNECTION_STRING_SECRET')]"
+                        },
+                        {
+                          "name": "[variables('SUBSCRIPTION_ID_SETTING')]",
+                          "value": "[parameters('controlPlaneSubscriptionId')]"
+                        },
+                        {
+                          "name": "[variables('RESOURCE_GROUP_SETTING')]",
+                          "value": "[parameters('controlPlaneResourceGroupName')]"
+                        },
+                        {
+                          "name": "[variables('CONTROL_PLANE_ID_SETTING')]",
+                          "value": "[parameters('controlPlaneId')]"
+                        },
+                        {
+                          "name": "[variables('CONTROL_PLANE_REGION_SETTING')]",
+                          "value": "[parameters('controlPlaneLocation')]"
+                        },
+                        {
+                          "name": "[variables('AZURE_AUTHORITY_SETTING')]",
+                          "value": "[environment().authentication.loginEndpoint]"
+                        },
+                        {
+                          "name": "[variables('DD_API_KEY_SETTING')]",
+                          "secretRef": "[variables('DD_API_KEY_SECRET')]"
+                        },
+                        {
+                          "name": "[variables('DD_SITE_SETTING')]",
+                          "value": "[parameters('datadogSite')]"
+                        },
+                        {
+                          "name": "[variables('DD_TELEMETRY_SETTING')]",
+                          "value": "[if(parameters('datadogTelemetry'), 'true', 'false')]"
+                        },
+                        {
+                          "name": "[variables('STORAGE_ACCOUNT_URL_SETTING')]",
+                          "value": "[parameters('storageAccountUrl')]"
+                        },
+                        {
+                          "name": "[variables('LOG_LEVEL_SETTING')]",
+                          "value": "[parameters('logLevel')]"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.App/managedEnvironments', format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation')))]",
+                "[resourceId('Microsoft.Storage/storageAccounts', format('lfostorage{0}', parameters('controlPlaneId')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "name": "[guid('deployer', parameters('controlPlaneId'))]",
+              "properties": {
+                "description": "[format('ddlfo{0}', parameters('controlPlaneId'))]",
+                "roleDefinitionId": "[resourceId('Microsoft.Authorization/roleDefinitions', 'de139f84-1756-47ae-9be6-808fbbe84772')]",
+                "principalId": "[reference(resourceId('Microsoft.App/jobs', variables('deployerTaskName')), '2024-03-01', 'full').identity.principalId]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.App/jobs', variables('deployerTaskName'))]"
+              ]
+            },
+            {
               "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
               "apiVersion": "2023-01-31",
               "name": "[format('initialRunIdentity{0}', parameters('controlPlaneId'))]",
               "location": "[parameters('controlPlaneLocation')]"
+            },
+            {
+              "type": "Microsoft.Authorization/roleDefinitions",
+              "apiVersion": "2022-04-01",
+              "name": "[guid(variables('containerAppStartRoleName'))]",
+              "properties": {
+                "roleName": "[variables('containerAppStartRoleName')]",
+                "description": "Custom role to start container app jobs",
+                "type": "customRole",
+                "permissions": [
+                  {
+                    "actions": [
+                      "Microsoft.App/jobs/start/action"
+                    ]
+                  }
+                ],
+                "assignableScopes": [
+                  "[resourceGroup().id]"
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "name": "[guid('initialRunContainerAppRoleAssignment', parameters('controlPlaneId'))]",
+              "properties": {
+                "description": "[format('ddlfo{0}', parameters('controlPlaneId'))]",
+                "roleDefinitionId": "[resourceId('Microsoft.Authorization/roleDefinitions', guid(variables('containerAppStartRoleName')))]",
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('initialRunIdentity{0}', parameters('controlPlaneId'))), '2023-01-31').principalId]",
+                "principalType": "ServicePrincipal"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Authorization/roleDefinitions', guid(variables('containerAppStartRoleName')))]",
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('initialRunIdentity{0}', parameters('controlPlaneId')))]"
+              ]
             }
           ],
           "outputs": {
