@@ -92,19 +92,6 @@ var commonEnv = [
   { name: LOG_LEVEL_SETTING, value: logLevel }
 ]
 
-resource controlPlaneEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
-  name: 'control-plane-env-${controlPlaneId}'
-  location: controlPlaneLocation
-  properties: {
-    workloadProfiles: [
-      {
-        name: 'Consumption'
-        workloadProfileType: 'Consumption'
-      }
-    ]
-  }
-}
-
 var resourceTaskName = 'resources-task-${controlPlaneId}'
 resource resourceTask 'Microsoft.App/jobs@2024-03-01' = {
   name: resourceTaskName
@@ -113,7 +100,7 @@ resource resourceTask 'Microsoft.App/jobs@2024-03-01' = {
     type: 'SystemAssigned'
   }
   properties: {
-    environmentId: controlPlaneEnv.id
+    environmentId: deployerTaskEnv.id
     configuration: {
       triggerType: 'Schedule'
       scheduleTriggerConfig: {
@@ -150,7 +137,7 @@ resource diagnosticSettingsTask 'Microsoft.App/jobs@2024-03-01' = {
     type: 'SystemAssigned'
   }
   properties: {
-    environmentId: controlPlaneEnv.id
+    environmentId: deployerTaskEnv.id
     configuration: {
       triggerType: 'Schedule'
       scheduleTriggerConfig: {
@@ -186,7 +173,7 @@ resource scalingTask 'Microsoft.App/jobs@2024-03-01' = {
     type: 'SystemAssigned'
   }
   properties: {
-    environmentId: controlPlaneEnv.id
+    environmentId: deployerTaskEnv.id
     configuration: {
       triggerType: 'Schedule'
       scheduleTriggerConfig: {

@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.40.2.10011",
-      "templateHash": "3592996583141111386"
+      "templateHash": "6768855155498884948"
     }
   },
   "functions": [
@@ -281,7 +281,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.40.2.10011",
-              "templateHash": "1886375237266362114"
+              "templateHash": "5399341867886751087"
             }
           },
           "parameters": {
@@ -428,20 +428,6 @@
               ]
             },
             {
-              "type": "Microsoft.App/managedEnvironments",
-              "apiVersion": "2024-03-01",
-              "name": "[format('control-plane-env-{0}', parameters('controlPlaneId'))]",
-              "location": "[parameters('controlPlaneLocation')]",
-              "properties": {
-                "workloadProfiles": [
-                  {
-                    "name": "Consumption",
-                    "workloadProfileType": "Consumption"
-                  }
-                ]
-              }
-            },
-            {
               "type": "Microsoft.App/jobs",
               "apiVersion": "2024-03-01",
               "name": "[variables('resourceTaskName')]",
@@ -450,7 +436,7 @@
                 "type": "SystemAssigned"
               },
               "properties": {
-                "environmentId": "[resourceId('Microsoft.App/managedEnvironments', format('control-plane-env-{0}', parameters('controlPlaneId')))]",
+                "environmentId": "[resourceId('Microsoft.App/managedEnvironments', format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation')))]",
                 "configuration": {
                   "triggerType": "Schedule",
                   "scheduleTriggerConfig": {
@@ -484,7 +470,7 @@
                 }
               },
               "dependsOn": [
-                "[resourceId('Microsoft.App/managedEnvironments', format('control-plane-env-{0}', parameters('controlPlaneId')))]",
+                "[resourceId('Microsoft.App/managedEnvironments', format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation')))]",
                 "[resourceId('Microsoft.Storage/storageAccounts', format('lfostorage{0}', parameters('controlPlaneId')))]"
               ]
             },
@@ -497,7 +483,7 @@
                 "type": "SystemAssigned"
               },
               "properties": {
-                "environmentId": "[resourceId('Microsoft.App/managedEnvironments', format('control-plane-env-{0}', parameters('controlPlaneId')))]",
+                "environmentId": "[resourceId('Microsoft.App/managedEnvironments', format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation')))]",
                 "configuration": {
                   "triggerType": "Schedule",
                   "scheduleTriggerConfig": {
@@ -531,7 +517,7 @@
                 }
               },
               "dependsOn": [
-                "[resourceId('Microsoft.App/managedEnvironments', format('control-plane-env-{0}', parameters('controlPlaneId')))]",
+                "[resourceId('Microsoft.App/managedEnvironments', format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation')))]",
                 "[resourceId('Microsoft.Storage/storageAccounts', format('lfostorage{0}', parameters('controlPlaneId')))]"
               ]
             },
@@ -544,7 +530,7 @@
                 "type": "SystemAssigned"
               },
               "properties": {
-                "environmentId": "[resourceId('Microsoft.App/managedEnvironments', format('control-plane-env-{0}', parameters('controlPlaneId')))]",
+                "environmentId": "[resourceId('Microsoft.App/managedEnvironments', format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation')))]",
                 "configuration": {
                   "triggerType": "Schedule",
                   "scheduleTriggerConfig": {
@@ -578,7 +564,7 @@
                 }
               },
               "dependsOn": [
-                "[resourceId('Microsoft.App/managedEnvironments', format('control-plane-env-{0}', parameters('controlPlaneId')))]",
+                "[resourceId('Microsoft.App/managedEnvironments', format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation')))]",
                 "[resourceId('Microsoft.Storage/storageAccounts', format('lfostorage{0}', parameters('controlPlaneId')))]"
               ]
             },
