@@ -8,6 +8,7 @@ param controlPlaneResourceGroupName string
 param monitoredSubscriptions string
 
 param imageRegistry string
+param storageAccountUrl string
 
 @secure()
 param datadogApiKey string
@@ -17,6 +18,7 @@ param resourceTagFilters string
 param datadogTelemetry bool
 param logLevel string
 
+var deployerTaskImage = '${imageRegistry}/deployer-caj:latest'
 var forwarderImage = '${imageRegistry}/forwarder:latest'
 var resourcesTaskImage = '${imageRegistry}/resources-task:latest'
 var diagnosticSettingsTaskImage = '${imageRegistry}/diagnostic-settings-task:latest'
@@ -37,6 +39,7 @@ var RESOURCE_TAG_FILTERS_SETTING = 'RESOURCE_TAG_FILTERS'
 var PII_SCRUBBER_RULES_SETTING = 'PII_SCRUBBER_RULES'
 var LOG_LEVEL_SETTING = 'LOG_LEVEL'
 var AZURE_AUTHORITY_SETTING = 'AZURE_AUTHORITY'
+var STORAGE_ACCOUNT_URL_SETTING = 'STORAGE_ACCOUNT_URL'
 
 // Secret Names
 var DD_API_KEY_SECRET = 'dd-api-key'
@@ -123,7 +126,7 @@ resource resourceTask 'Microsoft.App/jobs@2024-03-01' = {
     template: {
       containers: [
         {
-          name: resourceTaskName
+          name: 'resources-task'
           image: resourcesTaskImage
           resources: {
             cpu: json('0.5')
@@ -160,7 +163,7 @@ resource diagnosticSettingsTask 'Microsoft.App/jobs@2024-03-01' = {
     template: {
       containers: [
         {
-          name: diagnosticSettingsTaskName
+          name: 'diagnostic-settings-task'
           image: diagnosticSettingsTaskImage
           resources: {
             cpu: json('0.5')
@@ -196,7 +199,7 @@ resource scalingTask 'Microsoft.App/jobs@2024-03-01' = {
     template: {
       containers: [
         {
-          name: scalingTaskName
+          name: 'scaling-task'
           image: scalingTaskImage
           resources: {
             cpu: json('0.5')
@@ -213,11 +216,115 @@ resource scalingTask 'Microsoft.App/jobs@2024-03-01' = {
   }
 }
 
+// DEPLOYER TASK
+
+resource deployerTaskEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
+  name: 'dd-log-forwarder-env-${controlPlaneId}-${controlPlaneLocation}'
+  location: controlPlaneLocation
+  properties: {
+    workloadProfiles: [
+      {
+        name: 'Consumption'
+        workloadProfileType: 'Consumption'
+      }
+    ]
+  }
+}
+
+var deployerTaskName = 'deployer-task-${controlPlaneId}'
+
+resource deployerTask 'Microsoft.App/jobs@2024-03-01' = {
+  name: deployerTaskName
+  location: controlPlaneLocation
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    environmentId: deployerTaskEnv.id
+    configuration: {
+      triggerType: 'Schedule'
+      scheduleTriggerConfig: {
+        cronExpression: '*/30 * * * *'
+      }
+      replicaRetryLimit: 0
+      replicaTimeout: 1800
+      secrets: [
+        { name: CONNECTION_STRING_SECRET, value: connectionString }
+        { name: DD_API_KEY_SECRET, value: datadogApiKey }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'deployer-task'
+          image: deployerTaskImage
+          resources: {
+            cpu: json('0.5')
+            memory: '1Gi'
+          }
+          env: [
+            { name: STORAGE_CONNECTION_SETTING, secretRef: CONNECTION_STRING_SECRET }
+            { name: SUBSCRIPTION_ID_SETTING, value: controlPlaneSubscriptionId }
+            { name: RESOURCE_GROUP_SETTING, value: controlPlaneResourceGroupName }
+            { name: CONTROL_PLANE_ID_SETTING, value: controlPlaneId }
+            { name: CONTROL_PLANE_REGION_SETTING, value: controlPlaneLocation }
+            { name: AZURE_AUTHORITY_SETTING, value: environment().authentication.loginEndpoint }
+            { name: DD_API_KEY_SETTING, secretRef: DD_API_KEY_SECRET }
+            { name: DD_SITE_SETTING, value: datadogSite }
+            { name: DD_TELEMETRY_SETTING, value: datadogTelemetry ? 'true' : 'false' }
+            { name: STORAGE_ACCOUNT_URL_SETTING, value: storageAccountUrl }
+            { name: LOG_LEVEL_SETTING, value: logLevel }
+          ]
+        }
+      ]
+    }
+  }
+}
+
+resource websiteContributorRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' existing = {
+  scope: resourceGroup()
+  // Details: https://www.azadvertizer.net/azrolesadvertizer/de139f84-1756-47ae-9be6-808fbbe84772.html
+  name: 'de139f84-1756-47ae-9be6-808fbbe84772'
+}
+
+resource deployerTaskRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid('deployer', controlPlaneId)
+  scope: resourceGroup()
+  properties: {
+    description: 'ddlfo${controlPlaneId}'
+    roleDefinitionId: websiteContributorRole.id
+    principalId: deployerTask.identity.principalId
+  }
+}
+
 // INITIAL RUN IDENTITY
 
 resource initialRunIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: 'initialRunIdentity${controlPlaneId}'
   location: controlPlaneLocation
+}
+
+var containerAppStartRoleName = 'ContainerAppStartRole${controlPlaneId}'
+
+resource containerAppStartRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' = {
+  name: guid(containerAppStartRoleName)
+  properties: {
+    roleName: containerAppStartRoleName
+    description: 'Custom role to start container app jobs'
+    type: 'customRole'
+    permissions: [{ actions: ['Microsoft.App/jobs/start/action'] }]
+    assignableScopes: [resourceGroup().id]
+  }
+}
+
+resource initialRunContainerAppRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid('initialRunContainerAppRoleAssignment', controlPlaneId)
+  properties: {
+    description: 'ddlfo${controlPlaneId}'
+    roleDefinitionId: containerAppStartRole.id
+    principalId: initialRunIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
 }
 
 output resourceTaskPrincipalId string = resourceTask.identity.principalId
