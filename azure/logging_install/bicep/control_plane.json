@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.40.2.10011",
-      "templateHash": "5399341867886751087"
+      "templateHash": "147955010601622563"
     }
   },
   "parameters": {
@@ -111,7 +111,7 @@
       }
     ],
     "resourceTaskName": "[format('resources-task-{0}', parameters('controlPlaneId'))]",
-    "diagnosticSettingsTaskName": "[format('diagnostic-settings-task-{0}', parameters('controlPlaneId'))]",
+    "diagnosticSettingsTaskName": "[format('diag-settings-task-{0}', parameters('controlPlaneId'))]",
     "scalingTaskName": "[format('scaling-task-{0}', parameters('controlPlaneId'))]",
     "deployerTaskName": "[format('deployer-task-{0}', parameters('controlPlaneId'))]",
     "containerAppStartRoleName": "[format('ContainerAppStartRole{0}', parameters('controlPlaneId'))]"

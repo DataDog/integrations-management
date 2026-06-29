@@ -129,7 +129,7 @@ resource resourceTask 'Microsoft.App/jobs@2024-03-01' = {
   }
 }
 
-var diagnosticSettingsTaskName = 'diagnostic-settings-task-${controlPlaneId}'
+var diagnosticSettingsTaskName = 'diag-settings-task-${controlPlaneId}'
 resource diagnosticSettingsTask 'Microsoft.App/jobs@2024-03-01' = {
   name: diagnosticSettingsTaskName
   location: controlPlaneLocation
