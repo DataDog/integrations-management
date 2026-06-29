@@ -18,8 +18,11 @@ param resourceTagFilters string
 param datadogTelemetry bool
 param logLevel string
 
-var deployerTaskImage = '${imageRegistry}/deployer:latest'
+var deployerTaskImage = '${imageRegistry}/deployer-caj:latest'
 var forwarderImage = '${imageRegistry}/forwarder:latest'
+var resourcesTaskImage = '${imageRegistry}/resources-task:latest'
+var diagnosticSettingsTaskImage = '${imageRegistry}/diagnostic-settings-task:latest'
+var scalingTaskImage = '${imageRegistry}/scaling-task:latest'
 
 // Settings
 var STORAGE_CONNECTION_SETTING = 'AzureWebJobsStorage'
@@ -34,28 +37,15 @@ var CONTROL_PLANE_ID_SETTING = 'CONTROL_PLANE_ID'
 var MONITORED_SUBSCRIPTIONS_SETTING = 'MONITORED_SUBSCRIPTIONS'
 var RESOURCE_TAG_FILTERS_SETTING = 'RESOURCE_TAG_FILTERS'
 var PII_SCRUBBER_RULES_SETTING = 'PII_SCRUBBER_RULES'
-var STORAGE_ACCOUNT_URL_SETTING = 'STORAGE_ACCOUNT_URL'
 var LOG_LEVEL_SETTING = 'LOG_LEVEL'
 var AZURE_AUTHORITY_SETTING = 'AZURE_AUTHORITY'
+var STORAGE_ACCOUNT_URL_SETTING = 'STORAGE_ACCOUNT_URL'
 
 // Secret Names
 var DD_API_KEY_SECRET = 'dd-api-key'
 var CONNECTION_STRING_SECRET = 'connection-string'
 
 // CONTROL PLANE RESOURCES
-
-resource asp 'Microsoft.Web/serverfarms@2022-09-01' = {
-  name: 'control-plane-asp-${controlPlaneId}'
-  location: controlPlaneLocation
-  kind: 'linux'
-  properties: {
-    reserved: true
-  }
-  sku: {
-    tier: 'Dynamic'
-    name: 'Y1'
-  }
-}
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
   name: 'lfostorage${controlPlaneId}'
@@ -68,12 +58,6 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
     allowBlobPublicAccess: false
   }
   sku: { name: 'Standard_LRS' }
-}
-
-resource fileServices 'Microsoft.Storage/storageAccounts/fileServices@2023-05-01' = {
-  name: 'default'
-  parent: storageAccount
-  properties: {}
 }
 
 resource blobServices 'Microsoft.Storage/storageAccounts/blobServices@2023-01-01' = {
@@ -91,88 +75,135 @@ resource cacheContainer 'Microsoft.Storage/storageAccounts/blobServices/containe
 var storageAccountKey = listKeys(storageAccount.id, '2019-06-01').keys[0].value
 var connectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccountKey}'
 
-var commonAppSettings = [
-  { name: STORAGE_CONNECTION_SETTING, value: connectionString }
-  { name: DD_API_KEY_SETTING, value: datadogApiKey }
+var commonSecrets = [
+  { name: CONNECTION_STRING_SECRET, value: connectionString }
+  { name: DD_API_KEY_SECRET, value: datadogApiKey }
+]
+
+var commonEnv = [
+  { name: STORAGE_CONNECTION_SETTING, secretRef: CONNECTION_STRING_SECRET }
+  { name: DD_API_KEY_SETTING, secretRef: DD_API_KEY_SECRET }
   { name: DD_SITE_SETTING, value: datadogSite }
   { name: DD_TELEMETRY_SETTING, value: datadogTelemetry ? 'true' : 'false' }
   { name: CONTROL_PLANE_ID_SETTING, value: controlPlaneId }
   { name: CONTROL_PLANE_REGION_SETTING, value: controlPlaneLocation }
+  { name: SUBSCRIPTION_ID_SETTING, value: controlPlaneSubscriptionId }
   { name: AZURE_AUTHORITY_SETTING, value: environment().authentication.loginEndpoint }
-  { name: 'AzureWebJobsFeatureFlags', value: 'EnableWorkerIndexing' }
-  { name: 'FUNCTIONS_EXTENSION_VERSION', value: '~4' }
-  { name: 'FUNCTIONS_WORKER_RUNTIME', value: 'python' }
-  { name: 'WEBSITE_CONTENTAZUREFILECONNECTIONSTRING', value: connectionString }
   { name: LOG_LEVEL_SETTING, value: logLevel }
 ]
 
 var resourceTaskName = 'resources-task-${controlPlaneId}'
-resource resourceTask 'Microsoft.Web/sites@2022-09-01' = {
+resource resourceTask 'Microsoft.App/jobs@2024-03-01' = {
   name: resourceTaskName
   location: controlPlaneLocation
-  kind: 'functionapp'
   identity: {
     type: 'SystemAssigned'
   }
   properties: {
-    serverFarmId: asp.id
-    siteConfig: {
-      appSettings: union(commonAppSettings, [
-        { name: MONITORED_SUBSCRIPTIONS_SETTING, value: monitoredSubscriptions }
-        { name: RESOURCE_TAG_FILTERS_SETTING, value: resourceTagFilters }
-      ])
-      linuxFxVersion: 'Python|3.11'
+    environmentId: deployerTaskEnv.id
+    configuration: {
+      triggerType: 'Schedule'
+      scheduleTriggerConfig: {
+        cronExpression: '*/5 * * * *'
+      }
+      replicaRetryLimit: 0
+      replicaTimeout: 300
+      secrets: commonSecrets
     }
-    publicNetworkAccess: 'Enabled'
-    httpsOnly: true
+    template: {
+      containers: [
+        {
+          name: 'resources-task'
+          image: resourcesTaskImage
+          resources: {
+            cpu: json('0.5')
+            memory: '1Gi'
+          }
+          env: union(commonEnv, [
+            { name: MONITORED_SUBSCRIPTIONS_SETTING, value: monitoredSubscriptions }
+            { name: RESOURCE_TAG_FILTERS_SETTING, value: resourceTagFilters }
+          ])
+        }
+      ]
+    }
   }
-  dependsOn: [fileServices]
 }
-var diagnosticSettingsTaskName = 'diagnostic-settings-task-${controlPlaneId}'
-resource diagnosticSettingsTask 'Microsoft.Web/sites@2022-09-01' = {
+
+var diagnosticSettingsTaskName = 'diag-settings-task-${controlPlaneId}'
+resource diagnosticSettingsTask 'Microsoft.App/jobs@2024-03-01' = {
   name: diagnosticSettingsTaskName
   location: controlPlaneLocation
-  kind: 'functionapp'
   identity: {
     type: 'SystemAssigned'
   }
   properties: {
-    serverFarmId: asp.id
-    siteConfig: {
-      appSettings: union(commonAppSettings, [
-        { name: RESOURCE_GROUP_SETTING, value: controlPlaneResourceGroupName }
-      ])
-      linuxFxVersion: 'Python|3.11'
+    environmentId: deployerTaskEnv.id
+    configuration: {
+      triggerType: 'Schedule'
+      scheduleTriggerConfig: {
+        cronExpression: '*/5 * * * *'
+      }
+      replicaRetryLimit: 0
+      replicaTimeout: 300
+      secrets: commonSecrets
     }
-    publicNetworkAccess: 'Enabled'
-    httpsOnly: true
+    template: {
+      containers: [
+        {
+          name: 'diagnostic-settings-task'
+          image: diagnosticSettingsTaskImage
+          resources: {
+            cpu: json('0.5')
+            memory: '1Gi'
+          }
+          env: union(commonEnv, [
+            { name: RESOURCE_GROUP_SETTING, value: controlPlaneResourceGroupName }
+          ])
+        }
+      ]
+    }
   }
-  dependsOn: [fileServices]
 }
 
 var scalingTaskName = 'scaling-task-${controlPlaneId}'
-resource scalingTask 'Microsoft.Web/sites@2022-09-01' = {
+resource scalingTask 'Microsoft.App/jobs@2024-03-01' = {
   name: scalingTaskName
   location: controlPlaneLocation
-  kind: 'functionapp'
   identity: {
     type: 'SystemAssigned'
   }
   properties: {
-    serverFarmId: asp.id
-    siteConfig: {
-      appSettings: union(commonAppSettings, [
-        { name: RESOURCE_GROUP_SETTING, value: controlPlaneResourceGroupName }
-        { name: FORWARDER_IMAGE_SETTING, value: forwarderImage }
-        { name: PII_SCRUBBER_RULES_SETTING, value: piiScrubberRules }
-      ])
-      linuxFxVersion: 'Python|3.11'
+    environmentId: deployerTaskEnv.id
+    configuration: {
+      triggerType: 'Schedule'
+      scheduleTriggerConfig: {
+        cronExpression: '*/5 * * * *'
+      }
+      replicaRetryLimit: 0
+      replicaTimeout: 600
+      secrets: commonSecrets
     }
-    publicNetworkAccess: 'Enabled'
-    httpsOnly: true
+    template: {
+      containers: [
+        {
+          name: 'scaling-task'
+          image: scalingTaskImage
+          resources: {
+            cpu: json('0.5')
+            memory: '1Gi'
+          }
+          env: union(commonEnv, [
+            { name: RESOURCE_GROUP_SETTING, value: controlPlaneResourceGroupName }
+            { name: FORWARDER_IMAGE_SETTING, value: forwarderImage }
+            { name: PII_SCRUBBER_RULES_SETTING, value: piiScrubberRules }
+          ])
+        }
+      ]
+    }
   }
-  dependsOn: [fileServices]
 }
+
+// DEPLOYER TASK
 
 resource deployerTaskEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: 'dd-log-forwarder-env-${controlPlaneId}-${controlPlaneLocation}'
@@ -202,7 +233,7 @@ resource deployerTask 'Microsoft.App/jobs@2024-03-01' = {
       scheduleTriggerConfig: {
         cronExpression: '*/30 * * * *'
       }
-      replicaRetryLimit: 1
+      replicaRetryLimit: 0
       replicaTimeout: 1800
       secrets: [
         { name: CONNECTION_STRING_SECRET, value: connectionString }
@@ -212,7 +243,7 @@ resource deployerTask 'Microsoft.App/jobs@2024-03-01' = {
     template: {
       containers: [
         {
-          name: deployerTaskName
+          name: 'deployer-task'
           image: deployerTaskImage
           resources: {
             cpu: json('0.5')
@@ -253,7 +284,7 @@ resource deployerTaskRole 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   }
 }
 
-// DEPLOYER TASK INITIAL RUN
+// INITIAL RUN IDENTITY
 
 resource initialRunIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: 'initialRunIdentity${controlPlaneId}'
