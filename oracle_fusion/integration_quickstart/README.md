@@ -43,6 +43,7 @@ assigns the required Fusion role, and grants EPM Service Administrator access.
 **Full Fusion + EPM onboarding:**
 
 ```bash
+export DD_API_KEY=<your-api-key>
 export DD_APP_KEY=<your-app-key>
 export DD_SITE=datadoghq.com
 ./setup.sh \
@@ -62,6 +63,7 @@ If the script fails partway through, simply re-run it with the same arguments â€
 **Add EPM to an existing Fusion account:**
 
 ```bash
+export DD_API_KEY=<your-api-key>
 export DD_APP_KEY=<your-app-key>
 ./setup.sh \
   --account-name "My Fusion Account" \
