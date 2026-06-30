@@ -14,7 +14,7 @@
         "equals": true
       },
       {
-        "value": "[if(empty(parameters('tagExcludeFilter')), true, not(equals(union(field('tags'), parameters('tagExcludeFilter')), field('tags'))))]",
+        "value": "[if(empty(parameters('tagExcludeFilter')), json('true'), not(equals(union(field('tags'), parameters('tagExcludeFilter')), field('tags'))))]",
         "equals": true
       }
     ]
