@@ -65,6 +65,7 @@ If the script fails partway through, simply re-run it with the same arguments â€
 ```bash
 export DD_API_KEY=<your-api-key>
 export DD_APP_KEY=<your-app-key>
+export DD_SITE=datadoghq.com
 ./setup.sh \
   --account-name "My Fusion Account" \
   --fusion-app-id a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4 \
