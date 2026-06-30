@@ -48,7 +48,6 @@ FUSION_ADMIN_USERNAME=""
 FUSION_ADMIN_PASSWORD=""
 ACCOUNT_NAME=""
 USER_EMAIL=""
-CONFIDENTIAL_APP_ID=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -61,7 +60,6 @@ while [[ $# -gt 0 ]]; do
         --fusion-admin-password)      FUSION_ADMIN_PASSWORD="$2"; shift 2 ;;
         --user-email)                 USER_EMAIL="$2";            shift 2 ;;
         --account-name)               ACCOUNT_NAME="$2";          shift 2 ;;
-        --confidential-application-id) CONFIDENTIAL_APP_ID="$2"; shift 2 ;;
 --help|-h)
             cat <<'EOF'
 Usage: ./setup.sh [OPTIONS]
@@ -76,7 +74,6 @@ Fresh Fusion + EPM onboarding (no --account-name):
   --fusion-admin-username USER  Fusion admin username (required for Fusion)
   --fusion-admin-password PASS  Fusion admin password (required for Fusion)
   --epm-base-url URL            EPM environment base URL (required for EPM)
-  --confidential-application-id ID  Existing confidential app ID (if not named "Datadog Fusion Integration")
   --user-email EMAIL            Email to attach to the created integration user
 
 Add EPM to an existing Fusion account (--account-name):
@@ -84,7 +81,6 @@ Add EPM to an existing Fusion account (--account-name):
   --fusion-app-id ID            Fusion SaaS app ID in OCI IAM (required)
   --epm-app-id ID               EPM SaaS app ID in OCI IAM (required)
   --epm-base-url URL            EPM environment base URL (required if not already set)
-  --confidential-application-id ID  Existing confidential app ID (if not named "Datadog Fusion Integration")
 
 Environment variables:
   DD_API_KEY   Datadog API key (required)
@@ -223,7 +219,7 @@ if [[ -n "$ACCOUNT_NAME" ]]; then
     if [[ ${#_account_name_forbidden[@]} -gt 0 ]]; then
         fatal "Invalid flags provided with --account-name: ${_account_name_forbidden[*]}" \
             "When --account-name is provided, only the following flags are allowed:" \
-            "  --fusion-app-id, --epm-app-id, --epm-base-url, --confidential-application-id"
+            "  --fusion-app-id, --epm-app-id, --epm-base-url"
     fi
     [[ -z "$FUSION_APP_ID" ]] && fatal \
         "--fusion-app-id is required when --account-name is provided" \
@@ -506,40 +502,36 @@ fi
 
 # 10. Idempotency — check if confidential app already exists
 APP_NAME="Datadog Fusion Integration"
-info "Checking if '${APP_NAME}' already exists in OCI IAM..."
-existing_app=$(oci identity-domains apps list \
-    --endpoint "$IDENTITY_DOMAIN_URL" \
-    --filter "displayName eq \"${APP_NAME}\"" \
-    --output json 2>/dev/null) || true
-existing_client_id=$(oci_app_field "$existing_app" name)
-existing_app_ocid=$(oci_app_field "$existing_app" ocid)
-
 APP_EXISTS=false
-if [[ -n "$existing_client_id" ]]; then
-    APP_EXISTS=true
-    CLIENT_ID="$existing_client_id"
-    warn "Confidential application '${APP_NAME}' already exists — reusing (client_id: ${CLIENT_ID})"
-elif [[ -n "$ACCOUNT_NAME" && -z "$CONFIDENTIAL_APP_ID" ]]; then
-    fatal "No confidential application named '${APP_NAME}' was found in this identity domain" \
-        "When using --account-name, the confidential application must already exist." \
-        "If your app has a different name, provide its ID with --confidential-application-id." \
-        "Find the application ID in OCI Console → Domains → Integrated Applications."
-elif [[ -n "$CONFIDENTIAL_APP_ID" ]]; then
-    info "Looking up confidential app by ID '${CONFIDENTIAL_APP_ID}'..."
-    conf_app_resp=$(oci identity-domains apps list \
+if [[ -n "$ACCOUNT_NAME" ]]; then
+    info "Looking up confidential app by client_id '${CLIENT_ID}'..."
+    existing_app=$(oci identity-domains apps list \
         --endpoint "$IDENTITY_DOMAIN_URL" \
-        --filter "id eq \"${CONFIDENTIAL_APP_ID}\"" \
+        --filter "name eq \"${CLIENT_ID}\"" \
         --output json 2>/dev/null) || true
-    conf_app_client_id=$(oci_app_field "$conf_app_resp" name)
-    conf_app_ocid=$(oci_app_field "$conf_app_resp" ocid)
-    [[ -z "$conf_app_client_id" ]] && fatal \
-        "Confidential application '${CONFIDENTIAL_APP_ID}' was not found in identity domain '${IDENTITY_DOMAIN_URL}'" \
-        "Verify the application ID at: OCI Console → Domains → Integrated Applications"
-    APP_EXISTS=true
-    CLIENT_ID="$conf_app_client_id"
-    existing_app_ocid="$conf_app_ocid"
-    existing_app="$conf_app_resp"
-    warn "Using provided confidential app — client_id: ${CLIENT_ID}"
+    existing_client_id=$(oci_app_field "$existing_app" name)
+    existing_app_ocid=$(oci_app_field "$existing_app" ocid)
+    if [[ -n "$existing_client_id" ]]; then
+        APP_EXISTS=true
+        warn "Confidential application found — reusing (client_id: ${CLIENT_ID})"
+    else
+        fatal "No confidential application found for client_id '${CLIENT_ID}' in identity domain '${IDENTITY_DOMAIN_URL}'" \
+            "The OCI confidential application may have been deleted." \
+            "Check: OCI Console → Domains → Integrated Applications"
+    fi
+else
+    info "Checking if '${APP_NAME}' already exists in OCI IAM..."
+    existing_app=$(oci identity-domains apps list \
+        --endpoint "$IDENTITY_DOMAIN_URL" \
+        --filter "displayName eq \"${APP_NAME}\"" \
+        --output json 2>/dev/null) || true
+    existing_client_id=$(oci_app_field "$existing_app" name)
+    existing_app_ocid=$(oci_app_field "$existing_app" ocid)
+    if [[ -n "$existing_client_id" ]]; then
+        APP_EXISTS=true
+        CLIENT_ID="$existing_client_id"
+        warn "Confidential application '${APP_NAME}' already exists — reusing (client_id: ${CLIENT_ID})"
+    fi
 fi
 
 # 11. Idempotency — check if user already exists
@@ -707,8 +699,7 @@ import sys,json; print(json.load(sys.stdin).get('data',{}).get('client-secret','
 
     [[ -z "$CLIENT_ID" ]] && fatal \
         "Application '${APP_NAME}' was created but its OAuth client ID could not be parsed from the OCI response" \
-        "Find the application ID in OCI Console → Domains → Integrated Applications → '${APP_NAME}'" \
-        "If your app has a non-standard name, re-run with: --confidential-application-id <application-id>"
+        "Find the application ID in OCI Console → Domains → Integrated Applications → '${APP_NAME}'"
 
     success "Confidential application created"
     echo ""
@@ -998,8 +989,7 @@ except Exception: print('')
 " 2>/dev/null)
     [[ -z "$CLIENT_SECRET" ]] && fatal \
         "Could not retrieve client secret for existing confidential app '${APP_NAME}'" \
-        "Retrieve the secret manually from OCI Console → Domains → Integrated Applications → '${APP_NAME}' → OAuth Configuration" \
-        "If your app has a non-standard name, re-run with: --confidential-application-id <application-id>"
+        "Retrieve the secret manually from OCI Console → Domains → Integrated Applications → '${APP_NAME}' → OAuth Configuration"
     success "Client secret regenerated"
 fi
 
