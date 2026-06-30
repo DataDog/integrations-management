@@ -1,0 +1,117 @@
+{
+  "if": {
+    "allOf": [
+      {
+        "field": "type",
+        "equals": "microsoft.connectedcache/ispcustomers"
+      },
+      {
+        "value": "[contains(parameters('storageAccountsByRegion'), field('location'))]",
+        "equals": true
+      },
+      {
+        "value": "[equals(union(field('tags'), parameters('tagIncludeFilter')), field('tags'))]",
+        "equals": true
+      },
+      {
+        "value": "[if(empty(parameters('tagExcludeFilter')), json('true'), not(equals(union(field('tags'), parameters('tagExcludeFilter')), field('tags'))))]",
+        "equals": true
+      }
+    ]
+  },
+  "then": {
+    "effect": "[parameters('effect')]",
+    "details": {
+      "type": "Microsoft.Insights/diagnosticSettings",
+      "name": "[parameters('diagnosticSettingName')]",
+      "roleDefinitionIds": [
+        "/providers/Microsoft.Authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c"
+      ],
+      "existenceCondition": {
+        "count": {
+          "field": "Microsoft.Insights/diagnosticSettings/logs[*]",
+          "where": {
+            "allOf": [
+              {
+                "field": "Microsoft.Insights/diagnosticSettings/logs[*].categoryGroup",
+                "in": "[parameters('categoryGroups')]"
+              },
+              {
+                "field": "Microsoft.Insights/diagnosticSettings/logs[*].enabled",
+                "equals": true
+              }
+            ]
+          }
+        },
+        "greaterOrEquals": "[length(parameters('categoryGroups'))]"
+      },
+      "deployment": {
+        "properties": {
+          "mode": "incremental",
+          "template": {
+            "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+            "contentVersion": "1.0.0.0",
+            "parameters": {
+              "name": {
+                "type": "string"
+              },
+              "location": {
+                "type": "string"
+              },
+              "storageAccountId": {
+                "type": "string"
+              },
+              "diagnosticSettingName": {
+                "type": "string"
+              },
+              "categoryGroups": {
+                "type": "array"
+              }
+            },
+            "resources": [
+              {
+                "type": "microsoft.connectedcache/ispcustomers/providers/diagnosticSettings",
+                "apiVersion": "2021-05-01-preview",
+                "name": "[concat(parameters('name'), '/microsoft.insights/', parameters('diagnosticSettingName'))]",
+                "properties": {
+                  "storageAccountId": "[parameters('storageAccountId')]",
+                  "copy": [
+                    {
+                      "name": "logs",
+                      "count": "[length(parameters('categoryGroups'))]",
+                      "input": {
+                        "categoryGroup": "[parameters('categoryGroups')[copyIndex('logs')]]",
+                        "enabled": true,
+                        "retentionPolicy": {
+                          "enabled": false,
+                          "days": 0
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "parameters": {
+            "name": {
+              "value": "[field('name')]"
+            },
+            "location": {
+              "value": "[field('location')]"
+            },
+            "storageAccountId": {
+              "value": "[union(createObject(field('location'), ''), parameters('storageAccountsByRegion'))[field('location')]]"
+            },
+            "diagnosticSettingName": {
+              "value": "[parameters('diagnosticSettingName')]"
+            },
+            "categoryGroups": {
+              "value": "[parameters('categoryGroups')]"
+            }
+          }
+        }
+      }
+    }
+  }
+}
