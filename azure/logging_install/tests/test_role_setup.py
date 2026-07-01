@@ -8,10 +8,9 @@ from unittest.mock import MagicMock
 from unittest.mock import patch as mock_patch
 
 from az_shared.errors import ResourceGroupNotFoundError
-from azure_logging_install.configuration import Configuration
 from azure_logging_install.role_setup import ensure_control_plane_rg_not_deleting
 
-from tests.test_data import CONTROL_PLANE_REGION, CONTROL_PLANE_RESOURCE_GROUP
+from logging_install.tests.test_data import CONTROL_PLANE_RESOURCE_GROUP, get_test_config
 
 
 class TestWaitUntilControlPlaneRgReadyForGrant(TestCase):
@@ -19,13 +18,7 @@ class TestWaitUntilControlPlaneRgReadyForGrant(TestCase):
         self.execute_mock = self.patch("azure_logging_install.role_setup.execute")
         self.sleep_mock = self.patch("azure_logging_install.role_setup.time.sleep")
         self.log_mock = self.patch("azure_logging_install.role_setup.log")
-        self.config = Configuration(
-            control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id="cp-sub",
-            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-            monitored_subs="mon-1",
-            datadog_api_key="key",
-        )
+        self.config = get_test_config()
 
     def patch(self, path: str, **kwargs):
         patcher = mock_patch(path, **kwargs)

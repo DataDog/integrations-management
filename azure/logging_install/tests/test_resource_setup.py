@@ -8,9 +8,8 @@ from unittest.mock import patch as mock_patch
 
 from az_shared.errors import FatalError, ResourceNotFoundError
 from azure_logging_install import resource_setup
-from azure_logging_install.configuration import Configuration
 
-from logging_install.tests.test_data import CONTROL_PLANE_REGION, CONTROL_PLANE_RESOURCE_GROUP
+from logging_install.tests.test_data import CONTROL_PLANE_REGION, CONTROL_PLANE_RESOURCE_GROUP, get_test_config
 
 STORAGE_ACCOUNT_NAME = "teststorageaccount"
 CONTAINER_APP_ENV_NAME = "test-env"
@@ -28,13 +27,7 @@ class TestResourceSetup(TestCase):
         self.time_mock = self.patch("azure_logging_install.resource_setup.time")
 
         # Create test configuration
-        self.config = Configuration(
-            control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id="test-sub",
-            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-            monitored_subs="sub-1,sub-2",
-            datadog_api_key="test-api-key",
-        )
+        self.config = get_test_config()
 
     def patch(self, path: str, **kwargs):
         """Helper method to patch and auto-cleanup"""
@@ -147,6 +140,16 @@ class TestResourceSetup(TestCase):
         self.assertIn(CONTROL_PLANE_RESOURCE_GROUP, cmd_str)
         self.assertIn(CONTROL_PLANE_REGION, cmd_str)
 
+    def test_create_container_app_environment_already_exists(self):
+        """Test container app environment creation is skipped if it already exists"""
+        self.execute_mock.return_value = "{}"
+
+        resource_setup.create_container_app_environment(
+            CONTAINER_APP_ENV_NAME, CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION
+        )
+
+        self.execute_mock.assert_called_once()
+
     # ===== Blob Container Tests ===== #
 
     def test_create_blob_container_success(self):
@@ -185,14 +188,6 @@ class TestResourceSetup(TestCase):
 
     def test_create_container_app_job_success(self):
         """Test successful container app job creation"""
-        mock_config = MagicMock()
-        mock_config.deployer_job_name = CONTAINER_APP_JOB_NAME
-        mock_config.control_plane_rg = CONTROL_PLANE_RESOURCE_GROUP
-        mock_config.control_plane_env_name = CONTAINER_APP_ENV_NAME
-        mock_config.control_plane_sub_id = "test-sub"
-        mock_config.deployer_image_url = "test-image:latest"
-        mock_config.get_control_plane_cache_conn_string.return_value = "test-conn-string"
-
         # Mock both show and create calls (function checks if job exists first)
         self.execute_mock.side_effect = [
             ResourceNotFoundError("Job not found"),  # First call: job show
@@ -202,7 +197,7 @@ class TestResourceSetup(TestCase):
         with mock_patch("azure_logging_install.resource_setup.tempfile.NamedTemporaryFile") as mock_temp_file:
             mock_temp_file.return_value.__enter__.return_value.name = "/tmp/test.json"
 
-            resource_setup.create_container_app_job(mock_config)
+            resource_setup.create_container_app_job(self.config)
 
         # Should have been called twice: once for show, once for create
         self.assertEqual(self.execute_mock.call_count, 2)
@@ -214,35 +209,100 @@ class TestResourceSetup(TestCase):
         self.assertIn("containerapp", cmd_str)
         self.assertIn("job", cmd_str)
         self.assertIn("create", cmd_str)
+        self.assertIn(self.config.deployer_job_name, cmd_str)
+
+    def test_create_container_app_job_already_exists(self):
+        """Test container app job creation is skipped if job already exists"""
+        self.execute_mock.return_value = "{}"
+
+        resource_setup.create_container_app_job(self.config)
+
+        self.execute_mock.assert_called_once()
 
     # ===== Function App Tests ===== #
 
     def test_create_function_apps_success(self):
         """Test successful function app creation"""
         with mock_patch("azure_logging_install.resource_setup.create_function_app") as mock_create_func:
-            # Mock the storage key retrieval to avoid actual Azure CLI calls
-            with mock_patch.object(self.config, "get_control_plane_cache_key", return_value="test-key"):
+            with mock_patch("azure_logging_install.resource_setup.set_function_app_env_vars") as mock_set_env_vars:
                 resource_setup.create_function_apps(self.config)
 
                 # Should create 3 function apps (resources, scaling, diagnostic settings)
                 self.assertEqual(mock_create_func.call_count, 3)
+                self.assertEqual(mock_set_env_vars.call_count, 3)
 
     def test_create_function_app_success(self):
         """Test successful individual function app creation"""
-        # Mock the storage key retrieval to avoid actual Azure CLI calls
-        with mock_patch.object(self.config, "get_control_plane_cache_key", return_value="test-key"):
-            # Mock the function app existence check to return ResourceNotFoundError
-            # so it proceeds to create the function app
-            self.execute_mock.side_effect = [
-                ResourceNotFoundError("Function app not found"),  # First call (existence check)
-                None,  # Second call (create function app)
-                None,  # Third call (configure runtime)
-            ]
+        # Mock the function app existence check to return ResourceNotFoundError
+        # so it proceeds to create the function app
+        self.execute_mock.side_effect = [
+            ResourceNotFoundError("Function app not found"),  # First call (existence check)
+            None,  # Second call (create function app)
+            None,  # Third call (configure runtime)
+        ]
 
-            resource_setup.create_function_app(self.config, self.config.resources_task_name)
+        resource_setup.create_function_app(self.config, self.config.resources_task_name)
 
-            # Should call execute 3 times: check existence, create app, configure runtime
-            self.assertEqual(self.execute_mock.call_count, 3)
+        # Should call execute 3 times: check existence, create app, configure runtime
+        self.assertEqual(self.execute_mock.call_count, 3)
+
+    def test_create_function_app_already_exists(self):
+        """Test function app creation is skipped and no create/config calls happen if app already exists"""
+        self.execute_mock.return_value = "{}"
+
+        resource_setup.create_function_app(self.config, self.config.resources_task_name)
+
+        self.execute_mock.assert_called_once()
+
+    # ===== set_function_app_env_vars Tests ===== #
+
+    def test_set_function_app_env_vars_resources_task(self):
+        """Test env vars for resources task include monitored subs and tag filters"""
+        with mock_patch("azure_logging_install.resource_setup.tempfile.NamedTemporaryFile") as mock_temp_file, \
+                mock_patch("azure_logging_install.resource_setup.json.dump") as mock_json_dump, \
+                mock_patch("azure_logging_install.resource_setup.os.unlink"):
+            mock_temp_file.return_value.__enter__.return_value.name = "/tmp/test.json"
+
+            resource_setup.set_function_app_env_vars(self.config, self.config.resources_task_name)
+
+            settings = mock_json_dump.call_args[0][0]
+            self.assertIn("MONITORED_SUBSCRIPTIONS", settings)
+            self.assertIn("RESOURCE_TAG_FILTERS", settings)
+            self.assertEqual(settings["DD_API_KEY"], self.config.datadog_api_key)
+
+    def test_set_function_app_env_vars_unknown_task_raises(self):
+        """Test setting env vars for an unrecognized function app name raises FatalError"""
+        with self.assertRaises(FatalError):
+            resource_setup.set_function_app_env_vars(self.config, "unknown-function-app")
+
+    # ===== set_monitored_subscriptions / set_resource_tag_filters / set_pii_scrubber_rules ===== #
+
+    def test_set_monitored_subscriptions(self):
+        """Test set_monitored_subscriptions issues a targeted appsettings update"""
+        resource_setup.set_monitored_subscriptions(self.config)
+
+        self.execute_mock.assert_called_once()
+        cmd_str = str(self.execute_mock.call_args[0][0])
+        self.assertIn(self.config.resources_task_name, cmd_str)
+        self.assertIn("MONITORED_SUBSCRIPTIONS", cmd_str)
+
+    def test_set_resource_tag_filters(self):
+        """Test set_resource_tag_filters issues a targeted appsettings update"""
+        resource_setup.set_resource_tag_filters(self.config)
+
+        self.execute_mock.assert_called_once()
+        cmd_str = str(self.execute_mock.call_args[0][0])
+        self.assertIn(self.config.resources_task_name, cmd_str)
+        self.assertIn("RESOURCE_TAG_FILTERS", cmd_str)
+
+    def test_set_pii_scrubber_rules(self):
+        """Test set_pii_scrubber_rules issues a targeted appsettings update"""
+        resource_setup.set_pii_scrubber_rules(self.config)
+
+        self.execute_mock.assert_called_once()
+        cmd_str = str(self.execute_mock.call_args[0][0])
+        self.assertIn(self.config.scaling_task_name, cmd_str)
+        self.assertIn("PII_SCRUBBER_RULES", cmd_str)
 
     # ===== Error Handling Tests ===== #
 

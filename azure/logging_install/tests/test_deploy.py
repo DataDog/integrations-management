@@ -8,13 +8,8 @@ from unittest.mock import patch as mock_patch
 
 from az_shared.errors import FatalError
 from azure_logging_install import deploy
-from azure_logging_install.configuration import Configuration
 
-from logging_install.tests.test_data import (
-    CONTROL_PLANE_REGION,
-    CONTROL_PLANE_RESOURCE_GROUP,
-    CONTROL_PLANE_SUBSCRIPTION_ID,
-)
+from logging_install.tests.test_data import get_test_config
 
 
 class TestDeploy(TestCase):
@@ -37,13 +32,7 @@ class TestDeploy(TestCase):
         self.execute_mock = self.patch("azure_logging_install.deploy.execute")
 
         # Create test configuration
-        self.config = Configuration(
-            control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-            monitored_subs="sub-1,sub-2",
-            datadog_api_key="test-api-key",
-        )
+        self.config = get_test_config()
 
     def patch(self, path: str, **kwargs):
         """Helper method to patch and auto-cleanup"""
@@ -93,9 +82,7 @@ class TestDeploy(TestCase):
 
     def test_deploy_control_plane_success(self):
         """Test successful control plane deployment"""
-        # Mock the storage key retrieval to avoid actual Azure CLI calls
-        with mock_patch.object(self.config, "get_control_plane_cache_key", return_value="test-key"):
-            deploy.deploy_control_plane(self.config)
+        deploy.deploy_control_plane(self.config)
 
         # Verify subscription is set
         self.set_subscription_mock.assert_called_once_with(self.config.control_plane_sub_id)
@@ -109,11 +96,21 @@ class TestDeploy(TestCase):
         self.wait_for_storage_account_ready_mock.assert_called_once_with(
             self.config.control_plane_cache_storage_name, self.config.control_plane_rg
         )
-        self.create_blob_container_mock.assert_called_once()
-        self.create_file_share_mock.assert_called_once()
+        self.create_blob_container_mock.assert_called_once_with(
+            self.config.control_plane_cache_storage_name,
+            self.config.control_plane_cache_storage_key,
+        )
+        self.create_file_share_mock.assert_called_once_with(
+            self.config.control_plane_cache_storage_name,
+            self.config.control_plane_rg,
+        )
 
         # Verify function apps are created
         self.create_function_apps_mock.assert_called_once_with(self.config)
+
+        # Verify deployer infra is deployed
+        self.create_initial_deploy_role_mock.assert_called_once_with(self.config)
+        self.create_container_app_job_mock.assert_called_once_with(self.config)
 
     def test_deploy_control_plane_storage_creation_failure(self):
         """Test control plane deployment handles storage creation failure"""
@@ -144,10 +141,8 @@ class TestDeploy(TestCase):
         """Test control plane deployment handles function app creation failure"""
         self.create_function_apps_mock.side_effect = FatalError("Function app creation failed")
 
-        # Mock the storage key retrieval to avoid actual Azure CLI calls
-        with mock_patch.object(self.config, "get_control_plane_cache_key", return_value="test-key"):
-            with self.assertRaises(FatalError):
-                deploy.deploy_control_plane(self.config)
+        with self.assertRaises(FatalError):
+            deploy.deploy_control_plane(self.config)
 
         # Should have completed storage setup
         self.create_storage_account_mock.assert_called_once()
@@ -157,7 +152,6 @@ class TestDeploy(TestCase):
 
     def test_run_initial_deploy_success(self):
         """Test successful initial deployment trigger"""
-        # run_initial_deploy takes 3 args: deployer_job_name, control_plane_rg, control_plane_sub_id
         deploy.run_initial_deploy(
             self.config.deployer_job_name,
             self.config.control_plane_rg,
@@ -196,7 +190,7 @@ class TestDeploy(TestCase):
         mock_config.control_plane_rg = "test-rg-456"
         mock_config.control_plane_region = "westus2"
         mock_config.control_plane_env_name = "test-env-789"
-        mock_config.control_plane_job_name = "test-job-abc"
+        mock_config.deployer_job_name = "test-job-abc"
 
         # Test control plane deployment
         deploy.deploy_control_plane(mock_config)

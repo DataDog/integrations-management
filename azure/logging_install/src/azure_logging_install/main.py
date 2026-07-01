@@ -9,8 +9,8 @@ from logging import basicConfig
 from az_shared.errors import InputParamValidationError
 from az_shared.logs import log, log_header
 
-from .az_cmd import list_users_subscriptions, set_subscription
-from .configuration import Configuration
+from .az_cmd import set_subscription
+from .configuration import Configuration, ControlPlane, generate_control_plane_id
 from .deploy import deploy_control_plane, run_initial_deploy
 from .existing_lfo import update_existing_lfo
 from .resource_setup import create_resource_group
@@ -143,8 +143,7 @@ def install_log_forwarder(config: Configuration):
         log_header("STEP 1: Validating user configuration...")
         validate_az_cli()
         validate_user_parameters(config)
-        sub_id_to_name = list_users_subscriptions()
-        existing_lfos = check_fresh_install(config, sub_id_to_name)
+        existing_lfos = check_fresh_install(config)
         if existing_lfos:
             if SKIP_SINGLETON_CHECK:
                 log.debug("Skipping singleton check - existing log forwarding installation found")
@@ -176,10 +175,17 @@ def main():
         SKIP_SINGLETON_CHECK = args.skip_singleton_check
 
         config = Configuration(
-            control_plane_region=args.control_plane_region,
-            control_plane_sub_id=args.control_plane_subscription,
-            control_plane_rg=args.control_plane_resource_group,
-            monitored_subs=args.monitored_subscriptions,
+            control_plane=ControlPlane(
+                id=generate_control_plane_id(
+                    args.control_plane_subscription, 
+                    args.control_plane_resource_group, 
+                    args.control_plane_region,
+                ),
+                region=args.control_plane_region,
+                subscription_id=args.control_plane_subscription,
+                resource_group=args.control_plane_resource_group,
+            ),
+            monitored_subs=[sub.strip() for sub in args.monitored_subscriptions.split(",") if sub.strip()],
             datadog_api_key=args.datadog_api_key,
             datadog_site=args.datadog_site,
             resource_tag_filters=args.resource_tag_filters,

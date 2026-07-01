@@ -4,6 +4,7 @@
 
 """Tests for quickstart_shared: build_log_forwarder_payload and report_existing_log_forwarders (Section 7: optional monitoredSubscriptions)."""
 
+import json
 from unittest.mock import MagicMock
 from unittest.mock import patch as mock_patch
 
@@ -13,24 +14,32 @@ from azure_integration_quickstart.quickstart_shared import (
     wait_for_rg_delete_if_needed,
 )
 from az_shared.script_status import Status
-from azure_logging_install.existing_lfo import LfoControlPlane, LfoMetadata
+from azure_logging_install.configuration import Configuration, ControlPlane
 
 from integration_quickstart.tests.dd_test_case import DDTestCase
 
+SCOPE_ID_TO_NAME = {"cp-sub": "Control Plane Sub", "sub-1": "Sub One", "sub-2": "Sub Two"}
 
-def _make_metadata(monitored_subs=None):
+
+def _make_config(monitored_subs=None):
     if monitored_subs is None:
-        monitored_subs = {"sub-1": "Sub One", "sub-2": "Sub Two"}
-    return LfoMetadata(
-        control_plane=LfoControlPlane(
-            sub_id="cp-sub",
-            sub_name="Control Plane Sub",
-            resource_group="lfo-rg",
+        monitored_subs = ["sub-1", "sub-2"]
+    with mock_patch(
+        "azure_logging_install.configuration.execute",
+        return_value=json.dumps([{"value": "key", "permissions": "FULL"}]),
+    ):
+        control_plane = ControlPlane(
+            id="lfo-id",
             region="eastus",
-        ),
+            subscription_id="cp-sub",
+            resource_group="lfo-rg",
+        )
+    return Configuration(
+        control_plane=control_plane,
         monitored_subs=monitored_subs,
-        tag_filter="env:prod",
-        pii_rules="rule: redact",
+        datadog_api_key="",
+        resource_tag_filters="env:prod",
+        pii_scrubber_rules="rule: redact",
     )
 
 
@@ -38,8 +47,8 @@ class TestBuildLogForwarderPayload(DDTestCase):
     """Optional monitoredSubscriptions in payload only when include_monitored_scopes is True."""
 
     def test_include_monitored_scopes_true_includes_monitored_subscriptions(self):
-        metadata = _make_metadata()
-        payload = build_log_forwarder_payload(metadata, include_monitored_scopes=True)
+        config = _make_config()
+        payload = build_log_forwarder_payload(config, SCOPE_ID_TO_NAME, include_monitored_scopes=True)
         self.assertIn("monitoredSubscriptions", payload)
         self.assertEqual(
             payload["monitoredSubscriptions"],
@@ -49,8 +58,8 @@ class TestBuildLogForwarderPayload(DDTestCase):
         self.assertEqual(payload["controlPlaneSubscriptionId"], "cp-sub")
 
     def test_include_monitored_scopes_false_omits_monitored_subscriptions(self):
-        metadata = _make_metadata()
-        payload = build_log_forwarder_payload(metadata, include_monitored_scopes=False)
+        config = _make_config()
+        payload = build_log_forwarder_payload(config, SCOPE_ID_TO_NAME, include_monitored_scopes=False)
         self.assertNotIn("monitoredSubscriptions", payload)
         self.assertEqual(payload["resourceGroupName"], "lfo-rg")
 
@@ -101,15 +110,15 @@ class TestReportExistingLogForwarders(DDTestCase):
     """report_existing_log_forwarders populates step_metadata and returns existing_lfo or None."""
 
     def test_one_lfo_populates_step_metadata_and_returns_metadata(self):
-        """With one existing LFO, step_metadata gets one payload and we return that LfoMetadata."""
-        metadata = _make_metadata()
+        """With one existing LFO, step_metadata gets one payload and we return that Configuration."""
+        config = _make_config()
         step_metadata = {}
         with mock_patch(
             "azure_integration_quickstart.quickstart_shared.check_existing_lfo",
-            return_value={"lfo-id": metadata},
+            return_value={"lfo-id": config},
         ):
             existing_lfo = report_existing_log_forwarders([], step_metadata, include_monitored_scopes=True)
-        self.assertIs(existing_lfo, metadata)
+        self.assertIs(existing_lfo, config)
         self.assertEqual(len(step_metadata["log_forwarders"]), 1)
         self.assertEqual(step_metadata["log_forwarders"][0]["controlPlaneSubscriptionId"], "cp-sub")
 

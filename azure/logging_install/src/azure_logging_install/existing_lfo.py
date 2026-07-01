@@ -2,15 +2,24 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-from dataclasses import dataclass
 from json import JSONDecodeError, loads
-from typing import Final, Optional
+from typing import Optional
 
 from az_shared.execute_cmd import execute
 from az_shared.logs import log, log_header
 
 from .az_cmd import AzCmd
-from .configuration import Configuration
+from .configuration import Configuration, ControlPlane, ControlPlaneType
+from .constants import (
+    DD_API_KEY_KEY,
+    DD_SITE_KEY,
+    DD_TELEMETRY_KEY,
+    MONITORED_SUBSCRIPTIONS_KEY,
+    PII_SCRUBBER_RULES_KEY,
+    RESOURCE_TAG_FILTERS_KEY,
+    RESOURCES_TASK_PREFIX,
+    SCALING_TASK_PREFIX,
+)
 from .resource_setup import (
     set_function_app_env_vars,
     set_monitored_subscriptions,
@@ -19,34 +28,8 @@ from .resource_setup import (
 )
 from .role_setup import grant_subscriptions_permissions, revoke_subscriptions_permissions
 
-RESOURCES_TASK_PREFIX: Final = "resources-task-"
-SCALING_TASK_PREFIX: Final = "scaling-task-"
-MONITORED_SUBSCRIPTIONS_KEY: Final = "MONITORED_SUBSCRIPTIONS"
-RESOURCE_TAG_FILTERS_KEY: Final = "RESOURCE_TAG_FILTERS"
-PII_SCRUBBER_RULES_KEY: Final = "PII_SCRUBBER_RULES"
 
-UNKNOWN_SUB_NAME_MESSAGE: Final = "Unknown (insufficient Azure permission)"
-
-
-@dataclass(frozen=True)
-class LfoControlPlane:
-    sub_id: str
-    sub_name: str
-    resource_group: str
-    region: str
-
-
-@dataclass(frozen=True)
-class LfoMetadata:
-    control_plane: LfoControlPlane
-    monitored_subs: dict[str, str]
-    tag_filter: str
-    pii_rules: str
-
-
-def find_existing_lfo_control_planes(
-    sub_id_to_name: dict[str, str], subscriptions: Optional[set[str]] = None
-) -> dict[str, LfoControlPlane]:
+def find_existing_lfo_control_planes(subscriptions: Optional[set[str]] = None) -> dict[str, ControlPlane]:
     """Find existing LFO control planes in the tenant. If `subscriptions` is specified, search is limited to these subscriptions.
     Returns a dict mapping control plane ID to control plane data."""
     if subscriptions is not None:
@@ -75,24 +58,25 @@ def find_existing_lfo_control_planes(
         log.error(f"Error: {e}")
         raise
 
-    existing_control_planes: dict[str, LfoControlPlane] = {}
+    existing_control_planes: dict[str, ControlPlane] = {}
     for resources_func_app in func_apps_response["data"]:
         subscription_id = resources_func_app["subscriptionId"]
         control_plane_id = resources_func_app["name"].split("-")[-1]
-        existing_control_planes[control_plane_id] = LfoControlPlane(
-            subscription_id,
-            sub_id_to_name[subscription_id],
-            resources_func_app["resourceGroup"],
-            resources_func_app["location"],
+        existing_control_planes[control_plane_id] = ControlPlane(
+            id=control_plane_id,
+            region=resources_func_app["location"],
+            subscription_id=subscription_id,
+            resource_group=resources_func_app["resourceGroup"],
+            type=ControlPlaneType.FunctionApps,
         )
     return existing_control_planes
 
 
-def query_function_app_env_vars(control_plane: LfoControlPlane, resource_task_name: str) -> dict[str, str]:
+def query_function_app_env_vars(control_plane: ControlPlane, resource_task_name: str) -> dict[str, str]:
     """Query all environment variables for a function app and return as a dictionary."""
     env_vars_list = execute(
         AzCmd("functionapp", "config appsettings list")
-        .param("--subscription", control_plane.sub_id)
+        .param("--subscription", control_plane.subscription_id)
         .param("--name", resource_task_name)
         .param("--resource-group", control_plane.resource_group)
         .param("--output", "json")
@@ -107,16 +91,20 @@ def query_function_app_env_vars(control_plane: LfoControlPlane, resource_task_na
         raise
 
 
-def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) -> dict[str, LfoMetadata]:
+def check_existing_lfo(subscriptions: set[str]) -> dict[str, Configuration]:
     """Check if LFO is already installed on any of the given subscriptions. Returns a dict mapping control plane ID to LFO metadata."""
     log.info("Checking if log forwarding is already installed in this Azure environment...")
 
-    control_planes = find_existing_lfo_control_planes(sub_id_to_name, subscriptions).items()
+    control_planes = find_existing_lfo_control_planes(subscriptions).items()
 
     # if there is more than one, just return some LFO stubs since we won't be modifying them
     if len(control_planes) > 1:
         return {
-            control_plane_id: LfoMetadata(control_plane, {}, "", "")
+            control_plane_id: Configuration(
+                control_plane=control_plane, 
+                monitored_subs=[], 
+                datadog_api_key=""
+            )
             for control_plane_id, control_plane in control_planes
         }
     if len(control_planes) <= 0:
@@ -144,23 +132,23 @@ def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) 
     pii_rules = scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
 
     return {
-        control_plane_id: LfoMetadata(
-            control_plane,
-            monitored_subs={
-                sub_id: sub_id_to_name[sub_id] if sub_id in sub_id_to_name else UNKNOWN_SUB_NAME_MESSAGE
-                for sub_id in monitored_sub_ids
-            },
-            tag_filter=tag_filters,
-            pii_rules=pii_rules,
+        control_plane_id: Configuration(
+            control_plane=control_plane, 
+            monitored_subs=monitored_sub_ids,
+            datadog_api_key=resource_task_env_vars.get(DD_API_KEY_KEY, ""),
+            datadog_site=resource_task_env_vars.get(DD_SITE_KEY, ""),
+            resource_tag_filters=tag_filters,
+            pii_scrubber_rules=pii_rules,
+            datadog_telemetry=resource_task_env_vars.get(DD_TELEMETRY_KEY, False)
         )
     }
 
 
-def update_existing_lfo(config: Configuration, existing_lfo: LfoMetadata):
+def update_existing_lfo(new_lfo_config: Configuration, existing_lfo_config: Configuration):
     """Update an existing LFO for the given configuration"""
 
-    existing_monitored_sub_ids = set(existing_lfo.monitored_subs.keys())
-    new_monitored_sub_ids = set(config.monitored_subscriptions)
+    existing_monitored_sub_ids = set(existing_lfo_config.monitored_subscriptions)
+    new_monitored_sub_ids = set(new_lfo_config.monitored_subscriptions)
     sub_ids_that_need_permissions = new_monitored_sub_ids - existing_monitored_sub_ids
     sub_ids_to_remove = existing_monitored_sub_ids - new_monitored_sub_ids
 
@@ -174,19 +162,19 @@ def update_existing_lfo(config: Configuration, existing_lfo: LfoMetadata):
         log_header("STEP 2: Skipping permission changes for log forwarding scopes")
 
     if sub_ids_that_need_permissions:
-        grant_subscriptions_permissions(config, sub_ids_that_need_permissions)
+        grant_subscriptions_permissions(existing_lfo_config, sub_ids_that_need_permissions)
 
     if sub_ids_to_remove:
-        revoke_subscriptions_permissions(config, sub_ids_to_remove)
+        revoke_subscriptions_permissions(existing_lfo_config, sub_ids_to_remove)
 
     if not sub_ids_that_need_permissions and not sub_ids_to_remove:
         log.info("No modified subscription selections - skipping permission updates")
 
     log_header("STEP 3: Updating settings for control plane tasks")
-    existing_tag_filters = existing_lfo.tag_filter
-    existing_pii_rules = existing_lfo.pii_rules
-    new_tag_filters = config.resource_tag_filters
-    new_pii_rules = config.pii_scrubber_rules
+    existing_tag_filters = existing_lfo_config.resource_tag_filters
+    existing_pii_rules = existing_lfo_config.pii_scrubber_rules
+    new_tag_filters = new_lfo_config.resource_tag_filters
+    new_pii_rules = new_lfo_config.pii_scrubber_rules
 
     tag_filter_changed = existing_tag_filters != new_tag_filters
     pii_rules_changed = existing_pii_rules != new_pii_rules
@@ -195,15 +183,15 @@ def update_existing_lfo(config: Configuration, existing_lfo: LfoMetadata):
 
     # If two or more changes are detected, update all settings in one call. Otherwise, only update the changed setting.
     if change_count >= 2:
-        for function_app_name in config.control_plane_function_app_names:
+        for function_app_name in existing_lfo_config.control_plane_function_app_names:
             log.info(f"Updating settings for function app {function_app_name}")
-            set_function_app_env_vars(config, function_app_name)
+            set_function_app_env_vars(existing_lfo_config, function_app_name)
     elif tag_filter_changed:
-        set_resource_tag_filters(config)
+        set_resource_tag_filters(existing_lfo_config)
     elif pii_rules_changed:
-        set_pii_scrubber_rules(config)
+        set_pii_scrubber_rules(existing_lfo_config)
     elif monitored_subs_changed:
-        set_monitored_subscriptions(config)
+        set_monitored_subscriptions(existing_lfo_config)
     else:
         log.info("No changes to settings detected - skipping update")
         return

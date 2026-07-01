@@ -6,7 +6,7 @@ import json
 from unittest import TestCase
 from unittest.mock import patch as mock_patch
 
-from azure_logging_install.configuration import Configuration
+from azure_logging_install.configuration import Configuration, ControlPlane, ControlPlaneType, generate_control_plane_id
 
 from logging_install.tests.test_data import (
     CONTROL_PLANE_REGION,
@@ -31,6 +31,9 @@ class TestConfiguration(TestCase):
         """Set up test fixtures and reset global settings"""
         # Set up mocks
         self.az_cmd_execute_mock = self.patch("azure_logging_install.configuration.execute")
+        self.az_cmd_execute_mock.return_value = json.dumps(
+            [{"keyName": "key1", "value": TEST_STORAGE_KEY, "permissions": "FULL"}]
+        )
 
     def patch(self, path: str, **kwargs):
         """Helper method to patch and auto-cleanup"""
@@ -40,10 +43,15 @@ class TestConfiguration(TestCase):
 
     def create_test_config(self, **overrides):
         """Helper to create a test configuration with optional overrides"""
+        control_plane = ControlPlane(
+            id="test-control-plane-id",
+            region=overrides.pop("control_plane_region", CONTROL_PLANE_REGION),
+            subscription_id=overrides.pop("control_plane_sub_id", CONTROL_PLANE_SUBSCRIPTION_ID),
+            resource_group=overrides.pop("control_plane_rg", CONTROL_PLANE_RESOURCE_GROUP),
+            type=overrides.pop("control_plane_type", ControlPlaneType.FunctionApps),
+        )
         defaults = {
-            "control_plane_region": CONTROL_PLANE_REGION,
-            "control_plane_sub_id": CONTROL_PLANE_SUBSCRIPTION_ID,
-            "control_plane_rg": CONTROL_PLANE_RESOURCE_GROUP,
+            "control_plane": control_plane,
             "monitored_subs": MONITORED_SUBSCRIPTIONS,
             "datadog_api_key": DATADOG_API_KEY,
             "datadog_site": DATADOG_SITE,
@@ -57,10 +65,14 @@ class TestConfiguration(TestCase):
 
     def test_configuration_initialization_with_defaults(self):
         """Test Configuration initialization with default values"""
+        control_plane = ControlPlane(
+            id="test-control-plane-id",
+            region=CONTROL_PLANE_REGION,
+            subscription_id=CONTROL_PLANE_SUBSCRIPTION_ID,
+            resource_group=CONTROL_PLANE_RESOURCE_GROUP,
+        )
         config = Configuration(
-            control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+            control_plane=control_plane,
             monitored_subs=MONITORED_SUBSCRIPTIONS,
             datadog_api_key=DATADOG_API_KEY,
         )
@@ -69,7 +81,7 @@ class TestConfiguration(TestCase):
         self.assertEqual(config.control_plane_region, CONTROL_PLANE_REGION)
         self.assertEqual(config.control_plane_sub_id, CONTROL_PLANE_SUBSCRIPTION_ID)
         self.assertEqual(config.control_plane_rg, CONTROL_PLANE_RESOURCE_GROUP)
-        self.assertEqual(config.monitored_subs, MONITORED_SUBSCRIPTIONS)
+        self.assertEqual(config.monitored_subscriptions, MONITORED_SUBSCRIPTIONS)
         self.assertEqual(config.datadog_api_key, DATADOG_API_KEY)
 
         # Default values
@@ -93,11 +105,8 @@ class TestConfiguration(TestCase):
 
     def test_generate_control_plane_id_deterministic(self):
         """Test control plane ID generation is deterministic"""
-        config1 = self.create_test_config()
-        config2 = self.create_test_config()
-
-        id1 = config1.generate_control_plane_id()
-        id2 = config2.generate_control_plane_id()
+        id1 = generate_control_plane_id(CONTROL_PLANE_SUBSCRIPTION_ID, CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION)
+        id2 = generate_control_plane_id(CONTROL_PLANE_SUBSCRIPTION_ID, CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION)
 
         self.assertEqual(id1, id2)
         self.assertEqual(len(id1), CONTROL_PLANE_ID_LENGTH)
@@ -105,35 +114,16 @@ class TestConfiguration(TestCase):
 
     def test_generate_control_plane_id_different_inputs(self):
         """Test control plane ID changes with different inputs"""
-        config1 = self.create_test_config()
-        config2 = self.create_test_config(control_plane_rg="different-rg")
-
-        id1 = config1.generate_control_plane_id()
-        id2 = config2.generate_control_plane_id()
+        id1 = generate_control_plane_id(CONTROL_PLANE_SUBSCRIPTION_ID, CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION)
+        id2 = generate_control_plane_id(CONTROL_PLANE_SUBSCRIPTION_ID, "different-rg", CONTROL_PLANE_REGION)
 
         self.assertNotEqual(id1, id2)
 
     # ===== Property Tests ===== #
 
     def test_monitored_subscriptions_property(self):
-        """Test monitored_subscriptions property splits comma-separated values"""
-        config = self.create_test_config(monitored_subs="sub1,sub2,sub3")
-
-        result = config.monitored_subscriptions
-
-        self.assertEqual(result, ["sub1", "sub2", "sub3"])
-
-    def test_monitored_subscriptions_property_single_sub(self):
-        """Test monitored_subscriptions property with single subscription"""
-        config = self.create_test_config(monitored_subs="single-sub")
-
-        result = config.monitored_subscriptions
-
-        self.assertEqual(result, ["single-sub"])
-
-    def test_monitored_subscriptions_property_with_spaces(self):
-        """Test monitored_subscriptions property strips whitespace"""
-        config = self.create_test_config(monitored_subs=" sub1 , sub2 , sub3 ")
+        """Test monitored_subscriptions property returns what was passed in"""
+        config = self.create_test_config(monitored_subs=["sub1", "sub2", "sub3"])
 
         result = config.monitored_subscriptions
 
@@ -141,7 +131,7 @@ class TestConfiguration(TestCase):
 
     def test_all_subscriptions_property(self):
         """Test all_subscriptions property includes control plane + monitored"""
-        config = self.create_test_config(control_plane_sub_id="control-sub", monitored_subs="mon1,mon2")
+        config = self.create_test_config(control_plane_sub_id="control-sub", monitored_subs=["mon1", "mon2"])
 
         result = config.all_subscriptions
 
@@ -150,7 +140,7 @@ class TestConfiguration(TestCase):
 
     def test_all_subscriptions_property_no_duplicates(self):
         """Test all_subscriptions property removes duplicates"""
-        config = self.create_test_config(control_plane_sub_id="same-sub", monitored_subs="same-sub,other-sub")
+        config = self.create_test_config(control_plane_sub_id="same-sub", monitored_subs=["same-sub", "other-sub"])
 
         result = config.all_subscriptions
 
@@ -160,21 +150,19 @@ class TestConfiguration(TestCase):
     # ===== Storage Account Cache Key Tests ===== #
 
     def test_get_control_plane_cache_key_cached(self):
-        """Test cache key returns cached value if available"""
+        """Test cache key returns the value fetched at construction without refetching"""
         config = self.create_test_config()
-        config.control_plane_cache_storage_key = TEST_STORAGE_KEY
+        self.az_cmd_execute_mock.reset_mock()
 
         self.assertEqual(config.get_control_plane_cache_key(), TEST_STORAGE_KEY)
         self.az_cmd_execute_mock.assert_not_called()
 
     def test_get_control_plane_cache_key_fetches_from_azure(self):
-        """Test cache key fetches from Azure when not cached"""
-        config = self.create_test_config()
-        config.control_plane_cache_storage_key = None
-        # Mock the execute to return a proper JSON response with valid permissions
+        """Test cache key is fetched from Azure during construction"""
         mock_keys_response = [{"keyName": "key1", "value": TEST_STORAGE_KEY, "permissions": "FULL"}]
         self.az_cmd_execute_mock.return_value = json.dumps(mock_keys_response)
 
+        config = self.create_test_config()
         result = config.get_control_plane_cache_key()
 
         self.assertEqual(result, TEST_STORAGE_KEY)
@@ -190,7 +178,7 @@ class TestConfiguration(TestCase):
         self.assertTrue(config.control_plane_cache_storage_name.startswith(LFO_STORAGE_PREFIX))
         self.assertEqual(
             len(config.control_plane_cache_storage_name),
-            len(LFO_STORAGE_PREFIX) + CONTROL_PLANE_ID_LENGTH,
+            len(LFO_STORAGE_PREFIX) + len(config.control_plane_id),
         )
 
     def test_control_plane_env_name_property(self):
@@ -201,7 +189,7 @@ class TestConfiguration(TestCase):
         self.assertTrue(config.control_plane_env_name.startswith(LOG_FORWARDER_ENV_PREFIX))
         self.assertEqual(
             len(config.control_plane_env_name),
-            len(LOG_FORWARDER_ENV_PREFIX) + len("westus2-") + CONTROL_PLANE_ID_LENGTH,
+            len(LOG_FORWARDER_ENV_PREFIX) + len("westus2-") + len(config.control_plane_id),
         )
 
     def test_control_plane_job_name_property(self):
@@ -211,5 +199,30 @@ class TestConfiguration(TestCase):
         self.assertTrue(config.deployer_job_name.startswith(DEPLOYER_JOB_PREFIX))
         self.assertEqual(
             len(config.deployer_job_name),
-            len(DEPLOYER_JOB_PREFIX) + CONTROL_PLANE_ID_LENGTH,
+            len(DEPLOYER_JOB_PREFIX) + len(config.control_plane_id),
         )
+
+    # ===== Control Plane Type Tests ===== #
+
+    def test_default_type_is_function_apps(self):
+        """Test ControlPlane defaults to FunctionApps type"""
+        config = self.create_test_config()
+
+        self.assertEqual(config.control_plane.type, ControlPlaneType.FunctionApps)
+
+    def test_diagnostic_settings_task_name_differs_by_type(self):
+        """Test diagnostic_settings_task_name differs between FunctionApps and ContainerAppJobs"""
+        function_apps_config = self.create_test_config(control_plane_type=ControlPlaneType.FunctionApps)
+        container_app_jobs_config = self.create_test_config(control_plane_type=ControlPlaneType.ContainerAppJobs)
+
+        self.assertNotEqual(
+            function_apps_config.diagnostic_settings_task_name,
+            container_app_jobs_config.diagnostic_settings_task_name,
+        )
+
+    def test_deployer_image_url_differs_by_type(self):
+        """Test deployer_image_url differs between FunctionApps and ContainerAppJobs"""
+        function_apps_config = self.create_test_config(control_plane_type=ControlPlaneType.FunctionApps)
+        container_app_jobs_config = self.create_test_config(control_plane_type=ControlPlaneType.ContainerAppJobs)
+
+        self.assertNotEqual(function_apps_config.deployer_image_url, container_app_jobs_config.deployer_image_url)

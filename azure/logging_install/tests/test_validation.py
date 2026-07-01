@@ -9,30 +9,44 @@ from unittest.mock import patch as mock_patch
 from az_shared.errors import (
     AccessError,
     AzCliNotAuthenticatedError,
+    AzCliNotInstalledError,
     DatadogAccessValidationError,
     ExistenceCheckError,
     InputParamValidationError,
 )
+from common.datadog_validation import DatadogValidationError
 from azure_logging_install import validation
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.constants import REQUIRED_RESOURCE_PROVIDERS
-from azure_logging_install.existing_lfo import LfoControlPlane
 
-from tests.test_data import (
-    CONTROL_PLANE_REGION,
+from logging_install.tests.test_data import (
     CONTROL_PLANE_RESOURCE_GROUP,
     CONTROL_PLANE_SUBSCRIPTION_ID,
-    CONTROL_PLANE_SUBSCRIPTION_NAME,
     DATADOG_API_KEY,
     DATADOG_SITE,
     MONITORED_SUBSCRIPTIONS,
     SUB_1_ID,
     SUB_2_ID,
     SUB_3_ID,
-    SUB_ID_TO_NAME,
+    get_test_config,
+    make_control_plane,
 )
 
 CONTROL_PLANE_CACHE_STORAGE_NAME = f"lfostorage{CONTROL_PLANE_SUBSCRIPTION_ID}"
+
+
+def make_config(**overrides) -> Configuration:
+    """Build a Configuration with default test settings, allowing overrides for specific fields
+    (e.g. monitored_subs, resource_tag_filters, pii_scrubber_rules, control_plane)."""
+    control_plane = overrides.pop("control_plane", None) or make_control_plane()
+    defaults = {
+        "control_plane": control_plane,
+        "monitored_subs": MONITORED_SUBSCRIPTIONS,
+        "datadog_api_key": DATADOG_API_KEY,
+        "datadog_site": DATADOG_SITE,
+    }
+    defaults.update(overrides)
+    return Configuration(**defaults)
 
 
 class TestValidation(TestCase):
@@ -42,14 +56,7 @@ class TestValidation(TestCase):
         self.set_subscription_mock = self.patch("azure_logging_install.validation.set_subscription")
 
         # Create test configuration
-        self.config = Configuration(
-            control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-            monitored_subs=MONITORED_SUBSCRIPTIONS,
-            datadog_api_key=DATADOG_API_KEY,
-            datadog_site=DATADOG_SITE,
-        )
+        self.config = get_test_config()
 
     def patch(self, path: str, **kwargs):
         """Helper method to patch and auto-cleanup"""
@@ -68,7 +75,7 @@ class TestValidation(TestCase):
             validation.validate_user_parameters(self.config)
 
             mock_azure.assert_called_once_with(self.config)
-            mock_datadog.assert_called_once_with(DATADOG_API_KEY, DATADOG_SITE)
+            mock_datadog.assert_called_once_with(self.config.datadog_api_key, self.config.datadog_site)
 
     def test_validate_user_parameters_azure_error(self):
         """Test validation fails when Azure validation fails"""
@@ -109,8 +116,6 @@ class TestValidation(TestCase):
 
     def test_validate_az_cli_not_installed(self):
         """Test Azure CLI validation when CLI is not installed"""
-        from az_shared.errors import AzCliNotInstalledError
-
         with mock_patch(
             "azure_logging_install.validation.check_login",
             side_effect=AzCliNotInstalledError("az: command not found"),
@@ -239,8 +244,6 @@ class TestValidation(TestCase):
 
     def test_validate_datadog_credentials_invalid_api_key(self):
         """Test Datadog credentials validation with invalid API key"""
-        from common.datadog_validation import DatadogValidationError
-
         with mock_patch(
             "azure_logging_install.validation.validate_api_key_v1",
             side_effect=DatadogValidationError("Invalid Datadog API key or site"),
@@ -283,59 +286,69 @@ class TestValidation(TestCase):
             mock_rp_reg.assert_called_once_with(self.config.all_subscriptions)
             mock_res_names.assert_called_once()
 
+    # ===== check_fresh_install Tests ===== #
+
     def test_check_fresh_install_no_existing_lfos(self):
         """Test no existing LFO installations found"""
         with mock_patch("azure_logging_install.validation.check_existing_lfo", return_value={}) as mock_check_existing:
-            result = validation.check_fresh_install(self.config, SUB_ID_TO_NAME)
+            result = validation.check_fresh_install(self.config)
 
             self.assertEqual(result, {})
-            mock_check_existing.assert_called_once_with(self.config.all_subscriptions, SUB_ID_TO_NAME)
+            mock_check_existing.assert_called_once_with(self.config.all_subscriptions)
 
     def test_check_fresh_install_with_existing_lfos(self):
-        """Test existing LFO installations are found"""
-        from azure_logging_install.existing_lfo import LfoMetadata
-
+        """Test existing LFO installations are found and returned"""
+        existing_config_1 = make_config(
+            control_plane=make_control_plane(id="abc123", resource_group="existing-rg", region="eastus"),
+            monitored_subs=[SUB_1_ID, SUB_2_ID],
+        )
+        existing_config_2 = make_config(
+            control_plane=make_control_plane(id="def456", resource_group="another-rg", region="westus"),
+            monitored_subs=[SUB_3_ID],
+        )
         mock_existing_lfos = {
-            "abc123": LfoMetadata(
-                monitored_subs={
-                    SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
-                    SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
-                },
-                control_plane=LfoControlPlane(
-                    CONTROL_PLANE_SUBSCRIPTION_ID,
-                    CONTROL_PLANE_SUBSCRIPTION_NAME,
-                    "existing-rg",
-                    "eastus",
-                ),
-                tag_filter="env:prod,team:infra",
-                pii_rules="rule1:\n  pattern: 'sensitive'\n  replacement: 'test'",
-            ),
-            "def456": LfoMetadata(
-                monitored_subs={
-                    SUB_3_ID: SUB_ID_TO_NAME[SUB_3_ID],
-                },
-                control_plane=LfoControlPlane(
-                    CONTROL_PLANE_SUBSCRIPTION_ID,
-                    CONTROL_PLANE_SUBSCRIPTION_NAME,
-                    "another-rg",
-                    "westus",
-                ),
-                tag_filter="env:prod,team:infra",
-                pii_rules="rule1:\n  pattern: 'sensitive'\n  replacement: 'test'",
-            ),
+            "abc123": existing_config_1,
+            "def456": existing_config_2,
         }
 
-        with (
-            mock_patch(
-                "azure_logging_install.validation.check_existing_lfo",
-                return_value=mock_existing_lfos,
-            ) as mock_check_existing,
-            mock_patch("builtins.input", return_value="y"),
-        ):
-            result = validation.check_fresh_install(self.config, SUB_ID_TO_NAME)
+        with mock_patch(
+            "azure_logging_install.validation.check_existing_lfo",
+            return_value=mock_existing_lfos,
+        ) as mock_check_existing:
+            result = validation.check_fresh_install(self.config)
 
             self.assertEqual(result, mock_existing_lfos)
-            mock_check_existing.assert_called_once_with(self.config.all_subscriptions, SUB_ID_TO_NAME)
+            mock_check_existing.assert_called_once_with(self.config.all_subscriptions)
+
+    # ===== validate_singleton_lfo Tests ===== #
+
+    def test_validate_singleton_lfo_matching_id_does_not_exit(self):
+        """Test validate_singleton_lfo does not exit when the single existing control plane ID matches"""
+        existing_lfos = {self.config.control_plane_id: self.config}
+
+        with mock_patch("azure_logging_install.validation.sys.exit") as mock_exit:
+            validation.validate_singleton_lfo(self.config, existing_lfos)
+            mock_exit.assert_not_called()
+
+    def test_validate_singleton_lfo_mismatched_id_exits(self):
+        """Test validate_singleton_lfo exits when the single existing control plane ID differs"""
+        other_config = make_config(control_plane=make_control_plane(id="different-id"))
+        existing_lfos = {"different-id": other_config}
+
+        with mock_patch("azure_logging_install.validation.sys.exit") as mock_exit:
+            validation.validate_singleton_lfo(self.config, existing_lfos)
+            mock_exit.assert_called_once_with(0)
+
+    def test_validate_singleton_lfo_multiple_existing_exits(self):
+        """Test validate_singleton_lfo exits when more than one existing installation is found"""
+        existing_lfos = {
+            "abc123": make_config(control_plane=make_control_plane(id="abc123")),
+            "def456": make_config(control_plane=make_control_plane(id="def456")),
+        }
+
+        with mock_patch("azure_logging_install.validation.sys.exit") as mock_exit:
+            validation.validate_singleton_lfo(self.config, existing_lfos)
+            mock_exit.assert_called_once_with(0)
 
     # ===== User Configuration Validation Tests ===== #
 
@@ -358,13 +371,7 @@ class TestValidation(TestCase):
 
         for invalid_id, expected_error in invalid_id_to_error_msg.items():
             with self.subTest(invalid_id=invalid_id):
-                config = Configuration(
-                    control_plane_region=CONTROL_PLANE_REGION,
-                    control_plane_sub_id=invalid_id,
-                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-                    monitored_subs=MONITORED_SUBSCRIPTIONS,
-                    datadog_api_key=DATADOG_API_KEY,
-                )
+                config = make_config(control_plane=make_control_plane(subscription_id=invalid_id))
 
                 with self.assertRaises(InputParamValidationError) as context:
                     validation.validate_user_config(config)
@@ -381,39 +388,28 @@ class TestValidation(TestCase):
 
         for valid_id in valid_ids:
             with self.subTest(valid_id=valid_id):
-                config = Configuration(
-                    control_plane_region=CONTROL_PLANE_REGION,
-                    control_plane_sub_id=valid_id,
-                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-                    monitored_subs=MONITORED_SUBSCRIPTIONS,
-                    datadog_api_key=DATADOG_API_KEY,
-                )
+                config = make_config(control_plane=make_control_plane(subscription_id=valid_id))
 
                 validation.validate_user_config(config)
 
     def test_monitored_subscriptions_invalid(self):
         """Test validation fails with invalid monitored subscriptions"""
         invalid_subs_to_error_msg = {
-            "": "Monitored subscriptions cannot be empty",
-            "   ": "Monitored subscriptions cannot be empty",
-            ",,,": "no valid entries",
-            "invalid-uuid,22222222-2222-4222-a222-222222222222": "not a valid Azure subscription ID",
-            "11111111-1111-4111-a111-111111111111,not-a-uuid": "not a valid Azure subscription ID",
-            "sub1iddd-58cc-4372-a567-0e02b2c3d479": "not a valid Azure subscription ID",
-            "12345,67890": "not a valid Azure subscription ID",
-            "gggggggg-1111-4111-a111-111111111111": "not a valid Azure subscription ID",
-            f"{SUB_1_ID},invalid-uuid,{SUB_2_ID}": "not a valid Azure subscription ID",
+            (): "no valid entries",
+            ("",): "no valid entries",
+            ("   ",): "no valid entries",
+            (",", ",", ","): "not a valid Azure subscription ID",
+            ("invalid-uuid", SUB_2_ID): "not a valid Azure subscription ID",
+            (SUB_1_ID, "not-a-uuid"): "not a valid Azure subscription ID",
+            ("sub1iddd-58cc-4372-a567-0e02b2c3d479",): "not a valid Azure subscription ID",
+            ("12345", "67890"): "not a valid Azure subscription ID",
+            ("gggggggg-1111-4111-a111-111111111111",): "not a valid Azure subscription ID",
+            (SUB_1_ID, "invalid-uuid", SUB_2_ID): "not a valid Azure subscription ID",
         }
 
         for invalid_subs, expected_error in invalid_subs_to_error_msg.items():
             with self.subTest(invalid_subs=invalid_subs):
-                config = Configuration(
-                    control_plane_region=CONTROL_PLANE_REGION,
-                    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-                    monitored_subs=invalid_subs,
-                    datadog_api_key=DATADOG_API_KEY,
-                )
+                config = make_config(monitored_subs=list(invalid_subs))
 
                 with self.assertRaises(InputParamValidationError) as context:
                     validation.validate_user_config(config)
@@ -424,21 +420,15 @@ class TestValidation(TestCase):
         """Test validation succeeds with valid monitored subscriptions"""
         valid_subs = [
             MONITORED_SUBSCRIPTIONS,
-            SUB_1_ID,
-            f"{SUB_1_ID},{SUB_2_ID}",
-            f"{SUB_1_ID},{SUB_2_ID},{SUB_3_ID}",
-            f"  {SUB_1_ID}  ,  {SUB_2_ID}  ",  # spaces will get stripped
+            [SUB_1_ID],
+            [SUB_1_ID, SUB_2_ID],
+            [SUB_1_ID, SUB_2_ID, SUB_3_ID],
+            [f"  {SUB_1_ID}  ", f"  {SUB_2_ID}  "],  # spaces will get stripped
         ]
 
         for valid_sub in valid_subs:
             with self.subTest(valid_sub=valid_sub):
-                config = Configuration(
-                    control_plane_region=CONTROL_PLANE_REGION,
-                    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-                    monitored_subs=valid_sub,
-                    datadog_api_key=DATADOG_API_KEY,
-                )
+                config = make_config(monitored_subs=valid_sub)
 
                 validation.validate_user_config(config)
 
@@ -464,14 +454,7 @@ class TestValidation(TestCase):
 
         for invalid_filter, expected_error in invalid_filter_to_error_msg.items():
             with self.subTest(invalid_filter=invalid_filter):
-                config = Configuration(
-                    control_plane_region=CONTROL_PLANE_REGION,
-                    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-                    monitored_subs=MONITORED_SUBSCRIPTIONS,
-                    datadog_api_key=DATADOG_API_KEY,
-                    resource_tag_filters=invalid_filter,
-                )
+                config = make_config(resource_tag_filters=invalid_filter)
 
                 with self.assertRaises(InputParamValidationError) as context:
                     validation.validate_user_config(config)
@@ -498,14 +481,7 @@ class TestValidation(TestCase):
 
         for valid_filter in valid_filters:
             with self.subTest(valid_filter=valid_filter):
-                config = Configuration(
-                    control_plane_region=CONTROL_PLANE_REGION,
-                    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-                    monitored_subs=MONITORED_SUBSCRIPTIONS,
-                    datadog_api_key=DATADOG_API_KEY,
-                    resource_tag_filters=valid_filter,
-                )
+                config = make_config(resource_tag_filters=valid_filter)
 
                 # Should not raise an exception
                 validation.validate_user_config(config)
@@ -523,14 +499,7 @@ class TestValidation(TestCase):
 
         for invalid_rule, expected_error in invalid_rule_to_error_msg.items():
             with self.subTest(invalid_rule=invalid_rule):
-                config = Configuration(
-                    control_plane_region=CONTROL_PLANE_REGION,
-                    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-                    monitored_subs=MONITORED_SUBSCRIPTIONS,
-                    datadog_api_key=DATADOG_API_KEY,
-                    pii_scrubber_rules=invalid_rule,
-                )
+                config = make_config(pii_scrubber_rules=invalid_rule)
 
                 with self.assertRaises(InputParamValidationError) as context:
                     validation.validate_user_config(config)
@@ -551,14 +520,7 @@ class TestValidation(TestCase):
 
         for valid_rule in valid_rules:
             with self.subTest(valid_rule=valid_rule):
-                config = Configuration(
-                    control_plane_region=CONTROL_PLANE_REGION,
-                    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-                    monitored_subs=MONITORED_SUBSCRIPTIONS,
-                    datadog_api_key=DATADOG_API_KEY,
-                    pii_scrubber_rules=valid_rule,
-                )
+                config = make_config(pii_scrubber_rules=valid_rule)
 
                 # Should not raise an exception
                 validation.validate_user_config(config)

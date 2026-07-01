@@ -5,7 +5,6 @@
 import json
 import sys
 import uuid
-from dataclasses import asdict
 
 from az_shared.auth import check_login
 from az_shared.errors import (
@@ -25,7 +24,7 @@ from .constants import (
     REQUIRED_RESOURCE_PROVIDERS,
     RESOURCE_PROVIDER_REGISTERED_STATUS,
 )
-from .existing_lfo import LfoMetadata, check_existing_lfo
+from .existing_lfo import check_existing_lfo
 from .resource_setup import register_missing_resource_providers
 
 
@@ -62,17 +61,17 @@ def validate_az_cli():
     log.debug("Azure CLI authentication verified")
 
 
-def check_fresh_install(config: Configuration, sub_id_to_name: dict[str, str]) -> dict[str, LfoMetadata]:
+def check_fresh_install(config: Configuration) -> dict[str, Configuration]:
     """Validate whether we are doing a fresh log forwarding install."""
-    existing_lfos = check_existing_lfo(config.all_subscriptions, sub_id_to_name)
+    existing_lfos = check_existing_lfo(config.all_subscriptions)
     if existing_lfos:
         log.info("Found existing log forwarding installation(s)")
-        serializable_lfos = {k: asdict(v) for k, v in existing_lfos.items()}
-        log.debug(json.dumps(serializable_lfos, indent=2))
+        serializable_lfos = {k: vars(v) for k, v in existing_lfos.items()}
+        log.debug(json.dumps(serializable_lfos, indent=2, default=lambda o: list(o) if isinstance(o, set) else vars(o)))
     return existing_lfos
 
 
-def validate_singleton_lfo(config: Configuration, existing_lfos: dict[str, LfoMetadata]):
+def validate_singleton_lfo(config: Configuration, existing_lfos: dict[str, Configuration]):
     uninstall_link = "https://docs.datadoghq.com/logs/guide/azure-automated-log-forwarding/#uninstall"
     existing_count = len(existing_lfos)
     if existing_count > 1:
@@ -230,7 +229,7 @@ def validate_user_config(config: Configuration):
     if is_empty_or_whitespace(config.control_plane_region):
         raise InputParamValidationError("Control plane location cannot be empty")
 
-    _validate_monitored_subscriptions(config.monitored_subs)
+    _validate_monitored_subscriptions(config.monitored_subscriptions)
 
     if config.resource_tag_filters:
         _validate_tag_filters(config.resource_tag_filters)
@@ -265,12 +264,9 @@ def _is_valid_azure_subscription_id(subscription_id: str) -> bool:
         return False
 
 
-def _validate_monitored_subscriptions(monitored_subs: str):
-    """Validate that monitored subscriptions is a comma separated list of valid subscription IDs."""
-    if is_empty_or_whitespace(monitored_subs):
-        raise InputParamValidationError("Monitored subscriptions cannot be empty")
-
-    subscription_ids = [sub.strip() for sub in monitored_subs.split(",") if sub.strip()]
+def _validate_monitored_subscriptions(monitored_subs: list[str]):
+    """Validate that monitored subscriptions is a list of valid subscription IDs."""
+    subscription_ids = [sub.strip() for sub in monitored_subs if sub.strip()]
 
     if not subscription_ids:
         raise InputParamValidationError("Monitored subscriptions list contains no valid entries")
