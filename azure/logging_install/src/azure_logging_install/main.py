@@ -185,7 +185,7 @@ def main():
                 subscription_id=args.control_plane_subscription,
                 resource_group=args.control_plane_resource_group,
             ),
-            monitored_subs=args.monitored_subscriptions,
+            monitored_subs=[sub.strip() for sub in args.monitored_subscriptions.split(",") if sub.strip()],
             datadog_api_key=args.datadog_api_key,
             datadog_site=args.datadog_site,
             resource_tag_filters=args.resource_tag_filters,
