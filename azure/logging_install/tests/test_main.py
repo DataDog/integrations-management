@@ -263,7 +263,7 @@ class TestMain(TestCase):
         test_config = get_test_config()
 
         existing_config = get_test_config()
-        existing_lfos = {existing_config.control_plane.id: existing_config}
+        existing_lfos = {existing_config.control_plane_id: existing_config}
 
         with (
             mock_patch("azure_logging_install.main.validate_az_cli") as mock_validate_cli,
@@ -293,7 +293,7 @@ class TestMain(TestCase):
         test_config = get_test_config()
 
         existing_config = get_test_config()
-        existing_lfos = {existing_config.control_plane.id: existing_config}
+        existing_lfos = {existing_config.control_plane_id: existing_config}
 
         with (
             mock_patch("azure_logging_install.main.validate_az_cli"),

@@ -209,7 +209,7 @@ class TestResourceSetup(TestCase):
         self.assertIn("containerapp", cmd_str)
         self.assertIn("job", cmd_str)
         self.assertIn("create", cmd_str)
-        self.assertIn(self.config.control_plane.deployer_job_name, cmd_str)
+        self.assertIn(self.config.deployer_job_name, cmd_str)
 
     def test_create_container_app_job_already_exists(self):
         """Test container app job creation is skipped if job already exists"""
@@ -241,7 +241,7 @@ class TestResourceSetup(TestCase):
             None,  # Third call (configure runtime)
         ]
 
-        resource_setup.create_function_app(self.config, self.config.control_plane.resources_task_name)
+        resource_setup.create_function_app(self.config, self.config.resources_task_name)
 
         # Should call execute 3 times: check existence, create app, configure runtime
         self.assertEqual(self.execute_mock.call_count, 3)
@@ -250,7 +250,7 @@ class TestResourceSetup(TestCase):
         """Test function app creation is skipped and no create/config calls happen if app already exists"""
         self.execute_mock.return_value = "{}"
 
-        resource_setup.create_function_app(self.config, self.config.control_plane.resources_task_name)
+        resource_setup.create_function_app(self.config, self.config.resources_task_name)
 
         self.execute_mock.assert_called_once()
 
@@ -263,7 +263,7 @@ class TestResourceSetup(TestCase):
                 mock_patch("azure_logging_install.resource_setup.os.unlink"):
             mock_temp_file.return_value.__enter__.return_value.name = "/tmp/test.json"
 
-            resource_setup.set_function_app_env_vars(self.config, self.config.control_plane.resources_task_name)
+            resource_setup.set_function_app_env_vars(self.config, self.config.resources_task_name)
 
             settings = mock_json_dump.call_args[0][0]
             self.assertIn("MONITORED_SUBSCRIPTIONS", settings)
@@ -283,7 +283,7 @@ class TestResourceSetup(TestCase):
 
         self.execute_mock.assert_called_once()
         cmd_str = str(self.execute_mock.call_args[0][0])
-        self.assertIn(self.config.control_plane.resources_task_name, cmd_str)
+        self.assertIn(self.config.resources_task_name, cmd_str)
         self.assertIn("MONITORED_SUBSCRIPTIONS", cmd_str)
 
     def test_set_resource_tag_filters(self):
@@ -292,7 +292,7 @@ class TestResourceSetup(TestCase):
 
         self.execute_mock.assert_called_once()
         cmd_str = str(self.execute_mock.call_args[0][0])
-        self.assertIn(self.config.control_plane.resources_task_name, cmd_str)
+        self.assertIn(self.config.resources_task_name, cmd_str)
         self.assertIn("RESOURCE_TAG_FILTERS", cmd_str)
 
     def test_set_pii_scrubber_rules(self):
@@ -301,7 +301,7 @@ class TestResourceSetup(TestCase):
 
         self.execute_mock.assert_called_once()
         cmd_str = str(self.execute_mock.call_args[0][0])
-        self.assertIn(self.config.control_plane.scaling_task_name, cmd_str)
+        self.assertIn(self.config.scaling_task_name, cmd_str)
         self.assertIn("PII_SCRUBBER_RULES", cmd_str)
 
     # ===== Error Handling Tests ===== #
@@ -334,15 +334,15 @@ class TestResourceSetup(TestCase):
     def test_functions_use_configuration_correctly(self):
         """Test that functions properly use Configuration object properties"""
         mock_config = MagicMock()
-        mock_config.control_plane.cache_storage_name = "test-storage"
-        mock_config.control_plane.resource_group = "test-rg"
-        mock_config.control_plane.region = "test-region"
+        mock_config.control_plane_cache_storage_name = "test-storage"
+        mock_config.control_plane_rg = "test-rg"
+        mock_config.control_plane_region = "test-region"
 
         # Test that configuration properties are used
         resource_setup.create_storage_account(
-            mock_config.control_plane.cache_storage_name,
-            mock_config.control_plane.resource_group,
-            mock_config.control_plane.region,
+            mock_config.control_plane_cache_storage_name,
+            mock_config.control_plane_rg,
+            mock_config.control_plane_region,
         )
 
         call_args = self.execute_mock.call_args[0][0]

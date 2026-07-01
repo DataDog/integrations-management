@@ -281,7 +281,7 @@ class TestValidation(TestCase):
         ):
             validation.validate_azure_env(self.config)
 
-            mock_cp_access.assert_called_once_with(self.config.control_plane.subscription_id)
+            mock_cp_access.assert_called_once_with(self.config.control_plane_sub_id)
             mock_mon_access.assert_called_once_with(self.config.monitored_subscriptions)
             mock_rp_reg.assert_called_once_with(self.config.all_subscriptions)
             mock_res_names.assert_called_once()
@@ -324,7 +324,7 @@ class TestValidation(TestCase):
 
     def test_validate_singleton_lfo_matching_id_does_not_exit(self):
         """Test validate_singleton_lfo does not exit when the single existing control plane ID matches"""
-        existing_lfos = {self.config.control_plane.id: self.config}
+        existing_lfos = {self.config.control_plane_id: self.config}
 
         with mock_patch("azure_logging_install.validation.sys.exit") as mock_exit:
             validation.validate_singleton_lfo(self.config, existing_lfos)

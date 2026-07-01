@@ -238,8 +238,8 @@ class TestCheckExistingLfo(TestCase):
 
         existing_config = result[CONTROL_PLANE_ID]
         self.assertIsInstance(existing_config, Configuration)
-        self.assertEqual(existing_config.control_plane.resource_group, CONTROL_PLANE_RESOURCE_GROUP)
-        self.assertEqual(existing_config.control_plane.subscription_id, SUB_1_ID)
+        self.assertEqual(existing_config.control_plane_rg, CONTROL_PLANE_RESOURCE_GROUP)
+        self.assertEqual(existing_config.control_plane_sub_id, SUB_1_ID)
         self.assertEqual(existing_config.monitored_subscriptions, [SUB_1_ID, SUB_2_ID, SUB_3_ID])
         self.assertEqual(existing_config.resource_tag_filters, RESOURCE_TAG_FILTERS)
         self.assertEqual(existing_config.pii_scrubber_rules, PII_SCRUBBER_RULES)
@@ -292,7 +292,7 @@ class TestCheckExistingLfo(TestCase):
 
         config_1 = result[control_plane_1_id]
         self.assertIsInstance(config_1, Configuration)
-        self.assertEqual(config_1.control_plane.resource_group, CONTROL_PLANE_RESOURCE_GROUP)
+        self.assertEqual(config_1.control_plane_rg, CONTROL_PLANE_RESOURCE_GROUP)
         # Expect the rest to be empty since we shortcut on multiple LFOs
         self.assertEqual(config_1.monitored_subscriptions, [])
         self.assertEqual(config_1.resource_tag_filters, "")
@@ -300,7 +300,7 @@ class TestCheckExistingLfo(TestCase):
         self.assertEqual(config_1.datadog_api_key, "")
 
         config_2 = result[control_plane_2_id]
-        self.assertEqual(config_2.control_plane.resource_group, "lfo-rg-2")
+        self.assertEqual(config_2.control_plane_rg, "lfo-rg-2")
         self.assertEqual(config_2.monitored_subscriptions, [])
         self.assertEqual(config_2.resource_tag_filters, "")
         self.assertEqual(config_2.pii_scrubber_rules, "")
@@ -449,7 +449,7 @@ class TestUpdateExistingLfo(TestCase):
 
         # Tag + pii changed (2 changes): full env var update for all task function apps
         self.assertEqual(self.mock_set_env_vars.call_count, 3)
-        for task_name in existing_config.control_plane.task_names:
+        for task_name in existing_config.control_plane_function_app_names:
             self.mock_set_env_vars.assert_any_call(existing_config, task_name)
         self.mock_set_monitored_subs.assert_not_called()
         self.mock_set_tag_filters.assert_not_called()

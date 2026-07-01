@@ -49,9 +49,9 @@ class TestDeploy(TestCase):
         # Verify all components are created in correct order
         self.create_initial_deploy_role_mock.assert_called_once_with(self.config)
         self.create_container_app_environment_mock.assert_called_once_with(
-            self.config.control_plane.container_app_env_name,
-            self.config.control_plane.resource_group,
-            self.config.control_plane.region,
+            self.config.control_plane_env_name,
+            self.config.control_plane_rg,
+            self.config.control_plane_region,
         )
         self.create_container_app_job_mock.assert_called_once_with(self.config)
 
@@ -85,24 +85,24 @@ class TestDeploy(TestCase):
         deploy.deploy_control_plane(self.config)
 
         # Verify subscription is set
-        self.set_subscription_mock.assert_called_once_with(self.config.control_plane.subscription_id)
+        self.set_subscription_mock.assert_called_once_with(self.config.control_plane_sub_id)
 
         # Verify storage account creation and setup
         self.create_storage_account_mock.assert_called_once_with(
-            self.config.control_plane.cache_storage_name,
-            self.config.control_plane.resource_group,
-            self.config.control_plane.region,
+            self.config.control_plane_cache_storage_name,
+            self.config.control_plane_rg,
+            self.config.control_plane_region,
         )
         self.wait_for_storage_account_ready_mock.assert_called_once_with(
-            self.config.control_plane.cache_storage_name, self.config.control_plane.resource_group
+            self.config.control_plane_cache_storage_name, self.config.control_plane_rg
         )
         self.create_blob_container_mock.assert_called_once_with(
-            self.config.control_plane.cache_storage_name,
-            self.config.control_plane.cache_storage_key,
+            self.config.control_plane_cache_storage_name,
+            self.config.control_plane_cache_storage_key,
         )
         self.create_file_share_mock.assert_called_once_with(
-            self.config.control_plane.cache_storage_name,
-            self.config.control_plane.resource_group,
+            self.config.control_plane_cache_storage_name,
+            self.config.control_plane_rg,
         )
 
         # Verify function apps are created
@@ -153,9 +153,9 @@ class TestDeploy(TestCase):
     def test_run_initial_deploy_success(self):
         """Test successful initial deployment trigger"""
         deploy.run_initial_deploy(
-            self.config.control_plane.deployer_job_name,
-            self.config.control_plane.resource_group,
-            self.config.control_plane.subscription_id,
+            self.config.deployer_job_name,
+            self.config.control_plane_rg,
+            self.config.control_plane_sub_id,
         )
 
         # Verify job execution command is called
@@ -166,7 +166,7 @@ class TestDeploy(TestCase):
         self.assertIn("containerapp", cmd_str)
         self.assertIn("job", cmd_str)
         self.assertIn("start", cmd_str)
-        self.assertIn(self.config.control_plane.deployer_job_name, cmd_str)
+        self.assertIn(self.config.deployer_job_name, cmd_str)
 
     def test_run_initial_deploy_failure(self):
         """Test initial deployment handles execution failure"""
@@ -174,9 +174,9 @@ class TestDeploy(TestCase):
 
         with self.assertRaises(RuntimeError):  # The function wraps errors in RuntimeError
             deploy.run_initial_deploy(
-                self.config.control_plane.deployer_job_name,
-                self.config.control_plane.resource_group,
-                self.config.control_plane.subscription_id,
+                self.config.deployer_job_name,
+                self.config.control_plane_rg,
+                self.config.control_plane_sub_id,
             )
 
     # ===== Configuration Integration Tests ===== #
