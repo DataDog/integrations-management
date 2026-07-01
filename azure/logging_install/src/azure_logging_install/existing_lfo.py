@@ -8,6 +8,7 @@ from typing import Final, Optional
 
 from az_shared.execute_cmd import execute
 from az_shared.logs import log, log_header
+from azure.logging_install.src.azure_logging_install.constants import MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_PREFIX, SCALING_TASK_PREFIX
 
 from .az_cmd import AzCmd
 from .configuration import Configuration
@@ -19,14 +20,8 @@ from .resource_setup import (
 )
 from .role_setup import grant_subscriptions_permissions, revoke_subscriptions_permissions
 
-RESOURCES_TASK_PREFIX: Final = "resources-task-"
-SCALING_TASK_PREFIX: Final = "scaling-task-"
-MONITORED_SUBSCRIPTIONS_KEY: Final = "MONITORED_SUBSCRIPTIONS"
-RESOURCE_TAG_FILTERS_KEY: Final = "RESOURCE_TAG_FILTERS"
-PII_SCRUBBER_RULES_KEY: Final = "PII_SCRUBBER_RULES"
 
 UNKNOWN_SUB_NAME_MESSAGE: Final = "Unknown (insufficient Azure permission)"
-
 
 @dataclass(frozen=True)
 class LfoControlPlane:

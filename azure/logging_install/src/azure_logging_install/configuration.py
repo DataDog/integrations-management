@@ -11,8 +11,12 @@ from az_shared.execute_cmd import execute
 from az_shared.logs import log
 
 from .az_cmd import AzCmd
-from .constants import IMAGE_REGISTRY_URL, NIL_UUID, STORAGE_ACCOUNT_KEY_FULL_PERMISSIONS
+from .constants import IMAGE_REGISTRY_URL, NIL_UUID, STORAGE_ACCOUNT_KEY_FULL_PERMISSIONS, RESOURCES_TASK_PREFIX, SCALING_TASK_PREFIX, DIAGNOSTIC_SETTINGS_TASK_FUNCTION_APP_PREFIX, DIAGNOSTIC_SETTINGS_TASK_CONTAINER_APP_JOB_PREFIX, DEPLOYER_TASK_PREFIX, DEPLOYER_IMAGE_FOR_FUNCTION_APPS, DEPLOYER_IMAGE_FOR_CONTAINER_APP_JOBS
 
+
+class ControlPlaneType:
+    FunctionApps = 1
+    ContainerAppJobs = 2
 
 @dataclass
 class Configuration:
@@ -31,8 +35,57 @@ class Configuration:
     pii_scrubber_rules: str = ""
     datadog_telemetry: bool = False
     log_level: str = "INFO"
+    control_plane_type: ControlPlaneType = ControlPlaneType.FunctionApps
 
-    def generate_control_plane_id(self) -> str:
+    def __post_init__(self):
+        """Calculates derived values from user-specified params."""
+
+        self.monitored_subscriptions = [sub.strip() for sub in self.monitored_subs.split(",") if sub.strip()]
+        self.all_subscriptions = {
+            self.control_plane_sub_id,
+            *self.monitored_subscriptions,
+        }
+
+        # Control plane
+        self.control_plane_id = self._generate_control_plane_id()
+        log.info(f"Generated control plane ID: {self.control_plane_id}")
+        self.control_plane_cache_storage_name = f"lfostorage{self.control_plane_id}"
+        self.control_plane_cache_storage_url = f"https://{self.control_plane_cache_storage_name}.blob.core.windows.net"
+        self.control_plane_cache_storage_key = None  # lazy-loaded
+        self.control_plane_sub_scope = f"/subscriptions/{self.control_plane_sub_id}"
+        self.control_plane_rg_scope = f"{self.control_plane_sub_scope}/resourceGroups/{self.control_plane_rg}"
+        self.control_plane_env_name = f"dd-log-forwarder-env-{self.control_plane_id}-{self.control_plane_region}"
+
+        # Deployer
+        self.deployer_job_name = f"{DEPLOYER_TASK_PREFIX}{self.control_plane_id}"
+        self.deployer_image_url = self._get_deployer_image_url()
+        self.container_app_start_role_name = f"ContainerAppStartRole{self.control_plane_id}"
+
+        # Function apps (control plane tasks)
+        self.resources_task_name = f"{RESOURCES_TASK_PREFIX}{self.control_plane_id}"
+        self.scaling_task_name = f"{SCALING_TASK_PREFIX}{self.control_plane_id}"
+        self.diagnostic_settings_task_name = self._get_diagnostic_settings_task_name()
+        self.control_plane_function_app_names = [
+            self.resources_task_name,
+            self.scaling_task_name,
+            self.diagnostic_settings_task_name,
+        ]
+
+    def _get_deployer_image_url(self) -> str:
+        if self.control_plane_type == ControlPlaneType.FunctionApps:
+            return f"{IMAGE_REGISTRY_URL}/{DEPLOYER_IMAGE_FOR_FUNCTION_APPS}"
+        if self.control_plane_type == ControlPlaneType.ContainerAppJobs:
+            return f"{IMAGE_REGISTRY_URL}/{DEPLOYER_IMAGE_FOR_CONTAINER_APP_JOBS}"
+
+
+    def _get_diagnostic_settings_task_name(self) -> str:
+        if self.control_plane_type == ControlPlaneType.FunctionApps:
+            return f"{DIAGNOSTIC_SETTINGS_TASK_FUNCTION_APP_PREFIX}{self.control_plane_id}"
+        if self.control_plane_type == ControlPlaneType.ContainerAppJobs:
+            return f"{DIAGNOSTIC_SETTINGS_TASK_CONTAINER_APP_JOB_PREFIX}{self.control_plane_id}"
+
+
+    def _generate_control_plane_id(self) -> str:
         """Returns a 12-character unique ID based on user input parameters.
         This ID is suffixed on Azure resources we create to identify their relationship to the control plane.
         """
@@ -84,37 +137,3 @@ class Configuration:
     def get_control_plane_cache_conn_string(self) -> str:
         return f"DefaultEndpointsProtocol=https;AccountName={self.control_plane_cache_storage_name};EndpointSuffix=core.windows.net;AccountKey={self.get_control_plane_cache_key()}"
 
-    def __post_init__(self):
-        """Calculates derived values from user-specified params."""
-
-        self.monitored_subscriptions = [sub.strip() for sub in self.monitored_subs.split(",") if sub.strip()]
-        self.all_subscriptions = {
-            self.control_plane_sub_id,
-            *self.monitored_subscriptions,
-        }
-
-        # Control plane
-        self.control_plane_id = self.generate_control_plane_id()
-        log.info(f"Generated control plane ID: {self.control_plane_id}")
-        self.control_plane_cache_storage_name = f"lfostorage{self.control_plane_id}"
-        self.control_plane_cache_storage_url = f"https://{self.control_plane_cache_storage_name}.blob.core.windows.net"
-        self.control_plane_cache_storage_key = None  # lazy-loaded
-        self.control_plane_sub_scope = f"/subscriptions/{self.control_plane_sub_id}"
-        self.control_plane_rg_scope = f"{self.control_plane_sub_scope}/resourceGroups/{self.control_plane_rg}"
-        self.control_plane_env_name = f"dd-log-forwarder-env-{self.control_plane_id}-{self.control_plane_region}"
-
-        # Deployer
-        self.deployer_job_name = f"deployer-task-{self.control_plane_id}"
-        self.deployer_image_url = f"{IMAGE_REGISTRY_URL}/deployer:latest"
-        self.container_app_start_role_name = f"ContainerAppStartRole{self.control_plane_id}"
-
-        # Function apps (control plane tasks)
-        self.app_service_plan_name = f"control-plane-asp-{self.control_plane_id}"
-        self.resources_task_name = f"resources-task-{self.control_plane_id}"
-        self.scaling_task_name = f"scaling-task-{self.control_plane_id}"
-        self.diagnostic_settings_task_name = f"diagnostic-settings-task-{self.control_plane_id}"
-        self.control_plane_function_app_names = [
-            self.resources_task_name,
-            self.scaling_task_name,
-            self.diagnostic_settings_task_name,
-        ]

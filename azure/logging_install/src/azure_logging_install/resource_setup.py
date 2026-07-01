@@ -21,7 +21,7 @@ from az_shared.logs import log
 
 from .az_cmd import AzCmd
 from .configuration import Configuration
-from .constants import CONTROL_PLANE_CACHE, IMAGE_REGISTRY_URL, LFO_PUBLIC_STORAGE_ACCOUNT_URL, MAX_THREAD_POOL_WORKERS
+from .constants import CONTROL_PLANE_CACHE, IMAGE_REGISTRY_URL, LFO_PUBLIC_STORAGE_ACCOUNT_URL, MAX_THREAD_POOL_WORKERS, MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY
 
 # =============================================================================
 # Subscription, Resource Group, Storage Account
@@ -170,8 +170,8 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
     # Task-specific settings
     if function_app_name == config.resources_task_name:
         specific_settings = {
-            "MONITORED_SUBSCRIPTIONS": json.dumps(config.monitored_subscriptions),
-            "RESOURCE_TAG_FILTERS": config.resource_tag_filters,
+            MONITORED_SUBSCRIPTIONS_KEY: json.dumps(config.monitored_subscriptions),
+            RESOURCE_TAG_FILTERS_KEY: config.resource_tag_filters,
         }
     elif function_app_name == config.diagnostic_settings_task_name:
         specific_settings = {
@@ -181,7 +181,7 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
         specific_settings = {
             "RESOURCE_GROUP": config.control_plane_rg,
             "FORWARDER_IMAGE": f"{IMAGE_REGISTRY_URL}/forwarder:latest",
-            "PII_SCRUBBER_RULES": config.pii_scrubber_rules,
+            PII_SCRUBBER_RULES_KEY: config.pii_scrubber_rules,
         }
     else:
         raise FatalError(f"Unknown function app task when configuring app settings: {function_app_name}")
