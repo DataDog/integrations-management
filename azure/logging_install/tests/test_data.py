@@ -5,8 +5,10 @@
 """Shared test data constants for azure's logging_install tests."""
 
 import copy
+import json
+from unittest.mock import patch
 
-from azure_logging_install.configuration import Configuration
+from azure_logging_install.configuration import Configuration, ControlPlane, ControlPlaneType
 
 # Azure env test subscriptions
 SUB_1_ID = "11111111-1111-4111-a111-111111111111"
@@ -19,7 +21,7 @@ CONTROL_PLANE_SUBSCRIPTION_ID = "cccccccc-cccc-4ccc-accc-cccccccccccc"
 CONTROL_PLANE_SUBSCRIPTION_NAME = "Test Control Plane Subscription"
 CONTROL_PLANE_REGION = "eastus"
 CONTROL_PLANE_RESOURCE_GROUP = "test-rg"
-MONITORED_SUBSCRIPTIONS = f"{SUB_1_ID},{SUB_2_ID}"
+MONITORED_SUBSCRIPTIONS = [SUB_1_ID, SUB_2_ID]
 RESOURCE_TAG_FILTERS = "env:prod,team:infra"
 PII_SCRUBBER_RULES = "rule1:\n  pattern: 'sensitive data'\n  replacement: 'test'"
 
@@ -29,6 +31,7 @@ RESOURCE_TASK_NAME = f"resources-task-{CONTROL_PLANE_ID}"
 SCALING_TASK_NAME = f"scaling-task-{CONTROL_PLANE_ID}"
 DIAGNOSTIC_SETTINGS_TASK_NAME = f"diagnostic-settings-task-{CONTROL_PLANE_ID}"
 DEPLOYER_JOB_NAME = f"deployer-task-{CONTROL_PLANE_ID}"
+TEST_STORAGE_KEY = "test-storage-key"
 
 SUB_ID_TO_NAME = {
     CONTROL_PLANE_SUBSCRIPTION_ID: CONTROL_PLANE_SUBSCRIPTION_NAME,
@@ -43,26 +46,36 @@ DATADOG_API_KEY = "test-api-key"
 DATADOG_SITE = "datadoghq.com"
 
 
-TEST_CONFIG = Configuration(
-    control_plane_region=CONTROL_PLANE_REGION,
-    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-    monitored_subs=MONITORED_SUBSCRIPTIONS,
-    datadog_api_key=DATADOG_API_KEY,
-    datadog_site=DATADOG_SITE,
-    resource_tag_filters=RESOURCE_TAG_FILTERS,
-    pii_scrubber_rules=PII_SCRUBBER_RULES,
-    datadog_telemetry=True,
-    log_level="INFO",
-)
+def make_control_plane(
+    id: str = CONTROL_PLANE_ID,
+    region: str = CONTROL_PLANE_REGION,
+    subscription_id: str = CONTROL_PLANE_SUBSCRIPTION_ID,
+    resource_group: str = CONTROL_PLANE_RESOURCE_GROUP,
+    type: ControlPlaneType = ControlPlaneType.FunctionApps,
+) -> ControlPlane:
+    """Construct a ControlPlane for tests, mocking the eager cache-key fetch (`execute`)
+    that ControlPlane.__init__ performs so no real Azure CLI call is made."""
+    mock_keys_response = json.dumps([{"keyName": "key1", "value": TEST_STORAGE_KEY, "permissions": "FULL"}])
+    with patch("azure_logging_install.configuration.execute", return_value=mock_keys_response):
+        return ControlPlane(
+            id=id,
+            region=region,
+            subscription_id=subscription_id,
+            resource_group=resource_group,
+            type=type,
+        )
 
 
-def get_test_config():
-    """Return a copy of TEST_CONFIG so test mutations do not affect other tests."""
-    test_config = copy.copy(TEST_CONFIG)
-    test_config.control_plane_function_app_names = [
-        RESOURCE_TASK_NAME,
-        SCALING_TASK_NAME,
-        DIAGNOSTIC_SETTINGS_TASK_NAME,
-    ]
-    return test_config
+def get_test_config() -> Configuration:
+    """Return a fresh Configuration (with a fresh ControlPlane) for use in tests,
+    so test mutations do not affect other tests."""
+    return Configuration(
+        control_plane=make_control_plane(),
+        monitored_subs=copy.copy(MONITORED_SUBSCRIPTIONS),
+        datadog_api_key=DATADOG_API_KEY,
+        datadog_site=DATADOG_SITE,
+        resource_tag_filters=RESOURCE_TAG_FILTERS,
+        pii_scrubber_rules=PII_SCRUBBER_RULES,
+        datadog_telemetry=True,
+        log_level="INFO",
+    )
