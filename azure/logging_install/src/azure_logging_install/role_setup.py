@@ -188,19 +188,19 @@ def wait_for_role_definition_ready(role_name: str, role_scope: str) -> str:
 
 def create_initial_deploy_role(config: Configuration):
     log.info("Creating identity for initial deployment...")
-    create_initial_deploy_identity(config.control_plane.resource_group, config.control_plane.region)
+    create_initial_deploy_identity(config.control_plane_rg, config.control_plane_region)
 
     log.info("Defining custom ContainerAppStart role...")
-    role_scope = config.control_plane.rg_scope
-    create_custom_container_app_start_role(config.control_plane.container_app_start_role_name, role_scope)
+    role_scope = config.control_plane_rg_scope
+    create_custom_container_app_start_role(config.container_app_start_role_name, role_scope)
 
-    role_id = wait_for_role_definition_ready(config.control_plane.container_app_start_role_name, role_scope)
+    role_id = wait_for_role_definition_ready(config.container_app_start_role_name, role_scope)
 
     log.info("Assigning custom role to identity...")
     assign_custom_role_to_identity(
-        config.control_plane.container_app_start_role_name,
+        config.container_app_start_role_name,
         role_id,
-        config.control_plane.resource_group,
+        config.control_plane_rg,
         role_scope,
     )
 
@@ -280,15 +280,15 @@ def remove_role(scope: str, principal_id: str, role_id: str) -> None:
 def _get_lfo_task_principal_ids(config: Configuration) -> tuple[str, str, str]:
     """Return (resources_task, scaling_task, diagnostic_settings_task) principal IDs for the control plane."""
     resource_principal_id = get_function_app_principal_id(
-        config.control_plane.resource_group, config.control_plane.subscription_id, config.control_plane.resources_task_name
+        config.control_plane_rg, config.control_plane_sub_id, config.resources_task_name
     )
     scaling_principal_id = get_function_app_principal_id(
-        config.control_plane.resource_group, config.control_plane.subscription_id, config.control_plane.scaling_task_name
+        config.control_plane_rg, config.control_plane_sub_id, config.scaling_task_name
     )
     diagnostic_principal_id = get_function_app_principal_id(
-        config.control_plane.resource_group,
-        config.control_plane.subscription_id,
-        config.control_plane.diagnostic_settings_task_name,
+        config.control_plane_rg,
+        config.control_plane_sub_id,
+        config.diagnostic_settings_task_name,
     )
     return resource_principal_id, scaling_principal_id, diagnostic_principal_id
 
@@ -339,40 +339,40 @@ def grant_subscriptions_permissions(config: Configuration, sub_ids: Iterable[str
         set_subscription(sub_id)
         execute(
             AzCmd("group", "create")
-            .param("--name", config.control_plane.resource_group)
-            .param("--location", config.control_plane.region)
+            .param("--name", config.control_plane_rg)
+            .param("--location", config.control_plane_region)
         )
 
         subscription_scope = f"/subscriptions/{sub_id}"
-        resource_group_scope = f"{subscription_scope}/resourceGroups/{config.control_plane.resource_group}"
+        resource_group_scope = f"{subscription_scope}/resourceGroups/{config.control_plane_rg}"
 
         log.info(f"Assigning permissions in subscription: {sub_id}")
         assign_role(
             subscription_scope,
             resource_principal_id,
             MONITORING_READER_ID,
-            config.control_plane.id,
+            config.control_plane_id,
         )
         assign_role(
             resource_group_scope,
             scaling_principal_id,
             SCALING_CONTRIBUTOR_ID,
-            config.control_plane.id,
+            config.control_plane_id,
         )
         assign_role(
             subscription_scope,
             diagnostic_principal_id,
             MONITORING_CONTRIBUTOR_ID,
-            config.control_plane.id,
+            config.control_plane_id,
         )
         assign_role(
             resource_group_scope,
             diagnostic_principal_id,
             STORAGE_READER_AND_DATA_ACCESS_ID,
-            config.control_plane.id,
+            config.control_plane_id,
         )
 
-    set_subscription(config.control_plane.subscription_id)
+    set_subscription(config.control_plane_sub_id)
     log.info("Subscriptions permission setup complete")
 
 
@@ -383,10 +383,10 @@ def revoke_subscriptions_permissions(config: Configuration, sub_ids: Iterable[st
 
     for sub_id in sub_ids:
         subscription_scope = f"/subscriptions/{sub_id}"
-        resource_group_scope = f"{subscription_scope}/resourceGroups/{config.control_plane.resource_group}"
+        resource_group_scope = f"{subscription_scope}/resourceGroups/{config.control_plane_rg}"
 
         log.info(
-            f"Revoking permissions and deleting resource group {config.control_plane.resource_group} in subscription: {sub_id}"
+            f"Revoking permissions and deleting resource group {config.control_plane_rg} in subscription: {sub_id}"
         )
         for scope, principal_id, role_id in [
             (subscription_scope, resource_principal_id, MONITORING_READER_ID),
@@ -399,7 +399,7 @@ def revoke_subscriptions_permissions(config: Configuration, sub_ids: Iterable[st
         try:
             execute(
                 AzCmd("group", "delete")
-                .param("--name", config.control_plane.resource_group)
+                .param("--name", config.control_plane_rg)
                 .param("--subscription", sub_id)
                 .flag("--yes")
                 .flag("--no-wait")
@@ -413,7 +413,7 @@ def revoke_subscriptions_permissions(config: Configuration, sub_ids: Iterable[st
             else:
                 raise
 
-    set_subscription(config.control_plane.subscription_id)
+    set_subscription(config.control_plane_sub_id)
     log.info("Revoke and resource group deletion complete")
 
 
@@ -422,12 +422,12 @@ def grant_permissions(config: Configuration):
     log.info("Setting up permissions for control plane and monitored subscriptions...")
 
     log.info("Assigning Website Contributor role to deployer container app job...")
-    deployer_principal_id = get_container_app_job_principal_id(config.control_plane.resource_group, config.control_plane.deployer_job_name)
+    deployer_principal_id = get_container_app_job_principal_id(config.control_plane_rg, config.deployer_job_name)
     assign_role(
-        config.control_plane.rg_scope,
+        config.control_plane_rg_scope,
         deployer_principal_id,
         WEBSITE_CONTRIBUTOR_ID,
-        config.control_plane.id,
+        config.control_plane_id,
     )
 
     grant_subscriptions_permissions(config, config.all_subscriptions)

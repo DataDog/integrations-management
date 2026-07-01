@@ -183,7 +183,7 @@ def update_existing_lfo(new_lfo_config: Configuration, existing_lfo_config: Conf
 
     # If two or more changes are detected, update all settings in one call. Otherwise, only update the changed setting.
     if change_count >= 2:
-        for function_app_name in existing_lfo_config.control_plane.task_names:
+        for function_app_name in existing_lfo_config.control_plane_function_app_names:
             log.info(f"Updating settings for function app {function_app_name}")
             set_function_app_env_vars(existing_lfo_config, function_app_name)
     elif tag_filter_changed:

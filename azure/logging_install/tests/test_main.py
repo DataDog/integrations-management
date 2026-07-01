@@ -152,14 +152,14 @@ class TestMain(TestCase):
         self.configuration_mock.assert_called_once()
         self.validate_user_parameters_mock.assert_called_once_with(mock_config)
         self.create_resource_group_mock.assert_called_once_with(
-            mock_config.control_plane.resource_group, mock_config.control_plane.region
+            mock_config.control_plane_rg, mock_config.control_plane_region
         )
         self.grant_permissions_mock.assert_called_once_with(mock_config)
         self.deploy_control_plane_mock.assert_called_once_with(mock_config)
         self.run_initial_deploy_mock.assert_called_once_with(
-            mock_config.control_plane.deployer_job_name,
-            mock_config.control_plane.resource_group,
-            mock_config.control_plane.subscription_id,
+            mock_config.deployer_job_name,
+            mock_config.control_plane_rg,
+            mock_config.control_plane_sub_id,
         )
 
     def test_main_function_splits_monitored_subscriptions(self):
@@ -203,10 +203,10 @@ class TestMain(TestCase):
     def test_create_new_lfo_success(self):
         """Test successful creation of new LFO installation"""
         mock_config = MagicMock()
-        mock_config.control_plane.subscription_id = CONTROL_PLANE_SUBSCRIPTION_ID
-        mock_config.control_plane.resource_group = CONTROL_PLANE_RESOURCE_GROUP
-        mock_config.control_plane.region = CONTROL_PLANE_REGION
-        mock_config.control_plane.deployer_job_name = DEPLOYER_JOB_NAME
+        mock_config.control_plane_sub_id = CONTROL_PLANE_SUBSCRIPTION_ID
+        mock_config.control_plane_rg = CONTROL_PLANE_RESOURCE_GROUP
+        mock_config.control_plane_region = CONTROL_PLANE_REGION
+        mock_config.deployer_job_name = DEPLOYER_JOB_NAME
 
         main.create_new_lfo(mock_config)
 

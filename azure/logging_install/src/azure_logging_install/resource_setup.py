@@ -116,7 +116,7 @@ def create_function_app(config: Configuration, name: str):
     """Create a function app for a control plane task and configure function app runtime"""
     try:
         log.info(f"Checking if Function App '{name}' already exists...")
-        execute(AzCmd("functionapp", "show").param("--name", name).param("--resource-group", config.control_plane.resource_group))
+        execute(AzCmd("functionapp", "show").param("--name", name).param("--resource-group", config.control_plane_rg))
         log.info(f"Function App '{name}' already exists - skipping creation and updating configuration")
         function_app_exists = True
     except ResourceNotFoundError:
@@ -129,13 +129,13 @@ def create_function_app(config: Configuration, name: str):
         log.info(f"Creating Function App {name}")
         execute(
             AzCmd("functionapp", "create")
-            .param("--resource-group", config.control_plane.resource_group)
-            .param("--consumption-plan-location", config.control_plane.region)
+            .param("--resource-group", config.control_plane_rg)
+            .param("--consumption-plan-location", config.control_plane_region)
             .param("--runtime", "python")
             .param("--functions-version", "4")
             .param("--os-type", "Linux")
             .param("--name", name)
-            .param("--storage-account", config.control_plane.cache_storage_name)
+            .param("--storage-account", config.control_plane_cache_storage_name)
             .flag("--assign-identity")
             .flag("--https-only")
         )
@@ -144,7 +144,7 @@ def create_function_app(config: Configuration, name: str):
         execute(
             AzCmd("functionapp", "config set")
             .param("--name", name)
-            .param("--resource-group", config.control_plane.resource_group)
+            .param("--resource-group", config.control_plane_rg)
             .param("--linux-fx-version", shlex.quote("Python|3.11"))
         )
 
@@ -154,32 +154,32 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
     log.info(f"Configuring app settings for function app {function_app_name}")
 
     common_settings = {
-        "AzureWebJobsStorage": config.control_plane.cache_conn_string,
+        "AzureWebJobsStorage": config.get_control_plane_cache_conn_string(),
         "FUNCTIONS_EXTENSION_VERSION": "~4",
         "FUNCTIONS_WORKER_RUNTIME": "python",
-        "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING": config.control_plane.cache_conn_string,
+        "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING": config.get_control_plane_cache_conn_string(),
         "AzureWebJobsFeatureFlags": "EnableWorkerIndexing",
         DD_API_KEY_KEY: config.datadog_api_key,
         DD_SITE_KEY: config.datadog_site,
         DD_TELEMETRY_KEY: "true" if config.datadog_telemetry else "false",
-        "CONTROL_PLANE_ID": config.control_plane.id,
-        "CONTROL_PLANE_REGION": config.control_plane.region,
+        "CONTROL_PLANE_ID": config.control_plane_id,
+        "CONTROL_PLANE_REGION": config.control_plane_region,
         "LOG_LEVEL": config.log_level,
     }
 
     # Task-specific settings
-    if function_app_name == config.control_plane.resources_task_name:
+    if function_app_name == config.resources_task_name:
         specific_settings = {
             MONITORED_SUBSCRIPTIONS_KEY: json.dumps(config.monitored_subscriptions),
             RESOURCE_TAG_FILTERS_KEY: config.resource_tag_filters,
         }
-    elif function_app_name == config.control_plane.diagnostic_settings_task_name:
+    elif function_app_name == config.diagnostic_settings_task_name:
         specific_settings = {
-            "RESOURCE_GROUP": config.control_plane.resource_group,
+            "RESOURCE_GROUP": config.control_plane_rg,
         }
-    elif function_app_name == config.control_plane.scaling_task_name:
+    elif function_app_name == config.scaling_task_name:
         specific_settings = {
-            "RESOURCE_GROUP": config.control_plane.resource_group,
+            "RESOURCE_GROUP": config.control_plane_rg,
             "FORWARDER_IMAGE": f"{IMAGE_REGISTRY_URL}/forwarder:latest",
             PII_SCRUBBER_RULES_KEY: config.pii_scrubber_rules,
         }
@@ -198,7 +198,7 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
         execute(
             AzCmd("functionapp", "config appsettings set")
             .param("--name", function_app_name)
-            .param("--resource-group", config.control_plane.resource_group)
+            .param("--resource-group", config.control_plane_rg)
             .param("--settings", f"@{tmpfile_path}")
         )
     finally:
@@ -207,37 +207,37 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
 
 def set_monitored_subscriptions(config: Configuration) -> None:
     """Update only MONITORED_SUBSCRIPTIONS on the resources-task function app."""
-    log.info(f"Updating MONITORED_SUBSCRIPTIONS for function app {config.control_plane.resources_task_name}")
+    log.info(f"Updating MONITORED_SUBSCRIPTIONS for function app {config.resources_task_name}")
     monitored_json = json.dumps(config.monitored_subscriptions)
     execute(
         AzCmd("functionapp", "config appsettings set")
-        .param("--subscription", config.control_plane.subscription_id)
-        .param("--name", config.control_plane.resources_task_name)
-        .param("--resource-group", config.control_plane.resource_group)
+        .param("--subscription", config.control_plane_sub_id)
+        .param("--name", config.resources_task_name)
+        .param("--resource-group", config.control_plane_rg)
         .param("--settings", shlex.quote(f"MONITORED_SUBSCRIPTIONS={monitored_json}"))
     )
 
 
 def set_resource_tag_filters(config: Configuration) -> None:
     """Update only RESOURCE_TAG_FILTERS on the resources-task function app."""
-    log.info(f"Updating RESOURCE_TAG_FILTERS for function app {config.control_plane.resources_task_name}")
+    log.info(f"Updating RESOURCE_TAG_FILTERS for function app {config.resources_task_name}")
     execute(
         AzCmd("functionapp", "config appsettings set")
-        .param("--subscription", config.control_plane.subscription_id)
-        .param("--name", config.control_plane.resources_task_name)
-        .param("--resource-group", config.control_plane.resource_group)
+        .param("--subscription", config.control_plane_sub_id)
+        .param("--name", config.resources_task_name)
+        .param("--resource-group", config.control_plane_rg)
         .param("--settings", shlex.quote(f"RESOURCE_TAG_FILTERS={config.resource_tag_filters}"))
     )
 
 
 def set_pii_scrubber_rules(config: Configuration) -> None:
     """Update only PII_SCRUBBER_RULES on the scaling-task function app."""
-    log.info(f"Updating PII_SCRUBBER_RULES for function app {config.control_plane.scaling_task_name}")
+    log.info(f"Updating PII_SCRUBBER_RULES for function app {config.scaling_task_name}")
     execute(
         AzCmd("functionapp", "config appsettings set")
-        .param("--subscription", config.control_plane.subscription_id)
-        .param("--name", config.control_plane.scaling_task_name)
-        .param("--resource-group", config.control_plane.resource_group)
+        .param("--subscription", config.control_plane_sub_id)
+        .param("--name", config.scaling_task_name)
+        .param("--resource-group", config.control_plane_rg)
         .param("--settings", shlex.quote(f"PII_SCRUBBER_RULES={config.pii_scrubber_rules}"))
     )
 
@@ -246,7 +246,7 @@ def create_function_apps(config: Configuration):
     """Create function apps for LFO Resources Task, Scaling Task, and Diagnostic Settings Task"""
 
     log.info("Creating Function Apps...")
-    for function_app_name in config.control_plane.task_names:
+    for function_app_name in config.control_plane_function_app_names:
         create_function_app(config, function_app_name)
         set_function_app_env_vars(config, function_app_name)
 
@@ -291,25 +291,25 @@ def create_container_app_job(config: Configuration):
     """Create the Container App job for the deployer if it does not exist"""
 
     try:
-        log.info(f"Checking if Container App job '{config.control_plane.deployer_job_name}' already exists...")
+        log.info(f"Checking if Container App job '{config.deployer_job_name}' already exists...")
         execute(
             AzCmd("containerapp", "job show")
-            .param("--name", config.control_plane.deployer_job_name)
-            .param("--resource-group", config.control_plane.resource_group)
+            .param("--name", config.deployer_job_name)
+            .param("--resource-group", config.control_plane_rg)
         )
-        log.info(f"Container App job '{config.control_plane.deployer_job_name}' already exists - reusing existing job")
+        log.info(f"Container App job '{config.deployer_job_name}' already exists - reusing existing job")
         return
     except ResourceNotFoundError:
-        log.info(f"Container App job '{config.control_plane.deployer_job_name}' not found - creating new job")
+        log.info(f"Container App job '{config.deployer_job_name}' not found - creating new job")
 
-    log.info(f"Creating Container App job {config.control_plane.deployer_job_name}")
+    log.info(f"Creating Container App job {config.deployer_job_name}")
 
     env_vars = [
         "AzureWebJobsStorage=secretref:connection-string",
-        f"SUBSCRIPTION_ID={config.control_plane.subscription_id}",
-        f"RESOURCE_GROUP={config.control_plane.resource_group}",
-        f"CONTROL_PLANE_ID={config.control_plane.id}",
-        f"CONTROL_PLANE_REGION={config.control_plane.region}",
+        f"SUBSCRIPTION_ID={config.control_plane_sub_id}",
+        f"RESOURCE_GROUP={config.control_plane_rg}",
+        f"CONTROL_PLANE_ID={config.control_plane_id}",
+        f"CONTROL_PLANE_REGION={config.control_plane_region}",
         f"{DD_API_KEY_KEY}=secretref:dd-api-key",
         f"{DD_SITE_KEY}={config.datadog_site}",
         f"{DD_TELEMETRY_KEY}={'true' if config.datadog_telemetry else 'false'}",
@@ -318,20 +318,20 @@ def create_container_app_job(config: Configuration):
     ]
 
     secrets = [
-        shlex.quote(f"connection-string={config.control_plane.cache_conn_string}"),
+        shlex.quote(f"connection-string={config.get_control_plane_cache_conn_string()}"),
         shlex.quote(f"dd-api-key={config.datadog_api_key}"),
     ]
 
     execute(
         AzCmd("containerapp", "job create")
-        .param("--name", config.control_plane.deployer_job_name)
-        .param("--resource-group", config.control_plane.resource_group)
-        .param("--environment", config.control_plane.container_app_env_name)
+        .param("--name", config.deployer_job_name)
+        .param("--resource-group", config.control_plane_rg)
+        .param("--environment", config.control_plane_env_name)
         .param("--replica-timeout", "1800")
         .param("--replica-retry-limit", "1")
         .param("--trigger-type", "Schedule")
         .param("--cron-expression", shlex.quote("*/30 * * * *"))
-        .param("--image", config.control_plane.deployer_image_url)
+        .param("--image", config.deployer_image_url)
         .param("--cpu", "0.5")
         .param("--memory", "1Gi")
         .param("--parallelism", "1")

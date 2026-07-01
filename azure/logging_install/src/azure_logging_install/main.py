@@ -112,8 +112,8 @@ def create_new_lfo(config: Configuration):
     """Create a new LFO for the given configuration"""
 
     log_header("STEP 2: Creating control plane resource group...")
-    set_subscription(config.control_plane.subscription_id)
-    create_resource_group(config.control_plane.resource_group, config.control_plane.region)
+    set_subscription(config.control_plane_sub_id)
+    create_resource_group(config.control_plane_rg, config.control_plane_region)
     log.info("Control plane resource group created")
 
     log_header("STEP 3: Deploying control plane infrastructure...")
@@ -125,9 +125,9 @@ def create_new_lfo(config: Configuration):
 
     log_header("STEP 5: Triggering initial deploy...")
     run_initial_deploy(
-        config.control_plane.deployer_job_name,
-        config.control_plane.resource_group,
-        config.control_plane.subscription_id,
+        config.deployer_job_name,
+        config.control_plane_rg,
+        config.control_plane_sub_id,
     )
     log.info("Initial deployment triggered")
 

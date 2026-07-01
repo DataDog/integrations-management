@@ -185,12 +185,12 @@ class TestDeploy(TestCase):
         """Test that deploy functions correctly use configuration properties"""
         # Create a mock config with specific properties
         mock_config = MagicMock()
-        mock_config.control_plane.subscription_id = "test-sub-123"
-        mock_config.control_plane.cache_storage_name = "teststorage123"
-        mock_config.control_plane.resource_group = "test-rg-456"
-        mock_config.control_plane.region = "westus2"
-        mock_config.control_plane.container_app_env_name = "test-env-789"
-        mock_config.control_plane.deployer_job_name = "test-job-abc"
+        mock_config.control_plane_sub_id = "test-sub-123"
+        mock_config.control_plane_cache_storage_name = "teststorage123"
+        mock_config.control_plane_rg = "test-rg-456"
+        mock_config.control_plane_region = "westus2"
+        mock_config.control_plane_env_name = "test-env-789"
+        mock_config.deployer_job_name = "test-job-abc"
 
         # Test control plane deployment
         deploy.deploy_control_plane(mock_config)

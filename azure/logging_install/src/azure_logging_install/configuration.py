@@ -72,6 +72,82 @@ class Configuration:
         self.datadog_telemetry = datadog_telemetry
         self.log_level = log_level
 
+    # Alias properties preserving the pre-refactor flat attribute names, delegating to self.control_plane.
+
+    @property
+    def control_plane_id(self) -> str:
+        return self.control_plane.id
+
+    @property
+    def control_plane_region(self) -> str:
+        return self.control_plane.region
+
+    @property
+    def control_plane_sub_id(self) -> str:
+        return self.control_plane.subscription_id
+
+    @property
+    def control_plane_rg(self) -> str:
+        return self.control_plane.resource_group
+
+    @property
+    def control_plane_cache_storage_name(self) -> str:
+        return self.control_plane.cache_storage_name
+
+    @property
+    def control_plane_cache_storage_url(self) -> str:
+        return self.control_plane.cache_storage_url
+
+    @property
+    def control_plane_cache_storage_key(self) -> str:
+        return self.control_plane.cache_storage_key
+
+    @property
+    def control_plane_sub_scope(self) -> str:
+        return self.control_plane.sub_scope
+
+    @property
+    def control_plane_rg_scope(self) -> str:
+        return self.control_plane.rg_scope
+
+    @property
+    def control_plane_env_name(self) -> str:
+        return self.control_plane.container_app_env_name
+
+    @property
+    def deployer_job_name(self) -> str:
+        return self.control_plane.deployer_job_name
+
+    @property
+    def deployer_image_url(self) -> str:
+        return self.control_plane.deployer_image_url
+
+    @property
+    def container_app_start_role_name(self) -> str:
+        return self.control_plane.container_app_start_role_name
+
+    @property
+    def resources_task_name(self) -> str:
+        return self.control_plane.resources_task_name
+
+    @property
+    def scaling_task_name(self) -> str:
+        return self.control_plane.scaling_task_name
+
+    @property
+    def diagnostic_settings_task_name(self) -> str:
+        return self.control_plane.diagnostic_settings_task_name
+
+    @property
+    def control_plane_function_app_names(self) -> list[str]:
+        return self.control_plane.task_names
+
+    def get_control_plane_cache_key(self) -> str:
+        return self.control_plane.cache_storage_key
+
+    def get_control_plane_cache_conn_string(self) -> str:
+        return self.control_plane.cache_conn_string
+
 
 def _get_control_plane_cache_key(control_plane_cache_storage_name: str, control_plane_rg: str) -> str:
     """Returns the storage account key for the control plane cache storage account."""
