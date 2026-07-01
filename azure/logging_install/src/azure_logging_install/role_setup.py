@@ -372,7 +372,7 @@ def grant_subscriptions_permissions(config: Configuration, sub_ids: Iterable[str
             config.control_plane.id,
         )
 
-    set_subscription(config.control_plane.id)
+    set_subscription(config.control_plane.subscription_id)
     log.info("Subscriptions permission setup complete")
 
 

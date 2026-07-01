@@ -4,6 +4,7 @@
 
 import json
 import uuid
+from enum import IntEnum
 
 from az_shared.errors import FatalError
 from az_shared.execute_cmd import execute
@@ -12,7 +13,8 @@ from az_shared.logs import log
 from .az_cmd import AzCmd
 from .constants import IMAGE_REGISTRY_URL, NIL_UUID, STORAGE_ACCOUNT_KEY_FULL_PERMISSIONS, RESOURCES_TASK_PREFIX, SCALING_TASK_PREFIX, DIAGNOSTIC_SETTINGS_TASK_FUNCTION_APP_PREFIX, DIAGNOSTIC_SETTINGS_TASK_CONTAINER_APP_JOB_PREFIX, DEPLOYER_TASK_PREFIX, DEPLOYER_IMAGE_FOR_FUNCTION_APPS, DEPLOYER_IMAGE_FOR_CONTAINER_APP_JOBS
 
-class ControlPlaneType:
+
+class ControlPlaneType(IntEnum):
     FunctionApps = 1
     ContainerAppJobs = 2
 
@@ -30,7 +32,7 @@ class ControlPlane:
         self.cache_storage_name = f"lfostorage{self.id}"
         self.cache_storage_url = f"https://{self.cache_storage_name}.blob.core.windows.net"
         self.cache_storage_key = _get_control_plane_cache_key(self.cache_storage_name, self.resource_group)
-        self.cache_conn_string = f"DefaultEndpointsProtocol=https;AccountName={self.cache_storage_name};EndpointSuffix=core.windows.net;AccountKey={self.cache_storage_key()}"
+        self.cache_conn_string = f"DefaultEndpointsProtocol=https;AccountName={self.cache_storage_name};EndpointSuffix=core.windows.net;AccountKey={self.cache_storage_key}"
        
         self.sub_scope = f"/subscriptions/{self.subscription_id}"
         self.rg_scope = f"{self.sub_scope}/resourceGroups/{self.resource_group}"
@@ -39,7 +41,7 @@ class ControlPlane:
 
         # Deployer
         self.deployer_job_name = f"{DEPLOYER_TASK_PREFIX}{self.id}"
-        self.deployer_image_url = _get_deployer_image_url()
+        self.deployer_image_url = _get_deployer_image_url(self.type)
         self.container_app_start_role_name = f"ContainerAppStartRole{self.id}"
 
         # Control Plane Tasks
@@ -59,7 +61,6 @@ class Configuration:
     def __init__(self, control_plane: ControlPlane, monitored_subs: list[str], datadog_api_key: str, datadog_site: str = "datadoghq.com", resource_tag_filters: str = "", pii_scrubber_rules: str = "", datadog_telemetry: bool = False, log_level: str = "INFO"):
         self.control_plane = control_plane
         self.datadog_api_key = datadog_api_key
-        # TODO split and strip?
         self.monitored_subscriptions = monitored_subs
         self.all_subscriptions = {
             control_plane.subscription_id,

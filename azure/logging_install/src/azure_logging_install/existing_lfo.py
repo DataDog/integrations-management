@@ -7,10 +7,19 @@ from typing import Optional
 
 from az_shared.execute_cmd import execute
 from az_shared.logs import log, log_header
-from azure.logging_install.src.azure_logging_install.constants import DD_API_KEY_KEY, DD_SITE_KEY, DD_TELEMETRY_KEY, MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_PREFIX, SCALING_TASK_PREFIX
 
 from .az_cmd import AzCmd
 from .configuration import Configuration, ControlPlane, ControlPlaneType
+from .constants import (
+    DD_API_KEY_KEY,
+    DD_SITE_KEY,
+    DD_TELEMETRY_KEY,
+    MONITORED_SUBSCRIPTIONS_KEY,
+    PII_SCRUBBER_RULES_KEY,
+    RESOURCE_TAG_FILTERS_KEY,
+    RESOURCES_TASK_PREFIX,
+    SCALING_TASK_PREFIX,
+)
 from .resource_setup import (
     set_function_app_env_vars,
     set_monitored_subscriptions,
@@ -63,13 +72,13 @@ def find_existing_lfo_control_planes(subscriptions: Optional[set[str]] = None) -
     return existing_control_planes
 
 
-def query_function_app_env_vars(config: Configuration, resource_task_name: str) -> dict[str, str]:
+def query_function_app_env_vars(control_plane: ControlPlane, resource_task_name: str) -> dict[str, str]:
     """Query all environment variables for a function app and return as a dictionary."""
     env_vars_list = execute(
         AzCmd("functionapp", "config appsettings list")
-        .param("--subscription", config.control_plane.subscription_id)
+        .param("--subscription", control_plane.subscription_id)
         .param("--name", resource_task_name)
-        .param("--resource-group", config.control_plane.resource_group)
+        .param("--resource-group", control_plane.resource_group)
         .param("--output", "json")
     )
 
