@@ -19,8 +19,6 @@ class ControlPlaneType(IntEnum):
     ContainerAppJobs = 2
 
 class ControlPlane:
-    # TODO description
-
     def __init__(self, id: str, region: str, subscription_id: str, resource_group: str, type: ControlPlaneType = ControlPlaneType.FunctionApps):
         self.id = id
         self.region = region
@@ -56,8 +54,6 @@ class ControlPlane:
 
 
 class Configuration:
-    # TODO description
-
     def __init__(self, control_plane: ControlPlane, monitored_subs: list[str], datadog_api_key: str, datadog_site: str = "datadoghq.com", resource_tag_filters: str = "", pii_scrubber_rules: str = "", datadog_telemetry: bool = False, log_level: str = "INFO"):
         self.control_plane = control_plane
         self.datadog_api_key = datadog_api_key
