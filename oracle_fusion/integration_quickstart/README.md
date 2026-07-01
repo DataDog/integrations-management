@@ -27,7 +27,7 @@ assigns the required Fusion role, and grants EPM Service Administrator access.
 | `--epm-base-url URL` | EPM environment base URL (required for EPM fresh onboarding; optional with `--account-name` if already set on account) |
 | `--fusion-admin-username USER` | Fusion admin username (required for Fusion; not used with `--account-name`) |
 | `--fusion-admin-password PASS` | Fusion admin password (required for Fusion; not used with `--account-name`; not stored) |
-| `--user-email EMAIL` | Email address to attach to the created integration user. Only include if required by legacy identity domain. |
+| `--user-email EMAIL` | Email address to attach to the created integration user. |
 | `--account-name NAME` | Name of an existing Datadog Fusion account to add EPM to. Requires `--fusion-app-id` and `--epm-app-id`. Cannot be used with `--identity-domain-url`, `--fusion-base-url`, `--fusion-admin-username`, `--fusion-admin-password`, or `--user-email`. |
 
 ## Environment Variables
