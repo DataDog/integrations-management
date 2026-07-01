@@ -55,8 +55,8 @@ def find_existing_lfo_control_planes(subscriptions: Optional[set[str]] = None) -
         control_plane_id = resources_func_app["name"].split("-")[-1]
         existing_control_planes[control_plane_id] = ControlPlane(
             id=control_plane_id,
-            region= resources_func_app["location"],
-            subscription=subscription_id,
+            region=resources_func_app["location"],
+            subscription_id=subscription_id,
             resource_group=resources_func_app["resourceGroup"],
             type=ControlPlaneType.FunctionApps,
         )
@@ -91,7 +91,11 @@ def check_existing_lfo(subscriptions: set[str]) -> dict[str, Configuration]:
     # if there is more than one, just return some LFO stubs since we won't be modifying them
     if len(control_planes) > 1:
         return {
-            control_plane_id: Configuration(control_plane, {}, "", "")
+            control_plane_id: Configuration(
+                control_plane=control_plane, 
+                monitored_subs=[], 
+                datadog_api_key=""
+            )
             for control_plane_id, control_plane in control_planes
         }
     if len(control_planes) <= 0:
@@ -115,14 +119,17 @@ def check_existing_lfo(subscriptions: set[str]) -> dict[str, Configuration]:
         log.error(f"Error: {e}")
         raise
 
+    tag_filters = resource_task_env_vars.get(RESOURCE_TAG_FILTERS_KEY, "")
+    pii_rules = scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
+
     return {
         control_plane_id: Configuration(
             control_plane=control_plane, 
             monitored_subs=monitored_sub_ids,
             datadog_api_key=resource_task_env_vars.get(DD_API_KEY_KEY, ""),
             datadog_site=resource_task_env_vars.get(DD_SITE_KEY, ""),
-            resource_tag_filters=resource_task_env_vars.get(RESOURCE_TAG_FILTERS_KEY, ""),
-            pii_scrubber_rules=scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, ""),
+            resource_tag_filters=tag_filters,
+            pii_scrubber_rules=pii_rules,
             datadog_telemetry=resource_task_env_vars.get(DD_TELEMETRY_KEY, False)
         )
     }

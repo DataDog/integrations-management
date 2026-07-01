@@ -424,7 +424,7 @@ def grant_permissions(config: Configuration):
     log.info("Assigning Website Contributor role to deployer container app job...")
     deployer_principal_id = get_container_app_job_principal_id(config.control_plane.resource_group, config.control_plane.deployer_job_name)
     assign_role(
-        config.control_plane.resource_group,
+        config.control_plane.rg_scope,
         deployer_principal_id,
         WEBSITE_CONTRIBUTOR_ID,
         config.control_plane.id,

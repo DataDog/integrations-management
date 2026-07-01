@@ -227,7 +227,7 @@ def validate_user_config(config: Configuration):
     if is_empty_or_whitespace(config.control_plane.resource_group):
         raise InputParamValidationError("Control plane resource group cannot be empty")
 
-    if is_empty_or_whitespace(config.control_plane.resource_group):
+    if is_empty_or_whitespace(config.control_plane.region):
         raise InputParamValidationError("Control plane location cannot be empty")
 
     _validate_monitored_subscriptions(config.monitored_subscriptions)
