@@ -14,7 +14,7 @@ from az_shared.errors import (
     InputParamValidationError,
 )
 from azure_logging_install import validation
-from azure_logging_install.configuration import Configuration
+from azure_logging_install.configuration import Configuration, ControlPlaneType
 from azure_logging_install.constants import REQUIRED_RESOURCE_PROVIDERS
 from azure_logging_install.existing_lfo import LfoControlPlane
 
@@ -306,6 +306,7 @@ class TestValidation(TestCase):
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
                     "existing-rg",
                     "eastus",
+                    ControlPlaneType.FunctionApps,
                 ),
                 tag_filter="env:prod,team:infra",
                 pii_rules="rule1:\n  pattern: 'sensitive'\n  replacement: 'test'",
@@ -319,6 +320,7 @@ class TestValidation(TestCase):
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
                     "another-rg",
                     "westus",
+                    ControlPlaneType.ContainerAppJobs,
                 ),
                 tag_filter="env:prod,team:infra",
                 pii_rules="rule1:\n  pattern: 'sensitive'\n  replacement: 'test'",
