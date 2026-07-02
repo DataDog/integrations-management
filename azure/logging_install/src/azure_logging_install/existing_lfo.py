@@ -4,7 +4,7 @@
 
 from dataclasses import dataclass
 from json import JSONDecodeError, loads
-from typing import Final, Optional
+from typing import Optional
 
 from az_shared.execute_cmd import execute
 from az_shared.logs import log, log_header
@@ -18,15 +18,7 @@ from .resource_setup import (
     set_resource_tag_filters,
 )
 from .role_setup import grant_subscriptions_permissions, revoke_subscriptions_permissions
-
-RESOURCES_TASK_PREFIX: Final = "resources-task-"
-SCALING_TASK_PREFIX: Final = "scaling-task-"
-MONITORED_SUBSCRIPTIONS_KEY: Final = "MONITORED_SUBSCRIPTIONS"
-RESOURCE_TAG_FILTERS_KEY: Final = "RESOURCE_TAG_FILTERS"
-PII_SCRUBBER_RULES_KEY: Final = "PII_SCRUBBER_RULES"
-
-UNKNOWN_SUB_NAME_MESSAGE: Final = "Unknown (insufficient Azure permission)"
-
+from .constants import MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_PREFIX, SCALING_TASK_PREFIX, UNKNOWN_SUB_NAME_MESSAGE
 
 @dataclass(frozen=True)
 class LfoControlPlane:
@@ -195,7 +187,7 @@ def update_existing_lfo(config: Configuration, existing_lfo: LfoMetadata):
 
     # If two or more changes are detected, update all settings in one call. Otherwise, only update the changed setting.
     if change_count >= 2:
-        for function_app_name in config.control_plane_function_app_names:
+        for function_app_name in config.control_plane_task_names:
             log.info(f"Updating settings for function app {function_app_name}")
             set_function_app_env_vars(config, function_app_name)
     elif tag_filter_changed:

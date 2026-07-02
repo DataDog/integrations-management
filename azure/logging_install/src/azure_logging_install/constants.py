@@ -2,6 +2,9 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
+from typing import Final
+
+
 IMAGE_REGISTRY_URL = "datadoghq.azurecr.io"
 LFO_PUBLIC_STORAGE_ACCOUNT_URL = "https://ddazurelfo.blob.core.windows.net"
 
@@ -27,3 +30,19 @@ MONITORING_CONTRIBUTOR_ID = "749f88d5-cbae-40b8-bcfc-e573ddc772fa"
 STORAGE_READER_AND_DATA_ACCESS_ID = "c12c1c16-33a1-487b-954d-41c89c60f349"
 SCALING_CONTRIBUTOR_ID = "b24988ac-6180-42a0-ab88-20f7382dd24c"
 WEBSITE_CONTRIBUTOR_ID = "de139f84-1756-47ae-9be6-808fbbe84772"
+
+
+RESOURCES_TASK_PREFIX: Final = "resources-task-"
+SCALING_TASK_PREFIX: Final = "scaling-task-"
+DIAGNOSTIC_SETTINGS_TASK_FUNCTION_APP_PREFIX: Final = "diagnostic-settings-task-"
+DIAGNOSTIC_SETTINGS_TASK_CONTAINER_APP_JOB_PREFIX: Final = "diag-settings-task-"
+
+DEPLOYER_IMAGE_FOR_FUNCTION_APPS :Final = "deployer:latest"
+DEPLOYER_IMAGE_FOR_CONTAINER_APP_JOBS: Final = "deployer-caj:latest"
+
+MONITORED_SUBSCRIPTIONS_KEY: Final = "MONITORED_SUBSCRIPTIONS"
+RESOURCE_TAG_FILTERS_KEY: Final = "RESOURCE_TAG_FILTERS"
+PII_SCRUBBER_RULES_KEY: Final = "PII_SCRUBBER_RULES"
+
+UNKNOWN_SUB_NAME_MESSAGE: Final = "Unknown (insufficient Azure permission)"
+

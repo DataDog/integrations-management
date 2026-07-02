@@ -2,6 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
+from enum import Enum
 import json
 import uuid
 from dataclasses import dataclass
@@ -11,8 +12,12 @@ from az_shared.execute_cmd import execute
 from az_shared.logs import log
 
 from .az_cmd import AzCmd
-from .constants import IMAGE_REGISTRY_URL, NIL_UUID, STORAGE_ACCOUNT_KEY_FULL_PERMISSIONS
+from .constants import DEPLOYER_IMAGE_FOR_CONTAINER_APP_JOBS, DEPLOYER_IMAGE_FOR_FUNCTION_APPS, DIAGNOSTIC_SETTINGS_TASK_CONTAINER_APP_JOB_PREFIX, DIAGNOSTIC_SETTINGS_TASK_FUNCTION_APP_PREFIX, IMAGE_REGISTRY_URL, NIL_UUID, RESOURCES_TASK_PREFIX, SCALING_TASK_PREFIX, STORAGE_ACCOUNT_KEY_FULL_PERMISSIONS
 
+
+class ControlPlaneType(str, Enum):
+    FunctionApps = "FUNCTION_APPS"
+    ContainerAppJobs = "CONTAINER_APP_JOBS"
 
 @dataclass
 class Configuration:
@@ -24,6 +29,8 @@ class Configuration:
     control_plane_rg: str
     monitored_subs: str
     datadog_api_key: str
+
+    control_plane_type: ControlPlaneType = ControlPlaneType.FunctionApps
 
     # Optional user-specified params with defaults
     datadog_site: str = "datadoghq.com"
@@ -105,16 +112,27 @@ class Configuration:
 
         # Deployer
         self.deployer_job_name = f"deployer-task-{self.control_plane_id}"
-        self.deployer_image_url = f"{IMAGE_REGISTRY_URL}/deployer:latest"
+        self.deployer_image_url = self._get_deployer_image()
         self.container_app_start_role_name = f"ContainerAppStartRole{self.control_plane_id}"
 
-        # Function apps (control plane tasks)
-        self.app_service_plan_name = f"control-plane-asp-{self.control_plane_id}"
-        self.resources_task_name = f"resources-task-{self.control_plane_id}"
-        self.scaling_task_name = f"scaling-task-{self.control_plane_id}"
-        self.diagnostic_settings_task_name = f"diagnostic-settings-task-{self.control_plane_id}"
-        self.control_plane_function_app_names = [
+        # Control plane tasks
+        self.resources_task_name = f"{RESOURCES_TASK_PREFIX}{self.control_plane_id}"
+        self.scaling_task_name = f"{SCALING_TASK_PREFIX}{self.control_plane_id}"
+        self.diagnostic_settings_task_name = self._get_diagnostic_settings_task_name()
+        self.control_plane_task_names = [
             self.resources_task_name,
             self.scaling_task_name,
             self.diagnostic_settings_task_name,
         ]
+
+    def _get_diagnostic_settings_task_name(self) -> str:
+        if self.control_plane_type == ControlPlaneType.FunctionApps:
+            return f"{DIAGNOSTIC_SETTINGS_TASK_FUNCTION_APP_PREFIX}{self.control_plane_id}"
+        if self.control_plane_type == ControlPlaneType.ContainerAppJobs:
+            return f"{DIAGNOSTIC_SETTINGS_TASK_CONTAINER_APP_JOB_PREFIX}{self.control_plane_id}"
+
+    def _get_deployer_image(self) -> str:
+        if self.control_plane_type == ControlPlaneType.FunctionApps:
+            return f"{IMAGE_REGISTRY_URL}/{DEPLOYER_IMAGE_FOR_FUNCTION_APPS}"
+        if self.control_plane_type == ControlPlaneType.ContainerAppJobs:
+            return f"{IMAGE_REGISTRY_URL}/{DEPLOYER_IMAGE_FOR_CONTAINER_APP_JOBS}"

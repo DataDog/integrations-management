@@ -21,7 +21,7 @@ from az_shared.logs import log
 
 from .az_cmd import AzCmd
 from .configuration import Configuration
-from .constants import CONTROL_PLANE_CACHE, IMAGE_REGISTRY_URL, LFO_PUBLIC_STORAGE_ACCOUNT_URL, MAX_THREAD_POOL_WORKERS
+from .constants import CONTROL_PLANE_CACHE, IMAGE_REGISTRY_URL, LFO_PUBLIC_STORAGE_ACCOUNT_URL, MAX_THREAD_POOL_WORKERS, MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY
 
 # =============================================================================
 # Subscription, Resource Group, Storage Account
@@ -170,8 +170,8 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
     # Task-specific settings
     if function_app_name == config.resources_task_name:
         specific_settings = {
-            "MONITORED_SUBSCRIPTIONS": json.dumps(config.monitored_subscriptions),
-            "RESOURCE_TAG_FILTERS": config.resource_tag_filters,
+            MONITORED_SUBSCRIPTIONS_KEY: json.dumps(config.monitored_subscriptions),
+            RESOURCE_TAG_FILTERS_KEY: config.resource_tag_filters,
         }
     elif function_app_name == config.diagnostic_settings_task_name:
         specific_settings = {
@@ -181,7 +181,7 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
         specific_settings = {
             "RESOURCE_GROUP": config.control_plane_rg,
             "FORWARDER_IMAGE": f"{IMAGE_REGISTRY_URL}/forwarder:latest",
-            "PII_SCRUBBER_RULES": config.pii_scrubber_rules,
+            PII_SCRUBBER_RULES_KEY: config.pii_scrubber_rules,
         }
     else:
         raise FatalError(f"Unknown function app task when configuring app settings: {function_app_name}")
@@ -207,38 +207,38 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
 
 def set_monitored_subscriptions(config: Configuration) -> None:
     """Update only MONITORED_SUBSCRIPTIONS on the resources-task function app."""
-    log.info(f"Updating MONITORED_SUBSCRIPTIONS for function app {config.resources_task_name}")
+    log.info(f"Updating {MONITORED_SUBSCRIPTIONS_KEY} for function app {config.resources_task_name}")
     monitored_json = json.dumps(config.monitored_subscriptions)
     execute(
         AzCmd("functionapp", "config appsettings set")
         .param("--subscription", config.control_plane_sub_id)
         .param("--name", config.resources_task_name)
         .param("--resource-group", config.control_plane_rg)
-        .param("--settings", shlex.quote(f"MONITORED_SUBSCRIPTIONS={monitored_json}"))
+        .param("--settings", shlex.quote(f"{MONITORED_SUBSCRIPTIONS_KEY}={monitored_json}"))
     )
 
 
 def set_resource_tag_filters(config: Configuration) -> None:
     """Update only RESOURCE_TAG_FILTERS on the resources-task function app."""
-    log.info(f"Updating RESOURCE_TAG_FILTERS for function app {config.resources_task_name}")
+    log.info(f"Updating {RESOURCE_TAG_FILTERS_KEY} for function app {config.resources_task_name}")
     execute(
         AzCmd("functionapp", "config appsettings set")
         .param("--subscription", config.control_plane_sub_id)
         .param("--name", config.resources_task_name)
         .param("--resource-group", config.control_plane_rg)
-        .param("--settings", shlex.quote(f"RESOURCE_TAG_FILTERS={config.resource_tag_filters}"))
+        .param("--settings", shlex.quote(f"{RESOURCE_TAG_FILTERS_KEY}={config.resource_tag_filters}"))
     )
 
 
 def set_pii_scrubber_rules(config: Configuration) -> None:
     """Update only PII_SCRUBBER_RULES on the scaling-task function app."""
-    log.info(f"Updating PII_SCRUBBER_RULES for function app {config.scaling_task_name}")
+    log.info(f"Updating {PII_SCRUBBER_RULES_KEY} for function app {config.scaling_task_name}")
     execute(
         AzCmd("functionapp", "config appsettings set")
         .param("--subscription", config.control_plane_sub_id)
         .param("--name", config.scaling_task_name)
         .param("--resource-group", config.control_plane_rg)
-        .param("--settings", shlex.quote(f"PII_SCRUBBER_RULES={config.pii_scrubber_rules}"))
+        .param("--settings", shlex.quote(f"{PII_SCRUBBER_RULES_KEY}={config.pii_scrubber_rules}"))
     )
 
 
@@ -246,7 +246,7 @@ def create_function_apps(config: Configuration):
     """Create function apps for LFO Resources Task, Scaling Task, and Diagnostic Settings Task"""
 
     log.info("Creating Function Apps...")
-    for function_app_name in config.control_plane_function_app_names:
+    for function_app_name in config.control_plane_task_names:
         create_function_app(config, function_app_name)
         set_function_app_env_vars(config, function_app_name)
 

@@ -60,7 +60,7 @@ TEST_CONFIG = Configuration(
 def get_test_config():
     """Return a copy of TEST_CONFIG so test mutations do not affect other tests."""
     test_config = copy.copy(TEST_CONFIG)
-    test_config.control_plane_function_app_names = [
+    test_config.control_plane_task_names = [
         RESOURCE_TASK_NAME,
         SCALING_TASK_NAME,
         DIAGNOSTIC_SETTINGS_TASK_NAME,
