@@ -6,8 +6,7 @@ import json
 from unittest import TestCase
 from unittest.mock import patch as mock_patch
 
-from azure.logging_install.src.azure_logging_install.configuration import ControlPlaneType
-from azure_logging_install.configuration import Configuration
+from azure_logging_install.configuration import Configuration, ControlPlaneType
 
 from logging_install.tests.test_data import (
     CONTROL_PLANE_REGION,
