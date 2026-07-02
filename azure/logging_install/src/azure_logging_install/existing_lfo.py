@@ -186,11 +186,9 @@ def update_existing_lfo(new_config: Configuration, existing_lfo: LfoMetadata):
         log_header("STEP 2: Skipping permission changes for log forwarding scopes")
 
     if sub_ids_that_need_permissions:
-        # TODO here
         grant_subscriptions_permissions(new_config, existing_lfo.control_plane.type, sub_ids_that_need_permissions)
 
     if sub_ids_to_remove:
-        # TODO here
         revoke_subscriptions_permissions(new_config, existing_lfo.control_plane.type, sub_ids_to_remove)
 
     if not sub_ids_that_need_permissions and not sub_ids_to_remove:
