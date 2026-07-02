@@ -219,7 +219,7 @@ class TestConfiguration(TestCase):
         function_app_config = self.create_test_config()
         self.assertEqual(function_app_config.deployer_image_url, "datadoghq.azurecr.io/deployer:latest")
 
-        caj_config = self.create_test_config({"control_plane_type": ControlPlaneType.ContainerAppJobs})
+        caj_config = self.create_test_config(control_plane_type=ControlPlaneType.ContainerAppJobs)
         self.assertEqual(caj_config.deployer_image_url, "datadoghq.azurecr.io/deployer-caj:latest")
 
     def test_diagnostic_settings_task_name(self):
@@ -227,5 +227,5 @@ class TestConfiguration(TestCase):
         function_app_config = self.create_test_config()
         self.assertTrue(function_app_config.diagnostic_settings_task_name.startswith("diagnostic-settings-task-"))
 
-        caj_config = self.create_test_config({"control_plane_type": ControlPlaneType.ContainerAppJobs})
+        caj_config = self.create_test_config(control_plane_type=ControlPlaneType.ContainerAppJobs)
         self.assertTrue(caj_config.diagnostic_settings_task_name.startswith("diag-settings-task-"))
