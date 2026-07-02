@@ -19,8 +19,8 @@ class ControlPlaneType(IntEnum):
     ContainerAppJobs = 2
 
 class ControlPlane:
-    def __init__(self, id: str, region: str, subscription_id: str, resource_group: str, type: ControlPlaneType = ControlPlaneType.FunctionApps):
-        self.id = id
+    def __init__(self, region: str, subscription_id: str, resource_group: str, type: ControlPlaneType = ControlPlaneType.FunctionApps):
+        self.id = _generate_control_plane_id(subscription_id, resource_group, region)
         self.region = region
         self.subscription_id = subscription_id
         self.resource_group = resource_group
@@ -194,7 +194,7 @@ def _get_deployer_image_url(control_plane_type: ControlPlaneType) -> str:
         return f"{IMAGE_REGISTRY_URL}/{DEPLOYER_IMAGE_FOR_CONTAINER_APP_JOBS}"
 
 
-def generate_control_plane_id(control_plane_sub_id: str, control_plane_rg: str, control_plane_region: str) -> str:
+def _generate_control_plane_id(control_plane_sub_id: str, control_plane_rg: str, control_plane_region: str) -> str:
     """Returns a 12-character unique ID based on user input parameters.
     This ID is suffixed on Azure resources we create to identify their relationship to the control plane.
     """

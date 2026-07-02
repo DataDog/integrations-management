@@ -44,7 +44,6 @@ class TestConfiguration(TestCase):
     def create_test_config(self, **overrides):
         """Helper to create a test configuration with optional overrides"""
         control_plane = ControlPlane(
-            id="test-control-plane-id",
             region=overrides.pop("control_plane_region", CONTROL_PLANE_REGION),
             subscription_id=overrides.pop("control_plane_sub_id", CONTROL_PLANE_SUBSCRIPTION_ID),
             resource_group=overrides.pop("control_plane_rg", CONTROL_PLANE_RESOURCE_GROUP),
@@ -66,7 +65,6 @@ class TestConfiguration(TestCase):
     def test_configuration_initialization_with_defaults(self):
         """Test Configuration initialization with default values"""
         control_plane = ControlPlane(
-            id="test-control-plane-id",
             region=CONTROL_PLANE_REGION,
             subscription_id=CONTROL_PLANE_SUBSCRIPTION_ID,
             resource_group=CONTROL_PLANE_RESOURCE_GROUP,

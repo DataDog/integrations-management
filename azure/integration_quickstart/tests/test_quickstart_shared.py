@@ -29,7 +29,6 @@ def _make_config(monitored_subs=None):
         return_value=json.dumps([{"value": "key", "permissions": "FULL"}]),
     ):
         control_plane = ControlPlane(
-            id="lfo-id",
             region="eastus",
             subscription_id="cp-sub",
             resource_group="lfo-rg",

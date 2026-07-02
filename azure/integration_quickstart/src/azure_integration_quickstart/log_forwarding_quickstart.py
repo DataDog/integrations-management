@@ -52,12 +52,15 @@ def main():
             if existing_lfo:
                 remove_ids = {s.id for s in selections.remove_subscriptions}
                 # Safeguard against removing the control plane subscription
-                remove_ids.discard(existing_lfo.control_plane_sub_id)
+                remove_ids.discard(existing_lfo.control_plane.subscription_id)
                 final_sub_ids = (set(existing_lfo.monitored_subscriptions) | add_ids) - remove_ids
             else:
                 final_sub_ids = add_ids
 
+            # TODO fix
             id_to_name = {s.id: s.name for s in selections.add_subscriptions}
+            if existing_lfo:
+                id_to_name.update(existing_lfo.monitored_subscriptions)
             final_subscriptions = {
                 Subscription(id=sub_id, name=id_to_name.get(sub_id, "Unknown"))
                 for sub_id in final_sub_ids

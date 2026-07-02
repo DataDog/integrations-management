@@ -47,7 +47,6 @@ DATADOG_SITE = "datadoghq.com"
 
 
 def make_control_plane(
-    id: str = CONTROL_PLANE_ID,
     region: str = CONTROL_PLANE_REGION,
     subscription_id: str = CONTROL_PLANE_SUBSCRIPTION_ID,
     resource_group: str = CONTROL_PLANE_RESOURCE_GROUP,
@@ -58,7 +57,6 @@ def make_control_plane(
     mock_keys_response = json.dumps([{"keyName": "key1", "value": TEST_STORAGE_KEY, "permissions": "FULL"}])
     with patch("azure_logging_install.configuration.execute", return_value=mock_keys_response):
         return ControlPlane(
-            id=id,
             region=region,
             subscription_id=subscription_id,
             resource_group=resource_group,

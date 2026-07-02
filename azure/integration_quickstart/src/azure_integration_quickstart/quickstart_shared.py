@@ -20,7 +20,7 @@ from az_shared.auth import check_login
 from az_shared.errors import AzCliNotAuthenticatedError, AzCliNotInstalledError
 from azure_integration_quickstart.scopes import Scope
 from az_shared.script_status import Status, StatusReporter
-from azure_logging_install.configuration import Configuration, ControlPlane, generate_control_plane_id
+from azure_logging_install.configuration import Configuration, ControlPlane
 from azure_logging_install.existing_lfo import check_existing_lfo
 from azure_logging_install.main import install_log_forwarder
 from azure_logging_install.role_setup import ensure_control_plane_rg_not_deleting
@@ -87,33 +87,31 @@ def login() -> None:
         print("Connected! Leave this shell running and go back to the Datadog UI to continue.")
 
 
-def build_log_forwarder_payload(
-    config: Configuration, scope_id_to_name: dict[str, str], include_monitored_scopes: bool
-) -> LogForwarderPayload:
+def build_log_forwarder_payload(config: Configuration, include_monitored_scopes: bool) -> LogForwarderPayload:
     payload = LogForwarderPayload(
         resourceGroupName=config.control_plane_rg,
         controlPlaneSubscriptionId=config.control_plane_sub_id,
-        controlPlaneSubscriptionName=scope_id_to_name.get(config.control_plane_sub_id, ""),
+        controlPlaneSubscriptionName=config.control_plane.subscription_name,
         controlPlaneRegion=config.control_plane_region,
         tagFilters=config.resource_tag_filters,
         piiFilters=config.pii_scrubber_rules,
     )
     if include_monitored_scopes:
         payload["monitoredSubscriptions"] = [
-            {"id": sub_id, "name": scope_id_to_name.get(sub_id, "")} for sub_id in config.monitored_subscriptions
-        ]
+            {"id": sub_id, "name": name} for sub_id, name in config.monitored_subscriptions.items()
+        ] # TODO fix
     return payload
 
 
 def report_existing_log_forwarders(
     subscriptions: Sequence[Scope], step_metadata: dict, include_monitored_scopes: bool
 ) -> Optional[Configuration]:
-    """Send Datadog any existing Log Forwarders in the tenant. Returns existing LFO configuration when exactly one is found, else None.
+    """Send Datadog any existing Log Forwarders in the tenant. Returns existing LFO metadata when exactly one is found, else None.
     When include_monitored_scopes is True, each payload includes monitoredSubscriptions."""
     scope_id_to_name = {s.id: s.name for s in subscriptions}
-    forwarders = check_existing_lfo(set(scope_id_to_name.keys()))
+    forwarders = check_existing_lfo(set(scope_id_to_name.keys()), scope_id_to_name)
     step_metadata["log_forwarders"] = [
-        build_log_forwarder_payload(forwarder, scope_id_to_name, include_monitored_scopes)
+        build_log_forwarder_payload(forwarder, include_monitored_scopes)
         for forwarder in forwarders.values()
     ]
     if len(forwarders) != 1:
@@ -144,11 +142,6 @@ def upsert_log_forwarder(config: dict, subscriptions: Set[Scope]):
     install_log_forwarder(
         Configuration(
             control_plane=ControlPlane(
-                id=generate_control_plane_id(
-                    config["controlPlaneSubscriptionId"],
-                    config["resourceGroupName"],
-                    config["controlPlaneRegion"],
-                ),
                 region=config["controlPlaneRegion"],
                 subscription_id=config["controlPlaneSubscriptionId"],
                 resource_group=config["resourceGroupName"],

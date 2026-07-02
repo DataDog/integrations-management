@@ -3,7 +3,7 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 from json import JSONDecodeError, loads
-from typing import Optional
+from typing import Final, Optional
 
 from az_shared.execute_cmd import execute
 from az_shared.logs import log, log_header
@@ -63,7 +63,6 @@ def find_existing_lfo_control_planes(subscriptions: Optional[set[str]] = None) -
         subscription_id = resources_func_app["subscriptionId"]
         control_plane_id = resources_func_app["name"].split("-")[-1]
         existing_control_planes[control_plane_id] = ControlPlane(
-            id=control_plane_id,
             region=resources_func_app["location"],
             subscription_id=subscription_id,
             resource_group=resources_func_app["resourceGroup"],
@@ -147,8 +146,8 @@ def check_existing_lfo(subscriptions: set[str]) -> dict[str, Configuration]:
 def update_existing_lfo(new_lfo_config: Configuration, existing_lfo_config: Configuration):
     """Update an existing LFO for the given configuration"""
 
-    existing_monitored_sub_ids = set(existing_lfo_config.monitored_subscriptions)
-    new_monitored_sub_ids = set(new_lfo_config.monitored_subscriptions)
+    existing_monitored_sub_ids = existing_lfo_config.monitored_subscriptions_ids
+    new_monitored_sub_ids = new_lfo_config.monitored_subscriptions_ids
     sub_ids_that_need_permissions = new_monitored_sub_ids - existing_monitored_sub_ids
     sub_ids_to_remove = existing_monitored_sub_ids - new_monitored_sub_ids
 

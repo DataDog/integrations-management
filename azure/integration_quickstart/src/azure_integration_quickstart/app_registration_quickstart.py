@@ -204,6 +204,7 @@ def main():
         selected_subs = flatten_scopes_to_unique_subscriptions(selections.scopes)
         # App registration flow is add-only: when an LFO exists, monitored scopes becomes existing ∪ selected.
         if existing_lfo:
+            # TODO fix
             existing_subs = {Subscription(id=sub_id, name="Unknown") for sub_id in existing_lfo.monitored_subscriptions}
             final_scopes = existing_subs | selected_subs
         else:
