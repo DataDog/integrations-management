@@ -51,15 +51,28 @@ def request(
     raise RuntimeError(f"{method} {url}: exceeded max retries")
 
 
+def dd_auth_headers() -> dict[str, str]:
+    """Build the Datadog auth headers.
+
+    Prefers a bearer access token (a Personal Access Token or Service Account Token) when
+    ``DD_ACCESS_TOKEN`` is set — it is a self-contained credential and needs no app key.
+    Falls back to the classic API-key/application-key header pair otherwise.
+    """
+    headers = {"Content-Type": "application/json"}
+    access_token = os.environ.get("DD_ACCESS_TOKEN", "").strip()
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
+    else:
+        headers["DD-API-KEY"] = os.environ["DD_API_KEY"]
+        headers["DD-APPLICATION-KEY"] = os.environ["DD_APP_KEY"]
+    return headers
+
+
 def dd_request(method: str, path: str, body: Optional[dict[str, Any]] = None) -> tuple[str, int]:
     """Submit a request to Datadog."""
     return request(
         method,
         f"https://api.{os.environ['DD_SITE']}{path}",
         body,
-        {
-            "Content-Type": "application/json",
-            "DD-API-KEY": os.environ["DD_API_KEY"],
-            "DD-APPLICATION-KEY": os.environ["DD_APP_KEY"],
-        },
+        dd_auth_headers(),
     )

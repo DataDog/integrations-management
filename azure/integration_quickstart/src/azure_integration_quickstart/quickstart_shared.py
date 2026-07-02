@@ -25,8 +25,10 @@ from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
 from azure_logging_install.main import install_log_forwarder
 from azure_logging_install.role_setup import ensure_control_plane_rg_not_deleting
 
-# Required environment variables for both quickstart variants
-REQUIRED_ENVIRONMENT_VARS = {"DD_API_KEY", "DD_APP_KEY", "DD_SITE", "WORKFLOW_ID"}
+# Required environment variables for both quickstart variants. Datadog auth is provided
+# either by a bearer access token (DD_ACCESS_TOKEN) or the classic DD_API_KEY/DD_APP_KEY
+# pair — validated separately below.
+REQUIRED_ENVIRONMENT_VARS = {"DD_SITE", "WORKFLOW_ID"}
 
 
 class LogForwarderPayload(TypedDict):
@@ -42,12 +44,22 @@ class LogForwarderPayload(TypedDict):
 
 
 def validate_environment_variables() -> None:
-    """Validate that all required environment variables are set."""
-    if missing_environment_vars := {var for var in REQUIRED_ENVIRONMENT_VARS if not os.environ.get(var)}:
-        print(f"Missing required environment variables: {', '.join(missing_environment_vars)}")
+    """Validate that all required environment variables are set.
+
+    Datadog auth may be supplied either as a bearer access token (``DD_ACCESS_TOKEN``) or the
+    classic ``DD_API_KEY``/``DD_APP_KEY`` pair; at least one of those must be present.
+    """
+    missing_environment_vars = {var for var in REQUIRED_ENVIRONMENT_VARS if not os.environ.get(var)}
+    has_access_token = bool(os.environ.get("DD_ACCESS_TOKEN"))
+    has_key_pair = bool(os.environ.get("DD_API_KEY")) and bool(os.environ.get("DD_APP_KEY"))
+    missing_credential = not has_access_token and not has_key_pair
+    if missing_credential:
+        missing_environment_vars.add("DD_ACCESS_TOKEN")
+    if missing_environment_vars:
+        print(f"Missing required environment variables: {', '.join(sorted(missing_environment_vars))}")
         print('Use the "copy" button from the quickstart UI to grab the complete command.')
-        if missing_environment_vars == {"DD_API_KEY", "DD_APP_KEY"}:
-            print("\nNOTE: Manually selecting and copying the command won't include the masked keys.")
+        if missing_credential:
+            print("\nNOTE: Manually selecting and copying the command won't include the masked token.")
         sys.exit(1)
 
 

@@ -4,12 +4,14 @@
 
 """Tests for quickstart_shared: build_log_forwarder_payload and report_existing_log_forwarders (Section 7: optional monitoredSubscriptions)."""
 
+import os
 from unittest.mock import MagicMock
 from unittest.mock import patch as mock_patch
 
 from azure_integration_quickstart.quickstart_shared import (
     build_log_forwarder_payload,
     report_existing_log_forwarders,
+    validate_environment_variables,
     wait_for_rg_delete_if_needed,
 )
 from az_shared.script_status import Status
@@ -123,3 +125,31 @@ class TestReportExistingLogForwarders(DDTestCase):
             existing_lfo = report_existing_log_forwarders([], step_metadata, include_monitored_scopes=True)
         self.assertIsNone(existing_lfo)
         self.assertEqual(step_metadata["log_forwarders"], [])
+
+
+class TestValidateEnvironmentVariables(DDTestCase):
+    """Datadog auth may come from a bearer access token or the classic key pair."""
+
+    BASE = {"DD_SITE": "datadoghq.com", "WORKFLOW_ID": "w1"}
+
+    def _run(self, env):
+        with mock_patch.dict(os.environ, env, clear=True):
+            validate_environment_variables()
+
+    def test_access_token_alone_is_sufficient(self):
+        self._run({**self.BASE, "DD_ACCESS_TOKEN": "ddpat_x"})
+
+    def test_key_pair_alone_is_sufficient(self):
+        self._run({**self.BASE, "DD_API_KEY": "k", "DD_APP_KEY": "a"})
+
+    def test_missing_credential_exits(self):
+        with self.assertRaises(SystemExit):
+            self._run(dict(self.BASE))
+
+    def test_api_key_without_app_key_or_token_exits(self):
+        with self.assertRaises(SystemExit):
+            self._run({**self.BASE, "DD_API_KEY": "k"})
+
+    def test_missing_site_exits_even_with_token(self):
+        with self.assertRaises(SystemExit):
+            self._run({"WORKFLOW_ID": "w1", "DD_ACCESS_TOKEN": "ddpat_x"})
