@@ -2,7 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-from enum import Enum
+from enum import StrEnum
 import json
 import uuid
 from dataclasses import dataclass
@@ -15,9 +15,9 @@ from .az_cmd import AzCmd
 from .constants import DEPLOYER_IMAGE_FOR_CONTAINER_APP_JOBS, DEPLOYER_IMAGE_FOR_FUNCTION_APPS, DIAGNOSTIC_SETTINGS_TASK_CONTAINER_APP_JOB_PREFIX, DIAGNOSTIC_SETTINGS_TASK_FUNCTION_APP_PREFIX, IMAGE_REGISTRY_URL, NIL_UUID, RESOURCES_TASK_PREFIX, SCALING_TASK_PREFIX, STORAGE_ACCOUNT_KEY_FULL_PERMISSIONS
 
 
-class ControlPlaneType(Enum):
-    FunctionApps = 1
-    ContainerAppJobs = 2
+class ControlPlaneType(StrEnum):
+    FunctionApps = "FUNCTION_APPS"
+    ContainerAppJobs = "CONTAINER_APP_JOBS"
 
 @dataclass
 class Configuration:
