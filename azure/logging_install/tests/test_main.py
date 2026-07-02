@@ -267,7 +267,7 @@ class TestMain(TestCase):
             mock_set_pii_rules.assert_not_called()
 
             # Verify permissions are granted only for new subscription
-            mock_grant_subs_perms.assert_called_once_with(mock_config, {SUB_3_ID})
+            mock_grant_subs_perms.assert_called_once_with(mock_config, ControlPlaneType.FunctionApps, {SUB_3_ID})
 
     def test_install_log_forwarder_new_installation(self):
         """Test install_log_forwarder flow for new installation"""

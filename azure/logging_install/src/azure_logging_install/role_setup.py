@@ -377,10 +377,10 @@ def grant_subscriptions_permissions(config: Configuration, control_plane_type: C
     log.info("Subscriptions permission setup complete")
 
 
-def revoke_subscriptions_permissions(config: Configuration, sub_ids: Iterable[str]) -> None:
+def revoke_subscriptions_permissions(config: Configuration, control_plane_tye: ControlPlaneType, sub_ids: Iterable[str]) -> None:
     """Revoke permissions and delete the LFO-created resource group for each subscription in sub_ids.
     Mirrors grant_subscriptions_permissions: remove the four role assignments per subscription, then delete the RG."""
-    resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_control_plane_task_principal_ids(config)
+    resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_control_plane_task_principal_ids(config, control_plane_tye)
 
     for sub_id in sub_ids:
         subscription_scope = f"/subscriptions/{sub_id}"
@@ -431,4 +431,4 @@ def grant_permissions(config: Configuration):
         config.control_plane_id,
     )
 
-    grant_subscriptions_permissions(config, config.all_subscriptions)
+    grant_subscriptions_permissions(config, config.control_plane_type, config.all_subscriptions)
