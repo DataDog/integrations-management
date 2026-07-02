@@ -14,6 +14,7 @@ from azure_integration_quickstart.quickstart_shared import (
 )
 from az_shared.script_status import Status
 from azure_logging_install.existing_lfo import LfoControlPlane, LfoMetadata
+from azure_logging_install.configuration import ControlPlaneType
 
 from integration_quickstart.tests.dd_test_case import DDTestCase
 
@@ -27,6 +28,7 @@ def _make_metadata(monitored_subs=None):
             sub_name="Control Plane Sub",
             resource_group="lfo-rg",
             region="eastus",
+            type=ControlPlaneType.ContainerAppJobs,
         ),
         monitored_subs=monitored_subs,
         tag_filter="env:prod",
