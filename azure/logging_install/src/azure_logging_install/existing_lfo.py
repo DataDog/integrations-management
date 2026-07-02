@@ -187,11 +187,11 @@ def update_existing_lfo(new_config: Configuration, existing_lfo: LfoMetadata):
 
     if sub_ids_that_need_permissions:
         # TODO here
-        grant_subscriptions_permissions(new_config, sub_ids_that_need_permissions)
+        grant_subscriptions_permissions(new_config, existing_lfo.control_plane.type, sub_ids_that_need_permissions)
 
     if sub_ids_to_remove:
         # TODO here
-        revoke_subscriptions_permissions(new_config, sub_ids_to_remove)
+        revoke_subscriptions_permissions(new_config, existing_lfo.control_plane.type, sub_ids_to_remove)
 
     if not sub_ids_that_need_permissions and not sub_ids_to_remove:
         log.info("No modified subscription selections - skipping permission updates")

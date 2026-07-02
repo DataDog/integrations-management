@@ -20,7 +20,7 @@ from az_shared.execute_cmd import execute
 from az_shared.logs import log
 
 from .az_cmd import AzCmd, set_subscription
-from .configuration import Configuration
+from .configuration import Configuration, ControlPlaneType
 from .constants import (
     INITIAL_DEPLOY_IDENTITY_NAME,
     MONITORING_CONTRIBUTOR_ID,
@@ -205,29 +205,28 @@ def create_initial_deploy_role(config: Configuration):
     )
 
 
-def get_function_app_principal_id(
-    control_plane_resource_group: str, control_plane_sub_id: str, function_app_name: str
-) -> str:
+def get_function_app_principal_id(resouce_group: str, subscription_id: str, function_app_name: str) -> str:
     """Get the principal ID of a Function App's managed identity."""
     log.debug(f"Getting principal ID for Function App {function_app_name}")
     output = execute(
         AzCmd("functionapp", "identity show")
-        .param("--subscription", control_plane_sub_id)
+        .param("--subscription", subscription_id)
         .param("--name", function_app_name)
-        .param("--resource-group", control_plane_resource_group)
+        .param("--resource-group", resouce_group)
         .param("--query", "principalId")
         .param("--output", "tsv")
     )
     return output.strip()
 
 
-def get_container_app_job_principal_id(control_plane_resource_group: str, job_name: str) -> str:
+def get_container_app_job_principal_id(resource_group: str, subscription_id: str, job_name: str) -> str:
     """Get the principal ID of a Container App Job's managed identity."""
     log.debug(f"Getting principal ID for Container App Job {job_name}")
     output = execute(
         AzCmd("containerapp", "job show")
         .param("--name", job_name)
-        .param("--resource-group", control_plane_resource_group)
+        .param("--subscription", subscription_id)
+        .param("--resource-group", resource_group)
         .param("--query", "identity.principalId")
         .param("--output", "tsv")
     )
@@ -277,20 +276,22 @@ def remove_role(scope: str, principal_id: str, role_id: str) -> None:
         execute(AzCmd("role", "assignment delete").param("--ids", assignment_ids[0]))
 
 
-def _get_lfo_task_principal_ids(config: Configuration) -> tuple[str, str, str]:
+def _get_control_plane_task_principal_ids(config: Configuration, control_plane_type: ControlPlaneType) -> tuple[str, str, str]:
     """Return (resources_task, scaling_task, diagnostic_settings_task) principal IDs for the control plane."""
-    resource_principal_id = get_function_app_principal_id(
-        config.control_plane_rg, config.control_plane_sub_id, config.resources_task_name
-    )
-    scaling_principal_id = get_function_app_principal_id(
-        config.control_plane_rg, config.control_plane_sub_id, config.scaling_task_name
-    )
-    diagnostic_principal_id = get_function_app_principal_id(
-        config.control_plane_rg,
-        config.control_plane_sub_id,
-        config.diagnostic_settings_task_name,
-    )
-    return resource_principal_id, scaling_principal_id, diagnostic_principal_id
+    rg = config.control_plane_rg
+    sub_id = config.control_plane_sub_id
+
+    if control_plane_type == ControlPlaneType.FunctionApps:
+        resource_principal_id = get_function_app_principal_id(rg, sub_id, config.resources_task_name)
+        scaling_principal_id = get_function_app_principal_id(rg, sub_id, config.scaling_task_name)
+        diagnostic_principal_id = get_function_app_principal_id(rg, sub_id, config.diagnostic_settings_task_name)
+        return resource_principal_id, scaling_principal_id, diagnostic_principal_id
+    
+    if control_plane_type == ControlPlaneType.ContainerAppJobs:
+        resource_principal_id = get_container_app_job_principal_id(rg, sub_id, config.resources_task_name)
+        scaling_principal_id = get_container_app_job_principal_id(rg, sub_id, config.scaling_task_name)
+        diagnostic_principal_id = get_container_app_job_principal_id(rg, sub_id, config.diagnostic_settings_task_name)
+        return resource_principal_id, scaling_principal_id, diagnostic_principal_id
 
 
 def ensure_control_plane_rg_not_deleting(
@@ -329,10 +330,10 @@ def ensure_control_plane_rg_not_deleting(
             break
 
 
-def grant_subscriptions_permissions(config: Configuration, sub_ids: Iterable[str]):
+def grant_subscriptions_permissions(config: Configuration, control_plane_type: ControlPlaneType, sub_ids: Iterable[str]):
     """Grant permissions to a set of subscriptions."""
 
-    resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_lfo_task_principal_ids(config)
+    resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_control_plane_task_principal_ids(config, control_plane_type)
 
     for sub_id in sub_ids:
         log.info(f"Create resource group in subscription: {sub_id}")
@@ -379,7 +380,7 @@ def grant_subscriptions_permissions(config: Configuration, sub_ids: Iterable[str
 def revoke_subscriptions_permissions(config: Configuration, sub_ids: Iterable[str]) -> None:
     """Revoke permissions and delete the LFO-created resource group for each subscription in sub_ids.
     Mirrors grant_subscriptions_permissions: remove the four role assignments per subscription, then delete the RG."""
-    resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_lfo_task_principal_ids(config)
+    resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_control_plane_task_principal_ids(config)
 
     for sub_id in sub_ids:
         subscription_scope = f"/subscriptions/{sub_id}"
@@ -422,7 +423,7 @@ def grant_permissions(config: Configuration):
     log.info("Setting up permissions for control plane and monitored subscriptions...")
 
     log.info("Assigning Website Contributor role to deployer container app job...")
-    deployer_principal_id = get_container_app_job_principal_id(config.control_plane_rg, config.deployer_job_name)
+    deployer_principal_id = get_container_app_job_principal_id(config.control_plane_rg, config.control_plane_sub_id, config.deployer_job_name)
     assign_role(
         config.control_plane_rg_scope,
         deployer_principal_id,
