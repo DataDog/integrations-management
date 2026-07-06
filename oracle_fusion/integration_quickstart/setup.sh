@@ -998,20 +998,25 @@ fi
 payload=$(CLIENT_ID="$CLIENT_ID" TOKEN_URL="$TOKEN_URL" \
     FUSION_SCOPE="${FUSION_SCOPE:-}" EPM_SCOPE="${EPM_SCOPE:-}" \
     FUSION_BASE_URL="${FUSION_BASE_URL:-}" EPM_BASE_URL="${EPM_BASE_URL:-}" \
+    FUSION_APP_ID="${FUSION_APP_ID:-}" EPM_APP_ID="${EPM_APP_ID:-}" \
     ACCOUNT_NAME="$ACCOUNT_NAME" CLIENT_SECRET="${CLIENT_SECRET:-}" python3 -c "
 import json, os
 settings = {
     'client_id': os.environ['CLIENT_ID'],
     'token_url':  os.environ['TOKEN_URL'],
 }
-fusion_scope = os.environ.get('FUSION_SCOPE', '')
-epm_scope    = os.environ.get('EPM_SCOPE', '')
-fusion_base  = os.environ.get('FUSION_BASE_URL', '')
-epm_base     = os.environ.get('EPM_BASE_URL', '')
-if fusion_scope: settings['oauth_scope']     = fusion_scope
-if fusion_base:  settings['fusion_base_url'] = fusion_base
-if epm_scope:    settings['epm_oauth_scope'] = epm_scope
-if epm_base:     settings['epm_base_url']    = epm_base
+fusion_scope  = os.environ.get('FUSION_SCOPE', '')
+epm_scope     = os.environ.get('EPM_SCOPE', '')
+fusion_base   = os.environ.get('FUSION_BASE_URL', '')
+epm_base      = os.environ.get('EPM_BASE_URL', '')
+fusion_app_id = os.environ.get('FUSION_APP_ID', '')
+epm_app_id    = os.environ.get('EPM_APP_ID', '')
+if fusion_scope:  settings['oauth_scope']          = fusion_scope
+if fusion_base:   settings['fusion_base_url']      = fusion_base
+if fusion_app_id: settings['fusion_application_id'] = fusion_app_id
+if epm_scope:     settings['epm_oauth_scope']      = epm_scope
+if epm_base:      settings['epm_base_url']         = epm_base
+if epm_app_id:    settings['epm_application_id']   = epm_app_id
 enabled = []
 if fusion_base: enabled += ['ess', 'audit']
 if epm_base:    enabled += ['epm_jobs', 'epm_audit']
