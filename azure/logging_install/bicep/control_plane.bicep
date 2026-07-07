@@ -150,7 +150,7 @@ resource diagnosticSettingsTask 'Microsoft.App/jobs@2024-03-01' = {
     template: {
       containers: [
         {
-          name: 'diagnostic-settings-task'
+          name: 'diag-settings-task'
           image: diagnosticSettingsTaskImage
           resources: {
             cpu: json('0.5')

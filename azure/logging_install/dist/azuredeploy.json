@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.40.2.10011",
-      "templateHash": "6943315598157851661"
+      "templateHash": "11936062248601152866"
     }
   },
   "functions": [
@@ -281,7 +281,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.40.2.10011",
-              "templateHash": "5445591558883456151"
+              "templateHash": "6041861043302377846"
             }
           },
           "parameters": {
@@ -505,7 +505,7 @@
                 "template": {
                   "containers": [
                     {
-                      "name": "diagnostic-settings-task",
+                      "name": "diag-settings-task",
                       "image": "[variables('diagnosticSettingsTaskImage')]",
                       "resources": {
                         "cpu": "[json('0.5')]",
