@@ -37,9 +37,9 @@ var CONTROL_PLANE_ID_SETTING = 'CONTROL_PLANE_ID'
 var MONITORED_SUBSCRIPTIONS_SETTING = 'MONITORED_SUBSCRIPTIONS'
 var RESOURCE_TAG_FILTERS_SETTING = 'RESOURCE_TAG_FILTERS'
 var PII_SCRUBBER_RULES_SETTING = 'PII_SCRUBBER_RULES'
+var STORAGE_ACCOUNT_URL_SETTING = 'STORAGE_ACCOUNT_URL'
 var LOG_LEVEL_SETTING = 'LOG_LEVEL'
 var AZURE_AUTHORITY_SETTING = 'AZURE_AUTHORITY'
-var STORAGE_ACCOUNT_URL_SETTING = 'STORAGE_ACCOUNT_URL'
 
 // Secret Names
 var DD_API_KEY_SECRET = 'dd-api-key'
@@ -177,7 +177,7 @@ resource scalingTask 'Microsoft.App/jobs@2024-03-01' = {
     configuration: {
       triggerType: 'Schedule'
       scheduleTriggerConfig: {
-        cronExpression: '*/5 * * * *'
+        cronExpression: '3/5 * * * *'
       }
       replicaRetryLimit: 0
       replicaTimeout: 600
