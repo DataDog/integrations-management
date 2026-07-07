@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.40.2.10011",
-      "templateHash": "6768855155498884948"
+      "templateHash": "6943315598157851661"
     }
   },
   "functions": [
@@ -281,7 +281,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.40.2.10011",
-              "templateHash": "5399341867886751087"
+              "templateHash": "5445591558883456151"
             }
           },
           "parameters": {
@@ -343,9 +343,9 @@
             "MONITORED_SUBSCRIPTIONS_SETTING": "MONITORED_SUBSCRIPTIONS",
             "RESOURCE_TAG_FILTERS_SETTING": "RESOURCE_TAG_FILTERS",
             "PII_SCRUBBER_RULES_SETTING": "PII_SCRUBBER_RULES",
+            "STORAGE_ACCOUNT_URL_SETTING": "STORAGE_ACCOUNT_URL",
             "LOG_LEVEL_SETTING": "LOG_LEVEL",
             "AZURE_AUTHORITY_SETTING": "AZURE_AUTHORITY",
-            "STORAGE_ACCOUNT_URL_SETTING": "STORAGE_ACCOUNT_URL",
             "DD_API_KEY_SECRET": "dd-api-key",
             "CONNECTION_STRING_SECRET": "connection-string",
             "commonEnv": [
@@ -387,7 +387,7 @@
               }
             ],
             "resourceTaskName": "[format('resources-task-{0}', parameters('controlPlaneId'))]",
-            "diagnosticSettingsTaskName": "[format('diagnostic-settings-task-{0}', parameters('controlPlaneId'))]",
+            "diagnosticSettingsTaskName": "[format('diag-settings-task-{0}', parameters('controlPlaneId'))]",
             "scalingTaskName": "[format('scaling-task-{0}', parameters('controlPlaneId'))]",
             "deployerTaskName": "[format('deployer-task-{0}', parameters('controlPlaneId'))]",
             "containerAppStartRoleName": "[format('ContainerAppStartRole{0}', parameters('controlPlaneId'))]"
@@ -534,7 +534,7 @@
                 "configuration": {
                   "triggerType": "Schedule",
                   "scheduleTriggerConfig": {
-                    "cronExpression": "*/5 * * * *"
+                    "cronExpression": "3/5 * * * *"
                   },
                   "replicaRetryLimit": 0,
                   "replicaTimeout": 600,
