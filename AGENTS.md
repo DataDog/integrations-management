@@ -24,16 +24,24 @@ Each package has:
 
 ## Hard rule: build before pushing
 
-If you change anything under a package's `src/`, `build.sh`, or `<cloud>/shared/src/`, you MUST run that package's `build.sh` and commit the updated `dist/` together with the source change. CI's `dist drift` job will reject the PR otherwise.
+If you change anything under a package's `src/`, `build.sh`, `bicep/`, or `<cloud>/shared/src/`, you MUST rebuild the affected `dist/` and commit it together with the source change. CI's `dist drift` job will reject the PR otherwise.
 
-From the cloud parent directory:
+The reliable way is to rebuild the whole cloud in one command from the repo root — this covers the bundling graph (e.g. `shared/src/` feeds every package, and `logging_install/src/` feeds `integration_quickstart`), which is the usual source of missed rebuilds:
 
 ```bash
-cd azure   # or gcp
-bash <package>/build.sh
+scripts/rebuild-dist.sh azure   # or: gcp, or no arg for both
+git add azure/*/dist            # commit the rebuilt artifacts with your change
 ```
 
-For `azure/integration_quickstart`, also run the build for `azure/integration_quickstart` if you changed `azure/logging_install/src/` (its `build.sh` bundles `logging_install/src/` into the quickstart zipapps).
+Better, enable the pre-commit hook once and it rebuilds + stages the affected `dist/` automatically on every commit:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+(`azure/logging_install` needs the Azure CLI + bicep to rebuild its JSON; the hook skips the azure rebuild with a warning if they're not installed.)
+
+To rebuild a single package instead, run its `build.sh` from the cloud parent directory (`cd azure && bash <package>/build.sh`).
 
 ## Test before pushing
 
