@@ -111,6 +111,6 @@ jobs:
           done
           snapshot "$after"
           if ! diff -r "$before" "$after"; then
-            echo "::error::dist/ is out of sync with src/. Re-run the relevant build.sh from ${{ matrix.cloud }}/ and commit the result."
+            echo "::error::dist/ is out of sync with src/. From the repo root run 'bash scripts/rebuild-dist.sh ${{ matrix.cloud }}' and commit the result. Enable the pre-commit hook to automate this: 'git config core.hooksPath .githooks'."
             exit 1
           fi
