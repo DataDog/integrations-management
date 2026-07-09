@@ -40,7 +40,6 @@ resource monitoringContributorRole 'Microsoft.Authorization/roleDefinitions@2022
 resource resourceTaskRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(subscription().id, 'resourceTask', controlPlaneId)
   properties: {
-    // The ddlfo prefix is required. The uninstall script checks for this prefix when removing role assignments.
     description: 'ddlfo${controlPlaneId}'
     roleDefinitionId: monitoringReaderRole.id
     principalId: resourceTaskPrincipalId
@@ -50,17 +49,16 @@ resource resourceTaskRole 'Microsoft.Authorization/roleAssignments@2022-04-01' =
 resource diagnosticSettingsTaskMonitorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(subscription().id, 'monitor', 'diagnosticSettings', controlPlaneId)
   properties: {
-    // The ddlfo prefix is required. The uninstall script checks for this prefix when removing role assignments.
     description: 'ddlfo${controlPlaneId}'
     roleDefinitionId: monitoringContributorRole.id
     principalId: diagnosticSettingsTaskPrincipalId
   }
 }
 
+
 resource initialRunMonitorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(subscription().id, 'initialRunMonitoringContributor', controlPlaneId)
   properties: {
-    // The ddlfo prefix is required. The uninstall script checks for this prefix when removing role assignments.
     description: 'ddlfo${controlPlaneId}'
     roleDefinitionId: monitoringContributorRole.id
     principalId: initialRunIdentityPrincipalId

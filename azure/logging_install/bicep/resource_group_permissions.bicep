@@ -21,7 +21,6 @@ resource diagnosticSettingsTaskStorageRole 'Microsoft.Authorization/roleAssignme
   name: guid(subscription().id, 'storage', 'diagnosticSettings', controlPlaneId)
   scope: resourceGroup()
   properties: {
-    // The ddlfo prefix is required. The uninstall script checks for this prefix when removing role assignments.
     description: 'ddlfo${controlPlaneId}'
     roleDefinitionId: readerAndDataAccessRole.id
     principalId: diagnosticSettingsTaskPrincipalId
@@ -32,7 +31,6 @@ resource scalingTaskRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
   name: guid(subscription().id, 'scaling', controlPlaneId)
   scope: resourceGroup()
   properties: {
-    // The ddlfo prefix is required. The uninstall script checks for this prefix when removing role assignments.
     description: 'ddlfo${controlPlaneId}'
     roleDefinitionId: contributorRole.id
     principalId: scalingTaskPrincipalId
@@ -43,7 +41,6 @@ resource initialRunRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(subscription().id, 'initialRunContributor', controlPlaneId)
   scope: resourceGroup()
   properties: {
-    // The ddlfo prefix is required. The uninstall script checks for this prefix when removing role assignments.
     description: 'ddlfo${controlPlaneId}'
     roleDefinitionId: contributorRole.id
     principalId: initialRunPrincipalId
