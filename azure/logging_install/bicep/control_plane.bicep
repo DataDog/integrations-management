@@ -278,6 +278,7 @@ resource deployerTaskRole 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   name: guid('deployer', controlPlaneId)
   scope: resourceGroup()
   properties: {
+    // The ddlfo prefix is required. The uninstall script checks for this prefix when removing role assignments.
     description: 'ddlfo${controlPlaneId}'
     roleDefinitionId: containerAppsJobsContributorRole.id
     principalId: deployerTask.identity.principalId
@@ -307,6 +308,7 @@ resource containerAppStartRole 'Microsoft.Authorization/roleDefinitions@2022-04-
 resource initialRunContainerAppRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid('initialRunContainerAppRoleAssignment', controlPlaneId)
   properties: {
+    // The ddlfo prefix is required. The uninstall script checks for this prefix when removing role assignments.
     description: 'ddlfo${controlPlaneId}'
     roleDefinitionId: containerAppStartRole.id
     principalId: initialRunIdentity.properties.principalId
