@@ -254,6 +254,7 @@ def assign_role(scope: str, principal_id: str, role_id: str, control_plane_id: s
         .param("--assignee-principal-type", "ServicePrincipal")
         .param("--role", role_id)
         .param("--scope", scope)
+        # The ddlfo prefix is required. The uninstall script checks for this prefix when removing role assignments.
         .param("--description", f"ddlfo{control_plane_id}")
     )
 
