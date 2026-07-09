@@ -268,10 +268,10 @@ resource deployerTask 'Microsoft.App/jobs@2024-03-01' = {
   }
 }
 
-resource websiteContributorRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' existing = {
+resource containerAppsJobsContributorRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' existing = {
   scope: resourceGroup()
-  // Details: https://www.azadvertizer.net/azrolesadvertizer/de139f84-1756-47ae-9be6-808fbbe84772.html
-  name: 'de139f84-1756-47ae-9be6-808fbbe84772'
+  // Details: https://www.azadvertizer.net/azrolesadvertizer/4e3d2b60-56ae-4dc6-a233-09c8e5a82e68.html
+  name: '4e3d2b60-56ae-4dc6-a233-09c8e5a82e68'
 }
 
 resource deployerTaskRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
@@ -279,7 +279,7 @@ resource deployerTaskRole 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   scope: resourceGroup()
   properties: {
     description: 'ddlfo${controlPlaneId}'
-    roleDefinitionId: websiteContributorRole.id
+    roleDefinitionId: containerAppsJobsContributorRole.id
     principalId: deployerTask.identity.principalId
   }
 }
