@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Unless explicitly stated otherwise all files in this repository are licensed under the Apache-2 License.
+
+# This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
+
+# Keep committed dist/ artifacts in sync with src/.
+#
+# When a commit touches source that gets bundled into dist/, rebuild the
+# affected cloud's artifacts and stage them, so CI's "dist drift" job never
+# fails on a stale bundle. Enable once with:
+#
+#   git config core.hooksPath .githooks
+#
+# Bypass with `git commit --no-verify` if you really need to.
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+shopt -s nullglob
+
+staged="$(git diff --cached --name-only --diff-filter=ACMR)"
+[[ -z "$staged" ]] && exit 0
+
+affected=""
+while IFS= read -r f; do
+  case "$f" in
+    # shared/src changes ripple into every package in the cloud, so rebuild
+    # the whole cloud rather than trying to track the bundling graph here.
+    azure/*/src/*|azure/*/build.sh|azure/*/bicep/*|azure/dev_requirements.txt)
+      [[ " $affected " == *" azure "* ]] || affected+=" azure" ;;
+    gcp/*/src/*|gcp/*/build.sh|gcp/dev_requirements.txt)
+      [[ " $affected " == *" gcp "* ]] || affected+=" gcp" ;;
+  esac
+done <<< "$staged"
+
+[[ -z "$affected" ]] && exit 0
+
+for cloud in $affected; do
+  # azure/logging_install/build.sh always shells out to `az bicep`; skip the
+  # rebuild (rather than blocking the commit) when the tooling is absent.
+  if [[ "$cloud" == azure ]] && ! az bicep version >/dev/null 2>&1; then
+    echo "pre-commit: az/bicep not found — skipping automatic azure dist rebuild." >&2
+    echo "            Run 'scripts/rebuild-dist.sh azure' before pushing or CI will flag drift." >&2
+    continue
+  fi
+  echo "pre-commit: source under $cloud/ changed — rebuilding dist…" >&2
+  scripts/rebuild-dist.sh "$cloud" >&2
+  git add "$cloud"/*/dist/
+done
+
+rebuilt="$(git diff --cached --name-only -- '*/dist/*')"
+if [[ -n "$rebuilt" ]]; then
+  echo "pre-commit: staged rebuilt dist artifacts:" >&2
+  while IFS= read -r f; do echo "  $f" >&2; done <<< "$rebuilt"
+fi
