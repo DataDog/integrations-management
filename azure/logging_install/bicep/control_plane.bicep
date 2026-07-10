@@ -72,6 +72,19 @@ resource cacheContainer 'Microsoft.Storage/storageAccounts/blobServices/containe
   properties: {}
 }
 
+resource deployerTaskEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
+  name: 'dd-log-forwarder-env-${controlPlaneId}-${controlPlaneLocation}'
+  location: controlPlaneLocation
+  properties: {
+    workloadProfiles: [
+      {
+        name: 'Consumption'
+        workloadProfileType: 'Consumption'
+      }
+    ]
+  }
+}
+
 var storageAccountKey = listKeys(storageAccount.id, '2019-06-01').keys[0].value
 var connectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccountKey}'
 
@@ -204,19 +217,6 @@ resource scalingTask 'Microsoft.App/jobs@2024-03-01' = {
 }
 
 // DEPLOYER TASK
-
-resource deployerTaskEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
-  name: 'dd-log-forwarder-env-${controlPlaneId}-${controlPlaneLocation}'
-  location: controlPlaneLocation
-  properties: {
-    workloadProfiles: [
-      {
-        name: 'Consumption'
-        workloadProfileType: 'Consumption'
-      }
-    ]
-  }
-}
 
 var deployerTaskName = 'deployer-task-${controlPlaneId}'
 
