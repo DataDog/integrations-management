@@ -309,6 +309,7 @@ class TestExistingLfo(TestCase):
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
                 control_plane=LfoControlPlane(
+                    CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
                     CONTROL_PLANE_RESOURCE_GROUP,
@@ -334,11 +335,11 @@ class TestExistingLfo(TestCase):
             existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(test_config, existing_lfo)
 
-            mock_set_monitored_subs.ert_called_once_with(test_config, ControlPlaneType.FunctionApps)
+            mock_set_monitored_subs.assert_called_once_with(existing_lfo.control_plane, test_config.monitored_subscriptions)
             mock_set_tag_filters.assert_not_called()
             mock_set_pii_rules.assert_not_called()
             mock_revoke_subs_perms.assert_not_called()
-            mock_grant_subs_perms.assert_called_once_with(test_config, ControlPlaneType.FunctionApps, {SUB_3_ID})
+            mock_grant_subs_perms.assert_called_once_with(existing_lfo.control_plane, {SUB_3_ID})
 
     def test_update_existing_lfo_remove_scopes_only(self):
         """Test update when only subscriptions are removed (no tag/pii change); revoke and partial env update."""
@@ -349,6 +350,7 @@ class TestExistingLfo(TestCase):
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
                 control_plane=LfoControlPlane(
+                    CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
                     CONTROL_PLANE_RESOURCE_GROUP,
@@ -374,14 +376,13 @@ class TestExistingLfo(TestCase):
             existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(test_config, existing_lfo)
 
-            mock_set_monitored_subs.assert_called_once_with(test_config, ControlPlaneType.FunctionApps)
+            mock_set_monitored_subs.assert_called_once_with(existing_lfo.control_plane, test_config.monitored_subscriptions)
             mock_set_tag_filters.assert_not_called()
             mock_set_pii_rules.assert_not_called()
             mock_revoke_subs_perms.assert_called_once()
             call_args = mock_revoke_subs_perms.call_args[0]
-            self.assertEqual(call_args[0], test_config)
-            self.assertEqual(call_args[1], ControlPlaneType.FunctionApps)
-            self.assertEqual(set(call_args[2]), {SUB_2_ID})
+            self.assertEqual(call_args[0], existing_lfo.control_plane)
+            self.assertEqual(set(call_args[1]), {SUB_2_ID})
             mock_grant_subs_perms.assert_not_called()
 
     def test_update_existing_lfo_add_and_remove_monitored_only(self):
@@ -393,6 +394,7 @@ class TestExistingLfo(TestCase):
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
                 control_plane=LfoControlPlane(
+                    CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
                     CONTROL_PLANE_RESOURCE_GROUP,
@@ -418,11 +420,11 @@ class TestExistingLfo(TestCase):
             existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(test_config, existing_lfo)
 
-            mock_set_monitored_subs.assert_called_once_with(test_config, ControlPlaneType.FunctionApps)
+            mock_set_monitored_subs.assert_called_once_with(existing_lfo.control_plane, test_config.monitored_subscriptions)
             mock_set_tag_filters.assert_not_called()
             mock_set_pii_rules.assert_not_called()
-            mock_grant_subs_perms.assert_called_once_with(test_config, ControlPlaneType.FunctionApps, {SUB_3_ID})
-            mock_revoke_subs_perms.assert_called_once_with(test_config, ControlPlaneType.FunctionApps, {SUB_2_ID})
+            mock_grant_subs_perms.assert_called_once_with(existing_lfo.control_plane, {SUB_3_ID})
+            mock_revoke_subs_perms.assert_called_once_with(existing_lfo.control_plane, {SUB_2_ID})
 
     def test_update_existing_lfo_tag_filter_only(self):
         """Test update when only tag filter changes; partial update via set_resource_tag_filters."""
@@ -431,6 +433,7 @@ class TestExistingLfo(TestCase):
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
                 control_plane=LfoControlPlane(
+                    CONTROL_PLANE_ID,
                     test_config.control_plane_sub_id,
                     SUB_ID_TO_NAME[test_config.control_plane_sub_id],
                     test_config.control_plane_rg,
@@ -454,7 +457,7 @@ class TestExistingLfo(TestCase):
             update_existing_lfo(test_config, existing_lfo)
 
             mock_set_monitored_subs.assert_not_called()
-            mock_set_tag_filters.assert_called_once_with(test_config, ControlPlaneType.FunctionApps)
+            mock_set_tag_filters.assert_called_once_with(existing_lfo.control_plane, test_config.resource_tag_filters)
             mock_set_pii_rules.assert_not_called()
             mock_grant_subs_perms.assert_not_called()
             mock_revoke_subs_perms.assert_not_called()
@@ -466,6 +469,7 @@ class TestExistingLfo(TestCase):
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
                 control_plane=LfoControlPlane(
+                    CONTROL_PLANE_ID,
                     test_config.control_plane_sub_id,
                     SUB_ID_TO_NAME[test_config.control_plane_sub_id],
                     test_config.control_plane_rg,
@@ -490,7 +494,7 @@ class TestExistingLfo(TestCase):
 
             mock_set_monitored_subs.assert_not_called()
             mock_set_tag_filters.assert_not_called()
-            mock_set_pii_rules.assert_called_once_with(test_config, ControlPlaneType.FunctionApps)
+            mock_set_pii_rules.assert_called_once_with(existing_lfo.control_plane, test_config.pii_scrubber_rules)
             mock_grant_subs_perms.assert_not_called()
             mock_revoke_subs_perms.assert_not_called()
 
@@ -504,6 +508,7 @@ class TestExistingLfo(TestCase):
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
                 control_plane=LfoControlPlane(
+                    CONTROL_PLANE_ID,
                     test_config.control_plane_sub_id,
                     SUB_ID_TO_NAME[test_config.control_plane_sub_id],
                     test_config.control_plane_rg,
@@ -527,8 +532,8 @@ class TestExistingLfo(TestCase):
             update_existing_lfo(test_config, existing_lfo)
 
             mock_set_monitored_subs.assert_not_called()
-            mock_set_tag_filters.assert_called_once_with(test_config, ControlPlaneType.FunctionApps)
-            mock_set_pii_rules.assert_called_once_with(test_config, ControlPlaneType.FunctionApps)
+            mock_set_tag_filters.assert_called_once_with(existing_lfo.control_plane, test_config.resource_tag_filters)
+            mock_set_pii_rules.assert_called_once_with(existing_lfo.control_plane, test_config.pii_scrubber_rules)
             mock_revoke_subs_perms.assert_not_called()
             mock_grant_subs_perms.assert_not_called()
 
@@ -541,6 +546,7 @@ class TestExistingLfo(TestCase):
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
                 control_plane=LfoControlPlane(
+                    CONTROL_PLANE_ID,
                     test_config.control_plane_sub_id,
                     SUB_ID_TO_NAME[test_config.control_plane_sub_id],
                     test_config.control_plane_rg,
@@ -566,10 +572,10 @@ class TestExistingLfo(TestCase):
             existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(test_config, existing_lfo)
 
-            mock_set_monitored_subs.assert_called_once_with(test_config, ControlPlaneType.FunctionApps)
-            mock_set_tag_filters.assert_called_once_with(test_config, ControlPlaneType.FunctionApps)
+            mock_set_monitored_subs.assert_called_once_with(existing_lfo.control_plane, test_config.monitored_subscriptions)
+            mock_set_tag_filters.assert_called_once_with(existing_lfo.control_plane, test_config.resource_tag_filters)
             mock_set_pii_rules.assert_not_called()
-            mock_grant_subs_perms.assert_called_once_with(test_config, ControlPlaneType.FunctionApps, {SUB_3_ID})
+            mock_grant_subs_perms.assert_called_once_with(existing_lfo.control_plane, {SUB_3_ID})
             mock_revoke_subs_perms.assert_not_called()
 
     def test_update_existing_lfo_pii_and_monitored(self):
@@ -581,6 +587,7 @@ class TestExistingLfo(TestCase):
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
                 control_plane=LfoControlPlane(
+                    CONTROL_PLANE_ID,
                     test_config.control_plane_sub_id,
                     SUB_ID_TO_NAME[test_config.control_plane_sub_id],
                     test_config.control_plane_rg,
@@ -606,12 +613,12 @@ class TestExistingLfo(TestCase):
             existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(test_config, existing_lfo)
 
-            mock_set_monitored_subs.assert_called_once_with(test_config, ControlPlaneType.FunctionApps)
+            mock_set_monitored_subs.assert_called_once_with(existing_lfo.control_plane, test_config.monitored_subscriptions)
             mock_set_tag_filters.assert_not_called()
-            mock_set_pii_rules.assert_called_once_with(test_config, ControlPlaneType.FunctionApps)
+            mock_set_pii_rules.assert_called_once_with(existing_lfo.control_plane, test_config.pii_scrubber_rules)
             mock_grant_subs_perms.assert_not_called()
             mock_revoke_subs_perms.assert_called_once()
-            self.assertEqual(set(mock_revoke_subs_perms.call_args[0][2]), {SUB_2_ID})
+            self.assertEqual(set(mock_revoke_subs_perms.call_args[0][1]), {SUB_2_ID})
 
     def test_update_existing_lfo_all_three_changed(self):
         """Test update when tag, PII, and monitored subscriptions all change; full env update."""
@@ -624,6 +631,7 @@ class TestExistingLfo(TestCase):
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
                 control_plane=LfoControlPlane(
+                    CONTROL_PLANE_ID,
                     test_config.control_plane_sub_id,
                     SUB_ID_TO_NAME[test_config.control_plane_sub_id],
                     test_config.control_plane_rg,
@@ -649,10 +657,10 @@ class TestExistingLfo(TestCase):
             existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(test_config, existing_lfo)
 
-            mock_set_monitored_subs.assert_called_once_with(test_config, ControlPlaneType.FunctionApps)
-            mock_set_tag_filters.assert_called_once_with(test_config, ControlPlaneType.FunctionApps)
-            mock_set_pii_rules.assert_called_once_with(test_config, ControlPlaneType.FunctionApps)
-            mock_grant_subs_perms.assert_called_once_with(test_config, ControlPlaneType.FunctionApps, {SUB_3_ID})
+            mock_set_monitored_subs.assert_called_once_with(existing_lfo.control_plane, test_config.monitored_subscriptions)
+            mock_set_tag_filters.assert_called_once_with(existing_lfo.control_plane, test_config.resource_tag_filters)
+            mock_set_pii_rules.assert_called_once_with(existing_lfo.control_plane, test_config.pii_scrubber_rules)
+            mock_grant_subs_perms.assert_called_once_with(existing_lfo.control_plane, {SUB_3_ID})
             mock_revoke_subs_perms.assert_not_called()
 
     def test_update_existing_lfo_noop(self):
@@ -663,6 +671,7 @@ class TestExistingLfo(TestCase):
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
                 control_plane=LfoControlPlane(
+                    CONTROL_PLANE_ID,
                     test_config.control_plane_sub_id,
                     SUB_ID_TO_NAME[test_config.control_plane_sub_id],
                     test_config.control_plane_rg,

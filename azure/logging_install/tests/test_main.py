@@ -236,6 +236,7 @@ class TestMain(TestCase):
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
                 control_plane=LfoControlPlane(
+                    CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
                     CONTROL_PLANE_RESOURCE_GROUP,
@@ -262,12 +263,12 @@ class TestMain(TestCase):
             update_existing_lfo(mock_config, existing_lfo)
 
             # # Verify function app environment variables are updated due to new tag filter
-            mock_set_monitored_subs.assert_called_once_with(mock_config, ControlPlaneType.FunctionApps)
-            mock_set_tag_filters.assert_called_once_with(mock_config, ControlPlaneType.FunctionApps)
+            mock_set_monitored_subs.assert_called_once_with(existing_lfo.control_plane, mock_config.monitored_subscriptions)
+            mock_set_tag_filters.assert_called_once_with(existing_lfo.control_plane, mock_config.resource_tag_filters)
             mock_set_pii_rules.assert_not_called()
 
             # Verify permissions are granted only for new subscription
-            mock_grant_subs_perms.assert_called_once_with(mock_config, ControlPlaneType.FunctionApps, {SUB_3_ID})
+            mock_grant_subs_perms.assert_called_once_with(existing_lfo.control_plane, {SUB_3_ID})
 
     def test_install_log_forwarder_new_installation(self):
         """Test install_log_forwarder flow for new installation"""
@@ -301,6 +302,7 @@ class TestMain(TestCase):
 
         existing_lfo = LfoMetadata(
             control_plane=LfoControlPlane(
+                CONTROL_PLANE_ID,
                 CONTROL_PLANE_SUBSCRIPTION_ID,
                 CONTROL_PLANE_SUBSCRIPTION_NAME,
                 CONTROL_PLANE_RESOURCE_GROUP,

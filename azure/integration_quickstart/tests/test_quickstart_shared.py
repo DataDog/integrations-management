@@ -24,6 +24,7 @@ def _make_metadata(monitored_subs=None):
         monitored_subs = {"sub-1": "Sub One", "sub-2": "Sub Two"}
     return LfoMetadata(
         control_plane=LfoControlPlane(
+            id="cp-id",
             sub_id="cp-sub",
             sub_name="Control Plane Sub",
             resource_group="lfo-rg",

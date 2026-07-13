@@ -19,6 +19,7 @@ from azure_logging_install.constants import REQUIRED_RESOURCE_PROVIDERS
 from azure_logging_install.existing_lfo import LfoControlPlane
 
 from tests.test_data import (
+    CONTROL_PLANE_ID,
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_RESOURCE_GROUP,
     CONTROL_PLANE_SUBSCRIPTION_ID,
@@ -302,6 +303,7 @@ class TestValidation(TestCase):
                     SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
                 },
                 control_plane=LfoControlPlane(
+                    CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
                     "existing-rg",
@@ -316,6 +318,7 @@ class TestValidation(TestCase):
                     SUB_3_ID: SUB_ID_TO_NAME[SUB_3_ID],
                 },
                 control_plane=LfoControlPlane(
+                    CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
                     "another-rg",
