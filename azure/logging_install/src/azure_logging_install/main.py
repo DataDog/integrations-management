@@ -61,15 +61,15 @@ def parse_arguments():
     parser.add_argument(
         "--datadog-site",
         type=str,
-        # choices=[
-        #     "datadoghq.com",
-        #     "datadoghq.eu",
-        #     "ap1.datadoghq.com",
-        #     "ap2.datadoghq.com",
-        #     "us3.datadoghq.com",
-        #     "us5.datadoghq.com",
-        #     "ddog-gov.com",
-        # ],
+        choices=[
+            "datadoghq.com",
+            "datadoghq.eu",
+            "ap1.datadoghq.com",
+            "ap2.datadoghq.com",
+            "us3.datadoghq.com",
+            "us5.datadoghq.com",
+            "ddog-gov.com",
+        ],
         default="datadoghq.com",
         help="Datadog site (default: datadoghq.com)",
     )
