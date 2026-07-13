@@ -20,7 +20,7 @@ from az_shared.execute_cmd import execute
 from az_shared.logs import log
 
 from .az_cmd import AzCmd, set_subscription
-from .configuration import Configuration, ControlPlaneType
+from .configuration import Configuration, ControlPlaneType, LfoControlPlane
 from .constants import (
     INITIAL_DEPLOY_IDENTITY_NAME,
     MONITORING_CONTRIBUTOR_ID,
@@ -276,21 +276,18 @@ def remove_role(scope: str, principal_id: str, role_id: str) -> None:
         execute(AzCmd("role", "assignment delete").param("--ids", assignment_ids[0]))
 
 
-def _get_control_plane_task_principal_ids(config: Configuration, control_plane_type: ControlPlaneType) -> tuple[str, str, str]:
+def _get_control_plane_task_principal_ids(control_plane: LfoControlPlane) -> tuple[str, str, str]:
     """Return (resources_task, scaling_task, diagnostic_settings_task) principal IDs for the control plane."""
-    rg = config.control_plane_rg
-    sub_id = config.control_plane_sub_id
-
-    if control_plane_type == ControlPlaneType.FunctionApps:
-        resource_principal_id = get_function_app_principal_id(rg, sub_id, config.resources_task_name)
-        scaling_principal_id = get_function_app_principal_id(rg, sub_id, config.scaling_task_name)
-        diagnostic_principal_id = get_function_app_principal_id(rg, sub_id, config.diagnostic_settings_task_name)
+    if control_plane.type == ControlPlaneType.FunctionApps:
+        resource_principal_id = get_function_app_principal_id(control_plane.resource_group, control_plane.sub_id, control_plane.resources_task_name)
+        scaling_principal_id = get_function_app_principal_id(control_plane.resource_group, control_plane.sub_id, control_plane.scaling_task_name)
+        diagnostic_principal_id = get_function_app_principal_id(control_plane.resource_group, control_plane.sub_id, control_plane.diagnostic_settings_task_name)
         return resource_principal_id, scaling_principal_id, diagnostic_principal_id
     
-    if control_plane_type == ControlPlaneType.ContainerAppJobs:
-        resource_principal_id = get_container_app_job_principal_id(rg, sub_id, config.resources_task_name)
-        scaling_principal_id = get_container_app_job_principal_id(rg, sub_id, config.scaling_task_name)
-        diagnostic_principal_id = get_container_app_job_principal_id(rg, sub_id, config.diagnostic_settings_task_name)
+    if control_plane.type == ControlPlaneType.ContainerAppJobs:
+        resource_principal_id = get_container_app_job_principal_id(control_plane.resource_group, control_plane.sub_id, control_plane.resources_task_name)
+        scaling_principal_id = get_container_app_job_principal_id(control_plane.resource_group, control_plane.sub_id, control_plane.scaling_task_name)
+        diagnostic_principal_id = get_container_app_job_principal_id(control_plane.resource_group, control_plane.sub_id, control_plane.diagnostic_settings_task_name)
         return resource_principal_id, scaling_principal_id, diagnostic_principal_id
 
 
@@ -330,64 +327,64 @@ def ensure_control_plane_rg_not_deleting(
             break
 
 
-def grant_subscriptions_permissions(config: Configuration, control_plane_type: ControlPlaneType, sub_ids: Iterable[str]):
+def grant_subscriptions_permissions(control_plane: LfoControlPlane, sub_ids: Iterable[str]):
     """Grant permissions to a set of subscriptions."""
 
-    resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_control_plane_task_principal_ids(config, control_plane_type)
+    resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_control_plane_task_principal_ids(control_plane)
 
     for sub_id in sub_ids:
         log.info(f"Create resource group in subscription: {sub_id}")
         set_subscription(sub_id)
         execute(
             AzCmd("group", "create")
-            .param("--name", config.control_plane_rg)
-            .param("--location", config.control_plane_region)
+            .param("--name", control_plane.resource_group)
+            .param("--location", control_plane.region)
         )
 
         subscription_scope = f"/subscriptions/{sub_id}"
-        resource_group_scope = f"{subscription_scope}/resourceGroups/{config.control_plane_rg}"
+        resource_group_scope = f"{subscription_scope}/resourceGroups/{control_plane.resource_group}"
 
         log.info(f"Assigning permissions in subscription: {sub_id}")
         assign_role(
             subscription_scope,
             resource_principal_id,
             MONITORING_READER_ID,
-            config.control_plane_id,
+            control_plane.id,
         )
         assign_role(
             resource_group_scope,
             scaling_principal_id,
             SCALING_CONTRIBUTOR_ID,
-            config.control_plane_id,
+            control_plane.id,
         )
         assign_role(
             subscription_scope,
             diagnostic_principal_id,
             MONITORING_CONTRIBUTOR_ID,
-            config.control_plane_id,
+            control_plane.id,
         )
         assign_role(
             resource_group_scope,
             diagnostic_principal_id,
             STORAGE_READER_AND_DATA_ACCESS_ID,
-            config.control_plane_id,
+            control_plane.id,
         )
 
-    set_subscription(config.control_plane_sub_id)
+    set_subscription(control_plane.sub_id)
     log.info("Subscriptions permission setup complete")
 
 
-def revoke_subscriptions_permissions(config: Configuration, control_plane_tye: ControlPlaneType, sub_ids: Iterable[str]) -> None:
+def revoke_subscriptions_permissions(control_plane: LfoControlPlane, sub_ids: Iterable[str]) -> None:
     """Revoke permissions and delete the LFO-created resource group for each subscription in sub_ids.
     Mirrors grant_subscriptions_permissions: remove the four role assignments per subscription, then delete the RG."""
-    resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_control_plane_task_principal_ids(config, control_plane_tye)
+    resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_control_plane_task_principal_ids(control_plane)
 
     for sub_id in sub_ids:
         subscription_scope = f"/subscriptions/{sub_id}"
-        resource_group_scope = f"{subscription_scope}/resourceGroups/{config.control_plane_rg}"
+        resource_group_scope = f"{subscription_scope}/resourceGroups/{control_plane.resource_group}"
 
         log.info(
-            f"Revoking permissions and deleting resource group {config.control_plane_rg} in subscription: {sub_id}"
+            f"Revoking permissions and deleting resource group {control_plane.resource_group} in subscription: {sub_id}"
         )
         for scope, principal_id, role_id in [
             (subscription_scope, resource_principal_id, MONITORING_READER_ID),
@@ -400,7 +397,7 @@ def revoke_subscriptions_permissions(config: Configuration, control_plane_tye: C
         try:
             execute(
                 AzCmd("group", "delete")
-                .param("--name", config.control_plane_rg)
+                .param("--name", control_plane.resource_group)
                 .param("--subscription", sub_id)
                 .flag("--yes")
                 .flag("--no-wait")
@@ -414,7 +411,7 @@ def revoke_subscriptions_permissions(config: Configuration, control_plane_tye: C
             else:
                 raise
 
-    set_subscription(config.control_plane_sub_id)
+    set_subscription(control_plane.sub_id)
     log.info("Revoke and resource group deletion complete")
 
 
@@ -431,4 +428,12 @@ def grant_permissions(config: Configuration):
         config.control_plane_id,
     )
 
-    grant_subscriptions_permissions(config, config.control_plane_type, config.all_subscriptions)
+    control_plane = LfoControlPlane(
+        id=config.control_plane_id,
+        sub_id=config.control_plane_sub_id,
+        sub_name="",
+        resource_group=config.control_plane_rg,
+        region=config.control_plane_region,
+        type=config.control_plane_type
+    )
+    grant_subscriptions_permissions(control_plane, config.all_subscriptions)

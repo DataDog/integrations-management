@@ -20,7 +20,7 @@ from az_shared.execute_cmd import execute
 from az_shared.logs import log
 
 from .az_cmd import AzCmd
-from .configuration import Configuration, ControlPlaneType
+from .configuration import Configuration, ControlPlaneType, LfoControlPlane
 from .constants import CONTROL_PLANE_CACHE, IMAGE_REGISTRY_URL, LFO_PUBLIC_STORAGE_ACCOUNT_URL, MAX_THREAD_POOL_WORKERS, MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY
 
 # =============================================================================
@@ -205,33 +205,33 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
         os.unlink(tmpfile_path)
 
 
-def set_monitored_subscriptions(config: Configuration, control_plane_type: ControlPlaneType) -> None:
+def set_monitored_subscriptions(control_plane: LfoControlPlane, monitored_subscriptions: list[str]) -> None:
     """Update only MONITORED_SUBSCRIPTIONS on the resources-task."""
-    log.info(f"Updating {MONITORED_SUBSCRIPTIONS_KEY} for {config.resources_task_name}")
-    monitored_json = json.dumps(config.monitored_subscriptions)
+    log.info(f"Updating {MONITORED_SUBSCRIPTIONS_KEY} for {control_plane.resources_task_name}")
+    monitored_json = json.dumps(monitored_subscriptions)
     new_var = shlex.quote(f"{MONITORED_SUBSCRIPTIONS_KEY}={monitored_json}")
-    return _set_env_var_on_task(control_plane_type, config.control_plane_sub_id, config.control_plane_rg, config.resources_task_name, new_var)
+    return _set_env_var_on_task(control_plane, control_plane.resources_task_name, new_var)
 
 
-def set_resource_tag_filters(config: Configuration, control_plane_type: ControlPlaneType) -> None:
+def set_resource_tag_filters(control_plane: LfoControlPlane, resource_tag_filters: str) -> None:
     """Update only RESOURCE_TAG_FILTERS on the resources-task."""
-    log.info(f"Updating {RESOURCE_TAG_FILTERS_KEY} for {config.resources_task_name}")
-    new_var = shlex.quote(f"{RESOURCE_TAG_FILTERS_KEY}={config.resource_tag_filters}")
-    return _set_env_var_on_task(control_plane_type, config.control_plane_sub_id, config.control_plane_rg, config.resources_task_name, new_var)
+    log.info(f"Updating {RESOURCE_TAG_FILTERS_KEY} for {control_plane.resources_task_name}")
+    new_var = shlex.quote(f"{RESOURCE_TAG_FILTERS_KEY}={resource_tag_filters}")
+    return _set_env_var_on_task(control_plane, control_plane.resources_task_name, new_var)
         
 
-def set_pii_scrubber_rules(config: Configuration, control_plane_type: ControlPlaneType) -> None:
+def set_pii_scrubber_rules(control_plane: LfoControlPlane, pii_scrubber_rules: str) -> None:
     """Update only PII_SCRUBBER_RULES on the scaling-task."""
-    log.info(f"Updating {PII_SCRUBBER_RULES_KEY} for {config.scaling_task_name}")
-    new_var = shlex.quote(f"{PII_SCRUBBER_RULES_KEY}={config.pii_scrubber_rules}")
-    return _set_env_var_on_task(control_plane_type, config.control_plane_sub_id, config.control_plane_rg, config.scaling_task_name, new_var)
+    log.info(f"Updating {PII_SCRUBBER_RULES_KEY} for {control_plane.scaling_task_name}")
+    new_var = shlex.quote(f"{PII_SCRUBBER_RULES_KEY}={pii_scrubber_rules}")
+    return _set_env_var_on_task(control_plane, control_plane.scaling_task_name, new_var)
 
 
-def _set_env_var_on_task(control_plane_type: ControlPlaneType, sub_id: str, resource_group: str, task_name: str, new_var: str) -> None:
-    if control_plane_type == ControlPlaneType.FunctionApps:
-        return _set_env_var_on_function_app(sub_id, resource_group, task_name, new_var)
-    if control_plane_type == ControlPlaneType.ContainerAppJobs:
-        return _set_env_var_on_container_app_job(sub_id, resource_group, task_name, new_var)
+def _set_env_var_on_task(control_plane: LfoControlPlane, task_name: str, new_var: str) -> None:
+    if control_plane.type == ControlPlaneType.FunctionApps:
+        return _set_env_var_on_function_app(control_plane.sub_id, control_plane.resource_group, task_name, new_var)
+    if control_plane.type == ControlPlaneType.ContainerAppJobs:
+        return _set_env_var_on_container_app_job(control_plane.sub_id, control_plane.resource_group, task_name, new_var)
 
 
 def _set_env_var_on_function_app(sub_id: str, resource_group: str, task_name: str, new_var: str) -> None:

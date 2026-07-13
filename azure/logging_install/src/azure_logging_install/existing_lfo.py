@@ -10,7 +10,7 @@ from az_shared.execute_cmd import execute
 from az_shared.logs import log, log_header
 
 from .az_cmd import AzCmd
-from .configuration import Configuration, ControlPlaneType
+from .configuration import Configuration, ControlPlaneType, LfoControlPlane
 from .resource_setup import (
     set_monitored_subscriptions,
     set_pii_scrubber_rules,
@@ -18,14 +18,6 @@ from .resource_setup import (
 )
 from .role_setup import grant_subscriptions_permissions, revoke_subscriptions_permissions
 from .constants import MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_PREFIX, SCALING_TASK_PREFIX, UNKNOWN_SUB_NAME_MESSAGE
-
-@dataclass(frozen=True)
-class LfoControlPlane:
-    sub_id: str
-    sub_name: str
-    resource_group: str
-    region: str
-    type: ControlPlaneType
 
 
 @dataclass(frozen=True)
@@ -77,6 +69,7 @@ def _find_existing_lfo_control_planes_by_type(sub_id_to_name: dict[str, str], ar
         subscription_id = app["subscriptionId"]
         control_plane_id = app["name"].split("-")[-1]
         existing_control_planes[control_plane_id] = LfoControlPlane(
+            id=control_plane_id,
             sub_id=subscription_id,
             sub_name=sub_id_to_name[subscription_id],
             resource_group=app["resourceGroup"],
@@ -106,7 +99,7 @@ def _query_task_env_vars(control_plane: LfoControlPlane, task_name: str) -> dict
             .param("--subscription", control_plane.sub_id)
             .param("--name", task_name)
             .param("--resource-group", control_plane.resource_group)
-            .param("--query", "properties.template.containers[].env")
+            .param("--query", "properties.template.containers[].env[]")
             .param("--output", "json")
         )
 
@@ -186,10 +179,10 @@ def update_existing_lfo(new_config: Configuration, existing_lfo: LfoMetadata):
         log_header("STEP 2: Skipping permission changes for log forwarding scopes")
 
     if sub_ids_that_need_permissions:
-        grant_subscriptions_permissions(new_config, existing_lfo.control_plane.type, sub_ids_that_need_permissions)
+        grant_subscriptions_permissions(existing_lfo.control_plane, sub_ids_that_need_permissions)
 
     if sub_ids_to_remove:
-        revoke_subscriptions_permissions(new_config, existing_lfo.control_plane.type, sub_ids_to_remove)
+        revoke_subscriptions_permissions(existing_lfo.control_plane, sub_ids_to_remove)
 
     if not sub_ids_that_need_permissions and not sub_ids_to_remove:
         log.info("No modified subscription selections - skipping permission updates")
@@ -203,14 +196,15 @@ def update_existing_lfo(new_config: Configuration, existing_lfo: LfoMetadata):
     tag_filter_changed = existing_tag_filters != new_tag_filters
     pii_rules_changed = existing_pii_rules != new_pii_rules
     monitored_subs_changed = existing_monitored_sub_ids != new_monitored_sub_ids
+    change_count = sum((tag_filter_changed, pii_rules_changed, monitored_subs_changed))
 
     if tag_filter_changed:
-        set_resource_tag_filters(new_config, existing_lfo.control_plane.type)
+        set_resource_tag_filters(existing_lfo.control_plane, new_tag_filters)
     if pii_rules_changed:
-        set_pii_scrubber_rules(new_config, existing_lfo.control_plane.type)
+        set_pii_scrubber_rules(existing_lfo.control_plane, new_pii_rules)
     if monitored_subs_changed:
-        set_monitored_subscriptions(new_config, existing_lfo.control_plane.type)
-    else:
+        set_monitored_subscriptions(existing_lfo.control_plane, new_config.monitored_subscriptions)
+    if change_count == 0:
         log.info("No changes to settings detected - skipping update")
         return
 
