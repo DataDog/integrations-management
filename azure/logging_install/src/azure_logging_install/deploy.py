@@ -6,13 +6,14 @@ from az_shared.execute_cmd import execute
 from az_shared.logs import log
 
 from .az_cmd import AzCmd, set_subscription
-from .configuration import Configuration
+from .configuration import Configuration, ControlPlaneType
 from .resource_setup import (
     create_blob_container,
     create_container_app_environment,
-    create_container_app_job,
+    create_control_plane_container_app_jobs,
+    create_deployer_container_app_job,
     create_file_share,
-    create_function_apps,
+    create_control_plane_function_apps,
     create_storage_account,
     wait_for_storage_account_ready,
 )
@@ -23,15 +24,8 @@ def deploy_lfo_deployer(config: Configuration):
     """Deploy all container job infrastructure."""
     create_initial_deploy_role(config)
 
-    log.info("Creating container app environment...")
-    create_container_app_environment(
-        config.control_plane_env_name,
-        config.control_plane_rg,
-        config.control_plane_region,
-    )
-
     log.info("Creating container app job...")
-    create_container_app_job(config)
+    create_deployer_container_app_job(config)
 
     log.info("Container App job + identity setup complete")
 
@@ -50,14 +44,25 @@ def deploy_control_plane(config: Configuration):
         config.control_plane_cache_storage_name,
         config.get_control_plane_cache_key(),
     )
-    create_file_share(
-        config.control_plane_cache_storage_name,
-        config.control_plane_rg,
-    )
+
+    if config.control_plane_type == ControlPlaneType.FunctionApps:
+        create_file_share(
+            config.control_plane_cache_storage_name,
+            config.control_plane_rg,
+        )
     log.info("Storage account setup completed")
 
-    log.info("Creating Function Apps...")
-    create_function_apps(config)
+    log.info("Creating container app environment...")
+    create_container_app_environment(
+        config.control_plane_env_name,
+        config.control_plane_rg,
+        config.control_plane_region,
+    )
+
+    if config.control_plane_type == ControlPlaneType.FunctionApps:
+        create_control_plane_function_apps(config)
+    if config.control_plane_type == ControlPlaneType.ContainerAppJobs:
+        create_control_plane_container_app_jobs(config)
 
     log.info("Deploying Container App infrastructure for deployer job...")
     deploy_lfo_deployer(config)

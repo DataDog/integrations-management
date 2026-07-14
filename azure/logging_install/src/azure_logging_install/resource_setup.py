@@ -20,8 +20,8 @@ from az_shared.execute_cmd import execute
 from az_shared.logs import log
 
 from .az_cmd import AzCmd
-from .configuration import Configuration, ControlPlaneType, LfoControlPlane
-from .constants import CONTROL_PLANE_CACHE, IMAGE_REGISTRY_URL, LFO_PUBLIC_STORAGE_ACCOUNT_URL, MAX_THREAD_POOL_WORKERS, MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY
+from .configuration import Configuration, ControlPlaneType, LfoControlPlane, fully_qualified_image
+from .constants import CONTROL_PLANE_CACHE, LFO_PUBLIC_STORAGE_ACCOUNT_URL, MAX_THREAD_POOL_WORKERS, MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY
 
 # =============================================================================
 # Subscription, Resource Group, Storage Account
@@ -180,7 +180,7 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
     elif function_app_name == config.scaling_task_name:
         specific_settings = {
             "RESOURCE_GROUP": config.control_plane_rg,
-            "FORWARDER_IMAGE": f"{IMAGE_REGISTRY_URL}/forwarder:latest",
+            "FORWARDER_IMAGE": fully_qualified_image("forwarder:latest"),
             PII_SCRUBBER_RULES_KEY: config.pii_scrubber_rules,
         }
     else:
@@ -254,15 +254,117 @@ def _set_env_var_on_container_app_job(sub_id: str, resource_group: str, task_nam
     )
 
 
-def create_function_apps(config: Configuration):
+def create_control_plane_function_apps(config: Configuration):
     """Create function apps for LFO Resources Task, Scaling Task, and Diagnostic Settings Task"""
 
-    log.info("Creating Function Apps...")
+    log.info("Creating control plane Function Apps...")
     for function_app_name in config.control_plane_task_names:
         create_function_app(config, function_app_name)
         set_function_app_env_vars(config, function_app_name)
 
     log.info("Function Apps created and configured")
+
+
+def create_control_plane_container_app_jobs(config: Configuration):
+    """Create container app jobs for LFO Resources Task, Scaling Task, and Diagnostic Settings Task"""
+
+    log.info("Creating control plane Container App Jobs...")
+    _create_resources_task_container_app_job(config)
+    _create_diagnostic_settings_task_container_app_job(config)
+    _create_scaling_task_container_app_job(config)
+    log.info("Container App Jobs created and configured")
+
+
+def _create_control_plane_task_container_app_job(config: Configuration, task_name: str, image_name: str, extra_vars: list[str], timeout: str, cron: str):
+    try:
+        log.info(f"Checking if Container App job '{task_name}' already exists...")
+        execute(
+            AzCmd("containerapp", "job show")
+            .param("--name", task_name)
+            .param("--resource-group", config.control_plane_rg)
+        )
+        log.info(f"Container App job '{task_name}' already exists - reusing existing job")
+        return
+    except ResourceNotFoundError:
+        log.info(f"Container App job '{task_name}' not found - creating new job")
+
+    secrets = [
+        shlex.quote(f"connection-string={config.get_control_plane_cache_conn_string()}"),
+        shlex.quote(f"dd-api-key={config.datadog_api_key}"),
+    ]
+
+    common_vars = [
+        "AzureWebJobsStorage=secretref:connection-string",
+        "DD_API_KEY=secretref:dd-api-key",
+        f"DD_SITE={config.datadog_site}",
+        f"DD_TELEMETRY={'true' if config.datadog_telemetry else 'false'}",
+        f"CONTROL_PLANE_ID={config.control_plane_id}",
+        f"CONTROL_PLANE_REGION={config.control_plane_region}",
+        f"SUBSCRIPTION_ID={config.control_plane_sub_id}",
+        f"LOG_LEVEL={config.log_level}",
+    ]
+
+    all_vars = common_vars + extra_vars
+
+    execute(
+        AzCmd("containerapp", "job create")
+        .param("--name", task_name)
+        .param("--resource-group", config.control_plane_rg)
+        .param("--environment", config.control_plane_env_name)
+        .param("--replica-timeout", timeout)
+        .param("--replica-retry-limit", "0")
+        .param("--trigger-type", "Schedule")
+        .param("--cron-expression", shlex.quote(cron))
+        .param("--image", image_name)
+        .param("--cpu", "0.5")
+        .param("--memory", "1Gi")
+        .flag("--mi-system-assigned")
+        .param_list("--env-vars", all_vars)
+        .param_list("--secrets", secrets)
+    )
+
+
+def _create_resources_task_container_app_job(config: Configuration):
+    extra_vars = [
+        f"{MONITORED_SUBSCRIPTIONS_KEY}={json.dumps(config.monitored_subscriptions)}",
+        f"{RESOURCE_TAG_FILTERS_KEY}={config.resource_tag_filters}"
+    ]
+    _create_control_plane_task_container_app_job(
+        config, 
+        config.resources_task_name, 
+        config.resources_task_image, 
+        extra_vars, 
+        "300",
+        "*/5 * * * *"
+    )
+
+def _create_diagnostic_settings_task_container_app_job(config: Configuration):
+    extra_vars = [
+        f"RESOURCE_GROUP={json.dumps(config.control_plane_rg)}",
+    ]
+    _create_control_plane_task_container_app_job(
+        config, 
+        config.diagnostic_settings_task_name, 
+        config.diagnostic_settings_task_image, 
+        extra_vars, 
+        "300",
+        "*/5 * * * *"
+    )
+
+def _create_scaling_task_container_app_job(config: Configuration):
+    extra_vars = [
+        f"RESOURCE_GROUP={json.dumps(config.control_plane_rg)}",
+        f"FORWARDER_IMAGE={fully_qualified_image("forwarder:latest")}",
+        f"{PII_SCRUBBER_RULES_KEY}={config.pii_scrubber_rules}"
+    ]
+    _create_control_plane_task_container_app_job(
+        config, 
+        config.diagnostic_settings_task_name, 
+        config.diagnostic_settings_task_image, 
+        extra_vars, 
+        "500",
+        "3/5 * * * *"
+    )
 
 
 # =============================================================================
@@ -299,7 +401,7 @@ def create_container_app_environment(
     )
 
 
-def create_container_app_job(config: Configuration):
+def create_deployer_container_app_job(config: Configuration):
     """Create the Container App job for the deployer if it does not exist"""
 
     try:

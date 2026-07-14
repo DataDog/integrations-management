@@ -183,7 +183,7 @@ class TestResourceSetup(TestCase):
 
     # ===== Container App Job Tests ===== #
 
-    def test_create_container_app_job_success(self):
+    def test_create_deployer_container_app_job_success(self):
         """Test successful container app job creation"""
         mock_config = MagicMock()
         mock_config.deployer_job_name = CONTAINER_APP_JOB_NAME
@@ -202,7 +202,7 @@ class TestResourceSetup(TestCase):
         with mock_patch("azure_logging_install.resource_setup.tempfile.NamedTemporaryFile") as mock_temp_file:
             mock_temp_file.return_value.__enter__.return_value.name = "/tmp/test.json"
 
-            resource_setup.create_container_app_job(mock_config)
+            resource_setup.create_deployer_container_app_job(mock_config)
 
         # Should have been called twice: once for show, once for create
         self.assertEqual(self.execute_mock.call_count, 2)
@@ -217,12 +217,12 @@ class TestResourceSetup(TestCase):
 
     # ===== Function App Tests ===== #
 
-    def test_create_function_apps_success(self):
+    def test_create_control_plane_function_apps_success(self):
         """Test successful function app creation"""
         with mock_patch("azure_logging_install.resource_setup.create_function_app") as mock_create_func:
             # Mock the storage key retrieval to avoid actual Azure CLI calls
             with mock_patch.object(self.config, "get_control_plane_cache_key", return_value="test-key"):
-                resource_setup.create_function_apps(self.config)
+                resource_setup.create_control_plane_function_apps(self.config)
 
                 # Should create 3 function apps (resources, scaling, diagnostic settings)
                 self.assertEqual(mock_create_func.call_count, 3)
