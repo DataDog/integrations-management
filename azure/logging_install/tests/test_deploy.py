@@ -8,7 +8,7 @@ from unittest.mock import patch as mock_patch
 
 from az_shared.errors import FatalError
 from azure_logging_install import deploy
-from azure_logging_install.configuration import Configuration
+from azure_logging_install.configuration import Configuration, ControlPlaneType
 
 from logging_install.tests.test_data import (
     CONTROL_PLANE_REGION,
@@ -41,6 +41,7 @@ class TestDeploy(TestCase):
             control_plane_region=CONTROL_PLANE_REGION,
             control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
             control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+            control_plane_type=ControlPlaneType.FunctionApps,
             monitored_subs="sub-1,sub-2",
             datadog_api_key="test-api-key",
         )
@@ -59,11 +60,6 @@ class TestDeploy(TestCase):
 
         # Verify all components are created in correct order
         self.create_initial_deploy_role_mock.assert_called_once_with(self.config)
-        self.create_container_app_environment_mock.assert_called_once_with(
-            self.config.control_plane_env_name,
-            self.config.control_plane_rg,
-            self.config.control_plane_region,
-        )
         self.create_deployer_container_app_job_mock.assert_called_once_with(self.config)
 
     def test_deploy_lfo_deployer_role_creation_failure(self):
@@ -74,19 +70,19 @@ class TestDeploy(TestCase):
             deploy.deploy_lfo_deployer(self.config)
 
         # Should not proceed to create other resources
-        self.create_container_app_environment_mock.assert_not_called()
         self.create_deployer_container_app_job_mock.assert_not_called()
 
-    def test_deploy_lfo_deployer_environment_creation_failure(self):
-        """Test LFO deployer deployment handles environment creation failure"""
+    def test_deploy_control_plane_environment_creation_failure(self):
+        """Test control plane deployment handles container app environment creation failure"""
         self.create_container_app_environment_mock.side_effect = FatalError("Environment creation failed")
 
-        with self.assertRaises(FatalError):
-            deploy.deploy_lfo_deployer(self.config)
+        with mock_patch.object(self.config, "get_control_plane_cache_key", return_value="test-key"):
+            with self.assertRaises(FatalError):
+                deploy.deploy_control_plane(self.config)
 
-        # Should have tried to create role first
-        self.create_initial_deploy_role_mock.assert_called_once()
-        # Should not proceed to create job
+        # Should have completed storage setup first
+        self.create_storage_account_mock.assert_called_once()
+        # Should not proceed to create the deployer job
         self.create_deployer_container_app_job_mock.assert_not_called()
 
     # ===== Control Plane Deployment Tests ===== #

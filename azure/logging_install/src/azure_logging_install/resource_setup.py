@@ -354,7 +354,7 @@ def _create_diagnostic_settings_task_container_app_job(config: Configuration):
 def _create_scaling_task_container_app_job(config: Configuration):
     extra_vars = [
         f"RESOURCE_GROUP={json.dumps(config.control_plane_rg)}",
-        f"FORWARDER_IMAGE={fully_qualified_image("forwarder:latest")}",
+        f"FORWARDER_IMAGE={fully_qualified_image('forwarder:latest')}",
         f"{PII_SCRUBBER_RULES_KEY}={config.pii_scrubber_rules}"
     ]
     _create_control_plane_task_container_app_job(

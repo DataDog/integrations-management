@@ -164,7 +164,7 @@ def _get_deployer_image(control_plane_type: str) -> str:
     if control_plane_type == ControlPlaneType.FunctionApps:
         return fully_qualified_image(DEPLOYER_IMAGE_FOR_FUNCTION_APPS)
     if control_plane_type == ControlPlaneType.ContainerAppJobs:
-        fully_qualified_image(DEPLOYER_IMAGE_FOR_CONTAINER_APP_JOBS)
+        return fully_qualified_image(DEPLOYER_IMAGE_FOR_CONTAINER_APP_JOBS)
 
 def fully_qualified_image(repo_and_tag: str) -> str:
     """Return the full qualified image name with the registry URL"""

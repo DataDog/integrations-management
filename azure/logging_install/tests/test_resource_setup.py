@@ -8,7 +8,7 @@ from unittest.mock import patch as mock_patch
 
 from az_shared.errors import FatalError, ResourceNotFoundError
 from azure_logging_install import resource_setup
-from azure_logging_install.configuration import Configuration
+from azure_logging_install.configuration import Configuration, ControlPlaneType
 
 from logging_install.tests.test_data import CONTROL_PLANE_REGION, CONTROL_PLANE_RESOURCE_GROUP
 
@@ -32,6 +32,7 @@ class TestResourceSetup(TestCase):
             control_plane_region=CONTROL_PLANE_REGION,
             control_plane_sub_id="test-sub",
             control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+            control_plane_type=ControlPlaneType.FunctionApps,
             monitored_subs="sub-1,sub-2",
             datadog_api_key="test-api-key",
         )
