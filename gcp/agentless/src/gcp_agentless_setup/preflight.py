@@ -22,6 +22,7 @@ from .errors import (
 )
 from gcp_shared.gcloud import GcloudCmd, gcloud, try_gcloud, is_authenticated
 from .reporter import Reporter, AgentlessStep
+from .terraform_install import ensure_terraform
 
 
 # Maximum number of parallel workers for API/project operations
@@ -331,5 +332,7 @@ def run_preflight_checks(config: Config, reporter: Reporter) -> None:
         reporter.info(f"Checking APIs in {len(config.other_projects)} scanned project(s)...")
         enable_apis_for_projects_parallel(reporter, config.other_projects, SCANNED_PROJECT_APIS)
         reporter.success("Scanned project APIs ready")
+
+    ensure_terraform(reporter)
 
     reporter.finish_step()
