@@ -16,7 +16,7 @@ from common.requests import dd_request
 
 _AZURE_ACCOUNTS_PATH = "/api/v2/agentless_scanning/accounts/azure"
 _RESOURCE_TYPE = "azure_scan_options"
-_DEFAULT_ATTRIBUTES = {"vuln_host_os": True, "vuln_containers_os": True}
+_DEFAULT_ATTRIBUTES = {"vuln_host_os": True, "vuln_containers_os": True, "function": True, "compliance_host": True}
 
 _DOCS_UI_PATH = "Security → Cloud Security → Settings → Azure"
 
