@@ -19,6 +19,22 @@ class ControlPlaneType(str, Enum):
     FunctionApps = "FUNCTION_APPS"
     ContainerAppJobs = "CONTAINER_APP_JOBS"
 
+
+@dataclass
+class LfoControlPlane:
+    id: str
+    sub_id: str
+    sub_name: str
+    resource_group: str
+    region: str
+    type: ControlPlaneType
+
+    def __post_init__(self):
+        self.resources_task_name = _get_resources_task_name(self.id)
+        self.scaling_task_name = _get_scaling_task_name(self.id)
+        self.diagnostic_settings_task_name = _get_diagnostic_settings_task_name(self.type, self.id)
+
+
 @dataclass
 class Configuration:
     """User-specified configuration parameters and derivations necessary for deployment"""
@@ -112,27 +128,35 @@ class Configuration:
 
         # Deployer
         self.deployer_job_name = f"deployer-task-{self.control_plane_id}"
-        self.deployer_image_url = self._get_deployer_image()
+        self.deployer_image_url = _get_deployer_image(self.control_plane_type)
         self.container_app_start_role_name = f"ContainerAppStartRole{self.control_plane_id}"
 
         # Control plane tasks
-        self.resources_task_name = f"{RESOURCES_TASK_PREFIX}{self.control_plane_id}"
-        self.scaling_task_name = f"{SCALING_TASK_PREFIX}{self.control_plane_id}"
-        self.diagnostic_settings_task_name = self._get_diagnostic_settings_task_name()
+        self.resources_task_name = _get_resources_task_name(self.control_plane_id)
+        self.scaling_task_name = _get_scaling_task_name(self.control_plane_id)
+        self.diagnostic_settings_task_name = _get_diagnostic_settings_task_name(self.control_plane_type, self.control_plane_id)
         self.control_plane_task_names = [
             self.resources_task_name,
             self.scaling_task_name,
             self.diagnostic_settings_task_name,
         ]
 
-    def _get_diagnostic_settings_task_name(self) -> str:
-        if self.control_plane_type == ControlPlaneType.FunctionApps:
-            return f"{DIAGNOSTIC_SETTINGS_TASK_FUNCTION_APP_PREFIX}{self.control_plane_id}"
-        if self.control_plane_type == ControlPlaneType.ContainerAppJobs:
-            return f"{DIAGNOSTIC_SETTINGS_TASK_CONTAINER_APP_JOB_PREFIX}{self.control_plane_id}"
 
-    def _get_deployer_image(self) -> str:
-        if self.control_plane_type == ControlPlaneType.FunctionApps:
-            return f"{IMAGE_REGISTRY_URL}/{DEPLOYER_IMAGE_FOR_FUNCTION_APPS}"
-        if self.control_plane_type == ControlPlaneType.ContainerAppJobs:
-            return f"{IMAGE_REGISTRY_URL}/{DEPLOYER_IMAGE_FOR_CONTAINER_APP_JOBS}"
+def _get_diagnostic_settings_task_name(control_plane_type: str, control_plane_id: str) -> str:
+    if control_plane_type == ControlPlaneType.FunctionApps:
+        return f"{DIAGNOSTIC_SETTINGS_TASK_FUNCTION_APP_PREFIX}{control_plane_id}"
+    if control_plane_type == ControlPlaneType.ContainerAppJobs:
+        return f"{DIAGNOSTIC_SETTINGS_TASK_CONTAINER_APP_JOB_PREFIX}{control_plane_id}"
+
+def _get_resources_task_name(control_plane_id: str) -> str:
+    return f"{RESOURCES_TASK_PREFIX}{control_plane_id}"
+
+
+def _get_scaling_task_name(control_plane_id: str) -> str:
+    return f"{SCALING_TASK_PREFIX}{control_plane_id}"
+
+def _get_deployer_image(control_plane_type: str) -> str:
+    if control_plane_type == ControlPlaneType.FunctionApps:
+        return f"{IMAGE_REGISTRY_URL}/{DEPLOYER_IMAGE_FOR_FUNCTION_APPS}"
+    if control_plane_type == ControlPlaneType.ContainerAppJobs:
+        return f"{IMAGE_REGISTRY_URL}/{DEPLOYER_IMAGE_FOR_CONTAINER_APP_JOBS}"
