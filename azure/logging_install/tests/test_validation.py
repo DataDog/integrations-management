@@ -14,11 +14,12 @@ from az_shared.errors import (
     InputParamValidationError,
 )
 from azure_logging_install import validation
-from azure_logging_install.configuration import Configuration
+from azure_logging_install.configuration import Configuration, ControlPlaneType
 from azure_logging_install.constants import REQUIRED_RESOURCE_PROVIDERS
 from azure_logging_install.existing_lfo import LfoControlPlane
 
 from tests.test_data import (
+    CONTROL_PLANE_ID,
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_RESOURCE_GROUP,
     CONTROL_PLANE_SUBSCRIPTION_ID,
@@ -302,10 +303,12 @@ class TestValidation(TestCase):
                     SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
                 },
                 control_plane=LfoControlPlane(
+                    CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
                     "existing-rg",
                     "eastus",
+                    ControlPlaneType.FunctionApps,
                 ),
                 tag_filter="env:prod,team:infra",
                 pii_rules="rule1:\n  pattern: 'sensitive'\n  replacement: 'test'",
@@ -315,10 +318,12 @@ class TestValidation(TestCase):
                     SUB_3_ID: SUB_ID_TO_NAME[SUB_3_ID],
                 },
                 control_plane=LfoControlPlane(
+                    CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
                     "another-rg",
                     "westus",
+                    ControlPlaneType.ContainerAppJobs,
                 ),
                 tag_filter="env:prod,team:infra",
                 pii_rules="rule1:\n  pattern: 'sensitive'\n  replacement: 'test'",
