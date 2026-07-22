@@ -16,7 +16,11 @@ from gcp_issue_resolver.main import (
 
 _VALID_EMAIL = "my-sa@my-project.iam.gserviceaccount.com"
 _VALID_ENV = {"DD_API_KEY": "key", "DD_APP_KEY": "app", "DD_SITE": "datadoghq.com"}
-_UI_ENV = {**_VALID_ENV, "WORKFLOW_ID": "11111111-1111-1111-1111-111111111111"}
+_UI_ENV = {
+    **_VALID_ENV,
+    "WORKFLOW_ID": "11111111-1111-1111-1111-111111111111",
+    "ACCOUNT_EMAIL": _VALID_EMAIL,
+}
 _STS_RESPONSE = ('{"data": {"id": "dd-principal@datadog-prod.iam.gserviceaccount.com"}}', 200)
 
 
@@ -125,13 +129,13 @@ class TestMainUiMode(unittest.TestCase):
     @patch("gcp_issue_resolver.main.dd_request")
     @patch("gcp_issue_resolver.main.ensure_service_account_permissions")
     @patch("gcp_issue_resolver.main.WorkflowReporter")
-    def test_ui_mode_reads_selections_and_fixes_permissions(
+    def test_ui_mode_waits_for_project_selection_and_fixes_permissions(
         self, mock_workflow_reporter_cls, mock_ensure, mock_dd_request, _mock_gcloud
     ):
         mock_dd_request.return_value = _STS_RESPONSE
         workflow_reporter, _step_reporter = self._make_workflow_reporter(
             mock_workflow_reporter_cls,
-            {"email": _VALID_EMAIL, "project_ids": ["proj-a", "proj-b"]},
+            {"project_ids": ["proj-a", "proj-b"]},
         )
 
         with patch.dict(os.environ, _UI_ENV, clear=True):
@@ -142,19 +146,23 @@ class TestMainUiMode(unittest.TestCase):
         self.assertEqual(mock_ensure.call_count, 2)
         mock_dd_request.assert_called_once()
 
-    @patch("gcp_issue_resolver.main.WorkflowReporter")
-    def test_ui_mode_rejects_invalid_email_from_selections(self, mock_workflow_reporter_cls):
-        self._make_workflow_reporter(
-            mock_workflow_reporter_cls,
-            {"email": "not-a-valid-email", "project_ids": ["proj-a"]},
-        )
+    def test_ui_mode_rejects_invalid_email_env_var(self):
+        env = {**_UI_ENV, "ACCOUNT_EMAIL": "not-a-valid-email"}
 
-        with patch.dict(os.environ, _UI_ENV, clear=True):
+        with patch.dict(os.environ, env, clear=True):
             with patch("sys.argv", ["gcp_issue_resolver"]):
                 with self.assertRaises(ValueError) as ctx:
                     main()
 
         self.assertIn("Invalid service account email", str(ctx.exception))
+
+    def test_ui_mode_exits_when_email_env_var_missing(self):
+        env = {k: v for k, v in _UI_ENV.items() if k != "ACCOUNT_EMAIL"}
+
+        with patch.dict(os.environ, env, clear=True):
+            with patch("sys.argv", ["gcp_issue_resolver"]):
+                with self.assertRaises(SystemExit):
+                    main()
 
     @patch("gcp_issue_resolver.main.WorkflowReporter")
     def test_ui_mode_exits_when_workflow_already_used(self, mock_workflow_reporter_cls):
