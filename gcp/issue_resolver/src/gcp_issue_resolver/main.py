@@ -26,12 +26,13 @@ REQUIRED_ROLES: list[str] = [
 ]
 
 REQUIRED_ENV_VARS: set[str] = {"DD_API_KEY", "DD_APP_KEY", "DD_SITE"}
+UI_MODE_REQUIRED_ENV_VARS: set[str] = {"ACCOUNT_EMAIL"}
 
 WORKFLOW_TYPE: str = "gcp-permission-repair"
 
 
 class RepairStep(str, Enum):
-    SELECTIONS = "selections"
+    PROJECT_SELECTION = "project_selection"
     ENSURE_PERMISSIONS = "ensure_permissions"
     ASSIGN_DELEGATE_PERMISSIONS = "assign_delegate_permissions"
 
@@ -55,6 +56,7 @@ def _run_cli_mode() -> None:
 
 
 def _run_ui_mode() -> None:
+    email = _resolve_email_from_env()
     workflow_id = os.environ["WORKFLOW_ID"]
     workflow_reporter = WorkflowReporter(workflow_id, WORKFLOW_TYPE)
 
@@ -64,14 +66,27 @@ def _run_ui_mode() -> None:
 
     workflow_reporter.handle_login_step()
 
-    with workflow_reporter.report_step(RepairStep.SELECTIONS):
-        user_selections = workflow_reporter.receive_user_selections()
+    with workflow_reporter.report_step(RepairStep.PROJECT_SELECTION):
+        project_ids = workflow_reporter.receive_user_selections()["project_ids"]
 
-    email = user_selections["email"]
+    _fix_permissions_via_workflow(workflow_reporter, email, project_ids)
+    print("Script succeeded. You may exit this shell.")
+
+
+def _resolve_email_from_env() -> str:
+    if missing := UI_MODE_REQUIRED_ENV_VARS - os.environ.keys():
+        log.error(f"Missing required environment variables: {', '.join(sorted(missing))}")
+        sys.exit(1)
+
+    email = os.environ["ACCOUNT_EMAIL"]
     if not is_valid_service_account_email(email):
         raise ValueError(f"Invalid service account email: '{email}'")
-    project_ids = user_selections["project_ids"]
+    return email
 
+
+def _fix_permissions_via_workflow(
+    workflow_reporter: WorkflowReporter, email: str, project_ids: list[str]
+) -> None:
     with workflow_reporter.report_step(RepairStep.ENSURE_PERMISSIONS) as step_reporter:
         for project_id in project_ids:
             step_reporter.report(message=f"Fixing permissions for project '{project_id}'...")
@@ -79,8 +94,6 @@ def _run_ui_mode() -> None:
 
     with workflow_reporter.report_step(RepairStep.ASSIGN_DELEGATE_PERMISSIONS) as step_reporter:
         _apply_delegate_permissions(step_reporter, email, _project_from_email(email))
-
-    print("Script succeeded. You may exit this shell.")
 
 
 def fix_permissions(reporter: Any, email: str, project_ids: list[str]) -> None:

@@ -41,11 +41,12 @@ The tool supports two invocation modes.
 ### UI mode
 
 When a "Fix permissions" action is triggered from the Datadog UI, it generates
-a Cloud Shell snippet that sets `DD_API_KEY`, `DD_APP_KEY`, `DD_SITE`, and
-`WORKFLOW_ID`, then downloads and runs `gcp_issue_resolver.pyz`. With
-`WORKFLOW_ID` set, the tool pulls the service account email and project IDs
-from the Datadog backend (workflow type `gcp-permission-repair`) and reports
-progress back the same way `integration_quickstart` does.
+a Cloud Shell snippet that sets `DD_API_KEY`, `DD_APP_KEY`, `DD_SITE`,
+`WORKFLOW_ID`, and `ACCOUNT_EMAIL` (the service account to repair), then downloads and
+runs `gcp_issue_resolver.pyz`. With `WORKFLOW_ID` set, the tool waits for the
+user to select which project(s) to repair via the Datadog backend (workflow
+type `gcp-permission-repair`) and reports progress back the same way
+`integration_quickstart` does.
 
 ### CLI mode
 
