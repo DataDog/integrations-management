@@ -18,6 +18,7 @@ class IntegrationConfiguration:
 
     region_filter_configs: list[str] = field(default_factory=list)
     is_global_location_enabled: bool = True
+    is_org_folder_resource_collection_enabled: bool = False
 
 
 @dataclass
