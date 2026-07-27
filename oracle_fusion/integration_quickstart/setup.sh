@@ -490,8 +490,8 @@ except Exception:
             "       Mapping Name: DD Integration Role Mapping (or any name)" \
             "       From Date:    today's date" \
             "       Conditions:   leave all blank" \
-            "     Under 'Associated Roles' → Add Row → search DD_INTEGRATION_ROLE" \
-            "     Check 'Requestable' → leave other checkboxes unchecked → Save and Close" \
+            "     Under 'Associated Roles' → Add Row → search the name of the custom role you specified" \
+            "     Check 'Requestable' → mark all other checkboxes as unchecked → Save and Close" \
             "  Note: if the role and mapping already exist, this check can fail transiently — try re-running the script before making changes."
     fi
     DD_INTEGRATION_ROLE_ID=$(echo "$role_check" | python3 -c "
@@ -818,8 +818,8 @@ import sys,json; print(json.load(sys.stdin).get('id',''))
             "    Mapping Name: DD Integration Role Mapping (or any name)" \
             "    From Date:    today's date" \
             "    Conditions:   leave all blank (applies to all users)" \
-            "  Under 'Associated Roles' → Add Row → search DD_INTEGRATION_ROLE" \
-            "  Check 'Requestable' → leave other checkboxes unchecked → Save and Close"
+            "  Under 'Associated Roles' → Add Row → search the name of the custom role you specified" \
+            "  Check 'Requestable' → mark all other checkboxes as unchecked → Save and Close"
     fi
     success "DD_INTEGRATION_ROLE assigned to Fusion user"
 
