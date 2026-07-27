@@ -176,6 +176,8 @@ resource "datadog_agentless_scanning_gcp_scan_options" "scan_{project_alias}" {{
   gcp_project_id     = "{project}"
   vuln_host_os       = true
   vuln_containers_os = true
+  cloud_function     = true
+  compliance_host    = true
 }}
 '''
 
@@ -192,7 +194,7 @@ terraform {{
     }}
     datadog = {{
       source  = "DataDog/datadog"
-      version = ">= 3.81.0"
+      version = ">= 4.16.0"
     }}
   }}
 
@@ -232,6 +234,8 @@ resource "datadog_agentless_scanning_gcp_scan_options" "scanner_project" {{
   gcp_project_id     = "{config.scanner_project}"
   vuln_host_os       = true
   vuln_containers_os = true
+  cloud_function     = true
+  compliance_host    = true
 }}
 {other_projects_tf}
 '''
@@ -291,7 +295,7 @@ class TerraformRunner:
             raise TerraformError("Working directory not set up")
 
         result = run_command(
-            ["terraform", "init", "-input=false"],
+            ["terraform", "init", "-input=false", "-upgrade"],
             capture_output=False,  # Show output to user
         )
 
