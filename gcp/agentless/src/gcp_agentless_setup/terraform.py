@@ -194,7 +194,7 @@ terraform {{
     }}
     datadog = {{
       source  = "DataDog/datadog"
-      version = ">= 3.81.0"
+      version = ">= 4.16.0"
     }}
   }}
 
