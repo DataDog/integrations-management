@@ -295,7 +295,7 @@ class TerraformRunner:
             raise TerraformError("Working directory not set up")
 
         result = run_command(
-            ["terraform", "init", "-input=false"],
+            ["terraform", "init", "-input=false", "-upgrade"],
             capture_output=False,  # Show output to user
         )
 
