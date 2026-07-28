@@ -1,0 +1,135 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.40.2.10011",
+      "templateHash": "3967130642740929922"
+    }
+  },
+  "parameters": {
+    "assignmentName": {
+      "type": "string",
+      "defaultValue": "diag-regional-storage",
+      "metadata": {
+        "description": "Resource name for the policy assignment (no spaces)."
+      }
+    },
+    "assignmentDisplayName": {
+      "type": "string",
+      "defaultValue": "Enable allLogs diagnostic settings to regional storage accounts",
+      "metadata": {
+        "description": "Display name shown in the Azure portal."
+      }
+    },
+    "storageAccountsByRegion": {
+      "type": "object",
+      "metadata": {
+        "description": "Map of Azure region name to storage account resource ID. Storage accounts must be in the same region as the resources they collect logs from. Example: {\"eastus\": \"/subscriptions/.../storageAccounts/stdiageastus\"}"
+      }
+    },
+    "effect": {
+      "type": "string",
+      "defaultValue": "DeployIfNotExists",
+      "allowedValues": [
+        "DeployIfNotExists",
+        "AuditIfNotExists",
+        "Disabled"
+      ],
+      "metadata": {
+        "description": "Enable or disable the execution of the policy."
+      }
+    },
+    "diagnosticSettingName": {
+      "type": "string",
+      "defaultValue": "setByPolicy-Storage",
+      "metadata": {
+        "description": "Name of the diagnostic setting resource created on each compliant resource."
+      }
+    },
+    "resourceTypeList": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Resource types to enforce. Leave empty to use the initiative default (all supported types)."
+      }
+    },
+    "tagIncludeFilter": {
+      "type": "object",
+      "defaultValue": {},
+      "metadata": {
+        "description": "Only apply to resources matching ALL of these tags. Leave empty to apply to all resources."
+      }
+    },
+    "tagExcludeFilter": {
+      "type": "object",
+      "defaultValue": {},
+      "metadata": {
+        "description": "Skip resources matching ALL of these tags. Leave empty to exclude no resources."
+      }
+    }
+  },
+  "variables": {
+    "initiativeId": "[format('/subscriptions/{0}/providers/Microsoft.Authorization/policySetDefinitions/diag-regional-storage', subscription().subscriptionId)]",
+    "contributorRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Authorization/policyAssignments",
+      "apiVersion": "2022-06-01",
+      "name": "[parameters('assignmentName')]",
+      "location": "[deployment().location]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "policyDefinitionId": "[variables('initiativeId')]",
+        "displayName": "[parameters('assignmentDisplayName')]",
+        "parameters": {
+          "storageAccountsByRegion": {
+            "value": "[parameters('storageAccountsByRegion')]"
+          },
+          "effect": {
+            "value": "[parameters('effect')]"
+          },
+          "diagnosticSettingName": {
+            "value": "[parameters('diagnosticSettingName')]"
+          },
+          "resourceTypeList": {
+            "value": "[if(empty(parameters('resourceTypeList')), null(), parameters('resourceTypeList'))]"
+          },
+          "tagIncludeFilter": {
+            "value": "[parameters('tagIncludeFilter')]"
+          },
+          "tagExcludeFilter": {
+            "value": "[parameters('tagExcludeFilter')]"
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(parameters('assignmentName'), subscription().subscriptionId, 'contributor')]",
+      "properties": {
+        "roleDefinitionId": "[variables('contributorRoleDefinitionId')]",
+        "principalId": "[reference(subscriptionResourceId('Microsoft.Authorization/policyAssignments', parameters('assignmentName')), '2022-06-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[subscriptionResourceId('Microsoft.Authorization/policyAssignments', parameters('assignmentName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "assignmentId": {
+      "type": "string",
+      "value": "[subscriptionResourceId('Microsoft.Authorization/policyAssignments', parameters('assignmentName'))]"
+    },
+    "assignmentPrincipalId": {
+      "type": "string",
+      "value": "[reference(subscriptionResourceId('Microsoft.Authorization/policyAssignments', parameters('assignmentName')), '2022-06-01', 'full').identity.principalId]"
+    }
+  }
+}
