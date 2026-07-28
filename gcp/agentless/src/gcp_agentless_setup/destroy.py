@@ -17,6 +17,7 @@ from .secrets import API_KEY_SECRET_NAME
 from .shell import run_command
 from .state_bucket import get_state_bucket_name, bucket_exists
 from .terraform import generate_terraform_config, generate_tfvars
+from .terraform_install import ensure_terraform
 
 
 def sigint_handler(signum, frame) -> None:
@@ -209,6 +210,8 @@ def run_terraform_destroy(work_dir: Path) -> None:
     Raises:
         SetupError: If terraform commands fail.
     """
+    ensure_terraform()
+
     original_dir = os.getcwd()
     os.chdir(work_dir)
 

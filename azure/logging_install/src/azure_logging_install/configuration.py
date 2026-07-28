@@ -35,6 +35,22 @@ class LfoControlPlane:
         self.diagnostic_settings_task_name = _get_diagnostic_settings_task_name(self.type, self.id)
 
 
+
+@dataclass
+class LfoControlPlane:
+    id: str
+    sub_id: str
+    sub_name: str
+    resource_group: str
+    region: str
+    type: ControlPlaneType
+
+    def __post_init__(self):
+        self.resources_task_name = _get_resources_task_name(self.id)
+        self.scaling_task_name = _get_scaling_task_name(self.id)
+        self.diagnostic_settings_task_name = _get_diagnostic_settings_task_name(self.type, self.id)
+
+
 @dataclass
 class Configuration:
     """User-specified configuration parameters and derivations necessary for deployment"""
@@ -139,7 +155,6 @@ class Configuration:
 
         self.diagnostic_settings_task_name = _get_diagnostic_settings_task_name(self.control_plane_type, self.control_plane_id)
         self.diagnostic_settings_task_image = fully_qualified_image(DIAGNOSTIC_SETTINGS_TASK_IMAGE)
-        
         self.control_plane_task_names = [
             self.resources_task_name,
             self.scaling_task_name,
