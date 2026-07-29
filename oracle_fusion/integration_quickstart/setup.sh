@@ -182,6 +182,7 @@ print(json.dumps(scopes))
 # ── State tracking ────────────────────────────────────────────────────────────
 CLIENT_ID=""
 CLIENT_SECRET=""
+EPM_TOKEN=""
 FUSION_USER_ID=""
 OCI_IAM_USER_ID=""
 
@@ -995,18 +996,32 @@ fi
 
 # Oracle's EPM REST gateway rejects OAuth tokens with a "Token Audience" error
 # that Oracle provides no supported fix for, so the EPM crawler falls back to
-# HTTP Basic Auth using the confidential app's client_id/client_secret. That
-# requires the IDCS user's password to match the client_secret.
+# HTTP Basic Auth using the confidential app's client_id and a dedicated
+# EPM token. The token is generated here (not reused from client_secret)
+# because Oracle's auto-generated client_secret is a fixed length/format that
+# can violate an arbitrary tenant's IDCS password policy.
 if [[ -n "$EPM_APP_ID" ]]; then
     info "Setting EPM integration user password (used for Basic Auth fallback)..."
-    oci identity-domains user-password-changer put \
+    EPM_TOKEN=$(python3 -c "
+import secrets, string
+alphabet = string.ascii_letters + string.digits
+while True:
+    pwd = ''.join(secrets.choice(alphabet) for _ in range(24))
+    if (any(c.isupper() for c in pwd) and any(c.islower() for c in pwd)
+            and any(c.isdigit() for c in pwd)):
+        print(pwd)
+        break
+")
+    _pwd_err=$(oci identity-domains user-password-changer put \
         --endpoint "$IDENTITY_DOMAIN_URL" \
         --user-password-changer-id "$OCI_IAM_USER_ID" \
         --schemas '["urn:ietf:params:scim:schemas:oracle:idcs:UserPasswordChanger"]' \
-        --password "$CLIENT_SECRET" \
+        --password "$EPM_TOKEN" \
         --force \
-        --output json > /dev/null 2>/dev/null || fatal \
+        --output json 2>&1 > /dev/null) && _pwd_status=0 || _pwd_status=$?
+    [[ $_pwd_status -ne 0 ]] && fatal \
         "Failed to set password for EPM integration user '${CLIENT_ID}'" \
+        "$_pwd_err" \
         "Ensure your OCI credentials have permission to change user passwords in the identity domain." \
         "Check: OCI Console → Domains → Administrators"
     success "EPM integration user password set"
@@ -1018,7 +1033,7 @@ payload=$(CLIENT_ID="$CLIENT_ID" TOKEN_URL="$TOKEN_URL" \
     FUSION_SCOPE="${FUSION_SCOPE:-}" EPM_SCOPE="${EPM_SCOPE:-}" \
     FUSION_BASE_URL="${FUSION_BASE_URL:-}" EPM_BASE_URL="${EPM_BASE_URL:-}" \
     FUSION_APP_ID="${FUSION_APP_ID:-}" EPM_APP_ID="${EPM_APP_ID:-}" \
-    ACCOUNT_NAME="$ACCOUNT_NAME" CLIENT_SECRET="${CLIENT_SECRET:-}" python3 -c "
+    ACCOUNT_NAME="$ACCOUNT_NAME" CLIENT_SECRET="${CLIENT_SECRET:-}" EPM_TOKEN="${EPM_TOKEN:-}" python3 -c "
 import json, os
 settings = {
     'client_id': os.environ['CLIENT_ID'],
@@ -1044,7 +1059,11 @@ if enabled:
 settings['version'] = '1.0'
 attrs = {'name': os.environ['ACCOUNT_NAME'], 'settings': settings}
 client_secret = os.environ.get('CLIENT_SECRET', '')
-if client_secret: attrs['secrets'] = {'client_secret': client_secret}
+epm_token = os.environ.get('EPM_TOKEN', '')
+secrets = {}
+if client_secret: secrets['client_secret'] = client_secret
+if epm_token: secrets['epm_token'] = epm_token
+if secrets: attrs['secrets'] = secrets
 print(json.dumps({'data': {'type': 'Account', 'attributes': attrs}}))
 " 2>/dev/null)
 
