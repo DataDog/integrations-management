@@ -1023,7 +1023,7 @@ except Exception:
 policy = next((r for r in resources if 'default' in r.get('name', '').lower()), resources[0] if resources else {})
 
 min_length = int(get(policy, 'minLength', 'min-length', default=8))
-max_length = int(get(policy, 'maxLength', 'max-length', default=40))
+max_length = int(get(policy, 'maxLength', 'max-length', default=20))
 min_lower = int(get(policy, 'minLowerCase', 'min-lower-case', default=1))
 min_upper = int(get(policy, 'minUpperCase', 'min-upper-case', default=1))
 min_numerals = int(get(policy, 'minNumerals', 'min-numerals', default=1))
