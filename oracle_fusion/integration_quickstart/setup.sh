@@ -999,18 +999,50 @@ fi
 # HTTP Basic Auth using the confidential app's client_id and a dedicated
 # EPM token. The token is generated here (not reused from client_secret)
 # because Oracle's auto-generated client_secret is a fixed length/format that
-# can violate an arbitrary tenant's IDCS password policy.
+# can violate an arbitrary tenant's IDCS password policy. Oracle has no
+# endpoint that generates a policy-compliant password for us, so we fetch the
+# domain's password policy and build a token that satisfies it ourselves.
 if [[ -n "$EPM_APP_ID" ]]; then
     info "Setting EPM integration user password (used for Basic Auth fallback)..."
-    EPM_TOKEN=$(python3 -c "
-import secrets, string
-alphabet = string.ascii_letters + string.digits
-while True:
-    pwd = ''.join(secrets.choice(alphabet) for _ in range(24))
-    if (any(c.isupper() for c in pwd) and any(c.islower() for c in pwd)
-            and any(c.isdigit() for c in pwd)):
-        print(pwd)
-        break
+    policy_resp=$(oci identity-domains password-policies list \
+        --endpoint "$IDENTITY_DOMAIN_URL" \
+        --output json 2>/dev/null)
+    EPM_TOKEN=$(echo "$policy_resp" | python3 -c "
+import sys, json, secrets, string
+
+def get(policy, *names, default=None):
+    for name in names:
+        if name in policy:
+            return policy[name]
+    return default
+
+try:
+    resources = json.load(sys.stdin).get('data', {}).get('resources', [])
+except Exception:
+    resources = []
+policy = next((r for r in resources if 'default' in r.get('name', '').lower()), resources[0] if resources else {})
+
+min_length = int(get(policy, 'minLength', 'min-length', default=8))
+max_length = int(get(policy, 'maxLength', 'max-length', default=40))
+min_lower = int(get(policy, 'minLowerCase', 'min-lower-case', default=1))
+min_upper = int(get(policy, 'minUpperCase', 'min-upper-case', default=1))
+min_numerals = int(get(policy, 'minNumerals', 'min-numerals', default=1))
+min_special = int(get(policy, 'minSpecialChars', 'min-special-chars', default=0))
+
+required = min_lower + min_upper + min_numerals + min_special
+length = max(min_length, min(24, max_length))
+length = max(length, required)
+length = min(length, max_length)
+
+lower, upper, digits, special = string.ascii_lowercase, string.ascii_uppercase, string.digits, '!@#$%^*_-+='
+chars = ([secrets.choice(lower) for _ in range(min_lower)]
+         + [secrets.choice(upper) for _ in range(min_upper)]
+         + [secrets.choice(digits) for _ in range(min_numerals)]
+         + [secrets.choice(special) for _ in range(min_special)])
+pool = lower + upper + digits + (special if min_special else '')
+chars += [secrets.choice(pool) for _ in range(length - len(chars))]
+secrets.SystemRandom().shuffle(chars)
+print(''.join(chars))
 ")
     _pwd_err=$(oci identity-domains user-password-changer put \
         --endpoint "$IDENTITY_DOMAIN_URL" \
