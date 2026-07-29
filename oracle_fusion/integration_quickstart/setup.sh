@@ -1004,6 +1004,7 @@ if [[ -n "$EPM_APP_ID" ]]; then
         --user-password-changer-id "$OCI_IAM_USER_ID" \
         --schemas '["urn:ietf:params:scim:schemas:oracle:idcs:UserPasswordChanger"]' \
         --password "$CLIENT_SECRET" \
+        --force \
         --output json > /dev/null 2>/dev/null || fatal \
         "Failed to set password for EPM integration user '${CLIENT_ID}'" \
         "Ensure your OCI credentials have permission to change user passwords in the identity domain." \
