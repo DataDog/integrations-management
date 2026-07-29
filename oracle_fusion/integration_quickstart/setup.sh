@@ -1012,7 +1012,7 @@ import sys, json, secrets, string
 
 def get(policy, *names, default=None):
     for name in names:
-        if name in policy:
+        if policy.get(name) is not None:
             return policy[name]
     return default
 
