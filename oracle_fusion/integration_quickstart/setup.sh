@@ -1027,7 +1027,7 @@ max_length = int(get(policy, 'maxLength', 'max-length', default=20))
 min_lower = int(get(policy, 'minLowerCase', 'min-lower-case', default=1))
 min_upper = int(get(policy, 'minUpperCase', 'min-upper-case', default=1))
 min_numerals = int(get(policy, 'minNumerals', 'min-numerals', default=1))
-min_special = int(get(policy, 'minSpecialChars', 'min-special-chars', default=0))
+min_special = int(get(policy, 'minSpecialChars', 'min-special-chars', default=1))
 
 required = min_lower + min_upper + min_numerals + min_special
 length = max(min_length, min(24, max_length))
