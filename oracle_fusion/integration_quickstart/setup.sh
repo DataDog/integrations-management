@@ -1006,7 +1006,7 @@ if [[ -n "$EPM_APP_ID" ]]; then
     info "Setting EPM integration user password (used for Basic Auth fallback)..."
     policy_resp=$(oci identity-domains password-policies list \
         --endpoint "$IDENTITY_DOMAIN_URL" \
-        --output json 2>/dev/null)
+        --output json 2>/dev/null) || true
     EPM_TOKEN=$(echo "$policy_resp" | python3 -c "
 import sys, json, secrets, string
 
