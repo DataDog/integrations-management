@@ -4,6 +4,12 @@ Automates the full Oracle Fusion + EPM integration user onboarding for Datadog.
 Creates the OCI IAM confidential application, Fusion integration user,
 assigns the required Fusion role, and grants EPM Service Administrator access.
 
+When `--epm-app-id` is provided, the script also sets the integration user's
+IDCS password to the confidential app's client secret. Datadog's EPM crawler
+authenticates to Oracle's EPM REST APIs with HTTP Basic Auth (client_id as
+username, client_secret as password) because Oracle's EPM gateway rejects
+OAuth tokens for these endpoints.
+
 ## Prerequisites
 
 - [OCI CLI](https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm) configured with Identity Domain Administrator permissions

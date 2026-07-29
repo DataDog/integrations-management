@@ -993,6 +993,24 @@ except Exception: print('')
     success "Client secret regenerated"
 fi
 
+# Oracle's EPM REST gateway rejects OAuth tokens with a "Token Audience" error
+# that Oracle provides no supported fix for, so the EPM crawler falls back to
+# HTTP Basic Auth using the confidential app's client_id/client_secret. That
+# requires the IDCS user's password to match the client_secret.
+if [[ -n "$EPM_APP_ID" ]]; then
+    info "Setting EPM integration user password (used for Basic Auth fallback)..."
+    oci identity-domains user-password-changer put \
+        --endpoint "$IDENTITY_DOMAIN_URL" \
+        --user-password-changer-id "$OCI_IAM_USER_ID" \
+        --schemas '["urn:ietf:params:scim:schemas:oracle:idcs:UserPasswordChanger"]' \
+        --password "$CLIENT_SECRET" \
+        --output json > /dev/null 2>/dev/null || fatal \
+        "Failed to set password for EPM integration user '${CLIENT_ID}'" \
+        "Ensure your OCI credentials have permission to change user passwords in the identity domain." \
+        "Check: OCI Console → Domains → Administrators"
+    success "EPM integration user password set"
+fi
+
 # Build payload — omit optional fields when values are absent;
 # include client_secret when available (new app); omit when empty (PATCH keeps existing secret).
 payload=$(CLIENT_ID="$CLIENT_ID" TOKEN_URL="$TOKEN_URL" \
