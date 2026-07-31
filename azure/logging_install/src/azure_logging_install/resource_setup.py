@@ -325,9 +325,10 @@ def _create_control_plane_task_container_app_job(config: Configuration, task_nam
 
 
 def _create_resources_task_container_app_job(config: Configuration):
+    monitored_subs = ','.join(config.monitored_subscriptions)
     extra_vars = [
-        f"{MONITORED_SUBSCRIPTIONS_KEY}={json.dumps(config.monitored_subscriptions)}",
-        f"{RESOURCE_TAG_FILTERS_KEY}={config.resource_tag_filters}"
+        f"{MONITORED_SUBSCRIPTIONS_KEY}={shlex.quote(monitored_subs)}",
+        f"{RESOURCE_TAG_FILTERS_KEY}={shlex.quote(config.resource_tag_filters)}"
     ]
     _create_control_plane_task_container_app_job(
         config, 
@@ -355,12 +356,12 @@ def _create_scaling_task_container_app_job(config: Configuration):
     extra_vars = [
         f"RESOURCE_GROUP={json.dumps(config.control_plane_rg)}",
         f"FORWARDER_IMAGE={fully_qualified_image('forwarder:latest')}",
-        f"{PII_SCRUBBER_RULES_KEY}={config.pii_scrubber_rules}"
+        f"{PII_SCRUBBER_RULES_KEY}={shlex.quote(config.pii_scrubber_rules)}"
     ]
     _create_control_plane_task_container_app_job(
         config, 
-        config.diagnostic_settings_task_name, 
-        config.diagnostic_settings_task_image, 
+        config.scaling_task_name, 
+        config.scaling_task_image, 
         extra_vars, 
         "500",
         "3/5 * * * *"
