@@ -10,7 +10,7 @@ from az_shared.errors import InputParamValidationError
 from az_shared.logs import log, log_header
 
 from .az_cmd import list_users_subscriptions, set_subscription
-from .configuration import Configuration
+from .configuration import Configuration, ControlPlaneType
 from .deploy import deploy_control_plane, run_initial_deploy
 from .existing_lfo import update_existing_lfo
 from .resource_setup import create_resource_group
@@ -75,6 +75,17 @@ def parse_arguments():
     )
 
     # Optional parameters
+    parser.add_argument(
+        "--control-plane-type",
+        type=str,
+        choices=[
+            ControlPlaneType.ContainerAppJobs,
+            ControlPlaneType.FunctionApps,
+        ],
+        default= ControlPlaneType.ContainerAppJobs.value,
+        help="The type of infrastructure the control plane should be deployed with"
+    )
+
     parser.add_argument(
         "--resource-tag-filters",
         type=str,
@@ -179,6 +190,7 @@ def main():
             control_plane_region=args.control_plane_region,
             control_plane_sub_id=args.control_plane_subscription,
             control_plane_rg=args.control_plane_resource_group,
+            control_plane_type=args.control_plane_type,
             monitored_subs=args.monitored_subscriptions,
             datadog_api_key=args.datadog_api_key,
             datadog_site=args.datadog_site,

@@ -52,6 +52,7 @@ class TestExistingLfo(TestCase):
             control_plane_region=CONTROL_PLANE_REGION,
             control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
             control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+            control_plane_type=ControlPlaneType.FunctionApps,
             monitored_subs=MONITORED_SUBSCRIPTIONS,
             datadog_api_key=DATADOG_API_KEY,
             datadog_site=DATADOG_SITE,
