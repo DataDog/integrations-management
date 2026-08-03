@@ -11,6 +11,11 @@ During final testing, you should upload the executable into Azure Cloud Shell an
 ### Dev Setup
 See instructions in main `azure` folder
 
+### ARM/Bicep Templates
+The infrastructure can also be deployed directly via `az CLI` using the ARM/Bicep templates in
+`bicep/`, without going through the packaged installer script. See
+[bicep/README.md](bicep/README.md) for setup and `az deployment mg create` instructions.
+
 ### Testing
 Run all tests from the `azure` folder:
 ```bash
