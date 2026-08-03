@@ -10,7 +10,7 @@ from az_shared.execute_cmd import execute
 from az_shared.logs import log, log_header
 
 from .az_cmd import AzCmd
-from .configuration import Configuration, ControlPlaneType, LfoControlPlane
+from .configuration import Configuration, ControlPlaneType, ControlPlane
 from .resource_setup import (
     set_monitored_subscriptions,
     set_pii_scrubber_rules,
@@ -22,7 +22,7 @@ from .constants import MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESO
 
 @dataclass(frozen=True)
 class LfoMetadata:
-    control_plane: LfoControlPlane
+    control_plane: ControlPlane
     monitored_subs: dict[str, str]
     tag_filter: str
     pii_rules: str
@@ -30,7 +30,7 @@ class LfoMetadata:
 
 def _find_existing_lfo_control_planes(
     sub_id_to_name: dict[str, str], subscriptions: Optional[set[str]] = None
-) -> dict[str, LfoControlPlane]:
+) -> dict[str, ControlPlane]:
     """Find existing LFO control planes in the tenant. If `subscriptions` is specified, search is limited to these subscriptions.
     Returns a dict mapping control plane ID to control plane data."""
     if subscriptions is not None:
@@ -55,7 +55,7 @@ def _find_existing_lfo_control_planes(
     return function_app_control_planes | caj_control_planes
 
 
-def _find_existing_lfo_control_planes_by_type(sub_id_to_name: dict[str, str], arg_query: str, control_plane_type: ControlPlaneType) -> dict[str, LfoControlPlane]:
+def _find_existing_lfo_control_planes_by_type(sub_id_to_name: dict[str, str], arg_query: str, control_plane_type: ControlPlaneType) -> dict[str, ControlPlane]:
     json = execute(AzCmd("graph", "query").param("-q", arg_query))
     try:
         resp = loads(json)
@@ -64,11 +64,11 @@ def _find_existing_lfo_control_planes_by_type(sub_id_to_name: dict[str, str], ar
         log.error(f"Error: {e}")
         raise
 
-    existing_control_planes: dict[str, LfoControlPlane] = {}
+    existing_control_planes: dict[str, ControlPlane] = {}
     for app in resp["data"]:
         subscription_id = app["subscriptionId"]
         control_plane_id = app["name"].split("-")[-1]
-        existing_control_planes[control_plane_id] = LfoControlPlane(
+        existing_control_planes[control_plane_id] = ControlPlane(
             id=control_plane_id,
             sub_id=subscription_id,
             sub_name=sub_id_to_name[subscription_id],
@@ -79,7 +79,7 @@ def _find_existing_lfo_control_planes_by_type(sub_id_to_name: dict[str, str], ar
     return existing_control_planes
 
 
-def _query_task_env_vars(control_plane: LfoControlPlane, task_name: str) -> dict[str, str]:
+def _query_task_env_vars(control_plane: ControlPlane, task_name: str) -> dict[str, str]:
     """
     Query all environment variables for a task, either Function App or Container App Jobs, and return as a dictionary.
     NOTE For Container App Jobs, environment variables that are secretrefs, like DD_API_KEY, are returned with an empty value

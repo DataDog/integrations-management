@@ -21,7 +21,7 @@ class ControlPlaneType(str, Enum):
 
 
 @dataclass
-class LfoControlPlane:
+class ControlPlane:
     id: str
     sub_id: str
     sub_name: str

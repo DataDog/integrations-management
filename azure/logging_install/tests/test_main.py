@@ -8,7 +8,7 @@ from unittest.mock import patch as mock_patch
 
 from az_shared.errors import FatalError, InputParamValidationError
 from azure_logging_install import main
-from azure_logging_install.existing_lfo import LfoControlPlane, LfoMetadata, update_existing_lfo
+from azure_logging_install.existing_lfo import ControlPlane, LfoMetadata, update_existing_lfo
 from azure_logging_install.configuration import ControlPlaneType
 
 from logging_install.tests.test_data import (
@@ -235,7 +235,7 @@ class TestMain(TestCase):
         # Existing LFO with a missing sub and different tag filter
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
@@ -301,7 +301,7 @@ class TestMain(TestCase):
         test_config = get_test_config()
 
         existing_lfo = LfoMetadata(
-            control_plane=LfoControlPlane(
+            control_plane=ControlPlane(
                 CONTROL_PLANE_ID,
                 CONTROL_PLANE_SUBSCRIPTION_ID,
                 CONTROL_PLANE_SUBSCRIPTION_NAME,

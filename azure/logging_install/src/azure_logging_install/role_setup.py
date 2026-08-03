@@ -20,7 +20,7 @@ from az_shared.execute_cmd import execute
 from az_shared.logs import log
 
 from .az_cmd import AzCmd, set_subscription
-from .configuration import Configuration, ControlPlaneType, LfoControlPlane
+from .configuration import Configuration, ControlPlaneType, ControlPlane
 from .constants import (
     CONTAINER_APPS_JOBS_CONTRIBUTOR,
     INITIAL_DEPLOY_IDENTITY_NAME,
@@ -277,7 +277,7 @@ def remove_role(scope: str, principal_id: str, role_id: str) -> None:
         execute(AzCmd("role", "assignment delete").param("--ids", assignment_ids[0]))
 
 
-def _get_control_plane_task_principal_ids(control_plane: LfoControlPlane) -> tuple[str, str, str]:
+def _get_control_plane_task_principal_ids(control_plane: ControlPlane) -> tuple[str, str, str]:
     """Return (resources_task, scaling_task, diagnostic_settings_task) principal IDs for the control plane."""
     if control_plane.type == ControlPlaneType.FunctionApps:
         resource_principal_id = get_function_app_principal_id(control_plane.resource_group, control_plane.sub_id, control_plane.resources_task_name)
@@ -328,7 +328,7 @@ def ensure_control_plane_rg_not_deleting(
             break
 
 
-def grant_subscriptions_permissions(control_plane: LfoControlPlane, sub_ids: Iterable[str]):
+def grant_subscriptions_permissions(control_plane: ControlPlane, sub_ids: Iterable[str]):
     """Grant permissions to a set of subscriptions."""
 
     resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_control_plane_task_principal_ids(control_plane)
@@ -375,7 +375,7 @@ def grant_subscriptions_permissions(control_plane: LfoControlPlane, sub_ids: Ite
     log.info("Subscriptions permission setup complete")
 
 
-def revoke_subscriptions_permissions(control_plane: LfoControlPlane, sub_ids: Iterable[str]) -> None:
+def revoke_subscriptions_permissions(control_plane: ControlPlane, sub_ids: Iterable[str]) -> None:
     """Revoke permissions and delete the LFO-created resource group for each subscription in sub_ids.
     Mirrors grant_subscriptions_permissions: remove the four role assignments per subscription, then delete the RG."""
     resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_control_plane_task_principal_ids(control_plane)
@@ -435,7 +435,7 @@ def grant_permissions(config: Configuration):
         config.control_plane_id,
     )
 
-    control_plane = LfoControlPlane(
+    control_plane = ControlPlane(
         id=config.control_plane_id,
         sub_id=config.control_plane_sub_id,
         sub_name="",

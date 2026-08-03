@@ -16,7 +16,7 @@ from az_shared.errors import (
 from azure_logging_install import validation
 from azure_logging_install.configuration import Configuration, ControlPlaneType
 from azure_logging_install.constants import REQUIRED_RESOURCE_PROVIDERS
-from azure_logging_install.existing_lfo import LfoControlPlane
+from azure_logging_install.existing_lfo import ControlPlane
 
 from tests.test_data import (
     CONTROL_PLANE_ID,
@@ -303,7 +303,7 @@ class TestValidation(TestCase):
                     SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
                     SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
                 },
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
@@ -318,7 +318,7 @@ class TestValidation(TestCase):
                 monitored_subs={
                     SUB_3_ID: SUB_ID_TO_NAME[SUB_3_ID],
                 },
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
                     CONTROL_PLANE_SUBSCRIPTION_NAME,

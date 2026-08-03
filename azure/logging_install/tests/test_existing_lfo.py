@@ -14,7 +14,7 @@ from azure_logging_install.existing_lfo import (
     RESOURCES_TASK_PREFIX,
     SCALING_TASK_PREFIX,
     UNKNOWN_SUB_NAME_MESSAGE,
-    LfoControlPlane,
+    ControlPlane,
     LfoMetadata,
     check_existing_lfo,
     update_existing_lfo,
@@ -309,7 +309,7 @@ class TestExistingLfo(TestCase):
         # Existing LFO has some overlapping subscriptions, but no sub 3. Filters & PII rules remain the same
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
@@ -350,7 +350,7 @@ class TestExistingLfo(TestCase):
 
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
@@ -394,7 +394,7 @@ class TestExistingLfo(TestCase):
 
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
@@ -433,7 +433,7 @@ class TestExistingLfo(TestCase):
         test_config = get_test_config()
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
                     test_config.control_plane_sub_id,
                     SUB_ID_TO_NAME[test_config.control_plane_sub_id],
@@ -469,7 +469,7 @@ class TestExistingLfo(TestCase):
         test_config = get_test_config()
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
                     test_config.control_plane_sub_id,
                     SUB_ID_TO_NAME[test_config.control_plane_sub_id],
@@ -508,7 +508,7 @@ class TestExistingLfo(TestCase):
         # Existing LFO has same monitored subs, but old tag filters and PII rules
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
                     test_config.control_plane_sub_id,
                     SUB_ID_TO_NAME[test_config.control_plane_sub_id],
@@ -546,7 +546,7 @@ class TestExistingLfo(TestCase):
 
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
                     test_config.control_plane_sub_id,
                     SUB_ID_TO_NAME[test_config.control_plane_sub_id],
@@ -587,7 +587,7 @@ class TestExistingLfo(TestCase):
 
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
                     test_config.control_plane_sub_id,
                     SUB_ID_TO_NAME[test_config.control_plane_sub_id],
@@ -631,7 +631,7 @@ class TestExistingLfo(TestCase):
 
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
                     test_config.control_plane_sub_id,
                     SUB_ID_TO_NAME[test_config.control_plane_sub_id],
@@ -671,7 +671,7 @@ class TestExistingLfo(TestCase):
         test_config = get_test_config()
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
                     test_config.control_plane_sub_id,
                     SUB_ID_TO_NAME[test_config.control_plane_sub_id],
