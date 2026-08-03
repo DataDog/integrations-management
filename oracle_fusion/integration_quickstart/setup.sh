@@ -182,6 +182,7 @@ print(json.dumps(scopes))
 # ── State tracking ────────────────────────────────────────────────────────────
 CLIENT_ID=""
 CLIENT_SECRET=""
+EPM_TOKEN=""
 FUSION_USER_ID=""
 OCI_IAM_USER_ID=""
 
@@ -993,13 +994,78 @@ except Exception: print('')
     success "Client secret regenerated"
 fi
 
+# Oracle's EPM REST gateway rejects OAuth tokens with a "Token Audience" error
+# that Oracle provides no supported fix for, so the EPM crawler falls back to
+# HTTP Basic Auth using the confidential app's client_id and a dedicated
+# EPM token. The token is generated here (not reused from client_secret)
+# because Oracle's auto-generated client_secret is a fixed length/format that
+# can violate an arbitrary tenant's IDCS password policy. Oracle has no
+# endpoint that generates a policy-compliant password for us, so we fetch the
+# domain's password policy and build a token that satisfies it ourselves.
+if [[ -n "$EPM_APP_ID" ]]; then
+    info "Setting EPM integration user password (used for Basic Auth fallback)..."
+    policy_resp=$(oci identity-domains password-policies list \
+        --endpoint "$IDENTITY_DOMAIN_URL" \
+        --output json 2>/dev/null) || true
+    EPM_TOKEN=$(echo "$policy_resp" | python3 -c "
+import sys, json, secrets, string
+
+def get(policy, *names, default=None):
+    for name in names:
+        if policy.get(name) is not None:
+            return policy[name]
+    return default
+
+try:
+    resources = json.load(sys.stdin).get('data', {}).get('resources', [])
+except Exception:
+    resources = []
+policy = next((r for r in resources if 'default' in r.get('name', '').lower()), resources[0] if resources else {})
+
+min_length = int(get(policy, 'minLength', 'min-length', default=14))
+max_length = int(get(policy, 'maxLength', 'max-length', default=20))
+min_lower = int(get(policy, 'minLowerCase', 'min-lower-case', default=1))
+min_upper = int(get(policy, 'minUpperCase', 'min-upper-case', default=1))
+min_numerals = int(get(policy, 'minNumerals', 'min-numerals', default=1))
+min_special = int(get(policy, 'minSpecialChars', 'min-special-chars', default=1))
+
+required = min_lower + min_upper + min_numerals + min_special
+length = max(min_length, min(24, max_length))
+length = max(length, required)
+length = min(length, max_length)
+
+lower, upper, digits, special = string.ascii_lowercase, string.ascii_uppercase, string.digits, '!@#$%^*_-+='
+chars = ([secrets.choice(lower) for _ in range(min_lower)]
+         + [secrets.choice(upper) for _ in range(min_upper)]
+         + [secrets.choice(digits) for _ in range(min_numerals)]
+         + [secrets.choice(special) for _ in range(min_special)])
+pool = lower + upper + digits + (special if min_special else '')
+chars += [secrets.choice(pool) for _ in range(length - len(chars))]
+secrets.SystemRandom().shuffle(chars)
+print(''.join(chars))
+")
+    _pwd_err=$(oci identity-domains user-password-changer put \
+        --endpoint "$IDENTITY_DOMAIN_URL" \
+        --user-password-changer-id "$OCI_IAM_USER_ID" \
+        --schemas '["urn:ietf:params:scim:schemas:oracle:idcs:UserPasswordChanger"]' \
+        --password "$EPM_TOKEN" \
+        --force \
+        --output json 2>&1 > /dev/null) && _pwd_status=0 || _pwd_status=$?
+    [[ $_pwd_status -ne 0 ]] && fatal \
+        "Failed to set password for EPM integration user '${CLIENT_ID}'" \
+        "$_pwd_err" \
+        "Ensure your OCI credentials have permission to change user passwords in the identity domain." \
+        "Check: OCI Console → Domains → Administrators"
+    success "EPM integration user password set"
+fi
+
 # Build payload — omit optional fields when values are absent;
 # include client_secret when available (new app); omit when empty (PATCH keeps existing secret).
 payload=$(CLIENT_ID="$CLIENT_ID" TOKEN_URL="$TOKEN_URL" \
     FUSION_SCOPE="${FUSION_SCOPE:-}" EPM_SCOPE="${EPM_SCOPE:-}" \
     FUSION_BASE_URL="${FUSION_BASE_URL:-}" EPM_BASE_URL="${EPM_BASE_URL:-}" \
     FUSION_APP_ID="${FUSION_APP_ID:-}" EPM_APP_ID="${EPM_APP_ID:-}" \
-    ACCOUNT_NAME="$ACCOUNT_NAME" CLIENT_SECRET="${CLIENT_SECRET:-}" python3 -c "
+    ACCOUNT_NAME="$ACCOUNT_NAME" CLIENT_SECRET="${CLIENT_SECRET:-}" EPM_TOKEN="${EPM_TOKEN:-}" python3 -c "
 import json, os
 settings = {
     'client_id': os.environ['CLIENT_ID'],
@@ -1025,7 +1091,11 @@ if enabled:
 settings['version'] = '1.0'
 attrs = {'name': os.environ['ACCOUNT_NAME'], 'settings': settings}
 client_secret = os.environ.get('CLIENT_SECRET', '')
-if client_secret: attrs['secrets'] = {'client_secret': client_secret}
+epm_token = os.environ.get('EPM_TOKEN', '')
+secrets = {}
+if client_secret: secrets['client_secret'] = client_secret
+if epm_token: secrets['epm_token'] = epm_token
+if secrets: attrs['secrets'] = secrets
 print(json.dumps({'data': {'type': 'Account', 'attributes': attrs}}))
 " 2>/dev/null)
 
@@ -1067,5 +1137,13 @@ if [[ -n "${EPM_BASE_URL:-}" ]]; then
     echo -e "  instance and navigate to Tools → Access Control → Role Assignment Report, and verify the"
     echo -e "  Datadog Integration user is present. Otherwise, EPM does not sync the user"
     echo -e "  automatically until the next automatic refresh."
+    echo ""
+    echo -e "  ${YELLOW}${BOLD}Note:${NC} Add your EPM base URL as a secondary audience so EPM accepts the"
+    echo -e "  confidential app's tokens. In the OCI Console, go to Domains → Oracle Cloud Services →"
+    echo -e "  <Your EPM Instance> → OAuth Configuration, and paste '${EPM_BASE_URL}' as a secondary audience."
+    echo -e "  This can only be done while signed in as a user of the identity domain that the EPM"
+    echo -e "  instance resides in."
+    echo -e "  Until this is done, Datadog will default to HTTP Basic Auth through the provisioned"
+    echo -e "  integration user for EPM monitoring."
     echo ""
 fi
