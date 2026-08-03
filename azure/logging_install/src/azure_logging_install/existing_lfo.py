@@ -28,7 +28,7 @@ class LfoMetadata:
     pii_rules: str
 
 
-def _find_existing_lfo_control_planes(
+def find_existing_lfo_control_planes(
     sub_id_to_name: dict[str, str], subscriptions: Optional[set[str]] = None
 ) -> dict[str, LfoControlPlane]:
     """Find existing LFO control planes in the tenant. If `subscriptions` is specified, search is limited to these subscriptions.
@@ -79,7 +79,7 @@ def _find_existing_lfo_control_planes_by_type(sub_id_to_name: dict[str, str], ar
     return existing_control_planes
 
 
-def _query_task_env_vars(control_plane: LfoControlPlane, task_name: str) -> dict[str, str]:
+def query_task_env_vars(control_plane: LfoControlPlane, task_name: str) -> dict[str, str]:
     """
     Query all environment variables for a task, either Function App or Container App Jobs, and return as a dictionary.
     NOTE For Container App Jobs, environment variables that are secretrefs, like DD_API_KEY, are returned with an empty value
@@ -116,7 +116,7 @@ def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) 
     """Check if LFO is already installed on any of the given subscriptions. Returns a dict mapping control plane ID to LFO metadata."""
     log.info("Checking if log forwarding is already installed in this Azure environment...")
 
-    control_planes = _find_existing_lfo_control_planes(sub_id_to_name, subscriptions).items()
+    control_planes = find_existing_lfo_control_planes(sub_id_to_name, subscriptions).items()
 
     # if there is more than one, just return some LFO stubs since we won't be modifying them
     if len(control_planes) > 1:
@@ -131,8 +131,8 @@ def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) 
     resource_task_name = f"{RESOURCES_TASK_PREFIX}{control_plane_id}"
     scaling_task_name = f"{SCALING_TASK_PREFIX}{control_plane_id}"
 
-    resource_task_env_vars = _query_task_env_vars(control_plane, resource_task_name)
-    scaling_task_env_vars = _query_task_env_vars(control_plane, scaling_task_name)
+    resource_task_env_vars = query_task_env_vars(control_plane, resource_task_name)
+    scaling_task_env_vars = query_task_env_vars(control_plane, scaling_task_name)
 
     monitored_sub_ids_str = resource_task_env_vars.get(MONITORED_SUBSCRIPTIONS_KEY, "")
     if not monitored_sub_ids_str:

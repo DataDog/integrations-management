@@ -119,15 +119,15 @@ class Configuration:
         # Control plane
         self.control_plane_id = self.generate_control_plane_id()
         log.info(f"Generated control plane ID: {self.control_plane_id}")
-        self.control_plane_cache_storage_name = f"lfostorage{self.control_plane_id}"
+        self.control_plane_cache_storage_name = get_control_plane_cache_storage_name(self.control_plane_id)
         self.control_plane_cache_storage_url = f"https://{self.control_plane_cache_storage_name}.blob.core.windows.net"
         self.control_plane_cache_storage_key = None  # lazy-loaded
         self.control_plane_sub_scope = f"/subscriptions/{self.control_plane_sub_id}"
         self.control_plane_rg_scope = f"{self.control_plane_sub_scope}/resourceGroups/{self.control_plane_rg}"
-        self.control_plane_env_name = f"dd-log-forwarder-env-{self.control_plane_id}-{self.control_plane_region}"
+        self.control_plane_env_name = get_control_plane_env_name(self.control_plane_id, self.control_plane_region)
 
         # Deployer
-        self.deployer_job_name = f"deployer-task-{self.control_plane_id}"
+        self.deployer_job_name = get_deployer_job_name(self.control_plane_id)
         self.deployer_image_url = _get_deployer_image(self.control_plane_type)
         self.container_app_start_role_name = f"ContainerAppStartRole{self.control_plane_id}"
 
@@ -140,6 +140,18 @@ class Configuration:
             self.scaling_task_name,
             self.diagnostic_settings_task_name,
         ]
+
+
+def get_control_plane_cache_storage_name(control_plane_id: str) -> str:
+    return f"lfostorage{control_plane_id}"
+
+
+def get_deployer_job_name(control_plane_id: str) -> str:
+    return f"deployer-task-{control_plane_id}"
+
+
+def get_control_plane_env_name(control_plane_id: str, control_plane_region: str) -> str:
+    return f"dd-log-forwarder-env-{control_plane_id}-{control_plane_region}"
 
 
 def _get_diagnostic_settings_task_name(control_plane_type: str, control_plane_id: str) -> str:
