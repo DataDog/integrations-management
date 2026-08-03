@@ -1141,6 +1141,8 @@ if [[ -n "${EPM_BASE_URL:-}" ]]; then
     echo -e "  ${YELLOW}${BOLD}Note:${NC} Add your EPM base URL as a secondary audience so EPM accepts the"
     echo -e "  confidential app's tokens. In the OCI Console, go to Domains → Oracle Cloud Services →"
     echo -e "  <Your EPM Instance> → OAuth Configuration, and paste '${EPM_BASE_URL}' as a secondary audience."
+    echo -e "  This can only be done while signed in as a user of the identity domain that the EPM"
+    echo -e "  instance resides in."
     echo -e "  Until this is done, Datadog will default to HTTP Basic Auth through the provisioned"
     echo -e "  integration user for EPM monitoring."
     echo ""
