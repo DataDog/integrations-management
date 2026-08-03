@@ -614,7 +614,7 @@ except Exception:
                 --operations "[
                     {\"op\": \"replace\", \"path\": \"allowedScopes\",   \"value\": ${_new_scopes}},
                     {\"op\": \"replace\", \"path\": \"isOAuthClient\",   \"value\": true},
-                    {\"op\": \"replace\", \"path\": \"allowedGrants\",   \"value\": [\"client_credentials\", \"password\", \"refresh_token\"]},
+                    {\"op\": \"replace\", \"path\": \"allowedGrants\",   \"value\": [\"client_credentials\", \"urn:ietf:params:oauth:grant-type:jwt-bearer\"]},
                     {\"op\": \"replace\", \"path\": \"clientType\",      \"value\": \"confidential\"},
                     {\"op\": \"replace\", \"path\": \"clientIPChecking\",\"value\": \"anywhere\"},
                     {\"op\": \"replace\", \"path\": \"bypassConsent\",   \"value\": true},
@@ -643,7 +643,7 @@ except Exception:
                 --operations "[
                     {\"op\": \"replace\", \"path\": \"allowedScopes\",   \"value\": ${_new_scopes}},
                     {\"op\": \"replace\", \"path\": \"isOAuthClient\",   \"value\": true},
-                    {\"op\": \"replace\", \"path\": \"allowedGrants\",   \"value\": [\"client_credentials\", \"password\", \"refresh_token\"]},
+                    {\"op\": \"replace\", \"path\": \"allowedGrants\",   \"value\": [\"client_credentials\", \"urn:ietf:params:oauth:grant-type:jwt-bearer\"]},
                     {\"op\": \"replace\", \"path\": \"clientType\",      \"value\": \"confidential\"},
                     {\"op\": \"replace\", \"path\": \"clientIPChecking\",\"value\": \"anywhere\"},
                     {\"op\": \"replace\", \"path\": \"bypassConsent\",   \"value\": true},
@@ -667,7 +667,7 @@ else
         --description "Datadog integration for Oracle Fusion and Fusion EPM monitoring" \
         --based-on-template '{"value": "CustomWebAppTemplateId", "wellKnownId": "CustomWebAppTemplateId"}' \
         --is-o-auth-client true \
-        --allowed-grants '["client_credentials", "password", "refresh_token"]' \
+        --allowed-grants '["client_credentials", "urn:ietf:params:oauth:grant-type:jwt-bearer"]' \
         --client-type "confidential" \
         --client-ip-checking "anywhere" \
         --bypass-consent true \
@@ -1059,13 +1059,69 @@ print(''.join(chars))
     success "EPM integration user password set"
 fi
 
+# EPM API calls authenticate via Oracle's grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer
+# flow rather than a password grant: Datadog signs short-lived assertions locally with a
+# private key, so no long-lived credential is ever transmitted to acquire a token (the
+# EPM_TOKEN password above remains solely as the HTTP Basic Auth fallback). The public
+# half is registered as an OAuth Partner Certificate -- a domain-wide trust store, not
+# tied to a specific app -- under an alias scoped to this app's client_id so multiple
+# Fusion/EPM apps in the same identity domain don't collide. Re-running this script
+# always generates a fresh key pair and replaces any existing certificate under that
+# alias, since the private key is never persisted locally between runs.
+EPM_JWT_PRIVATE_KEY=""
+if [[ -n "$EPM_APP_ID" ]]; then
+    info "Generating EPM JWT assertion signing key..."
+    EPM_JWT_CERT_ALIAS="datadog-fusion-jwt-${CLIENT_ID}"
+    _jwt_key_dir=$(mktemp -d)
+    trap 'rm -rf "$_jwt_key_dir"' EXIT
+    openssl req -x509 -newkey rsa:2048 -keyout "${_jwt_key_dir}/private.pem" -out "${_jwt_key_dir}/cert.pem" \
+        -days 3650 -nodes -subj "/CN=${EPM_JWT_CERT_ALIAS}" > /dev/null 2>&1 || fatal \
+        "Failed to generate EPM JWT assertion signing key" \
+        "Ensure openssl is installed and available on PATH."
+    EPM_JWT_PRIVATE_KEY=$(cat "${_jwt_key_dir}/private.pem")
+    _jwt_cert_b64=$(openssl x509 -in "${_jwt_key_dir}/cert.pem" -outform DER | base64 | tr -d '\n')
+
+    info "Registering EPM JWT assertion certificate (alias: ${EPM_JWT_CERT_ALIAS})..."
+    _existing_partner_cert=$(oci identity-domains o-auth-partner-certificate list \
+        --endpoint "$IDENTITY_DOMAIN_URL" \
+        --filter "certificateAlias eq \"${EPM_JWT_CERT_ALIAS}\"" \
+        --output json 2>/dev/null) || true
+    _existing_partner_cert_id=$(echo "$_existing_partner_cert" | python3 -c "
+import sys,json
+try:
+    rs=json.load(sys.stdin).get('data',{}).get('resources',[])
+    print(rs[0].get('id','') if rs else '')
+except Exception:
+    print('')
+" 2>/dev/null)
+    if [[ -n "$_existing_partner_cert_id" ]]; then
+        oci identity-domains o-auth-partner-certificate delete \
+            --endpoint "$IDENTITY_DOMAIN_URL" \
+            --o-auth-partner-certificate-id "$_existing_partner_cert_id" \
+            --force > /dev/null 2>&1 || fatal \
+            "Failed to replace existing EPM JWT assertion certificate (alias: ${EPM_JWT_CERT_ALIAS})" \
+            "Ensure your OCI credentials have 'Identity Domain Administrator' permissions."
+    fi
+    oci identity-domains o-auth-partner-certificate create \
+        --endpoint "$IDENTITY_DOMAIN_URL" \
+        --schemas '["urn:ietf:params:scim:schemas:oracle:idcs:OAuthPartnerCertificate"]' \
+        --certificate-alias "$EPM_JWT_CERT_ALIAS" \
+        --x509-base64-certificate "$_jwt_cert_b64" \
+        --output json > /dev/null 2>&1 || fatal \
+        "Failed to register EPM JWT assertion certificate" \
+        "Ensure your OCI credentials have 'Identity Domain Administrator' permissions."
+    rm -rf "$_jwt_key_dir"
+    success "EPM JWT assertion signing key generated and certificate registered"
+fi
+
 # Build payload — omit optional fields when values are absent;
 # include client_secret when available (new app); omit when empty (PATCH keeps existing secret).
 payload=$(CLIENT_ID="$CLIENT_ID" TOKEN_URL="$TOKEN_URL" \
     FUSION_SCOPE="${FUSION_SCOPE:-}" EPM_SCOPE="${EPM_SCOPE:-}" \
     FUSION_BASE_URL="${FUSION_BASE_URL:-}" EPM_BASE_URL="${EPM_BASE_URL:-}" \
     FUSION_APP_ID="${FUSION_APP_ID:-}" EPM_APP_ID="${EPM_APP_ID:-}" \
-    ACCOUNT_NAME="$ACCOUNT_NAME" CLIENT_SECRET="${CLIENT_SECRET:-}" EPM_TOKEN="${EPM_TOKEN:-}" python3 -c "
+    ACCOUNT_NAME="$ACCOUNT_NAME" CLIENT_SECRET="${CLIENT_SECRET:-}" EPM_TOKEN="${EPM_TOKEN:-}" \
+    EPM_JWT_PRIVATE_KEY="${EPM_JWT_PRIVATE_KEY:-}" python3 -c "
 import json, os
 settings = {
     'client_id': os.environ['CLIENT_ID'],
@@ -1092,9 +1148,11 @@ settings['version'] = '1.1'
 attrs = {'name': os.environ['ACCOUNT_NAME'], 'settings': settings}
 client_secret = os.environ.get('CLIENT_SECRET', '')
 epm_token = os.environ.get('EPM_TOKEN', '')
+epm_jwt_private_key = os.environ.get('EPM_JWT_PRIVATE_KEY', '')
 secrets = {}
 if client_secret: secrets['client_secret'] = client_secret
 if epm_token: secrets['epm_token'] = epm_token
+if epm_jwt_private_key: secrets['epm_jwt_private_key'] = epm_jwt_private_key
 if secrets: attrs['secrets'] = secrets
 print(json.dumps({'data': {'type': 'Account', 'attributes': attrs}}))
 " 2>/dev/null)
@@ -1145,12 +1203,5 @@ if [[ -n "${EPM_BASE_URL:-}" ]]; then
     echo -e "  instance resides in."
     echo -e "  Until this is done, Datadog will default to HTTP Basic Auth through the provisioned"
     echo -e "  integration user for EPM monitoring."
-    echo ""
-    echo -e "  ${YELLOW}${BOLD}Note:${NC} Enable token refresh (offline access) on your EPM instance so Datadog"
-    echo -e "  can renew OAuth access without repeated credential exchanges. In the OCI Console, go to"
-    echo -e "  Domains → Oracle Cloud Services → <Your EPM Instance> and enable token refresh / offline"
-    echo -e "  access support. Without this, Oracle rejects refresh-token requests with"
-    echo -e "  \"unauthorized_client: The resource does not support offline access\", and Datadog will"
-    echo -e "  fall back to OAuth client_credentials, then HTTP Basic Auth, for EPM monitoring."
     echo ""
 fi
