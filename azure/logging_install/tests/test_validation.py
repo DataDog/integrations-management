@@ -14,11 +14,12 @@ from az_shared.errors import (
     InputParamValidationError,
 )
 from azure_logging_install import validation
-from azure_logging_install.configuration import Configuration
+from azure_logging_install.configuration import Configuration, ControlPlaneType
 from azure_logging_install.constants import REQUIRED_RESOURCE_PROVIDERS
 from azure_logging_install.existing_lfo import LfoControlPlane
 
 from tests.test_data import (
+    CONTROL_PLANE_ID,
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_RESOURCE_GROUP,
     CONTROL_PLANE_SUBSCRIPTION_ID,
@@ -46,6 +47,7 @@ class TestValidation(TestCase):
             control_plane_region=CONTROL_PLANE_REGION,
             control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
             control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+            control_plane_type=ControlPlaneType.FunctionApps,
             monitored_subs=MONITORED_SUBSCRIPTIONS,
             datadog_api_key=DATADOG_API_KEY,
             datadog_site=DATADOG_SITE,
@@ -302,10 +304,12 @@ class TestValidation(TestCase):
                     SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
                 },
                 control_plane=LfoControlPlane(
+                    CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
                     "existing-rg",
                     "eastus",
+                    ControlPlaneType.FunctionApps,
                 ),
                 tag_filter="env:prod,team:infra",
                 pii_rules="rule1:\n  pattern: 'sensitive'\n  replacement: 'test'",
@@ -315,10 +319,12 @@ class TestValidation(TestCase):
                     SUB_3_ID: SUB_ID_TO_NAME[SUB_3_ID],
                 },
                 control_plane=LfoControlPlane(
+                    CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
                     "another-rg",
                     "westus",
+                    ControlPlaneType.ContainerAppJobs,
                 ),
                 tag_filter="env:prod,team:infra",
                 pii_rules="rule1:\n  pattern: 'sensitive'\n  replacement: 'test'",
@@ -362,6 +368,7 @@ class TestValidation(TestCase):
                     control_plane_region=CONTROL_PLANE_REGION,
                     control_plane_sub_id=invalid_id,
                     control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+                    control_plane_type=ControlPlaneType.FunctionApps,
                     monitored_subs=MONITORED_SUBSCRIPTIONS,
                     datadog_api_key=DATADOG_API_KEY,
                 )
@@ -385,6 +392,7 @@ class TestValidation(TestCase):
                     control_plane_region=CONTROL_PLANE_REGION,
                     control_plane_sub_id=valid_id,
                     control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+                    control_plane_type=ControlPlaneType.FunctionApps,
                     monitored_subs=MONITORED_SUBSCRIPTIONS,
                     datadog_api_key=DATADOG_API_KEY,
                 )
@@ -411,6 +419,7 @@ class TestValidation(TestCase):
                     control_plane_region=CONTROL_PLANE_REGION,
                     control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
                     control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+                    control_plane_type=ControlPlaneType.FunctionApps,
                     monitored_subs=invalid_subs,
                     datadog_api_key=DATADOG_API_KEY,
                 )
@@ -436,6 +445,7 @@ class TestValidation(TestCase):
                     control_plane_region=CONTROL_PLANE_REGION,
                     control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
                     control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+                    control_plane_type=ControlPlaneType.FunctionApps,
                     monitored_subs=valid_sub,
                     datadog_api_key=DATADOG_API_KEY,
                 )
@@ -468,6 +478,7 @@ class TestValidation(TestCase):
                     control_plane_region=CONTROL_PLANE_REGION,
                     control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
                     control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+                    control_plane_type=ControlPlaneType.FunctionApps,
                     monitored_subs=MONITORED_SUBSCRIPTIONS,
                     datadog_api_key=DATADOG_API_KEY,
                     resource_tag_filters=invalid_filter,
@@ -502,6 +513,7 @@ class TestValidation(TestCase):
                     control_plane_region=CONTROL_PLANE_REGION,
                     control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
                     control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+                    control_plane_type=ControlPlaneType.FunctionApps,
                     monitored_subs=MONITORED_SUBSCRIPTIONS,
                     datadog_api_key=DATADOG_API_KEY,
                     resource_tag_filters=valid_filter,
@@ -527,6 +539,7 @@ class TestValidation(TestCase):
                     control_plane_region=CONTROL_PLANE_REGION,
                     control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
                     control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+                    control_plane_type=ControlPlaneType.FunctionApps,
                     monitored_subs=MONITORED_SUBSCRIPTIONS,
                     datadog_api_key=DATADOG_API_KEY,
                     pii_scrubber_rules=invalid_rule,
@@ -555,6 +568,7 @@ class TestValidation(TestCase):
                     control_plane_region=CONTROL_PLANE_REGION,
                     control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
                     control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+                    control_plane_type=ControlPlaneType.FunctionApps,
                     monitored_subs=MONITORED_SUBSCRIPTIONS,
                     datadog_api_key=DATADOG_API_KEY,
                     pii_scrubber_rules=valid_rule,

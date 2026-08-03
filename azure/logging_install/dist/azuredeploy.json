@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.40.2.10011",
-      "templateHash": "16781038967751014341"
+      "templateHash": "18114781953377320806"
     }
   },
   "functions": [
@@ -281,7 +281,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.40.2.10011",
-              "templateHash": "5463466027517056867"
+              "templateHash": "11560788359107215972"
             }
           },
           "parameters": {
@@ -428,6 +428,20 @@
               ]
             },
             {
+              "type": "Microsoft.App/managedEnvironments",
+              "apiVersion": "2024-03-01",
+              "name": "[format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation'))]",
+              "location": "[parameters('controlPlaneLocation')]",
+              "properties": {
+                "workloadProfiles": [
+                  {
+                    "name": "Consumption",
+                    "workloadProfileType": "Consumption"
+                  }
+                ]
+              }
+            },
+            {
               "type": "Microsoft.App/jobs",
               "apiVersion": "2024-03-01",
               "name": "[variables('resourceTaskName')]",
@@ -567,20 +581,6 @@
                 "[resourceId('Microsoft.App/managedEnvironments', format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation')))]",
                 "[resourceId('Microsoft.Storage/storageAccounts', format('lfostorage{0}', parameters('controlPlaneId')))]"
               ]
-            },
-            {
-              "type": "Microsoft.App/managedEnvironments",
-              "apiVersion": "2024-03-01",
-              "name": "[format('dd-log-forwarder-env-{0}-{1}', parameters('controlPlaneId'), parameters('controlPlaneLocation'))]",
-              "location": "[parameters('controlPlaneLocation')]",
-              "properties": {
-                "workloadProfiles": [
-                  {
-                    "name": "Consumption",
-                    "workloadProfileType": "Consumption"
-                  }
-                ]
-              }
             },
             {
               "type": "Microsoft.App/jobs",

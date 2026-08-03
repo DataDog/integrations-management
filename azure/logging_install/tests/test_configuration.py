@@ -6,7 +6,7 @@ import json
 from unittest import TestCase
 from unittest.mock import patch as mock_patch
 
-from azure_logging_install.configuration import Configuration
+from azure_logging_install.configuration import Configuration, ControlPlaneType
 
 from logging_install.tests.test_data import (
     CONTROL_PLANE_REGION,
@@ -44,6 +44,7 @@ class TestConfiguration(TestCase):
             "control_plane_region": CONTROL_PLANE_REGION,
             "control_plane_sub_id": CONTROL_PLANE_SUBSCRIPTION_ID,
             "control_plane_rg": CONTROL_PLANE_RESOURCE_GROUP,
+            "control_plane_type": ControlPlaneType.FunctionApps,
             "monitored_subs": MONITORED_SUBSCRIPTIONS,
             "datadog_api_key": DATADOG_API_KEY,
             "datadog_site": DATADOG_SITE,
@@ -61,6 +62,7 @@ class TestConfiguration(TestCase):
             control_plane_region=CONTROL_PLANE_REGION,
             control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
             control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+            control_plane_type=ControlPlaneType.FunctionApps,
             monitored_subs=MONITORED_SUBSCRIPTIONS,
             datadog_api_key=DATADOG_API_KEY,
         )
@@ -204,7 +206,7 @@ class TestConfiguration(TestCase):
             len(LOG_FORWARDER_ENV_PREFIX) + len("westus2-") + CONTROL_PLANE_ID_LENGTH,
         )
 
-    def test_control_plane_job_name_property(self):
+    def test_deployer_job_name_property(self):
         """Test deployer_job_name format"""
         config = self.create_test_config()
 
@@ -213,3 +215,19 @@ class TestConfiguration(TestCase):
             len(config.deployer_job_name),
             len(DEPLOYER_JOB_PREFIX) + CONTROL_PLANE_ID_LENGTH,
         )
+
+    def test_deployer_image_property(self):
+        """Test deployer_image_url format"""
+        function_app_config = self.create_test_config()
+        self.assertEqual(function_app_config.deployer_image_url, "datadoghq.azurecr.io/deployer:latest")
+
+        caj_config = self.create_test_config(control_plane_type=ControlPlaneType.ContainerAppJobs)
+        self.assertEqual(caj_config.deployer_image_url, "datadoghq.azurecr.io/deployer-caj:latest")
+
+    def test_diagnostic_settings_task_name(self):
+        """Test diagnostic_settings_task_name format"""
+        function_app_config = self.create_test_config()
+        self.assertTrue(function_app_config.diagnostic_settings_task_name.startswith("diagnostic-settings-task-"))
+
+        caj_config = self.create_test_config(control_plane_type=ControlPlaneType.ContainerAppJobs)
+        self.assertTrue(caj_config.diagnostic_settings_task_name.startswith("diag-settings-task-"))

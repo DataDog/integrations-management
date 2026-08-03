@@ -6,7 +6,7 @@
 
 import copy
 
-from azure_logging_install.configuration import Configuration
+from azure_logging_install.configuration import Configuration, ControlPlaneType
 
 # Azure env test subscriptions
 SUB_1_ID = "11111111-1111-4111-a111-111111111111"
@@ -49,6 +49,7 @@ TEST_CONFIG = Configuration(
     control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
     monitored_subs=MONITORED_SUBSCRIPTIONS,
     datadog_api_key=DATADOG_API_KEY,
+    control_plane_type=ControlPlaneType.ContainerAppJobs,
     datadog_site=DATADOG_SITE,
     resource_tag_filters=RESOURCE_TAG_FILTERS,
     pii_scrubber_rules=PII_SCRUBBER_RULES,
@@ -60,7 +61,7 @@ TEST_CONFIG = Configuration(
 def get_test_config():
     """Return a copy of TEST_CONFIG so test mutations do not affect other tests."""
     test_config = copy.copy(TEST_CONFIG)
-    test_config.control_plane_function_app_names = [
+    test_config.control_plane_task_names = [
         RESOURCE_TASK_NAME,
         SCALING_TASK_NAME,
         DIAGNOSTIC_SETTINGS_TASK_NAME,

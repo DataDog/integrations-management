@@ -2,6 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
+from enum import Enum
 import json
 import uuid
 from dataclasses import dataclass
@@ -11,7 +12,27 @@ from az_shared.execute_cmd import execute
 from az_shared.logs import log
 
 from .az_cmd import AzCmd
-from .constants import IMAGE_REGISTRY_URL, NIL_UUID, STORAGE_ACCOUNT_KEY_FULL_PERMISSIONS
+from .constants import DEPLOYER_IMAGE_FOR_CONTAINER_APP_JOBS, DEPLOYER_IMAGE_FOR_FUNCTION_APPS, DIAGNOSTIC_SETTINGS_TASK_CONTAINER_APP_JOB_PREFIX, DIAGNOSTIC_SETTINGS_TASK_FUNCTION_APP_PREFIX, DIAGNOSTIC_SETTINGS_TASK_IMAGE, IMAGE_REGISTRY_URL, NIL_UUID, RESOURCES_TASK_IMAGE, RESOURCES_TASK_PREFIX, SCALING_TASK_IMAGE, SCALING_TASK_PREFIX, STORAGE_ACCOUNT_KEY_FULL_PERMISSIONS
+
+
+class ControlPlaneType(str, Enum):
+    FunctionApps = "FunctionApps"
+    ContainerAppJobs = "ContainerAppJobs"
+
+
+@dataclass
+class LfoControlPlane:
+    id: str
+    sub_id: str
+    sub_name: str
+    resource_group: str
+    region: str
+    type: ControlPlaneType
+
+    def __post_init__(self):
+        self.resources_task_name = _get_resources_task_name(self.id)
+        self.scaling_task_name = _get_scaling_task_name(self.id)
+        self.diagnostic_settings_task_name = _get_diagnostic_settings_task_name(self.type, self.id)
 
 
 @dataclass
@@ -24,6 +45,7 @@ class Configuration:
     control_plane_rg: str
     monitored_subs: str
     datadog_api_key: str
+    control_plane_type: ControlPlaneType
 
     # Optional user-specified params with defaults
     datadog_site: str = "datadoghq.com"
@@ -105,16 +127,44 @@ class Configuration:
 
         # Deployer
         self.deployer_job_name = f"deployer-task-{self.control_plane_id}"
-        self.deployer_image_url = f"{IMAGE_REGISTRY_URL}/deployer:latest"
+        self.deployer_image_url = _get_deployer_image(self.control_plane_type)
         self.container_app_start_role_name = f"ContainerAppStartRole{self.control_plane_id}"
 
-        # Function apps (control plane tasks)
-        self.app_service_plan_name = f"control-plane-asp-{self.control_plane_id}"
-        self.resources_task_name = f"resources-task-{self.control_plane_id}"
-        self.scaling_task_name = f"scaling-task-{self.control_plane_id}"
-        self.diagnostic_settings_task_name = f"diagnostic-settings-task-{self.control_plane_id}"
-        self.control_plane_function_app_names = [
+        # Control plane tasks
+        self.resources_task_name = _get_resources_task_name(self.control_plane_id)
+        self.resources_task_image = fully_qualified_image(RESOURCES_TASK_IMAGE)
+
+        self.scaling_task_name = _get_scaling_task_name(self.control_plane_id)
+        self.scaling_task_image = fully_qualified_image(SCALING_TASK_IMAGE)
+
+        self.diagnostic_settings_task_name = _get_diagnostic_settings_task_name(self.control_plane_type, self.control_plane_id)
+        self.diagnostic_settings_task_image = fully_qualified_image(DIAGNOSTIC_SETTINGS_TASK_IMAGE)
+        self.control_plane_task_names = [
             self.resources_task_name,
             self.scaling_task_name,
             self.diagnostic_settings_task_name,
         ]
+
+
+def _get_diagnostic_settings_task_name(control_plane_type: str, control_plane_id: str) -> str:
+    if control_plane_type == ControlPlaneType.FunctionApps:
+        return f"{DIAGNOSTIC_SETTINGS_TASK_FUNCTION_APP_PREFIX}{control_plane_id}"
+    if control_plane_type == ControlPlaneType.ContainerAppJobs:
+        return f"{DIAGNOSTIC_SETTINGS_TASK_CONTAINER_APP_JOB_PREFIX}{control_plane_id}"
+
+def _get_resources_task_name(control_plane_id: str) -> str:
+    return f"{RESOURCES_TASK_PREFIX}{control_plane_id}"
+
+
+def _get_scaling_task_name(control_plane_id: str) -> str:
+    return f"{SCALING_TASK_PREFIX}{control_plane_id}"
+
+def _get_deployer_image(control_plane_type: str) -> str:
+    if control_plane_type == ControlPlaneType.FunctionApps:
+        return fully_qualified_image(DEPLOYER_IMAGE_FOR_FUNCTION_APPS)
+    if control_plane_type == ControlPlaneType.ContainerAppJobs:
+        return fully_qualified_image(DEPLOYER_IMAGE_FOR_CONTAINER_APP_JOBS)
+
+def fully_qualified_image(repo_and_tag: str) -> str:
+    """Return the full qualified image name with the registry URL"""
+    return f"{IMAGE_REGISTRY_URL}/{repo_and_tag}"
