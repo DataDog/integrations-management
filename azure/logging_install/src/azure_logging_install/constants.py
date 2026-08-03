@@ -38,6 +38,11 @@ SCALING_TASK_CRON: Final = "3/5 * * * *"
 DIAGNOSTIC_SETTINGS_TASK_CRON: Final = "*/5 * * * *"
 DEPLOYER_TASK_CRON: Final = "*/30 * * * *"
 
+# Timeouts for Container App Job tasks, in seconds
+RESOURCES_TASK_TIMEOUT: Final = "300"
+SCALING_TASK_TIMEOUT: Final = "500"
+DIAGNOSTIC_SETTINGS_TASK_TIMEOUT: Final = "300"
+
 RESOURCES_TASK_PREFIX: Final = "resources-task-"
 SCALING_TASK_PREFIX: Final = "scaling-task-"
 DIAGNOSTIC_SETTINGS_TASK_FUNCTION_APP_PREFIX: Final = "diagnostic-settings-task-"

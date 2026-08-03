@@ -21,7 +21,7 @@ from az_shared.logs import log
 
 from .az_cmd import AzCmd
 from .configuration import Configuration, ControlPlaneType, LfoControlPlane, fully_qualified_image
-from .constants import CONTROL_PLANE_CACHE, LFO_PUBLIC_STORAGE_ACCOUNT_URL, MAX_THREAD_POOL_WORKERS, MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY
+from .constants import CONTROL_PLANE_CACHE, LFO_PUBLIC_STORAGE_ACCOUNT_URL, MAX_THREAD_POOL_WORKERS, MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_CRON, DIAGNOSTIC_SETTINGS_TASK_CRON, SCALING_TASK_CRON, DIAGNOSTIC_SETTINGS_TASK_TIMEOUT, SCALING_TASK_TIMEOUT, RESOURCES_TASK_TIMEOUT
 
 # =============================================================================
 # Subscription, Resource Group, Storage Account
@@ -335,8 +335,8 @@ def _create_resources_task_container_app_job(config: Configuration):
         config.resources_task_name, 
         config.resources_task_image, 
         extra_vars, 
-        "300",
-        "*/5 * * * *"
+        RESOURCES_TASK_TIMEOUT,
+        RESOURCES_TASK_CRON
     )
 
 def _create_diagnostic_settings_task_container_app_job(config: Configuration):
@@ -348,8 +348,8 @@ def _create_diagnostic_settings_task_container_app_job(config: Configuration):
         config.diagnostic_settings_task_name, 
         config.diagnostic_settings_task_image, 
         extra_vars, 
-        "300",
-        "*/5 * * * *"
+        DIAGNOSTIC_SETTINGS_TASK_TIMEOUT,
+        DIAGNOSTIC_SETTINGS_TASK_CRON
     )
 
 def _create_scaling_task_container_app_job(config: Configuration):
@@ -363,8 +363,8 @@ def _create_scaling_task_container_app_job(config: Configuration):
         config.scaling_task_name, 
         config.scaling_task_image, 
         extra_vars, 
-        "500",
-        "3/5 * * * *"
+        SCALING_TASK_TIMEOUT,
+        SCALING_TASK_CRON
     )
 
 
