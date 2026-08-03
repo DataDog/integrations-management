@@ -158,6 +158,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             automute=False,
             region_filter_configs=["lushy", "boo_boi"],
             is_global_location_enabled=True,
+            is_org_folder_resource_collection_enabled=False,
         )
 
     @patch("gcp_integration_quickstart.integration_configuration.gcloud")
@@ -247,6 +248,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
                         "automute": False,
                         "region_filter_configs": ["lushy", "boo_boi"],
                         "is_global_location_enabled": True,
+                        "is_org_folder_resource_collection_enabled": False,
                     },
                 }
             },
