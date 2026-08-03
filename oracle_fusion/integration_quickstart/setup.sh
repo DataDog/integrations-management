@@ -357,6 +357,13 @@ fi
 if ! command -v curl &>/dev/null; then
     fatal "curl is required but not found"
 fi
+if ! command -v openssl &>/dev/null; then
+    fatal "openssl is required but not found" \
+        "openssl is used to generate the EPM JWT assertion signing key." \
+        "On macOS: brew install openssl" \
+        "On Debian/Ubuntu: apt-get install openssl" \
+        "On RHEL/CentOS/Fedora: yum install openssl"
+fi
 success "Required tools present"
 
 # 4. OCI CLI configured
@@ -1077,7 +1084,10 @@ if [[ -n "$EPM_APP_ID" ]]; then
     openssl req -x509 -newkey rsa:2048 -keyout "${_jwt_key_dir}/private.pem" -out "${_jwt_key_dir}/cert.pem" \
         -days 3650 -nodes -subj "/CN=${EPM_JWT_CERT_ALIAS}" > /dev/null 2>&1 || fatal \
         "Failed to generate EPM JWT assertion signing key" \
-        "Ensure openssl is installed and available on PATH."
+        "Ensure openssl is installed and available on PATH:" \
+        "On macOS: brew install openssl" \
+        "On Debian/Ubuntu: apt-get install openssl" \
+        "On RHEL/CentOS/Fedora: yum install openssl"
     EPM_JWT_PRIVATE_KEY=$(cat "${_jwt_key_dir}/private.pem")
     _jwt_cert_b64=$(openssl x509 -in "${_jwt_key_dir}/cert.pem" -outform DER | base64 | tr -d '\n')
 
