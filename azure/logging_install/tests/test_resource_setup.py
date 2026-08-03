@@ -8,9 +8,9 @@ from unittest.mock import patch as mock_patch
 
 from az_shared.errors import FatalError, ResourceNotFoundError
 from azure_logging_install import resource_setup
-from azure_logging_install.configuration import Configuration
+from azure_logging_install.configuration import Configuration, ControlPlaneType
 
-from logging_install.tests.test_data import CONTROL_PLANE_REGION, CONTROL_PLANE_RESOURCE_GROUP
+from logging_install.tests.test_data import CONTROL_PLANE_REGION, CONTROL_PLANE_RESOURCE_GROUP, get_test_config
 
 STORAGE_ACCOUNT_NAME = "teststorageaccount"
 CONTAINER_APP_ENV_NAME = "test-env"
@@ -32,6 +32,7 @@ class TestResourceSetup(TestCase):
             control_plane_region=CONTROL_PLANE_REGION,
             control_plane_sub_id="test-sub",
             control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+            control_plane_type=ControlPlaneType.FunctionApps,
             monitored_subs="sub-1,sub-2",
             datadog_api_key="test-api-key",
         )
@@ -183,7 +184,7 @@ class TestResourceSetup(TestCase):
 
     # ===== Container App Job Tests ===== #
 
-    def test_create_container_app_job_success(self):
+    def test_create_deployer_container_app_job_success(self):
         """Test successful container app job creation"""
         mock_config = MagicMock()
         mock_config.deployer_job_name = CONTAINER_APP_JOB_NAME
@@ -202,7 +203,7 @@ class TestResourceSetup(TestCase):
         with mock_patch("azure_logging_install.resource_setup.tempfile.NamedTemporaryFile") as mock_temp_file:
             mock_temp_file.return_value.__enter__.return_value.name = "/tmp/test.json"
 
-            resource_setup.create_container_app_job(mock_config)
+            resource_setup.create_deployer_container_app_job(mock_config)
 
         # Should have been called twice: once for show, once for create
         self.assertEqual(self.execute_mock.call_count, 2)
@@ -215,14 +216,121 @@ class TestResourceSetup(TestCase):
         self.assertIn("job", cmd_str)
         self.assertIn("create", cmd_str)
 
+    # ===== Control Plane Container App Job Tests ===== #
+
+    def test_create_control_plane_container_app_jobs_success(self):
+        """Test that all three control plane Container App Jobs are created"""
+        with (
+            mock_patch("azure_logging_install.resource_setup._create_resources_task_container_app_job") as mock_resources,
+            mock_patch(
+                "azure_logging_install.resource_setup._create_diagnostic_settings_task_container_app_job"
+            ) as mock_diagnostic,
+            mock_patch("azure_logging_install.resource_setup._create_scaling_task_container_app_job") as mock_scaling,
+        ):
+            caj_config = get_test_config()
+            resource_setup.create_control_plane_container_app_jobs(caj_config)
+
+            mock_resources.assert_called_once_with(caj_config)
+            mock_diagnostic.assert_called_once_with(caj_config)
+            mock_scaling.assert_called_once_with(caj_config)
+
+    def test_create_resources_task_container_app_job_creates_when_not_exists(self):
+        """Test the resources task Container App Job is created when it doesn't already exist"""
+        caj_config = get_test_config()
+        self.execute_mock.side_effect = [
+            ResourceNotFoundError("Job not found"),  # First call: job show
+            None,  # Second call: job create
+        ]
+
+        with mock_patch.object(caj_config, "get_control_plane_cache_key", return_value="test-key"):
+            resource_setup._create_resources_task_container_app_job(caj_config)
+
+        self.assertEqual(self.execute_mock.call_count, 2)
+
+        create_cmd = str(self.execute_mock.call_args_list[1][0][0])
+        self.assertIn("containerapp", create_cmd)
+        self.assertIn("job create", create_cmd)
+        self.assertIn(caj_config.resources_task_name, create_cmd)
+        self.assertIn(caj_config.resources_task_image, create_cmd)
+        self.assertIn(caj_config.control_plane_env_name, create_cmd)
+        self.assertIn("300", create_cmd)
+        self.assertIn("*/5 * * * *", create_cmd)
+        self.assertIn("MONITORED_SUBSCRIPTIONS", create_cmd)
+        self.assertIn("RESOURCE_TAG_FILTERS", create_cmd)
+
+    def test_create_resources_task_container_app_job_reuses_existing(self):
+        """Test the resources task Container App Job is reused when it already exists"""
+        caj_config = get_test_config()
+        self.execute_mock.return_value = None  # job show succeeds
+
+        resource_setup._create_resources_task_container_app_job(caj_config)
+
+        self.execute_mock.assert_called_once()
+        create_cmd = str(self.execute_mock.call_args[0][0])
+        self.assertIn("job show", create_cmd)
+
+    def test_create_diagnostic_settings_task_container_app_job_creates_when_not_exists(self):
+        """Test the diagnostic settings task Container App Job is created when it doesn't already exist"""
+        caj_config = get_test_config()
+        self.execute_mock.side_effect = [
+            ResourceNotFoundError("Job not found"),
+            None,
+        ]
+
+        with mock_patch.object(caj_config, "get_control_plane_cache_key", return_value="test-key"):
+            resource_setup._create_diagnostic_settings_task_container_app_job(caj_config)
+
+        self.assertEqual(self.execute_mock.call_count, 2)
+
+        create_cmd = str(self.execute_mock.call_args_list[1][0][0])
+        self.assertIn("job create", create_cmd)
+        self.assertIn(caj_config.diagnostic_settings_task_name, create_cmd)
+        self.assertIn(caj_config.diagnostic_settings_task_image, create_cmd)
+        self.assertIn("300", create_cmd)
+        self.assertIn("*/5 * * * *", create_cmd)
+        self.assertIn("RESOURCE_GROUP", create_cmd)
+
+    def test_create_scaling_task_container_app_job_creates_when_not_exists(self):
+        """Test the scaling task Container App Job is created when it doesn't already exist"""
+        caj_config = get_test_config()
+        self.execute_mock.side_effect = [
+            ResourceNotFoundError("Job not found"),
+            None,
+        ]
+
+        with mock_patch.object(caj_config, "get_control_plane_cache_key", return_value="test-key"):
+            resource_setup._create_scaling_task_container_app_job(caj_config)
+
+        self.assertEqual(self.execute_mock.call_count, 2)
+
+        create_cmd = str(self.execute_mock.call_args_list[1][0][0])
+        self.assertIn("job create", create_cmd)
+        self.assertIn(caj_config.scaling_task_name, create_cmd)
+        self.assertIn(caj_config.scaling_task_image, create_cmd)
+        self.assertIn("500", create_cmd)
+        self.assertIn("3/5 * * * *", create_cmd)
+        self.assertIn("RESOURCE_GROUP", create_cmd)
+        self.assertIn("FORWARDER_IMAGE", create_cmd)
+        self.assertIn("PII_SCRUBBER_RULES", create_cmd)
+
+    def test_create_control_plane_task_container_app_job_existence_check_error(self):
+        """Test that unexpected errors while checking Container App Job existence are propagated"""
+        caj_config = get_test_config()
+        self.execute_mock.side_effect = FatalError("Unexpected failure")
+
+        with self.assertRaises(FatalError):
+            resource_setup._create_resources_task_container_app_job(caj_config)
+
+        self.execute_mock.assert_called_once()
+
     # ===== Function App Tests ===== #
 
-    def test_create_function_apps_success(self):
+    def test_create_control_plane_function_apps_success(self):
         """Test successful function app creation"""
         with mock_patch("azure_logging_install.resource_setup.create_function_app") as mock_create_func:
             # Mock the storage key retrieval to avoid actual Azure CLI calls
             with mock_patch.object(self.config, "get_control_plane_cache_key", return_value="test-key"):
-                resource_setup.create_function_apps(self.config)
+                resource_setup.create_control_plane_function_apps(self.config)
 
                 # Should create 3 function apps (resources, scaling, diagnostic settings)
                 self.assertEqual(mock_create_func.call_count, 3)

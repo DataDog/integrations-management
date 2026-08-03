@@ -38,7 +38,6 @@ SCALING_TASK_CRON: Final = "3/5 * * * *"
 DIAGNOSTIC_SETTINGS_TASK_CRON: Final = "*/5 * * * *"
 DEPLOYER_TASK_CRON: Final = "*/30 * * * *"
 
-
 RESOURCES_TASK_PREFIX: Final = "resources-task-"
 SCALING_TASK_PREFIX: Final = "scaling-task-"
 DIAGNOSTIC_SETTINGS_TASK_FUNCTION_APP_PREFIX: Final = "diagnostic-settings-task-"
@@ -46,6 +45,10 @@ DIAGNOSTIC_SETTINGS_TASK_CONTAINER_APP_JOB_PREFIX: Final = "diag-settings-task-"
 
 DEPLOYER_IMAGE_FOR_FUNCTION_APPS :Final = "deployer:latest"
 DEPLOYER_IMAGE_FOR_CONTAINER_APP_JOBS: Final = "deployer-caj:latest"
+
+RESOURCES_TASK_IMAGE = "resources-task:latest"
+SCALING_TASK_IMAGE = "scaling-task:latest"
+DIAGNOSTIC_SETTINGS_TASK_IMAGE = "diagnostic-settings-task:latest"
 
 MONITORED_SUBSCRIPTIONS_KEY: Final = "MONITORED_SUBSCRIPTIONS"
 RESOURCE_TAG_FILTERS_KEY: Final = "RESOURCE_TAG_FILTERS"

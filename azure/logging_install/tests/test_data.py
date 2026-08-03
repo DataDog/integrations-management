@@ -6,7 +6,7 @@
 
 import copy
 
-from azure_logging_install.configuration import Configuration
+from azure_logging_install.configuration import Configuration, ControlPlaneType
 
 # Azure env test subscriptions
 SUB_1_ID = "11111111-1111-4111-a111-111111111111"
@@ -49,6 +49,7 @@ TEST_CONFIG = Configuration(
     control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
     monitored_subs=MONITORED_SUBSCRIPTIONS,
     datadog_api_key=DATADOG_API_KEY,
+    control_plane_type=ControlPlaneType.ContainerAppJobs,
     datadog_site=DATADOG_SITE,
     resource_tag_filters=RESOURCE_TAG_FILTERS,
     pii_scrubber_rules=PII_SCRUBBER_RULES,

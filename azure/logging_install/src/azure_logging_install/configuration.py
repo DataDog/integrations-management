@@ -12,12 +12,12 @@ from az_shared.execute_cmd import execute
 from az_shared.logs import log
 
 from .az_cmd import AzCmd
-from .constants import DEPLOYER_IMAGE_FOR_CONTAINER_APP_JOBS, DEPLOYER_IMAGE_FOR_FUNCTION_APPS, DIAGNOSTIC_SETTINGS_TASK_CONTAINER_APP_JOB_PREFIX, DIAGNOSTIC_SETTINGS_TASK_FUNCTION_APP_PREFIX, IMAGE_REGISTRY_URL, NIL_UUID, RESOURCES_TASK_PREFIX, SCALING_TASK_PREFIX, STORAGE_ACCOUNT_KEY_FULL_PERMISSIONS
+from .constants import DEPLOYER_IMAGE_FOR_CONTAINER_APP_JOBS, DEPLOYER_IMAGE_FOR_FUNCTION_APPS, DIAGNOSTIC_SETTINGS_TASK_CONTAINER_APP_JOB_PREFIX, DIAGNOSTIC_SETTINGS_TASK_FUNCTION_APP_PREFIX, DIAGNOSTIC_SETTINGS_TASK_IMAGE, IMAGE_REGISTRY_URL, NIL_UUID, RESOURCES_TASK_IMAGE, RESOURCES_TASK_PREFIX, SCALING_TASK_IMAGE, SCALING_TASK_PREFIX, STORAGE_ACCOUNT_KEY_FULL_PERMISSIONS
 
 
 class ControlPlaneType(str, Enum):
-    FunctionApps = "FUNCTION_APPS"
-    ContainerAppJobs = "CONTAINER_APP_JOBS"
+    FunctionApps = "FunctionApps"
+    ContainerAppJobs = "ContainerAppJobs"
 
 
 @dataclass
@@ -45,8 +45,7 @@ class Configuration:
     control_plane_rg: str
     monitored_subs: str
     datadog_api_key: str
-
-    control_plane_type: ControlPlaneType = ControlPlaneType.FunctionApps
+    control_plane_type: ControlPlaneType
 
     # Optional user-specified params with defaults
     datadog_site: str = "datadoghq.com"
@@ -133,8 +132,13 @@ class Configuration:
 
         # Control plane tasks
         self.resources_task_name = _get_resources_task_name(self.control_plane_id)
+        self.resources_task_image = fully_qualified_image(RESOURCES_TASK_IMAGE)
+
         self.scaling_task_name = _get_scaling_task_name(self.control_plane_id)
+        self.scaling_task_image = fully_qualified_image(SCALING_TASK_IMAGE)
+
         self.diagnostic_settings_task_name = _get_diagnostic_settings_task_name(self.control_plane_type, self.control_plane_id)
+        self.diagnostic_settings_task_image = fully_qualified_image(DIAGNOSTIC_SETTINGS_TASK_IMAGE)
         self.control_plane_task_names = [
             self.resources_task_name,
             self.scaling_task_name,
@@ -169,6 +173,10 @@ def _get_scaling_task_name(control_plane_id: str) -> str:
 
 def _get_deployer_image(control_plane_type: str) -> str:
     if control_plane_type == ControlPlaneType.FunctionApps:
-        return f"{IMAGE_REGISTRY_URL}/{DEPLOYER_IMAGE_FOR_FUNCTION_APPS}"
+        return fully_qualified_image(DEPLOYER_IMAGE_FOR_FUNCTION_APPS)
     if control_plane_type == ControlPlaneType.ContainerAppJobs:
-        return f"{IMAGE_REGISTRY_URL}/{DEPLOYER_IMAGE_FOR_CONTAINER_APP_JOBS}"
+        return fully_qualified_image(DEPLOYER_IMAGE_FOR_CONTAINER_APP_JOBS)
+
+def fully_qualified_image(repo_and_tag: str) -> str:
+    """Return the full qualified image name with the registry URL"""
+    return f"{IMAGE_REGISTRY_URL}/{repo_and_tag}"

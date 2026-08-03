@@ -22,6 +22,7 @@ from az_shared.logs import log
 from .az_cmd import AzCmd, set_subscription
 from .configuration import Configuration, ControlPlaneType, LfoControlPlane
 from .constants import (
+    CONTAINER_APPS_JOBS_CONTRIBUTOR_id,
     INITIAL_DEPLOY_IDENTITY_NAME,
     MONITORING_CONTRIBUTOR_ID,
     MONITORING_READER_ID,
@@ -421,10 +422,16 @@ def grant_permissions(config: Configuration):
 
     log.info("Assigning Website Contributor role to deployer container app job...")
     deployer_principal_id = get_container_app_job_principal_id(config.control_plane_rg, config.control_plane_sub_id, config.deployer_job_name)
+
+    deployer_role = None
+    if config.control_plane_type == ControlPlaneType.FunctionApps:
+        deployer_role = WEBSITE_CONTRIBUTOR_ID
+    if config.control_plane_type == ControlPlaneType.ContainerAppJobs:
+        deployer_role = CONTAINER_APPS_JOBS_CONTRIBUTOR_id
     assign_role(
         config.control_plane_rg_scope,
         deployer_principal_id,
-        WEBSITE_CONTRIBUTOR_ID,
+        deployer_role,
         config.control_plane_id,
     )
 
