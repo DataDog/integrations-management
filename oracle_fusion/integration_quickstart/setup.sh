@@ -614,7 +614,7 @@ except Exception:
                 --operations "[
                     {\"op\": \"replace\", \"path\": \"allowedScopes\",   \"value\": ${_new_scopes}},
                     {\"op\": \"replace\", \"path\": \"isOAuthClient\",   \"value\": true},
-                    {\"op\": \"replace\", \"path\": \"allowedGrants\",   \"value\": [\"client_credentials\"]},
+                    {\"op\": \"replace\", \"path\": \"allowedGrants\",   \"value\": [\"client_credentials\", \"password\", \"refresh_token\"]},
                     {\"op\": \"replace\", \"path\": \"clientType\",      \"value\": \"confidential\"},
                     {\"op\": \"replace\", \"path\": \"clientIPChecking\",\"value\": \"anywhere\"},
                     {\"op\": \"replace\", \"path\": \"bypassConsent\",   \"value\": true},
@@ -643,7 +643,7 @@ except Exception:
                 --operations "[
                     {\"op\": \"replace\", \"path\": \"allowedScopes\",   \"value\": ${_new_scopes}},
                     {\"op\": \"replace\", \"path\": \"isOAuthClient\",   \"value\": true},
-                    {\"op\": \"replace\", \"path\": \"allowedGrants\",   \"value\": [\"client_credentials\"]},
+                    {\"op\": \"replace\", \"path\": \"allowedGrants\",   \"value\": [\"client_credentials\", \"password\", \"refresh_token\"]},
                     {\"op\": \"replace\", \"path\": \"clientType\",      \"value\": \"confidential\"},
                     {\"op\": \"replace\", \"path\": \"clientIPChecking\",\"value\": \"anywhere\"},
                     {\"op\": \"replace\", \"path\": \"bypassConsent\",   \"value\": true},
@@ -667,7 +667,7 @@ else
         --description "Datadog integration for Oracle Fusion and Fusion EPM monitoring" \
         --based-on-template '{"value": "CustomWebAppTemplateId", "wellKnownId": "CustomWebAppTemplateId"}' \
         --is-o-auth-client true \
-        --allowed-grants '["client_credentials"]' \
+        --allowed-grants '["client_credentials", "password", "refresh_token"]' \
         --client-type "confidential" \
         --client-ip-checking "anywhere" \
         --bypass-consent true \
@@ -1088,7 +1088,7 @@ if fusion_base: enabled += ['ess', 'audit']
 if epm_base:    enabled += ['epm_jobs', 'epm_audit']
 if enabled:
     settings['logs_config'] = {'enabled_services': enabled}
-settings['version'] = '1.0'
+settings['version'] = '1.1'
 attrs = {'name': os.environ['ACCOUNT_NAME'], 'settings': settings}
 client_secret = os.environ.get('CLIENT_SECRET', '')
 epm_token = os.environ.get('EPM_TOKEN', '')
@@ -1145,5 +1145,12 @@ if [[ -n "${EPM_BASE_URL:-}" ]]; then
     echo -e "  instance resides in."
     echo -e "  Until this is done, Datadog will default to HTTP Basic Auth through the provisioned"
     echo -e "  integration user for EPM monitoring."
+    echo ""
+    echo -e "  ${YELLOW}${BOLD}Note:${NC} Enable token refresh (offline access) on your EPM instance so Datadog"
+    echo -e "  can renew OAuth access without repeated credential exchanges. In the OCI Console, go to"
+    echo -e "  Domains → Oracle Cloud Services → <Your EPM Instance> and enable token refresh / offline"
+    echo -e "  access support. Without this, Oracle rejects refresh-token requests with"
+    echo -e "  \"unauthorized_client: The resource does not support offline access\", and Datadog will"
+    echo -e "  fall back to OAuth client_credentials, then HTTP Basic Auth, for EPM monitoring."
     echo ""
 fi
