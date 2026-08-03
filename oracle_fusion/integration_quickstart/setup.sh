@@ -1074,22 +1074,24 @@ fi
 # tied to a specific app -- under an alias scoped to this app's client_id so multiple
 # Fusion/EPM apps in the same identity domain don't collide. Re-running this script
 # always generates a fresh key pair and replaces any existing certificate under that
-# alias, since the private key is never persisted locally between runs.
+# alias, since the private key is never persisted anywhere by this script. The key
+# and certificate are generated entirely in memory via process substitution -- neither
+# ever touches disk, even temporarily.
 EPM_JWT_PRIVATE_KEY=""
 if [[ -n "$EPM_APP_ID" ]]; then
     info "Generating EPM JWT assertion signing key..."
     EPM_JWT_CERT_ALIAS="datadog-fusion-jwt-${CLIENT_ID}"
-    _jwt_key_dir=$(mktemp -d)
-    trap 'rm -rf "$_jwt_key_dir"' EXIT
-    openssl req -x509 -newkey rsa:2048 -keyout "${_jwt_key_dir}/private.pem" -out "${_jwt_key_dir}/cert.pem" \
-        -days 3650 -nodes -subj "/CN=${EPM_JWT_CERT_ALIAS}" > /dev/null 2>&1 || fatal \
+    EPM_JWT_PRIVATE_KEY=$(openssl genrsa 2048 2>/dev/null) || fatal \
         "Failed to generate EPM JWT assertion signing key" \
         "Ensure openssl is installed and available on PATH:" \
         "On macOS: brew install openssl" \
         "On Debian/Ubuntu: apt-get install openssl" \
         "On RHEL/CentOS/Fedora: yum install openssl"
-    EPM_JWT_PRIVATE_KEY=$(cat "${_jwt_key_dir}/private.pem")
-    _jwt_cert_b64=$(openssl x509 -in "${_jwt_key_dir}/cert.pem" -outform DER | base64 | tr -d '\n')
+    _jwt_cert_b64=$(openssl req -x509 -key <(printf '%s' "$EPM_JWT_PRIVATE_KEY") \
+        -days 3650 -subj "/CN=${EPM_JWT_CERT_ALIAS}" -outform DER 2>/dev/null | base64 | tr -d '\n')
+    [[ -z "$_jwt_cert_b64" ]] && fatal \
+        "Failed to generate EPM JWT assertion certificate" \
+        "Ensure openssl is installed and available on PATH."
 
     info "Registering EPM JWT assertion certificate (alias: ${EPM_JWT_CERT_ALIAS})..."
     _existing_partner_cert=$(oci identity-domains o-auth-partner-certificate list \
@@ -1120,7 +1122,6 @@ except Exception:
         --output json > /dev/null 2>&1 || fatal \
         "Failed to register EPM JWT assertion certificate" \
         "Ensure your OCI credentials have 'Identity Domain Administrator' permissions."
-    rm -rf "$_jwt_key_dir"
     success "EPM JWT assertion signing key generated and certificate registered"
 fi
 
