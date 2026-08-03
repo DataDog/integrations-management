@@ -29,6 +29,9 @@ class TestDeploy(TestCase):
         self.create_blob_container_mock = self.patch("azure_logging_install.deploy.create_blob_container")
         self.create_file_share_mock = self.patch("azure_logging_install.deploy.create_file_share")
         self.create_control_plane_function_apps_mock = self.patch("azure_logging_install.deploy.create_control_plane_function_apps")
+        self.create_control_plane_container_app_jobs_mock = self.patch(
+            "azure_logging_install.deploy.create_control_plane_container_app_jobs"
+        )
         self.create_initial_deploy_role_mock = self.patch("azure_logging_install.deploy.create_initial_deploy_role")
         self.create_container_app_environment_mock = self.patch(
             "azure_logging_install.deploy.create_container_app_environment"
@@ -110,6 +113,53 @@ class TestDeploy(TestCase):
 
         # Verify function apps are created
         self.create_control_plane_function_apps_mock.assert_called_once_with(self.config)
+        # Container App Jobs are only created for the ContainerAppJobs control plane type
+        self.create_control_plane_container_app_jobs_mock.assert_not_called()
+
+    def test_deploy_control_plane_container_app_jobs_success(self):
+        """Test successful control plane deployment with the ContainerAppJobs control plane type"""
+        caj_config = Configuration(
+            control_plane_region=CONTROL_PLANE_REGION,
+            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
+            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+            control_plane_type=ControlPlaneType.ContainerAppJobs,
+            monitored_subs="sub-1,sub-2",
+            datadog_api_key="test-api-key",
+        )
+
+        with mock_patch.object(caj_config, "get_control_plane_cache_key", return_value="test-key"):
+            deploy.deploy_control_plane(caj_config)
+
+        # File share is only created for FunctionApps control planes
+        self.create_file_share_mock.assert_not_called()
+
+        # Container App Jobs are created instead of Function Apps
+        self.create_control_plane_container_app_jobs_mock.assert_called_once_with(caj_config)
+        self.create_control_plane_function_apps_mock.assert_not_called()
+
+        # Deployer job setup should still happen regardless of control plane type
+        self.create_deployer_container_app_job_mock.assert_called_once_with(caj_config)
+
+    def test_deploy_control_plane_container_app_jobs_failure(self):
+        """Test control plane deployment handles Container App Job creation failure"""
+        caj_config = Configuration(
+            control_plane_region=CONTROL_PLANE_REGION,
+            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
+            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+            control_plane_type=ControlPlaneType.ContainerAppJobs,
+            monitored_subs="sub-1,sub-2",
+            datadog_api_key="test-api-key",
+        )
+        self.create_control_plane_container_app_jobs_mock.side_effect = FatalError("Container App Job creation failed")
+
+        with mock_patch.object(caj_config, "get_control_plane_cache_key", return_value="test-key"):
+            with self.assertRaises(FatalError):
+                deploy.deploy_control_plane(caj_config)
+
+        # Should have completed storage setup first
+        self.create_storage_account_mock.assert_called_once()
+        # Should not proceed to create the deployer job
+        self.create_deployer_container_app_job_mock.assert_not_called()
 
     def test_deploy_control_plane_storage_creation_failure(self):
         """Test control plane deployment handles storage creation failure"""
