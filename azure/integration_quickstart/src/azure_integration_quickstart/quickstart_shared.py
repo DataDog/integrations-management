@@ -20,7 +20,7 @@ from az_shared.auth import check_login
 from az_shared.errors import AzCliNotAuthenticatedError, AzCliNotInstalledError
 from azure_integration_quickstart.scopes import Scope
 from az_shared.script_status import Status, StatusReporter
-from azure_logging_install.configuration import Configuration
+from azure_logging_install.configuration import Configuration, ControlPlane, generate_control_plane_id
 from azure_logging_install.existing_lfo import LfoMetadata, check_existing_lfo
 from azure_logging_install.main import install_log_forwarder
 from azure_logging_install.role_setup import ensure_control_plane_rg_not_deleting
@@ -140,9 +140,13 @@ def wait_for_rg_delete_if_needed(rg_name: str, subs_to_check: set[str], status: 
 def upsert_log_forwarder(config: dict, subscriptions: Set[Scope]):
     install_log_forwarder(
         Configuration(
-            control_plane_region=config["controlPlaneRegion"],
-            control_plane_sub_id=config["controlPlaneSubscriptionId"],
-            control_plane_rg=config["resourceGroupName"],
+            control_plane=ControlPlane(
+                id=generate_control_plane_id(config["controlPlaneSubscriptionId"], config["resourceGroupName"], config["controlPlaneRegion"]),
+                sub_id=config["controlPlaneSubscriptionId"],
+                sub_name="", # TODO
+                resource_group=config["resourceGroupName"],
+                region=config["controlPlaneRegion"],
+            ),
             monitored_subs=",".join([s.id for s in subscriptions]),
             datadog_api_key=os.environ["DD_API_KEY"],
             datadog_site=os.environ["DD_SITE"],

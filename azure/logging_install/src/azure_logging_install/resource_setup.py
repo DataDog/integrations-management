@@ -116,7 +116,7 @@ def create_function_app(config: Configuration, name: str):
     """Create a function app for a control plane task and configure function app runtime"""
     try:
         log.info(f"Checking if Function App '{name}' already exists...")
-        execute(AzCmd("functionapp", "show").param("--name", name).param("--resource-group", config.control_plane_rg))
+        execute(AzCmd("functionapp", "show").param("--name", name).param("--resource-group", config.control_plane.resource_group))
         log.info(f"Function App '{name}' already exists - skipping creation and updating configuration")
         function_app_exists = True
     except ResourceNotFoundError:
@@ -129,8 +129,8 @@ def create_function_app(config: Configuration, name: str):
         log.info(f"Creating Function App {name}")
         execute(
             AzCmd("functionapp", "create")
-            .param("--resource-group", config.control_plane_rg)
-            .param("--consumption-plan-location", config.control_plane_region)
+            .param("--resource-group", config.control_plane.resource_group)
+            .param("--consumption-plan-location", config.control_plane.region)
             .param("--runtime", "python")
             .param("--functions-version", "4")
             .param("--os-type", "Linux")
@@ -144,7 +144,7 @@ def create_function_app(config: Configuration, name: str):
         execute(
             AzCmd("functionapp", "config set")
             .param("--name", name)
-            .param("--resource-group", config.control_plane_rg)
+            .param("--resource-group", config.control_plane.resource_group)
             .param("--linux-fx-version", shlex.quote("Python|3.11"))
         )
 
@@ -162,8 +162,8 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
         "DD_API_KEY": config.datadog_api_key,
         "DD_SITE": config.datadog_site,
         "DD_TELEMETRY": "true" if config.datadog_telemetry else "false",
-        "CONTROL_PLANE_ID": config.control_plane_id,
-        "CONTROL_PLANE_REGION": config.control_plane_region,
+        "CONTROL_PLANE_ID": config.control_plane.id,
+        "CONTROL_PLANE_REGION": config.control_plane.region,
         "LOG_LEVEL": config.log_level,
     }
 
@@ -175,11 +175,11 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
         }
     elif function_app_name == config.diagnostic_settings_task_name:
         specific_settings = {
-            "RESOURCE_GROUP": config.control_plane_rg,
+            "RESOURCE_GROUP": config.control_plane.resource_group,
         }
     elif function_app_name == config.scaling_task_name:
         specific_settings = {
-            "RESOURCE_GROUP": config.control_plane_rg,
+            "RESOURCE_GROUP": config.control_plane.resource_group,
             "FORWARDER_IMAGE": fully_qualified_image("forwarder:latest"),
             PII_SCRUBBER_RULES_KEY: config.pii_scrubber_rules,
         }
@@ -198,7 +198,7 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
         execute(
             AzCmd("functionapp", "config appsettings set")
             .param("--name", function_app_name)
-            .param("--resource-group", config.control_plane_rg)
+            .param("--resource-group", config.control_plane.resource_group)
             .param("--settings", f"@{tmpfile_path}")
         )
     finally:
@@ -281,7 +281,7 @@ def _create_control_plane_task_container_app_job(config: Configuration, task_nam
         execute(
             AzCmd("containerapp", "job show")
             .param("--name", task_name)
-            .param("--resource-group", config.control_plane_rg)
+            .param("--resource-group", config.control_plane.resource_group)
         )
         log.info(f"Container App job '{task_name}' already exists - reusing existing job")
         return
@@ -298,9 +298,9 @@ def _create_control_plane_task_container_app_job(config: Configuration, task_nam
         "DD_API_KEY=secretref:dd-api-key",
         f"DD_SITE={config.datadog_site}",
         f"DD_TELEMETRY={'true' if config.datadog_telemetry else 'false'}",
-        f"CONTROL_PLANE_ID={config.control_plane_id}",
-        f"CONTROL_PLANE_REGION={config.control_plane_region}",
-        f"SUBSCRIPTION_ID={config.control_plane_sub_id}",
+        f"CONTROL_PLANE_ID={config.control_plane.id}",
+        f"CONTROL_PLANE_REGION={config.control_plane.region}",
+        f"SUBSCRIPTION_ID={config.control_plane.sub_id}",
         f"LOG_LEVEL={config.log_level}",
     ]
 
@@ -309,7 +309,7 @@ def _create_control_plane_task_container_app_job(config: Configuration, task_nam
     execute(
         AzCmd("containerapp", "job create")
         .param("--name", task_name)
-        .param("--resource-group", config.control_plane_rg)
+        .param("--resource-group", config.control_plane.resource_group)
         .param("--environment", config.control_plane_env_name)
         .param("--replica-timeout", timeout)
         .param("--replica-retry-limit", "0")
@@ -341,7 +341,7 @@ def _create_resources_task_container_app_job(config: Configuration):
 
 def _create_diagnostic_settings_task_container_app_job(config: Configuration):
     extra_vars = [
-        f"RESOURCE_GROUP={json.dumps(config.control_plane_rg)}",
+        f"RESOURCE_GROUP={json.dumps(config.control_plane.resource_group)}",
     ]
     _create_control_plane_task_container_app_job(
         config, 
@@ -354,7 +354,7 @@ def _create_diagnostic_settings_task_container_app_job(config: Configuration):
 
 def _create_scaling_task_container_app_job(config: Configuration):
     extra_vars = [
-        f"RESOURCE_GROUP={json.dumps(config.control_plane_rg)}",
+        f"RESOURCE_GROUP={json.dumps(config.control_plane.resource_group)}",
         f"FORWARDER_IMAGE={fully_qualified_image('forwarder:latest')}",
         f"{PII_SCRUBBER_RULES_KEY}={shlex.quote(config.pii_scrubber_rules)}"
     ]
@@ -410,7 +410,7 @@ def create_deployer_container_app_job(config: Configuration):
         execute(
             AzCmd("containerapp", "job show")
             .param("--name", config.deployer_job_name)
-            .param("--resource-group", config.control_plane_rg)
+            .param("--resource-group", config.control_plane.resource_group)
         )
         log.info(f"Container App job '{config.deployer_job_name}' already exists - reusing existing job")
         return
@@ -421,10 +421,10 @@ def create_deployer_container_app_job(config: Configuration):
 
     env_vars = [
         "AzureWebJobsStorage=secretref:connection-string",
-        f"SUBSCRIPTION_ID={config.control_plane_sub_id}",
-        f"RESOURCE_GROUP={config.control_plane_rg}",
-        f"CONTROL_PLANE_ID={config.control_plane_id}",
-        f"CONTROL_PLANE_REGION={config.control_plane_region}",
+        f"SUBSCRIPTION_ID={config.control_plane.sub_id}",
+        f"RESOURCE_GROUP={config.control_plane.resource_group}",
+        f"CONTROL_PLANE_ID={config.control_plane.id}",
+        f"CONTROL_PLANE_REGION={config.control_plane.region}",
         "DD_API_KEY=secretref:dd-api-key",
         f"DD_SITE={config.datadog_site}",
         f"DD_TELEMETRY={'true' if config.datadog_telemetry else 'false'}",
@@ -440,7 +440,7 @@ def create_deployer_container_app_job(config: Configuration):
     execute(
         AzCmd("containerapp", "job create")
         .param("--name", config.deployer_job_name)
-        .param("--resource-group", config.control_plane_rg)
+        .param("--resource-group", config.control_plane.resource_group)
         .param("--environment", config.control_plane_env_name)
         .param("--replica-timeout", "1800")
         .param("--replica-retry-limit", "1")

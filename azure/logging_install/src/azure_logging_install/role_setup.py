@@ -189,7 +189,7 @@ def wait_for_role_definition_ready(role_name: str, role_scope: str) -> str:
 
 def create_initial_deploy_role(config: Configuration):
     log.info("Creating identity for initial deployment...")
-    create_initial_deploy_identity(config.control_plane_rg, config.control_plane_region)
+    create_initial_deploy_identity(config.control_plane.resource_group, config.control_plane.region)
 
     log.info("Defining custom ContainerAppStart role...")
     role_scope = config.control_plane_rg_scope
@@ -201,7 +201,7 @@ def create_initial_deploy_role(config: Configuration):
     assign_custom_role_to_identity(
         config.container_app_start_role_name,
         role_id,
-        config.control_plane_rg,
+        config.control_plane.resource_group,
         role_scope,
     )
 
@@ -421,26 +421,18 @@ def grant_permissions(config: Configuration):
     log.info("Setting up permissions for control plane and monitored subscriptions...")
 
     log.info("Assigning Website Contributor role to deployer container app job...")
-    deployer_principal_id = get_container_app_job_principal_id(config.control_plane_rg, config.control_plane_sub_id, config.deployer_job_name)
+    deployer_principal_id = get_container_app_job_principal_id(config.control_plane.resource_group, config.control_plane.sub_id, config.deployer_job_name)
 
     deployer_role = None
-    if config.control_plane_type == ControlPlaneType.FunctionApps:
+    if config.control_plane.type == ControlPlaneType.FunctionApps:
         deployer_role = WEBSITE_CONTRIBUTOR_ID
-    if config.control_plane_type == ControlPlaneType.ContainerAppJobs:
+    if config.control_plane.type == ControlPlaneType.ContainerAppJobs:
         deployer_role = CONTAINER_APPS_JOBS_CONTRIBUTOR
     assign_role(
         config.control_plane_rg_scope,
         deployer_principal_id,
         deployer_role,
-        config.control_plane_id,
+        config.control_plane.id,
     )
 
-    control_plane = ControlPlane(
-        id=config.control_plane_id,
-        sub_id=config.control_plane_sub_id,
-        sub_name="",
-        resource_group=config.control_plane_rg,
-        region=config.control_plane_region,
-        type=config.control_plane_type
-    )
-    grant_subscriptions_permissions(control_plane, config.all_subscriptions)
+    grant_subscriptions_permissions(config.control_plane, config.all_subscriptions)

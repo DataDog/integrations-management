@@ -36,6 +36,34 @@ from tests.test_data import (
 CONTROL_PLANE_CACHE_STORAGE_NAME = f"lfostorage{CONTROL_PLANE_SUBSCRIPTION_ID}"
 
 
+def make_config(**overrides):
+    control_plane_defaults = {
+        "id": CONTROL_PLANE_ID,
+        "sub_id": CONTROL_PLANE_SUBSCRIPTION_ID,
+        "sub_name": CONTROL_PLANE_SUBSCRIPTION_NAME,
+        "resource_group": CONTROL_PLANE_RESOURCE_GROUP,
+        "region": CONTROL_PLANE_REGION,
+        "type": ControlPlaneType.FunctionApps,
+    }
+    control_plane_overrides = {
+        "control_plane_region": "region",
+        "control_plane_sub_id": "sub_id",
+        "control_plane_rg": "resource_group",
+        "control_plane_type": "type",
+    }
+    for override_key, control_plane_key in control_plane_overrides.items():
+        if override_key in overrides:
+            control_plane_defaults[control_plane_key] = overrides.pop(override_key)
+
+    defaults = {
+        "control_plane": ControlPlane(**control_plane_defaults),
+        "monitored_subs": MONITORED_SUBSCRIPTIONS,
+        "datadog_api_key": DATADOG_API_KEY,
+    }
+    defaults.update(overrides)
+    return Configuration(**defaults)
+
+
 class TestValidation(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures and reset global settings"""
@@ -43,15 +71,7 @@ class TestValidation(TestCase):
         self.set_subscription_mock = self.patch("azure_logging_install.validation.set_subscription")
 
         # Create test configuration
-        self.config = Configuration(
-            control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-            control_plane_type=ControlPlaneType.FunctionApps,
-            monitored_subs=MONITORED_SUBSCRIPTIONS,
-            datadog_api_key=DATADOG_API_KEY,
-            datadog_site=DATADOG_SITE,
-        )
+        self.config = make_config(datadog_site=DATADOG_SITE)
 
     def patch(self, path: str, **kwargs):
         """Helper method to patch and auto-cleanup"""
@@ -280,7 +300,7 @@ class TestValidation(TestCase):
         ):
             validation.validate_azure_env(self.config)
 
-            mock_cp_access.assert_called_once_with(self.config.control_plane_sub_id)
+            mock_cp_access.assert_called_once_with(self.config.control_plane.sub_id)
             mock_mon_access.assert_called_once_with(self.config.monitored_subscriptions)
             mock_rp_reg.assert_called_once_with(self.config.all_subscriptions)
             mock_res_names.assert_called_once()
@@ -364,14 +384,7 @@ class TestValidation(TestCase):
 
         for invalid_id, expected_error in invalid_id_to_error_msg.items():
             with self.subTest(invalid_id=invalid_id):
-                config = Configuration(
-                    control_plane_region=CONTROL_PLANE_REGION,
-                    control_plane_sub_id=invalid_id,
-                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-                    control_plane_type=ControlPlaneType.FunctionApps,
-                    monitored_subs=MONITORED_SUBSCRIPTIONS,
-                    datadog_api_key=DATADOG_API_KEY,
-                )
+                config = make_config(control_plane_sub_id=invalid_id)
 
                 with self.assertRaises(InputParamValidationError) as context:
                     validation.validate_user_config(config)
@@ -388,14 +401,7 @@ class TestValidation(TestCase):
 
         for valid_id in valid_ids:
             with self.subTest(valid_id=valid_id):
-                config = Configuration(
-                    control_plane_region=CONTROL_PLANE_REGION,
-                    control_plane_sub_id=valid_id,
-                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-                    control_plane_type=ControlPlaneType.FunctionApps,
-                    monitored_subs=MONITORED_SUBSCRIPTIONS,
-                    datadog_api_key=DATADOG_API_KEY,
-                )
+                config = make_config(control_plane_sub_id=valid_id)
 
                 validation.validate_user_config(config)
 
@@ -415,14 +421,7 @@ class TestValidation(TestCase):
 
         for invalid_subs, expected_error in invalid_subs_to_error_msg.items():
             with self.subTest(invalid_subs=invalid_subs):
-                config = Configuration(
-                    control_plane_region=CONTROL_PLANE_REGION,
-                    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-                    control_plane_type=ControlPlaneType.FunctionApps,
-                    monitored_subs=invalid_subs,
-                    datadog_api_key=DATADOG_API_KEY,
-                )
+                config = make_config(monitored_subs=invalid_subs)
 
                 with self.assertRaises(InputParamValidationError) as context:
                     validation.validate_user_config(config)
@@ -441,14 +440,7 @@ class TestValidation(TestCase):
 
         for valid_sub in valid_subs:
             with self.subTest(valid_sub=valid_sub):
-                config = Configuration(
-                    control_plane_region=CONTROL_PLANE_REGION,
-                    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-                    control_plane_type=ControlPlaneType.FunctionApps,
-                    monitored_subs=valid_sub,
-                    datadog_api_key=DATADOG_API_KEY,
-                )
+                config = make_config(monitored_subs=valid_sub)
 
                 validation.validate_user_config(config)
 
@@ -474,15 +466,7 @@ class TestValidation(TestCase):
 
         for invalid_filter, expected_error in invalid_filter_to_error_msg.items():
             with self.subTest(invalid_filter=invalid_filter):
-                config = Configuration(
-                    control_plane_region=CONTROL_PLANE_REGION,
-                    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-                    control_plane_type=ControlPlaneType.FunctionApps,
-                    monitored_subs=MONITORED_SUBSCRIPTIONS,
-                    datadog_api_key=DATADOG_API_KEY,
-                    resource_tag_filters=invalid_filter,
-                )
+                config = make_config(resource_tag_filters=invalid_filter)
 
                 with self.assertRaises(InputParamValidationError) as context:
                     validation.validate_user_config(config)
@@ -509,15 +493,7 @@ class TestValidation(TestCase):
 
         for valid_filter in valid_filters:
             with self.subTest(valid_filter=valid_filter):
-                config = Configuration(
-                    control_plane_region=CONTROL_PLANE_REGION,
-                    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-                    control_plane_type=ControlPlaneType.FunctionApps,
-                    monitored_subs=MONITORED_SUBSCRIPTIONS,
-                    datadog_api_key=DATADOG_API_KEY,
-                    resource_tag_filters=valid_filter,
-                )
+                config = make_config(resource_tag_filters=valid_filter)
 
                 # Should not raise an exception
                 validation.validate_user_config(config)
@@ -535,15 +511,7 @@ class TestValidation(TestCase):
 
         for invalid_rule, expected_error in invalid_rule_to_error_msg.items():
             with self.subTest(invalid_rule=invalid_rule):
-                config = Configuration(
-                    control_plane_region=CONTROL_PLANE_REGION,
-                    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-                    control_plane_type=ControlPlaneType.FunctionApps,
-                    monitored_subs=MONITORED_SUBSCRIPTIONS,
-                    datadog_api_key=DATADOG_API_KEY,
-                    pii_scrubber_rules=invalid_rule,
-                )
+                config = make_config(pii_scrubber_rules=invalid_rule)
 
                 with self.assertRaises(InputParamValidationError) as context:
                     validation.validate_user_config(config)
@@ -564,15 +532,7 @@ class TestValidation(TestCase):
 
         for valid_rule in valid_rules:
             with self.subTest(valid_rule=valid_rule):
-                config = Configuration(
-                    control_plane_region=CONTROL_PLANE_REGION,
-                    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-                    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-                    control_plane_type=ControlPlaneType.FunctionApps,
-                    monitored_subs=MONITORED_SUBSCRIPTIONS,
-                    datadog_api_key=DATADOG_API_KEY,
-                    pii_scrubber_rules=valid_rule,
-                )
+                config = make_config(pii_scrubber_rules=valid_rule)
 
                 # Should not raise an exception
                 validation.validate_user_config(config)

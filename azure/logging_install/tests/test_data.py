@@ -6,7 +6,7 @@
 
 import copy
 
-from azure_logging_install.configuration import Configuration, ControlPlaneType
+from azure_logging_install.configuration import Configuration, ControlPlane, ControlPlaneType
 
 # Azure env test subscriptions
 SUB_1_ID = "11111111-1111-4111-a111-111111111111"
@@ -43,13 +43,19 @@ DATADOG_API_KEY = "test-api-key"
 DATADOG_SITE = "datadoghq.com"
 
 
+TEST_CONTROL_PLANE = ControlPlane(
+    id=CONTROL_PLANE_ID,
+    sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
+    sub_name=CONTROL_PLANE_SUBSCRIPTION_NAME,
+    resource_group=CONTROL_PLANE_RESOURCE_GROUP,
+    region=CONTROL_PLANE_REGION,
+    type=ControlPlaneType.ContainerAppJobs,
+)
+
 TEST_CONFIG = Configuration(
-    control_plane_region=CONTROL_PLANE_REGION,
-    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+    control_plane=TEST_CONTROL_PLANE,
     monitored_subs=MONITORED_SUBSCRIPTIONS,
     datadog_api_key=DATADOG_API_KEY,
-    control_plane_type=ControlPlaneType.ContainerAppJobs,
     datadog_site=DATADOG_SITE,
     resource_tag_filters=RESOURCE_TAG_FILTERS,
     pii_scrubber_rules=PII_SCRUBBER_RULES,
