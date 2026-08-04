@@ -11,7 +11,6 @@ from az_shared.logs import log, log_header
 
 from .az_cmd import list_users_subscriptions, set_subscription
 from .configuration import Configuration, ControlPlaneType, ControlPlane, generate_control_plane_id
-from .constants import UNKNOWN_SUB_NAME_MESSAGE
 from .deploy import deploy_control_plane, run_initial_deploy
 from .existing_lfo import update_existing_lfo
 from .resource_setup import create_resource_group

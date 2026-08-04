@@ -218,7 +218,7 @@ def set_resource_tag_filters(control_plane: ControlPlane, resource_tag_filters: 
     log.info(f"Updating {RESOURCE_TAG_FILTERS_KEY} for {control_plane.resources_task_name}")
     new_var = shlex.quote(f"{RESOURCE_TAG_FILTERS_KEY}={resource_tag_filters}")
     return _set_env_var_on_task(control_plane, control_plane.resources_task_name, new_var)
-        
+
 
 def set_pii_scrubber_rules(control_plane: ControlPlane, pii_scrubber_rules: str) -> None:
     """Update only PII_SCRUBBER_RULES on the scaling-task."""
