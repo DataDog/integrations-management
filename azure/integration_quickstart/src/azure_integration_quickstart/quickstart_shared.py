@@ -143,7 +143,7 @@ def upsert_log_forwarder(config: dict, subscriptions: Set[Scope]):
             control_plane=ControlPlane(
                 id=generate_control_plane_id(config["controlPlaneSubscriptionId"], config["resourceGroupName"], config["controlPlaneRegion"]),
                 sub_id=config["controlPlaneSubscriptionId"],
-                sub_name="", # TODO
+                sub_name=config["controlPlaneSubscriptionName"],
                 resource_group=config["resourceGroupName"],
                 region=config["controlPlaneRegion"],
             ),

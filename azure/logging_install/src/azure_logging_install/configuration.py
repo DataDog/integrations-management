@@ -37,9 +37,7 @@ class ControlPlane:
 
 @dataclass
 class Configuration:
-    """User-specified configuration parameters and derivations necessary for deployment"""
-    # TODO update description
-
+    """Configuration of an LFO installation"""
     control_plane: ControlPlane
 
     monitored_subs: str

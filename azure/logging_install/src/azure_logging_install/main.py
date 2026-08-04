@@ -11,6 +11,7 @@ from az_shared.logs import log, log_header
 
 from .az_cmd import list_users_subscriptions, set_subscription
 from .configuration import Configuration, ControlPlaneType, ControlPlane, generate_control_plane_id
+from .constants import UNKNOWN_SUB_NAME_MESSAGE
 from .deploy import deploy_control_plane, run_initial_deploy
 from .existing_lfo import update_existing_lfo
 from .resource_setup import create_resource_group
@@ -190,7 +191,7 @@ def main():
             control_plane=ControlPlane(
                 id=generate_control_plane_id(args.control_plane_subscription, args.control_plane_resource_group, args.control_plane_region),
                 sub_id=args.control_plane_subscription,
-                sub_name="", # TODO
+                sub_name="",
                 resource_group=args.control_plane_resource_group,
                 region=args.control_plane_region,
                 type=args.control_plane_type,
