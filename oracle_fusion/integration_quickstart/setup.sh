@@ -1094,7 +1094,7 @@ if [[ -n "$EPM_APP_ID" ]]; then
         "Ensure openssl is installed and available on PATH."
 
     info "Registering EPM JWT assertion certificate (alias: ${EPM_JWT_CERT_ALIAS})..."
-    _existing_partner_cert=$(oci identity-domains o-auth-partner-certificate list \
+    _existing_partner_cert=$(oci identity-domains o-auth-partner-certificates list \
         --endpoint "$IDENTITY_DOMAIN_URL" \
         --filter "certificateAlias eq \"${EPM_JWT_CERT_ALIAS}\"" \
         --output json 2>/dev/null) || true
