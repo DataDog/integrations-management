@@ -1083,15 +1083,12 @@ if [[ -n "$EPM_APP_ID" ]]; then
     EPM_JWT_CERT_ALIAS="datadog-fusion-jwt-${CLIENT_ID}"
     EPM_JWT_PRIVATE_KEY=$(openssl genrsa 2048 2>/dev/null) || fatal \
         "Failed to generate EPM JWT assertion signing key" \
-        "Ensure openssl is installed and available on PATH:" \
-        "On macOS: brew install openssl" \
-        "On Debian/Ubuntu: apt-get install openssl" \
-        "On RHEL/CentOS/Fedora: yum install openssl"
+        "Please retry."
     _jwt_cert_b64=$(openssl req -x509 -key <(printf '%s' "$EPM_JWT_PRIVATE_KEY") \
         -days 3650 -subj "/CN=${EPM_JWT_CERT_ALIAS}" -outform DER 2>/dev/null | base64 | tr -d '\n')
     [[ -z "$_jwt_cert_b64" ]] && fatal \
         "Failed to generate EPM JWT assertion certificate" \
-        "Ensure openssl is installed and available on PATH."
+        "Please retry."
 
     info "Registering EPM JWT assertion certificate (alias: ${EPM_JWT_CERT_ALIAS})..."
     _existing_partner_cert=$(oci identity-domains o-auth-partner-certificates list \
