@@ -11,7 +11,10 @@ from contextlib import contextmanager
 from gcp_integration_quickstart.integration_configuration import (
     REQUIRED_APIS,
     REQUIRED_ROLES,
+    CUSTOM_ORG_ROLE_ID,
+    CUSTOM_ORG_ROLE_PERMISSIONS,
     assign_delegate_permissions,
+    assign_organization_permissions,
     create_integration_with_permissions,
     create_logs_forwarding_integration,
 )
@@ -23,6 +26,7 @@ from gcp_integration_quickstart.models import (
 )
 
 from gcp_shared.dataflow_models import DataflowConfiguration, ExclusionFilter
+from gcp_shared.gcloud import GcloudCmd
 from gcp_shared.models import (
     ConfigurationScope,
     Folder,
@@ -140,6 +144,124 @@ class TestAssignDelegatePermissions(unittest.TestCase):
             )
 
         self.assertIn("failed to get sts delegate", str(context.exception))
+
+
+class TestAssignOrganizationPermissions(unittest.TestCase):
+    """Test the assign_organization_permissions function."""
+
+    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    def test_assign_organization_permissions_creates_new_role(self, mock_gcloud):
+        """Test assign_organization_permissions when the custom role does not exist yet."""
+
+        mock_gcloud.side_effect = [
+            [
+                {"id": "test-project", "type": "project"},
+                {"id": "org-123", "type": "organization"},
+            ],
+            [],
+            None,
+            None,
+        ]
+
+        step_reporter = Mock()
+
+        assign_organization_permissions(
+            step_reporter,
+            "test-project",
+            "test-sa@test-project.iam.gserviceaccount.com",
+        )
+
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
+        self.assertEqual(len(actual_commands), 4)
+        self.assertEqual(
+            actual_commands[0],
+            str(GcloudCmd("projects", "get-ancestors").arg("test-project")),
+        )
+        self.assertEqual(
+            actual_commands[1],
+            str(
+                GcloudCmd("iam roles", "list")
+                .param("--organization", "org-123")
+                .param_equals(
+                    "--filter",
+                    f"name='organizations/org-123/roles/{CUSTOM_ORG_ROLE_ID}'",
+                )
+            ),
+        )
+        self.assertEqual(
+            actual_commands[2],
+            str(
+                GcloudCmd("iam roles", "create")
+                .arg(CUSTOM_ORG_ROLE_ID)
+                .param("--organization", "org-123")
+                .param("--title", "Datadog Org Folder Resource Collection Role")
+                .param(
+                    "--description",
+                    "Grants Datadog necessary permissions to collect org/folder resources via Cloud Asset Inventory",
+                )
+                .param(
+                    "--permissions",
+                    ",".join(CUSTOM_ORG_ROLE_PERMISSIONS),
+                )
+                .param("--stage", "GA")
+            ),
+        )
+        self.assertEqual(
+            actual_commands[3],
+            str(
+                GcloudCmd("organizations", "add-iam-policy-binding")
+                .arg("org-123")
+                .param(
+                    "--member",
+                    "serviceAccount:test-sa@test-project.iam.gserviceaccount.com",
+                )
+                .param("--role", f"organizations/org-123/roles/{CUSTOM_ORG_ROLE_ID}")
+                .param("--condition", "None")
+                .flag("--quiet")
+            ),
+        )
+
+    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    def test_assign_organization_permissions_updates_existing_role(self, mock_gcloud):
+        """Test assign_organization_permissions when the custom role already exists."""
+
+        mock_gcloud.side_effect = [
+            [{"id": "org-123", "type": "organization"}],
+            [{"name": f"organizations/org-123/roles/{CUSTOM_ORG_ROLE_ID}"}],
+            None,
+            None,
+        ]
+
+        step_reporter = Mock()
+
+        assign_organization_permissions(
+            step_reporter,
+            "test-project",
+            "test-sa@test-project.iam.gserviceaccount.com",
+        )
+
+        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
+
+        self.assertEqual(len(actual_commands), 4)
+        self.assertTrue(actual_commands[2].startswith("iam roles update"))
+
+    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    def test_assign_organization_permissions_no_org_found(self, mock_gcloud):
+        """Test assign_organization_permissions when no organization ancestor can be found."""
+
+        mock_gcloud.return_value = [{"id": "test-project", "type": "project"}]
+
+        step_reporter = Mock()
+
+        with self.assertRaises(RuntimeError) as context:
+            assign_organization_permissions(
+                step_reporter,
+                "test-project",
+                "test-sa@test-project.iam.gserviceaccount.com",
+            )
+
+        self.assertIn("could not determine organization_id", str(context.exception))
 
 
 class TestCreateIntegrationWithPermissions(unittest.TestCase):
@@ -356,6 +478,7 @@ class TestMainLogsForwardingConfiguration(unittest.TestCase):
     @patch("gcp_integration_quickstart.main.signal.signal")
     @patch("gcp_integration_quickstart.main.create_logs_forwarding_integration")
     @patch("gcp_integration_quickstart.main.create_integration_with_permissions")
+    @patch("gcp_integration_quickstart.main.assign_organization_permissions")
     @patch("gcp_integration_quickstart.main.assign_delegate_permissions")
     @patch("gcp_integration_quickstart.main.find_or_create_service_account")
     @patch("gcp_integration_quickstart.main.WorkflowReporter")
@@ -364,6 +487,7 @@ class TestMainLogsForwardingConfiguration(unittest.TestCase):
         mock_workflow_reporter_cls,
         mock_find_or_create_sa,
         _mock_assign_delegate,
+        mock_assign_organization_permissions,
         mock_create_integration,
         mock_create_logs_forwarding,
         _mock_signal,
@@ -418,10 +542,12 @@ class TestMainLogsForwardingConfiguration(unittest.TestCase):
 
         mock_create_integration.assert_called_once()
         mock_create_logs_forwarding.assert_called_once()
+        mock_assign_organization_permissions.assert_not_called()
 
     @patch("gcp_integration_quickstart.main.signal.signal")
     @patch("gcp_integration_quickstart.main.create_logs_forwarding_integration")
     @patch("gcp_integration_quickstart.main.create_integration_with_permissions")
+    @patch("gcp_integration_quickstart.main.assign_organization_permissions")
     @patch("gcp_integration_quickstart.main.assign_delegate_permissions")
     @patch("gcp_integration_quickstart.main.find_or_create_service_account")
     @patch("gcp_integration_quickstart.main.WorkflowReporter")
@@ -430,6 +556,7 @@ class TestMainLogsForwardingConfiguration(unittest.TestCase):
         mock_workflow_reporter_cls,
         mock_find_or_create_sa,
         _mock_assign_delegate,
+        mock_assign_organization_permissions,
         mock_create_integration,
         mock_create_logs_forwarding,
         _mock_signal,
@@ -466,6 +593,65 @@ class TestMainLogsForwardingConfiguration(unittest.TestCase):
         with patch.dict(os.environ, self.env, clear=True):
             main()
 
+        mock_create_integration.assert_called_once()
+        mock_create_logs_forwarding.assert_not_called()
+        mock_assign_organization_permissions.assert_not_called()
+
+    @patch("gcp_integration_quickstart.main.signal.signal")
+    @patch("gcp_integration_quickstart.main.create_logs_forwarding_integration")
+    @patch("gcp_integration_quickstart.main.create_integration_with_permissions")
+    @patch("gcp_integration_quickstart.main.assign_organization_permissions")
+    @patch("gcp_integration_quickstart.main.assign_delegate_permissions")
+    @patch("gcp_integration_quickstart.main.find_or_create_service_account")
+    @patch("gcp_integration_quickstart.main.WorkflowReporter")
+    def test_main_assigns_organization_permissions_when_enabled(
+        self,
+        mock_workflow_reporter_cls,
+        mock_find_or_create_sa,
+        _mock_assign_delegate,
+        mock_assign_organization_permissions,
+        mock_create_integration,
+        mock_create_logs_forwarding,
+        _mock_signal,
+    ):
+        user_selections = {
+            "service_account_id": "my-sa",
+            "default_project_id": "my-project",
+            "projects": [],
+            "folders": [],
+            "integration_configuration": {
+                "metric_namespace_configs": [{"namespace": "test"}],
+                "monitored_resource_configs": [{"cloud_run": ["filter1"]}],
+                "account_tags": ["tag1"],
+                "resource_collection_enabled": True,
+                "automute": False,
+                "region_filter_configs": [],
+                "is_global_location_enabled": True,
+                "is_org_folder_resource_collection_enabled": True,
+            },
+        }
+
+        step_reporter = Mock()
+
+        workflow_reporter = Mock()
+        workflow_reporter.is_valid_workflow_id.return_value = True
+        workflow_reporter.is_scopes_step_already_completed.return_value = True
+        workflow_reporter.receive_user_selections.return_value = user_selections
+        workflow_reporter.report_step.side_effect = lambda *_a, **_k: _step_ctx(
+            step_reporter
+        )
+
+        mock_workflow_reporter_cls.return_value = workflow_reporter
+        mock_find_or_create_sa.return_value = "sa@my-project.iam.gserviceaccount.com"
+
+        with patch.dict(os.environ, self.env, clear=True):
+            main()
+
+        mock_assign_organization_permissions.assert_called_once_with(
+            step_reporter,
+            "my-project",
+            "sa@my-project.iam.gserviceaccount.com",
+        )
         mock_create_integration.assert_called_once()
         mock_create_logs_forwarding.assert_not_called()
 
