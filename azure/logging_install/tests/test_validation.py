@@ -33,7 +33,7 @@ from tests.test_data import (
     SUB_ID_TO_NAME,
 )
 
-CONTROL_PLANE_CACHE_STORAGE_NAME = f"lfostorage{CONTROL_PLANE_SUBSCRIPTION_ID}"
+CONTROL_PLANE_CACHE_STORAGE_NAME = f"lfostorage{CONTROL_PLANE_ID}"
 
 
 def make_config(**overrides):

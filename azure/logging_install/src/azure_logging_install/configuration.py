@@ -62,7 +62,7 @@ class Configuration:
         self.control_plane_cache_storage_name = f"lfostorage{self.control_plane.id}"
         self.control_plane_cache_storage_url = f"https://{self.control_plane_cache_storage_name}.blob.core.windows.net"
         self.control_plane_cache_storage_key = None  # lazy-loaded
-        self.control_plane_sub_scope = f"/subscriptions/{self.control_plane.id}"
+        self.control_plane_sub_scope = f"/subscriptions/{self.control_plane.sub_id}"
         self.control_plane_rg_scope = f"{self.control_plane_sub_scope}/resourceGroups/{self.control_plane.resource_group}"
         self.control_plane_env_name = f"dd-log-forwarder-env-{self.control_plane.id}-{self.control_plane.region}"
 
