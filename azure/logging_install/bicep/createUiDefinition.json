@@ -148,6 +148,10 @@
                       "value": "ap2.datadoghq.com"
                     },
                     {
+                      "label": "UK1",
+                      "value": "uk1.datadoghq.com"
+                    },
+                    {
                       "label": "US1-FED",
                       "value": "ddog-gov.com"
                     }

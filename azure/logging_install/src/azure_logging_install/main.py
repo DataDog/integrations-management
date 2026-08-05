@@ -66,6 +66,7 @@ def parse_arguments():
             "datadoghq.eu",
             "ap1.datadoghq.com",
             "ap2.datadoghq.com",
+            "uk1.datadoghq.com",
             "us3.datadoghq.com",
             "us5.datadoghq.com",
             "ddog-gov.com",
