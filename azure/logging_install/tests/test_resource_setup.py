@@ -8,9 +8,15 @@ from unittest.mock import patch as mock_patch
 
 from az_shared.errors import FatalError, ResourceNotFoundError
 from azure_logging_install import resource_setup
-from azure_logging_install.configuration import Configuration, ControlPlaneType
+from azure_logging_install.configuration import Configuration, ControlPlane, ControlPlaneType
 
-from logging_install.tests.test_data import CONTROL_PLANE_REGION, CONTROL_PLANE_RESOURCE_GROUP, get_test_config
+from logging_install.tests.test_data import (
+    CONTROL_PLANE_ID,
+    CONTROL_PLANE_REGION,
+    CONTROL_PLANE_RESOURCE_GROUP,
+    CONTROL_PLANE_SUBSCRIPTION_NAME,
+    get_test_config,
+)
 
 STORAGE_ACCOUNT_NAME = "teststorageaccount"
 CONTAINER_APP_ENV_NAME = "test-env"
@@ -29,10 +35,14 @@ class TestResourceSetup(TestCase):
 
         # Create test configuration
         self.config = Configuration(
-            control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id="test-sub",
-            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-            control_plane_type=ControlPlaneType.FunctionApps,
+            control_plane=ControlPlane(
+                id=CONTROL_PLANE_ID,
+                sub_id="test-sub",
+                sub_name=CONTROL_PLANE_SUBSCRIPTION_NAME,
+                resource_group=CONTROL_PLANE_RESOURCE_GROUP,
+                region=CONTROL_PLANE_REGION,
+                type=ControlPlaneType.FunctionApps,
+            ),
             monitored_subs="sub-1,sub-2",
             datadog_api_key="test-api-key",
         )
@@ -188,9 +198,9 @@ class TestResourceSetup(TestCase):
         """Test successful container app job creation"""
         mock_config = MagicMock()
         mock_config.deployer_job_name = CONTAINER_APP_JOB_NAME
-        mock_config.control_plane_rg = CONTROL_PLANE_RESOURCE_GROUP
+        mock_config.control_plane.resource_group = CONTROL_PLANE_RESOURCE_GROUP
         mock_config.control_plane_env_name = CONTAINER_APP_ENV_NAME
-        mock_config.control_plane_sub_id = "test-sub"
+        mock_config.control_plane.sub_id = "test-sub"
         mock_config.deployer_image_url = "test-image:latest"
         mock_config.get_control_plane_cache_conn_string.return_value = "test-conn-string"
 
@@ -383,14 +393,14 @@ class TestResourceSetup(TestCase):
         """Test that functions properly use Configuration object properties"""
         mock_config = MagicMock()
         mock_config.control_plane_cache_storage_name = "test-storage"
-        mock_config.control_plane_rg = "test-rg"
-        mock_config.control_plane_region = "test-region"
+        mock_config.control_plane.resource_group = "test-rg"
+        mock_config.control_plane.region = "test-region"
 
         # Test that configuration properties are used
         resource_setup.create_storage_account(
             mock_config.control_plane_cache_storage_name,
-            mock_config.control_plane_rg,
-            mock_config.control_plane_region,
+            mock_config.control_plane.resource_group,
+            mock_config.control_plane.region,
         )
 
         call_args = self.execute_mock.call_args[0][0]

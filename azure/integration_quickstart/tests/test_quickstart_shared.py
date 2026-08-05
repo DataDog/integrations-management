@@ -4,16 +4,19 @@
 
 """Tests for quickstart_shared: build_log_forwarder_payload and report_existing_log_forwarders (Section 7: optional monitoredSubscriptions)."""
 
+import os
 from unittest.mock import MagicMock
 from unittest.mock import patch as mock_patch
 
 from azure_integration_quickstart.quickstart_shared import (
     build_log_forwarder_payload,
     report_existing_log_forwarders,
+    upsert_log_forwarder,
     wait_for_rg_delete_if_needed,
 )
+from azure_integration_quickstart.scopes import Subscription
 from az_shared.script_status import Status
-from azure_logging_install.existing_lfo import LfoControlPlane, LfoMetadata
+from azure_logging_install.existing_lfo import ControlPlane, LfoMetadata
 from azure_logging_install.configuration import ControlPlaneType
 
 from integration_quickstart.tests.dd_test_case import DDTestCase
@@ -23,7 +26,7 @@ def _make_metadata(monitored_subs=None):
     if monitored_subs is None:
         monitored_subs = {"sub-1": "Sub One", "sub-2": "Sub Two"}
     return LfoMetadata(
-        control_plane=LfoControlPlane(
+        control_plane=ControlPlane(
             id="cp-id",
             sub_id="cp-sub",
             sub_name="Control Plane Sub",
@@ -126,3 +129,38 @@ class TestReportExistingLogForwarders(DDTestCase):
             existing_lfo = report_existing_log_forwarders([], step_metadata, include_monitored_scopes=True)
         self.assertIsNone(existing_lfo)
         self.assertEqual(step_metadata["log_forwarders"], [])
+
+
+class TestUpsertLogForwarder(DDTestCase):
+    """upsert_log_forwarder builds a Configuration from the submitted config and subscriptions, then installs it."""
+
+    def setUp(self):
+        self.install_mock = self.patch("azure_integration_quickstart.quickstart_shared.install_log_forwarder")
+        env_patcher = mock_patch.dict(os.environ, {"DD_API_KEY": "test-api-key", "DD_SITE": "datadoghq.com"})
+        env_patcher.start()
+        self.addCleanup(env_patcher.stop)
+
+    def test_builds_configuration_from_config_and_subscriptions(self):
+        config = {
+            "controlPlaneSubscriptionId": "cp-sub",
+            "controlPlaneSubscriptionName": "Control Plane Sub",
+            "resourceGroupName": "lfo-rg",
+            "controlPlaneRegion": "eastus",
+            "tagFilters": "env:prod",
+            "piiFilters": "rule: redact",
+        }
+        subscriptions = {Subscription(id="sub-1", name="Sub One")}
+
+        upsert_log_forwarder(config, subscriptions)
+
+        self.install_mock.assert_called_once()
+        configuration = self.install_mock.call_args[0][0]
+        self.assertEqual(configuration.control_plane.sub_id, "cp-sub")
+        self.assertEqual(configuration.control_plane.sub_name, "Control Plane Sub")
+        self.assertEqual(configuration.control_plane.resource_group, "lfo-rg")
+        self.assertEqual(configuration.control_plane.region, "eastus")
+        self.assertEqual(configuration.monitored_subscriptions, ["sub-1"])
+        self.assertEqual(configuration.resource_tag_filters, "env:prod")
+        self.assertEqual(configuration.pii_scrubber_rules, "rule: redact")
+        self.assertEqual(configuration.datadog_api_key, "test-api-key")
+        self.assertEqual(configuration.datadog_site, "datadoghq.com")

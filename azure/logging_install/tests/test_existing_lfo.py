@@ -14,7 +14,7 @@ from azure_logging_install.existing_lfo import (
     RESOURCES_TASK_PREFIX,
     SCALING_TASK_PREFIX,
     UNKNOWN_SUB_NAME_MESSAGE,
-    LfoControlPlane,
+    ControlPlane,
     LfoMetadata,
     check_existing_lfo,
     update_existing_lfo,
@@ -49,10 +49,14 @@ class TestExistingLfo(TestCase):
 
         # Create test configuration
         self.config = Configuration(
-            control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-            control_plane_type=ControlPlaneType.FunctionApps,
+            control_plane=ControlPlane(
+                id=CONTROL_PLANE_ID,
+                sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
+                sub_name=CONTROL_PLANE_SUBSCRIPTION_NAME,
+                resource_group=CONTROL_PLANE_RESOURCE_GROUP,
+                region=CONTROL_PLANE_REGION,
+                type=ControlPlaneType.FunctionApps,
+            ),
             monitored_subs=MONITORED_SUBSCRIPTIONS,
             datadog_api_key=DATADOG_API_KEY,
             datadog_site=DATADOG_SITE,
@@ -309,7 +313,7 @@ class TestExistingLfo(TestCase):
         # Existing LFO has some overlapping subscriptions, but no sub 3. Filters & PII rules remain the same
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
@@ -350,7 +354,7 @@ class TestExistingLfo(TestCase):
 
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
@@ -394,7 +398,7 @@ class TestExistingLfo(TestCase):
 
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
@@ -433,12 +437,12 @@ class TestExistingLfo(TestCase):
         test_config = get_test_config()
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
-                    test_config.control_plane_sub_id,
-                    SUB_ID_TO_NAME[test_config.control_plane_sub_id],
-                    test_config.control_plane_rg,
-                    test_config.control_plane_region,
+                    test_config.control_plane.sub_id,
+                    SUB_ID_TO_NAME[test_config.control_plane.sub_id],
+                    test_config.control_plane.resource_group,
+                    test_config.control_plane.region,
                     ControlPlaneType.FunctionApps,
                 ),
                 monitored_subs={sub_id: SUB_ID_TO_NAME[sub_id] for sub_id in test_config.monitored_subscriptions},
@@ -469,12 +473,12 @@ class TestExistingLfo(TestCase):
         test_config = get_test_config()
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
-                    test_config.control_plane_sub_id,
-                    SUB_ID_TO_NAME[test_config.control_plane_sub_id],
-                    test_config.control_plane_rg,
-                    test_config.control_plane_region,
+                    test_config.control_plane.sub_id,
+                    SUB_ID_TO_NAME[test_config.control_plane.sub_id],
+                    test_config.control_plane.resource_group,
+                    test_config.control_plane.region,
                     ControlPlaneType.FunctionApps,
                 ),
                 monitored_subs={sub_id: SUB_ID_TO_NAME[sub_id] for sub_id in test_config.monitored_subscriptions},
@@ -508,12 +512,12 @@ class TestExistingLfo(TestCase):
         # Existing LFO has same monitored subs, but old tag filters and PII rules
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
-                    test_config.control_plane_sub_id,
-                    SUB_ID_TO_NAME[test_config.control_plane_sub_id],
-                    test_config.control_plane_rg,
-                    test_config.control_plane_region,
+                    test_config.control_plane.sub_id,
+                    SUB_ID_TO_NAME[test_config.control_plane.sub_id],
+                    test_config.control_plane.resource_group,
+                    test_config.control_plane.region,
                     ControlPlaneType.FunctionApps,
                 ),
                 monitored_subs={sub_id: SUB_ID_TO_NAME[sub_id] for sub_id in test_config.monitored_subscriptions},
@@ -546,12 +550,12 @@ class TestExistingLfo(TestCase):
 
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
-                    test_config.control_plane_sub_id,
-                    SUB_ID_TO_NAME[test_config.control_plane_sub_id],
-                    test_config.control_plane_rg,
-                    test_config.control_plane_region,
+                    test_config.control_plane.sub_id,
+                    SUB_ID_TO_NAME[test_config.control_plane.sub_id],
+                    test_config.control_plane.resource_group,
+                    test_config.control_plane.region,
                     ControlPlaneType.FunctionApps,
                 ),
                 monitored_subs={
@@ -587,12 +591,12 @@ class TestExistingLfo(TestCase):
 
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
-                    test_config.control_plane_sub_id,
-                    SUB_ID_TO_NAME[test_config.control_plane_sub_id],
-                    test_config.control_plane_rg,
-                    test_config.control_plane_region,
+                    test_config.control_plane.sub_id,
+                    SUB_ID_TO_NAME[test_config.control_plane.sub_id],
+                    test_config.control_plane.resource_group,
+                    test_config.control_plane.region,
                     ControlPlaneType.FunctionApps,
                 ),
                 monitored_subs={
@@ -631,12 +635,12 @@ class TestExistingLfo(TestCase):
 
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
-                    test_config.control_plane_sub_id,
-                    SUB_ID_TO_NAME[test_config.control_plane_sub_id],
-                    test_config.control_plane_rg,
-                    test_config.control_plane_region,
+                    test_config.control_plane.sub_id,
+                    SUB_ID_TO_NAME[test_config.control_plane.sub_id],
+                    test_config.control_plane.resource_group,
+                    test_config.control_plane.region,
                     ControlPlaneType.FunctionApps,
                 ),
                 monitored_subs={
@@ -671,12 +675,12 @@ class TestExistingLfo(TestCase):
         test_config = get_test_config()
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
-                    test_config.control_plane_sub_id,
-                    SUB_ID_TO_NAME[test_config.control_plane_sub_id],
-                    test_config.control_plane_rg,
-                    test_config.control_plane_region,
+                    test_config.control_plane.sub_id,
+                    SUB_ID_TO_NAME[test_config.control_plane.sub_id],
+                    test_config.control_plane.resource_group,
+                    test_config.control_plane.region,
                     ControlPlaneType.FunctionApps,
                 ),
                 monitored_subs={sub_id: SUB_ID_TO_NAME[sub_id] for sub_id in test_config.monitored_subscriptions},

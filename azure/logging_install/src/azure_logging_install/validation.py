@@ -46,12 +46,12 @@ def validate_user_parameters(config: Configuration):
 def validate_azure_env(config: Configuration):
     """Validate Azure parameters and environment before creating any resources."""
 
-    validate_control_plane_sub_access(config.control_plane_sub_id)
+    validate_control_plane_sub_access(config.control_plane.sub_id)
     validate_monitored_subs_access(config.monitored_subscriptions)
     validate_resource_provider_registrations(config.all_subscriptions)
     validate_resource_names(
-        config.control_plane_rg,
-        config.control_plane_sub_id,
+        config.control_plane.resource_group,
+        config.control_plane.sub_id,
         config.control_plane_cache_storage_name,
     )
 
@@ -88,9 +88,9 @@ def validate_singleton_lfo(config: Configuration, existing_lfos: dict[str, LfoMe
 
     existing_lfo_control_plane_id = next(iter(existing_lfos.keys()))
 
-    if existing_count == 1 and existing_lfo_control_plane_id.casefold() != config.control_plane_id.casefold():
+    if existing_count == 1 and existing_lfo_control_plane_id.casefold() != config.control_plane.id.casefold():
         log.error(
-            f"Existing log forwarding installation with differing control plane ID '{existing_lfo_control_plane_id}' found in this Azure environment. New installation ID is '{config.control_plane_id}'."
+            f"Existing log forwarding installation with differing control plane ID '{existing_lfo_control_plane_id}' found in this Azure environment. New installation ID is '{config.control_plane.id}'."
         )
         log.error(
             "Please delete the existing log forwarding installation before installing a new one or edit the existing one to have a larger scope."
@@ -216,18 +216,18 @@ def validate_user_config(config: Configuration):
     """Validate user-specified configuration parameters."""
     log.info("Validating configuration parameters...")
 
-    if is_empty_or_whitespace(config.control_plane_sub_id):
+    if is_empty_or_whitespace(config.control_plane.sub_id):
         raise InputParamValidationError("Control plane subscription cannot be empty")
 
-    if not _is_valid_azure_subscription_id(config.control_plane_sub_id):
+    if not _is_valid_azure_subscription_id(config.control_plane.sub_id):
         raise InputParamValidationError(
             "Control plane subscription ID is not a valid Azure subscription ID (must be a valid UUID)"
         )
 
-    if is_empty_or_whitespace(config.control_plane_rg):
+    if is_empty_or_whitespace(config.control_plane.resource_group):
         raise InputParamValidationError("Control plane resource group cannot be empty")
 
-    if is_empty_or_whitespace(config.control_plane_region):
+    if is_empty_or_whitespace(config.control_plane.region):
         raise InputParamValidationError("Control plane location cannot be empty")
 
     _validate_monitored_subscriptions(config.monitored_subs)
