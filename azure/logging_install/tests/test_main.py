@@ -8,7 +8,7 @@ from unittest.mock import patch as mock_patch
 
 from az_shared.errors import FatalError, InputParamValidationError
 from azure_logging_install import main
-from azure_logging_install.existing_lfo import LfoControlPlane, LfoMetadata, update_existing_lfo
+from azure_logging_install.existing_lfo import ControlPlane, LfoMetadata, update_existing_lfo
 from azure_logging_install.configuration import ControlPlaneType
 
 from logging_install.tests.test_data import (
@@ -161,14 +161,14 @@ class TestMain(TestCase):
         self.configuration_mock.assert_called_once()
         self.validate_user_parameters_mock.assert_called_once_with(mock_config)
         self.create_resource_group_mock.assert_called_once_with(
-            mock_config.control_plane_rg, mock_config.control_plane_region
+            mock_config.control_plane.resource_group, mock_config.control_plane.region
         )
         self.grant_permissions_mock.assert_called_once_with(mock_config)
         self.deploy_control_plane_mock.assert_called_once_with(mock_config)
         self.run_initial_deploy_mock.assert_called_once_with(
             mock_config.deployer_job_name,
-            mock_config.control_plane_rg,
-            mock_config.control_plane_sub_id,
+            mock_config.control_plane.resource_group,
+            mock_config.control_plane.sub_id,
         )
 
     def test_main_function_handles_exceptions(self):
@@ -186,9 +186,9 @@ class TestMain(TestCase):
     def test_create_new_lfo_success(self):
         """Test successful creation of new LFO installation"""
         mock_config = MagicMock()
-        mock_config.control_plane_sub_id = CONTROL_PLANE_SUBSCRIPTION_ID
-        mock_config.control_plane_rg = CONTROL_PLANE_RESOURCE_GROUP
-        mock_config.control_plane_region = CONTROL_PLANE_REGION
+        mock_config.control_plane.sub_id = CONTROL_PLANE_SUBSCRIPTION_ID
+        mock_config.control_plane.resource_group = CONTROL_PLANE_RESOURCE_GROUP
+        mock_config.control_plane.region = CONTROL_PLANE_REGION
         mock_config.deployer_job_name = DEPLOYER_JOB_NAME
 
         main.create_new_lfo(mock_config)
@@ -235,7 +235,7 @@ class TestMain(TestCase):
         # Existing LFO with a missing sub and different tag filter
         existing_lfos = {
             CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+                control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
                     CONTROL_PLANE_SUBSCRIPTION_NAME,
@@ -301,7 +301,7 @@ class TestMain(TestCase):
         test_config = get_test_config()
 
         existing_lfo = LfoMetadata(
-            control_plane=LfoControlPlane(
+            control_plane=ControlPlane(
                 CONTROL_PLANE_ID,
                 CONTROL_PLANE_SUBSCRIPTION_ID,
                 CONTROL_PLANE_SUBSCRIPTION_NAME,

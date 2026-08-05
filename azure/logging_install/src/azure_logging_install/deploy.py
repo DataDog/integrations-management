@@ -33,35 +33,35 @@ def deploy_lfo_deployer(config: Configuration):
 def deploy_control_plane(config: Configuration):
     """Deploy all control plane infrastructure: storage, functions, and containers."""
     log.info("Deploying storage account...")
-    set_subscription(config.control_plane_sub_id)
+    set_subscription(config.control_plane.sub_id)
     create_storage_account(
         config.control_plane_cache_storage_name,
-        config.control_plane_rg,
-        config.control_plane_region,
+        config.control_plane.resource_group,
+        config.control_plane.region,
     )
-    wait_for_storage_account_ready(config.control_plane_cache_storage_name, config.control_plane_rg)
+    wait_for_storage_account_ready(config.control_plane_cache_storage_name, config.control_plane.resource_group)
     create_blob_container(
         config.control_plane_cache_storage_name,
         config.get_control_plane_cache_key(),
     )
 
-    if config.control_plane_type == ControlPlaneType.FunctionApps:
+    if config.control_plane.type == ControlPlaneType.FunctionApps:
         create_file_share(
             config.control_plane_cache_storage_name,
-            config.control_plane_rg,
+            config.control_plane.resource_group,
         )
     log.info("Storage account setup completed")
 
     log.info("Creating container app environment...")
     create_container_app_environment(
         config.control_plane_env_name,
-        config.control_plane_rg,
-        config.control_plane_region,
+        config.control_plane.resource_group,
+        config.control_plane.region,
     )
 
-    if config.control_plane_type == ControlPlaneType.FunctionApps:
+    if config.control_plane.type == ControlPlaneType.FunctionApps:
         create_control_plane_function_apps(config)
-    if config.control_plane_type == ControlPlaneType.ContainerAppJobs:
+    if config.control_plane.type == ControlPlaneType.ContainerAppJobs:
         create_control_plane_container_app_jobs(config)
 
     log.info("Deploying Container App infrastructure for deployer job...")

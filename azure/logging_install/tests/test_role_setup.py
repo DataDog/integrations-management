@@ -8,10 +8,15 @@ from unittest.mock import MagicMock
 from unittest.mock import patch as mock_patch
 
 from az_shared.errors import ResourceGroupNotFoundError
-from azure_logging_install.configuration import Configuration, ControlPlaneType
+from azure_logging_install.configuration import Configuration, ControlPlane, ControlPlaneType
 from azure_logging_install.role_setup import ensure_control_plane_rg_not_deleting
 
-from tests.test_data import CONTROL_PLANE_REGION, CONTROL_PLANE_RESOURCE_GROUP
+from tests.test_data import (
+    CONTROL_PLANE_ID,
+    CONTROL_PLANE_REGION,
+    CONTROL_PLANE_RESOURCE_GROUP,
+    CONTROL_PLANE_SUBSCRIPTION_NAME,
+)
 
 
 class TestWaitUntilControlPlaneRgReadyForGrant(TestCase):
@@ -20,10 +25,14 @@ class TestWaitUntilControlPlaneRgReadyForGrant(TestCase):
         self.sleep_mock = self.patch("azure_logging_install.role_setup.time.sleep")
         self.log_mock = self.patch("azure_logging_install.role_setup.log")
         self.config = Configuration(
-            control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id="cp-sub",
-            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-            control_plane_type=ControlPlaneType.FunctionApps,
+            control_plane=ControlPlane(
+                id=CONTROL_PLANE_ID,
+                sub_id="cp-sub",
+                sub_name=CONTROL_PLANE_SUBSCRIPTION_NAME,
+                resource_group=CONTROL_PLANE_RESOURCE_GROUP,
+                region=CONTROL_PLANE_REGION,
+                type=ControlPlaneType.FunctionApps,
+            ),
             monitored_subs="mon-1",
             datadog_api_key="key",
         )
