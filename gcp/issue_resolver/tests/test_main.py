@@ -146,6 +146,77 @@ class TestMainUiMode(unittest.TestCase):
         self.assertEqual(mock_ensure.call_count, 2)
         mock_dd_request.assert_called_once()
 
+    @patch("gcp_issue_resolver.main.WorkflowReporter")
+    def test_ui_mode_rejects_non_string_project_ids(self, mock_workflow_reporter_cls):
+        workflow_reporter, _step_reporter = self._make_workflow_reporter(
+            mock_workflow_reporter_cls,
+            {"project_ids": [{"id": "proj-a"}]},
+        )
+
+        with patch.dict(os.environ, _UI_ENV, clear=True):
+            with patch("sys.argv", ["gcp_issue_resolver"]):
+                with self.assertRaises(SystemExit) as ctx:
+                    main()
+
+        self.assertEqual(ctx.exception.code, 1)
+        workflow_reporter.report_step.assert_called_once()
+
+    @patch("gcp_issue_resolver.main.WorkflowReporter")
+    def test_ui_mode_rejects_empty_project_ids(self, mock_workflow_reporter_cls):
+        self._make_workflow_reporter(mock_workflow_reporter_cls, {"project_ids": []})
+
+        with patch.dict(os.environ, _UI_ENV, clear=True):
+            with patch("sys.argv", ["gcp_issue_resolver"]):
+                with self.assertRaises(SystemExit) as ctx:
+                    main()
+
+        self.assertEqual(ctx.exception.code, 1)
+
+    @patch("gcp_issue_resolver.main.ensure_service_account_permissions")
+    @patch("gcp_shared.reporter.gcloud", return_value="token")
+    @patch("gcp_shared.reporter.dd_request")
+    def test_ui_mode_reports_iam_permission_failure_to_ui(
+        self, mock_dd_request, _mock_gcloud, mock_ensure
+    ):
+        get_calls = {"count": 0}
+
+        def dd_side_effect(method, path, body=None):
+            if method == "GET":
+                get_calls["count"] += 1
+                if get_calls["count"] == 1:
+                    return ("", 404)
+                return (
+                    '{"data": {"attributes": {"metadata": {"selections": {"project_ids": ["proj-a"]}}}}}',
+                    200,
+                )
+            return ("{}", 201)
+
+        mock_dd_request.side_effect = dd_side_effect
+        mock_ensure.side_effect = RuntimeError(
+            "Your account (user@example.com) does not have permission 'iam.serviceAccounts.list' "
+            "on project 'proj-a'. Ask your GCP administrator to grant you the IAM permissions "
+            "needed to repair this integration."
+        )
+
+        with patch.dict(os.environ, _UI_ENV, clear=True):
+            with patch("sys.argv", ["gcp_issue_resolver"]):
+                with self.assertRaises(SystemExit) as ctx:
+                    main()
+
+        self.assertEqual(ctx.exception.code, 1)
+
+        failed_reports = [
+            call
+            for call in mock_dd_request.call_args_list
+            if call[0][0] == "POST"
+            and call[0][2]["data"]["attributes"]["status"] == "failed"
+        ]
+        self.assertEqual(len(failed_reports), 1)
+        self.assertIn(
+            "iam.serviceAccounts.list",
+            failed_reports[0][0][2]["data"]["attributes"]["message"],
+        )
+
     def test_ui_mode_rejects_invalid_email_env_var(self):
         env = {**_UI_ENV, "ACCOUNT_EMAIL": "not-a-valid-email"}
 

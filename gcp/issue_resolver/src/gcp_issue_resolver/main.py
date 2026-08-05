@@ -64,12 +64,18 @@ def _run_ui_mode() -> None:
         log.error(f"Workflow ID {workflow_id} has already been used. Please start a new workflow.")
         sys.exit(1)
 
-    workflow_reporter.handle_login_step()
+    try:
+        workflow_reporter.handle_login_step()
 
-    with workflow_reporter.report_step(RepairStep.PROJECT_SELECTION):
-        project_ids = workflow_reporter.receive_user_selections()["project_ids"]
+        with workflow_reporter.report_step(RepairStep.PROJECT_SELECTION):
+            project_ids = workflow_reporter.receive_user_selections()["project_ids"]
+            _validate_project_ids(project_ids)
 
-    _fix_permissions_via_workflow(workflow_reporter, email, project_ids)
+        _fix_permissions_via_workflow(workflow_reporter, email, project_ids)
+    except Exception as e:
+        log.error(str(e))
+        sys.exit(1)
+
     print("Script succeeded. You may exit this shell.")
 
 
@@ -82,6 +88,13 @@ def _resolve_email_from_env() -> str:
     if not is_valid_service_account_email(email):
         raise ValueError(f"Invalid service account email: '{email}'")
     return email
+
+
+def _validate_project_ids(project_ids: Any) -> None:
+    if not isinstance(project_ids, list) or not project_ids:
+        raise ValueError(f"Expected a non-empty list of project IDs from workflow selections, got: {project_ids!r}")
+    if not all(isinstance(project_id, str) and project_id for project_id in project_ids):
+        raise ValueError(f"Workflow selections contained a non-string project ID: {project_ids!r}")
 
 
 def _fix_permissions_via_workflow(

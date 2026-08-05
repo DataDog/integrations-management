@@ -3,6 +3,7 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 import json
+import re
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -55,6 +56,36 @@ class GcloudCmd:
         return self
 
 
+def format_gcloud_permission_error(stderr: str) -> Optional[str]:
+    """Return a user-friendly message for GCP IAM permission denied errors."""
+    if "IAM_PERMISSION_DENIED" not in stderr and "does not have permission" not in stderr:
+        return None
+
+    account_match = re.search(r"\[([^\]]+)\] does not have permission", stderr)
+    permission_match = re.search(r"permission:\s+(\S+)", stderr) or re.search(
+        r"Permission '([^']+)' denied", stderr
+    )
+    resource_match = re.search(r"resource:\s+projects/(\S+)", stderr) or re.search(
+        r"projects/([a-z][a-z0-9-]+)", stderr
+    )
+
+    account = account_match.group(1) if account_match else "your account"
+    permission = permission_match.group(1) if permission_match else "a required IAM permission"
+    project = resource_match.group(1) if resource_match else "the selected project"
+
+    return (
+        f"Your account ({account}) does not have permission '{permission}' on project "
+        f"'{project}'. Ask your GCP administrator to grant you the IAM permissions needed "
+        "to repair this integration."
+    )
+
+
+def _format_gcloud_error(cmd: Union[str, GcloudCmd], stderr: str) -> str:
+    if friendly := format_gcloud_permission_error(stderr):
+        return friendly
+    return f"could not execute gcloud command '{cmd}': {stderr}"
+
+
 def gcloud(cmd: Union[str, GcloudCmd], *keys: str) -> Any:
     """Run gcloud CLI command and produce its output. Raise an exception if it fails.
 
@@ -70,7 +101,7 @@ def gcloud(cmd: Union[str, GcloudCmd], *keys: str) -> Any:
     """
     result = try_gcloud(cmd, *keys)
     if not result.success:
-        raise RuntimeError(f"could not execute gcloud command '{cmd}': {result.error}")
+        raise RuntimeError(_format_gcloud_error(cmd, result.error))
     return result.data
 
 

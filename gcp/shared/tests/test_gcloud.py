@@ -5,7 +5,7 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from gcp_shared.gcloud import CommandResult, gcloud, try_gcloud
+from gcp_shared.gcloud import CommandResult, format_gcloud_permission_error, gcloud, try_gcloud
 
 
 class TestCommandResult(unittest.TestCase):
@@ -77,6 +77,32 @@ class TestTryGcloud(unittest.TestCase):
         self.assertTrue(result.success)
 
 
+class TestFormatGcloudPermissionError(unittest.TestCase):
+    """Test IAM permission denied error formatting."""
+
+    _SAMPLE_STDERR = """\
+ERROR: (gcloud.iam.service-accounts.list) [dan.trujillo@datadoghq.com] does not have permission to access projects instance [datadog-cloud-cost-management] (or it may not exist): Permission 'iam.serviceAccounts.list' denied on resource '//cloudresourcemanager.googleapis.com/projects/datadog-cloud-cost-management' (or it may not exist).
+- '@type': type.googleapis.com/google.rpc.ErrorInfo
+  domain: iam.googleapis.com
+  metadata:
+    permission: iam.serviceAccounts.list
+    resource: projects/datadog-cloud-cost-management
+  reason: IAM_PERMISSION_DENIED
+"""
+
+    def test_formats_iam_permission_denied_error(self):
+        message = format_gcloud_permission_error(self._SAMPLE_STDERR)
+
+        self.assertIsNotNone(message)
+        self.assertIn("dan.trujillo@datadoghq.com", message)
+        self.assertIn("iam.serviceAccounts.list", message)
+        self.assertIn("datadog-cloud-cost-management", message)
+        self.assertIn("GCP administrator", message)
+
+    def test_returns_none_for_unrelated_errors(self):
+        self.assertIsNone(format_gcloud_permission_error("ERROR: (gcloud) unknown flag"))
+
+
 class TestGcloud(unittest.TestCase):
     """Test the gcloud function."""
 
@@ -103,6 +129,23 @@ class TestGcloud(unittest.TestCase):
 
         self.assertIn("could not execute gcloud command", str(context.exception))
         self.assertIn("Error message", str(context.exception))
+
+    @patch("gcp_shared.gcloud.try_gcloud")
+    def test_raises_friendly_message_for_iam_permission_denied(self, mock_try_gcloud):
+        """Should raise a user-friendly RuntimeError for IAM permission denied."""
+        mock_try_gcloud.return_value = CommandResult(
+            returncode=1,
+            data=None,
+            error=TestFormatGcloudPermissionError._SAMPLE_STDERR,
+        )
+
+        with self.assertRaises(RuntimeError) as context:
+            gcloud("iam service-accounts list --project my-project")
+
+        message = str(context.exception)
+        self.assertIn("iam.serviceAccounts.list", message)
+        self.assertIn("datadog-cloud-cost-management", message)
+        self.assertNotIn("could not execute gcloud command", message)
 
 
 if __name__ == "__main__":
