@@ -15,7 +15,6 @@ from tests.test_data import (
     CONTROL_PLANE_ID,
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_RESOURCE_GROUP,
-    CONTROL_PLANE_SUBSCRIPTION_NAME,
 )
 
 
@@ -28,7 +27,6 @@ class TestWaitUntilControlPlaneRgReadyForGrant(TestCase):
             control_plane=ControlPlane(
                 id=CONTROL_PLANE_ID,
                 sub_id="cp-sub",
-                sub_name=CONTROL_PLANE_SUBSCRIPTION_NAME,
                 resource_group=CONTROL_PLANE_RESOURCE_GROUP,
                 region=CONTROL_PLANE_REGION,
                 type=ControlPlaneType.FunctionApps,
