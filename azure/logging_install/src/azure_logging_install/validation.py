@@ -25,7 +25,7 @@ from .constants import (
     REQUIRED_RESOURCE_PROVIDERS,
     RESOURCE_PROVIDER_REGISTERED_STATUS,
 )
-from .existing_lfo import LfoMetadata, check_existing_lfo
+from .existing_lfo import check_existing_lfo
 from .resource_setup import register_missing_resource_providers
 
 
@@ -62,7 +62,7 @@ def validate_az_cli():
     log.debug("Azure CLI authentication verified")
 
 
-def check_fresh_install(config: Configuration, sub_id_to_name: dict[str, str]) -> dict[str, LfoMetadata]:
+def check_fresh_install(config: Configuration, sub_id_to_name: dict[str, str]) -> dict[str, Configuration]:
     """Validate whether we are doing a fresh log forwarding install."""
     existing_lfos = check_existing_lfo(config.all_subscriptions, sub_id_to_name)
     if existing_lfos:
@@ -72,7 +72,7 @@ def check_fresh_install(config: Configuration, sub_id_to_name: dict[str, str]) -
     return existing_lfos
 
 
-def validate_singleton_lfo(config: Configuration, existing_lfos: dict[str, LfoMetadata]):
+def validate_singleton_lfo(config: Configuration, existing_lfos: dict[str, Configuration]):
     uninstall_link = "https://docs.datadoghq.com/logs/guide/azure-automated-log-forwarding/#uninstall"
     existing_count = len(existing_lfos)
     if existing_count > 1:

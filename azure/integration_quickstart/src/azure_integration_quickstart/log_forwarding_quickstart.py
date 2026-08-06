@@ -53,10 +53,11 @@ def main():
                 remove_ids = {s.id for s in selections.remove_subscriptions}
                 # Safeguard against removing the control plane subscription
                 remove_ids.discard(existing_lfo.control_plane.sub_id)
-                final_sub_ids = (set(existing_lfo.monitored_subs.keys()) | add_ids) - remove_ids
+                final_sub_ids = (set(existing_lfo.monitored_subs) | add_ids) - remove_ids
             else:
                 final_sub_ids = add_ids
 
+            # TODO figure out how we can get id -> name
             id_to_name = {s.id: s.name for s in selections.add_subscriptions}
             if existing_lfo:
                 id_to_name.update(existing_lfo.monitored_subs)
@@ -66,7 +67,7 @@ def main():
             }
 
     if selections.log_forwarding_config:
-        existing_monitored = set(existing_lfo.monitored_subs.keys()) if existing_lfo else set()
+        existing_monitored = set(existing_lfo.monitored_subs) if existing_lfo else set()
         wait_for_rg_delete_if_needed(
             selections.log_forwarding_config["resourceGroupName"],
             final_sub_ids - existing_monitored,

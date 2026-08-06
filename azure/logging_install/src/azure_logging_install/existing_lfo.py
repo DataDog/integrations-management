@@ -20,14 +20,6 @@ from .role_setup import grant_subscriptions_permissions, revoke_subscriptions_pe
 from .constants import MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_PREFIX, SCALING_TASK_PREFIX, UNKNOWN_SUB_NAME_MESSAGE
 
 
-@dataclass(frozen=True)
-class LfoMetadata:
-    control_plane: ControlPlane
-    monitored_subs: dict[str, str]
-    tag_filter: str
-    pii_rules: str
-
-
 def _find_existing_lfo_control_planes(
     sub_id_to_name: dict[str, str], subscriptions: Optional[set[str]] = None
 ) -> dict[str, ControlPlane]:
@@ -112,7 +104,9 @@ def _query_task_env_vars(control_plane: ControlPlane, task_name: str) -> dict[st
         raise
 
 
-def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) -> dict[str, LfoMetadata]:
+# TODO Check callers
+# TODO does this need to return dict?
+def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) -> dict[str, Configuration]:
     """Check if LFO is already installed on any of the given subscriptions. Returns a dict mapping control plane ID to LFO metadata."""
     log.info("Checking if log forwarding is already installed in this Azure environment...")
 
@@ -121,7 +115,7 @@ def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) 
     # if there is more than one, just return some LFO stubs since we won't be modifying them
     if len(control_planes) > 1:
         return {
-            control_plane_id: LfoMetadata(control_plane, {}, "", "")
+            control_plane_id: Configuration(control_plane=control_plane, monitored_subs="",datadog_api_key="")
             for control_plane_id, control_plane in control_planes
         }
     if len(control_planes) <= 0:
@@ -148,23 +142,25 @@ def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) 
     tag_filters = resource_task_env_vars.get(RESOURCE_TAG_FILTERS_KEY, "")
     pii_rules = scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
 
+    # TODO get the rest of the env vars
     return {
-        control_plane_id: LfoMetadata(
+        control_plane_id: Configuration(
             control_plane,
             monitored_subs={
                 sub_id: sub_id_to_name[sub_id] if sub_id in sub_id_to_name else UNKNOWN_SUB_NAME_MESSAGE
                 for sub_id in monitored_sub_ids
             },
-            tag_filter=tag_filters,
-            pii_rules=pii_rules,
+            datadog_api_key="",
+            resource_tag_filters=tag_filters,
+            pii_scrubber_rules=pii_rules,
         )
     }
 
 
-def update_existing_lfo(new_config: Configuration, existing_lfo: LfoMetadata):
+def update_existing_lfo(new_config: Configuration, existing_lfo: Configuration):
     """Update an existing LFO for the given configuration"""
 
-    existing_monitored_sub_ids = set(existing_lfo.monitored_subs.keys())
+    existing_monitored_sub_ids = set(existing_lfo.monitored_subscriptions)
     new_monitored_sub_ids = set(new_config.monitored_subscriptions)
     sub_ids_that_need_permissions = new_monitored_sub_ids - existing_monitored_sub_ids
     sub_ids_to_remove = existing_monitored_sub_ids - new_monitored_sub_ids
@@ -188,8 +184,8 @@ def update_existing_lfo(new_config: Configuration, existing_lfo: LfoMetadata):
         log.info("No modified subscription selections - skipping permission updates")
 
     log_header("STEP 3: Updating settings for control plane tasks")
-    existing_tag_filters = existing_lfo.tag_filter
-    existing_pii_rules = existing_lfo.pii_rules
+    existing_tag_filters = existing_lfo.resource_tag_filters
+    existing_pii_rules = existing_lfo.pii_scrubber_rules
     new_tag_filters = new_config.resource_tag_filters
     new_pii_rules = new_config.pii_scrubber_rules
 
