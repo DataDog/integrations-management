@@ -139,7 +139,6 @@ def check_existing_lfo(subscriptions: set[str]) -> list[Configuration]:
     tag_filters = resource_task_env_vars.get(RESOURCE_TAG_FILTERS_KEY, "")
     pii_rules = scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
 
-    # TODO get the rest of the env vars
     return [
         Configuration(
             control_plane,

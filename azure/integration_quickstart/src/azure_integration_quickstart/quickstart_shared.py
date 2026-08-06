@@ -148,7 +148,7 @@ def upsert_log_forwarder(config: dict, subscriptions: Set[str]):
                 resource_group=config["resourceGroupName"],
                 region=config["controlPlaneRegion"],
             ),
-            monitored_subs=",".join(subscriptions), # TODO order?
+            monitored_subs=",".join(subscriptions),
             datadog_api_key=os.environ["DD_API_KEY"],
             datadog_site=os.environ["DD_SITE"],
             resource_tag_filters=config.get("tagFilters", ""),

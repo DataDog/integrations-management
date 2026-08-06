@@ -35,7 +35,6 @@ def main():
         tenant_id, subscriptions = get_tenant_and_subscriptions()
         with ThreadPoolExecutor() as executor:
             scopes_future = executor.submit(finish_collecting_scopes, tenant_id, subscriptions, step_metadata)
-            # can build sub id -> name
             lfo_future = executor.submit(
                 report_existing_log_forwarders,
                 subscriptions,

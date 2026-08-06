@@ -34,7 +34,6 @@ class ControlPlane:
         self.diagnostic_settings_task_name = _get_diagnostic_settings_task_name(self.type, self.id)
 
 
-# TODO add repr or str
 @dataclass
 class Configuration:
     """Configuration of an LFO installation"""
@@ -52,7 +51,6 @@ class Configuration:
     def __post_init__(self):
         """Calculates derived values from user-specified params."""
 
-        # TODO remove monitored_subs str
         self.monitored_subscriptions: list[str] = [sub.strip() for sub in self.monitored_subs.split(",") if sub.strip()]
         self.all_subscriptions: set[str] = {
             self.control_plane.sub_id,
