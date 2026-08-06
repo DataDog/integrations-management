@@ -24,7 +24,6 @@ class ControlPlaneType(str, Enum):
 class ControlPlane:
     id: str
     sub_id: str
-    sub_name: str
     resource_group: str
     region: str
     type: ControlPlaneType = ControlPlaneType.ContainerAppJobs
@@ -52,8 +51,8 @@ class Configuration:
     def __post_init__(self):
         """Calculates derived values from user-specified params."""
 
-        self.monitored_subscriptions = [sub.strip() for sub in self.monitored_subs.split(",") if sub.strip()]
-        self.all_subscriptions = {
+        self.monitored_subscriptions: list[str] = [sub.strip() for sub in self.monitored_subs.split(",") if sub.strip()]
+        self.all_subscriptions: set[str] = {
             self.control_plane.sub_id,
             *self.monitored_subscriptions,
         }

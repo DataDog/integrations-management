@@ -8,15 +8,14 @@ from unittest.mock import patch as mock_patch
 
 from az_shared.errors import FatalError, InputParamValidationError
 from azure_logging_install import main
-from azure_logging_install.existing_lfo import ControlPlane, LfoMetadata, update_existing_lfo
-from azure_logging_install.configuration import ControlPlaneType
+from azure_logging_install.existing_lfo import ControlPlane, update_existing_lfo
+from azure_logging_install.configuration import Configuration, ControlPlaneType
 
 from logging_install.tests.test_data import (
     CONTROL_PLANE_ID,
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_RESOURCE_GROUP,
     CONTROL_PLANE_SUBSCRIPTION_ID,
-    CONTROL_PLANE_SUBSCRIPTION_NAME,
     DATADOG_API_KEY,
     DATADOG_SITE,
     DEPLOYER_JOB_NAME,
@@ -29,7 +28,6 @@ from logging_install.tests.test_data import (
     SUB_1_ID,
     SUB_2_ID,
     SUB_3_ID,
-    SUB_ID_TO_NAME,
     get_test_config,
 )
 
@@ -41,13 +39,12 @@ class TestMain(TestCase):
         self.set_subscription_mock = self.patch("azure_logging_install.main.set_subscription")
         self.validate_az_cli_mock = self.patch("azure_logging_install.main.validate_az_cli")
         self.validate_user_parameters_mock = self.patch("azure_logging_install.main.validate_user_parameters")
-        self.list_users_subscriptions_mock = self.patch("azure_logging_install.main.list_users_subscriptions")
         self.check_fresh_install_mock = self.patch("azure_logging_install.main.check_fresh_install")
         self.create_resource_group_mock = self.patch("azure_logging_install.main.create_resource_group")
         self.grant_permissions_mock = self.patch("azure_logging_install.main.grant_permissions")
         self.deploy_control_plane_mock = self.patch("azure_logging_install.main.deploy_control_plane")
         self.run_initial_deploy_mock = self.patch("azure_logging_install.main.run_initial_deploy")
-        self.check_fresh_install_mock.return_value = {}
+        self.check_fresh_install_mock.return_value = []
 
     def patch(self, path: str, **kwargs):
         """Helper method to patch and auto-cleanup"""
@@ -233,24 +230,19 @@ class TestMain(TestCase):
         mock_config.pii_scrubber_rules = PII_SCRUBBER_RULES
 
         # Existing LFO with a missing sub and different tag filter
-        existing_lfos = {
-            CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=ControlPlane(
-                    CONTROL_PLANE_ID,
-                    CONTROL_PLANE_SUBSCRIPTION_ID,
-                    CONTROL_PLANE_SUBSCRIPTION_NAME,
-                    CONTROL_PLANE_RESOURCE_GROUP,
-                    CONTROL_PLANE_REGION,
-                    ControlPlaneType.FunctionApps,
-                ),
-                monitored_subs={
-                    SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
-                    SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
-                },
-                tag_filter="env:staging",
-                pii_rules=PII_SCRUBBER_RULES,
-            )
-        }
+        existing_lfo = Configuration(
+            control_plane=ControlPlane(
+                CONTROL_PLANE_ID,
+                CONTROL_PLANE_SUBSCRIPTION_ID,
+                CONTROL_PLANE_RESOURCE_GROUP,
+                CONTROL_PLANE_REGION,
+                ControlPlaneType.FunctionApps,
+            ),
+            monitored_subs=",".join([SUB_1_ID, SUB_2_ID]),
+            datadog_api_key="",
+            resource_tag_filters="env:staging",
+            pii_scrubber_rules=PII_SCRUBBER_RULES,
+        )
 
         with (
             mock_patch("azure_logging_install.existing_lfo.set_monitored_subscriptions") as mock_set_monitored_subs,
@@ -259,7 +251,6 @@ class TestMain(TestCase):
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
             mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions"),
         ):
-            existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(mock_config, existing_lfo)
 
             # # Verify function app environment variables are updated due to new tag filter
@@ -277,12 +268,10 @@ class TestMain(TestCase):
         with (
             mock_patch("azure_logging_install.main.validate_az_cli") as mock_validate_cli,
             mock_patch("azure_logging_install.main.validate_user_parameters") as mock_validate_params,
-            mock_patch("azure_logging_install.main.list_users_subscriptions") as mock_list_subs,
             mock_patch("azure_logging_install.main.check_fresh_install") as mock_check_fresh,
             mock_patch("azure_logging_install.main.create_new_lfo") as mock_create_new,
         ):
-            mock_list_subs.return_value = SUB_ID_TO_NAME
-            mock_check_fresh.return_value = {}  # No existing LFOs found
+            mock_check_fresh.return_value = []  # No existing LFOs found
 
             # Execute the function
             main.install_log_forwarder(test_config)
@@ -290,8 +279,7 @@ class TestMain(TestCase):
             # Verify validation steps
             mock_validate_cli.assert_called_once()
             mock_validate_params.assert_called_once_with(test_config)
-            mock_list_subs.assert_called_once()
-            mock_check_fresh.assert_called_once_with(test_config, SUB_ID_TO_NAME)
+            mock_check_fresh.assert_called_once_with(test_config)
 
             # Verify new installation path is taken
             mock_create_new.assert_called_once_with(test_config)
@@ -300,31 +288,29 @@ class TestMain(TestCase):
         """Test install_log_forwarder flow for existing installation"""
         test_config = get_test_config()
 
-        existing_lfo = LfoMetadata(
+        existing_lfo = Configuration(
             control_plane=ControlPlane(
                 CONTROL_PLANE_ID,
                 CONTROL_PLANE_SUBSCRIPTION_ID,
-                CONTROL_PLANE_SUBSCRIPTION_NAME,
                 CONTROL_PLANE_RESOURCE_GROUP,
                 CONTROL_PLANE_REGION,
                 ControlPlaneType.FunctionApps,
             ),
-            monitored_subs={CONTROL_PLANE_SUBSCRIPTION_ID: CONTROL_PLANE_SUBSCRIPTION_NAME},
-            tag_filter=RESOURCE_TAG_FILTERS,
-            pii_rules=PII_SCRUBBER_RULES,
+            monitored_subs=CONTROL_PLANE_SUBSCRIPTION_ID,
+            datadog_api_key="",
+            resource_tag_filters=RESOURCE_TAG_FILTERS,
+            pii_scrubber_rules=PII_SCRUBBER_RULES,
         )
-        existing_lfos = {CONTROL_PLANE_ID: existing_lfo}
+        existing_lfos = [existing_lfo]
 
         with (
             mock_patch("azure_logging_install.main.validate_az_cli") as mock_validate_cli,
             mock_patch("azure_logging_install.main.validate_user_parameters") as mock_validate_params,
-            mock_patch("azure_logging_install.main.list_users_subscriptions") as mock_list_subs,
             mock_patch("azure_logging_install.main.check_fresh_install") as mock_check_fresh,
             mock_patch("azure_logging_install.main.validate_singleton_lfo") as mock_validate_singleton,
             mock_patch("azure_logging_install.main.update_existing_lfo") as mock_update_existing,
             mock_patch("azure_logging_install.main.SKIP_SINGLETON_CHECK", False),
         ):
-            mock_list_subs.return_value = SUB_ID_TO_NAME
             mock_check_fresh.return_value = existing_lfos
 
             # Execute the function
@@ -333,13 +319,11 @@ class TestMain(TestCase):
             # Verify validation steps
             mock_validate_cli.assert_called_once()
             mock_validate_params.assert_called_once_with(test_config)
-            mock_list_subs.assert_called_once()
-            mock_check_fresh.assert_called_once_with(test_config, SUB_ID_TO_NAME)
+            mock_check_fresh.assert_called_once_with(test_config)
             mock_validate_singleton.assert_called_once_with(test_config, existing_lfos)
 
             # Verify existing installation path is taken
-            expected_lfo = next(iter(existing_lfos.values()))
-            mock_update_existing.assert_called_once_with(test_config, expected_lfo)
+            mock_update_existing.assert_called_once_with(test_config, existing_lfo)
 
     def test_install_log_forwarder_handles_exceptions(self):
         """Test install_log_forwarder handles exceptions properly"""

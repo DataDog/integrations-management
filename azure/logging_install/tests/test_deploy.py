@@ -15,7 +15,6 @@ from logging_install.tests.test_data import (
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_RESOURCE_GROUP,
     CONTROL_PLANE_SUBSCRIPTION_ID,
-    CONTROL_PLANE_SUBSCRIPTION_NAME,
 )
 
 
@@ -23,7 +22,6 @@ def make_control_plane(**overrides):
     defaults = {
         "id": CONTROL_PLANE_ID,
         "sub_id": CONTROL_PLANE_SUBSCRIPTION_ID,
-        "sub_name": CONTROL_PLANE_SUBSCRIPTION_NAME,
         "resource_group": CONTROL_PLANE_RESOURCE_GROUP,
         "region": CONTROL_PLANE_REGION,
         "type": ControlPlaneType.FunctionApps,

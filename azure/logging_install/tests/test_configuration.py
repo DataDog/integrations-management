@@ -13,7 +13,6 @@ from logging_install.tests.test_data import (
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_RESOURCE_GROUP,
     CONTROL_PLANE_SUBSCRIPTION_ID,
-    CONTROL_PLANE_SUBSCRIPTION_NAME,
     DATADOG_API_KEY,
     DATADOG_SITE,
     MONITORED_SUBSCRIPTIONS,
@@ -45,7 +44,6 @@ class TestConfiguration(TestCase):
         control_plane_defaults = {
             "id": CONTROL_PLANE_ID,
             "sub_id": CONTROL_PLANE_SUBSCRIPTION_ID,
-            "sub_name": CONTROL_PLANE_SUBSCRIPTION_NAME,
             "resource_group": CONTROL_PLANE_RESOURCE_GROUP,
             "region": CONTROL_PLANE_REGION,
             "type": ControlPlaneType.FunctionApps,
@@ -79,7 +77,6 @@ class TestConfiguration(TestCase):
             control_plane=ControlPlane(
                 id=CONTROL_PLANE_ID,
                 sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-                sub_name=CONTROL_PLANE_SUBSCRIPTION_NAME,
                 resource_group=CONTROL_PLANE_RESOURCE_GROUP,
                 region=CONTROL_PLANE_REGION,
                 type=ControlPlaneType.FunctionApps,
