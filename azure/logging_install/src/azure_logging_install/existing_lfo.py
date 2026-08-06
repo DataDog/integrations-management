@@ -22,7 +22,7 @@ from .constants import MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESO
 
 def _find_existing_lfo_control_planes(
     sub_id_to_name: dict[str, str], subscriptions: Optional[set[str]] = None
-) -> dict[str, ControlPlane]:
+) -> list[ControlPlane]:
     """Find existing LFO control planes in the tenant. If `subscriptions` is specified, search is limited to these subscriptions.
     Returns a dict mapping control plane ID to control plane data."""
     if subscriptions is not None:
@@ -44,10 +44,10 @@ def _find_existing_lfo_control_planes(
     caj_query = f"\"Resources | where type == 'microsoft.app/jobs' and name startswith '{RESOURCES_TASK_PREFIX}'{subscriptions_clause} | project name, resourceGroup, subscriptionId, location\""
     caj_control_planes = _find_existing_lfo_control_planes_by_type(sub_id_to_name, caj_query, ControlPlaneType.ContainerAppJobs)
 
-    return function_app_control_planes | caj_control_planes
+    return function_app_control_planes + caj_control_planes
 
 
-def _find_existing_lfo_control_planes_by_type(sub_id_to_name: dict[str, str], arg_query: str, control_plane_type: ControlPlaneType) -> dict[str, ControlPlane]:
+def _find_existing_lfo_control_planes_by_type(sub_id_to_name: dict[str, str], arg_query: str, control_plane_type: ControlPlaneType) -> list[ControlPlane]:
     json = execute(AzCmd("graph", "query").param("-q", arg_query))
     try:
         resp = loads(json)
@@ -56,17 +56,19 @@ def _find_existing_lfo_control_planes_by_type(sub_id_to_name: dict[str, str], ar
         log.error(f"Error: {e}")
         raise
 
-    existing_control_planes: dict[str, ControlPlane] = {}
+    existing_control_planes: list[ControlPlane] = []
     for app in resp["data"]:
         subscription_id = app["subscriptionId"]
         control_plane_id = app["name"].split("-")[-1]
-        existing_control_planes[control_plane_id] = ControlPlane(
-            id=control_plane_id,
-            sub_id=subscription_id,
-            sub_name=sub_id_to_name[subscription_id],
-            resource_group=app["resourceGroup"],
-            region=app["location"],
-            type=control_plane_type,
+        existing_control_planes.append(
+            ControlPlane(
+                id=control_plane_id,
+                sub_id=subscription_id,
+                sub_name=sub_id_to_name[subscription_id],
+                resource_group=app["resourceGroup"],
+                region=app["location"],
+                type=control_plane_type,
+            )
         )
     return existing_control_planes
 
@@ -104,9 +106,7 @@ def _query_task_env_vars(control_plane: ControlPlane, task_name: str) -> dict[st
         raise
 
 
-# TODO Check callers
-# TODO does this need to return dict?
-def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) -> dict[str, Configuration]:
+def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) -> list[Configuration]:
     """Check if LFO is already installed on any of the given subscriptions. Returns a dict mapping control plane ID to LFO metadata."""
     log.info("Checking if log forwarding is already installed in this Azure environment...")
 
@@ -114,16 +114,16 @@ def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) 
 
     # if there is more than one, just return some LFO stubs since we won't be modifying them
     if len(control_planes) > 1:
-        return {
-            control_plane_id: Configuration(control_plane=control_plane, monitored_subs="",datadog_api_key="")
-            for control_plane_id, control_plane in control_planes
-        }
+        return [
+            Configuration(control_plane=control_plane, monitored_subs="",datadog_api_key="")
+            for control_plane in control_planes
+        ]
     if len(control_planes) <= 0:
         return {}
 
-    control_plane_id, control_plane = next(iter(control_planes))
-    resource_task_name = f"{RESOURCES_TASK_PREFIX}{control_plane_id}"
-    scaling_task_name = f"{SCALING_TASK_PREFIX}{control_plane_id}"
+    control_plane = control_planes[0]
+    resource_task_name = f"{RESOURCES_TASK_PREFIX}{control_plane.id}"
+    scaling_task_name = f"{SCALING_TASK_PREFIX}{control_plane.id}"
 
     resource_task_env_vars = _query_task_env_vars(control_plane, resource_task_name)
     scaling_task_env_vars = _query_task_env_vars(control_plane, scaling_task_name)
@@ -143,9 +143,10 @@ def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) 
     pii_rules = scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
 
     # TODO get the rest of the env vars
-    return {
-        control_plane_id: Configuration(
+    return [
+        Configuration(
             control_plane,
+            # TODO remove names
             monitored_subs={
                 sub_id: sub_id_to_name[sub_id] if sub_id in sub_id_to_name else UNKNOWN_SUB_NAME_MESSAGE
                 for sub_id in monitored_sub_ids
@@ -154,7 +155,7 @@ def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) 
             resource_tag_filters=tag_filters,
             pii_scrubber_rules=pii_rules,
         )
-    }
+    ]
 
 
 def update_existing_lfo(new_config: Configuration, existing_lfo: Configuration):

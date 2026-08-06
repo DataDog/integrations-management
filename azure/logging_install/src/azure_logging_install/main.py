@@ -164,7 +164,7 @@ def install_log_forwarder(config: Configuration):
             log.info("Validation completed - existing log forwarding installation found")
             log.info("Updating existing installation...")
 
-            existing_lfo = next(iter(existing_lfos.values()))
+            existing_lfo = existing_lfos[0]
             update_existing_lfo(config, existing_lfo)
         else:
             log.info("Validation completed - no existing log forwarding installation found")

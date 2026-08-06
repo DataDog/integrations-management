@@ -110,13 +110,13 @@ def report_existing_log_forwarders(
     """Send Datadog any existing Log Forwarders in the tenant. Returns existing LFO metadata when exactly one is found, else None.
     When include_monitored_scopes is True, each payload includes monitoredSubscriptions."""
     scope_id_to_name = {s.id: s.name for s in subscriptions}
-    forwarders: dict[str, Configuration] = check_existing_lfo(set(scope_id_to_name.keys()), scope_id_to_name)
+    forwarders: list[Configuration] = check_existing_lfo(set(scope_id_to_name.keys()), scope_id_to_name)
     step_metadata["log_forwarders"] = [
-        build_log_forwarder_payload(forwarder, include_monitored_scopes) for forwarder in forwarders.values()
+        build_log_forwarder_payload(forwarder, include_monitored_scopes) for forwarder in forwarders
     ]
     if len(forwarders) != 1:
         return None
-    return list(forwarders.values())[0]
+    return forwarders[0]
 
 
 def wait_for_rg_delete_if_needed(rg_name: str, subs_to_check: set[str], status: StatusReporter) -> None:
