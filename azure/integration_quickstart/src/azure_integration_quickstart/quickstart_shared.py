@@ -99,7 +99,7 @@ def build_log_forwarder_payload(config: Configuration, include_monitored_scopes:
     # TODO figure out how we can get id -> name
     if include_monitored_scopes:
         payload["monitoredSubscriptions"] = [
-            {"id": sub_id, "name": name} for sub_id, name in metadata.monitored_subs.items()
+            {"id": sub_id, "name": name} for sub_id, name in metadata.monitored_subs.items() # TODO use config.monitored_subscriptions
         ]
     return payload
 

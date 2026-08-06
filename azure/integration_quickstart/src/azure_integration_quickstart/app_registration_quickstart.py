@@ -209,7 +209,7 @@ def main():
             final_scopes = existing_subs | selected_subs
         else:
             final_scopes = selected_subs
-        existing_monitored = set(existing_lfo.monitored_subs) if existing_lfo else set()
+        existing_monitored = set(existing_lfo.monitored_subscriptions) if existing_lfo else set()
         wait_for_rg_delete_if_needed(
             selections.log_forwarding_config["resourceGroupName"],
             {s.id for s in selected_subs} - existing_monitored,

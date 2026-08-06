@@ -146,11 +146,7 @@ def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) 
     return [
         Configuration(
             control_plane,
-            # TODO remove names
-            monitored_subs={
-                sub_id: sub_id_to_name[sub_id] if sub_id in sub_id_to_name else UNKNOWN_SUB_NAME_MESSAGE
-                for sub_id in monitored_sub_ids
-            },
+            monitored_subs=','.join(monitored_sub_ids),
             datadog_api_key="",
             resource_tag_filters=tag_filters,
             pii_scrubber_rules=pii_rules,

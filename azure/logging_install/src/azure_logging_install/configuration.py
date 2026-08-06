@@ -53,6 +53,7 @@ class Configuration:
     def __post_init__(self):
         """Calculates derived values from user-specified params."""
 
+        # TODO remove monitored_subs str
         self.monitored_subscriptions: list[str] = [sub.strip() for sub in self.monitored_subs.split(",") if sub.strip()]
         self.all_subscriptions: set[str] = {
             self.control_plane.sub_id,
