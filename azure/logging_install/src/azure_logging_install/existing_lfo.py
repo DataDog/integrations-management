@@ -17,25 +17,15 @@ from .resource_setup import (
     set_resource_tag_filters,
 )
 from .role_setup import grant_subscriptions_permissions, revoke_subscriptions_permissions
-from .constants import MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_PREFIX, SCALING_TASK_PREFIX, UNKNOWN_SUB_NAME_MESSAGE
+from .constants import MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_PREFIX, SCALING_TASK_PREFIX
 
 
-@dataclass(frozen=True)
-class LfoMetadata:
-    control_plane: ControlPlane
-    monitored_subs: dict[str, str]
-    tag_filter: str
-    pii_rules: str
-
-
-def _find_existing_lfo_control_planes(
-    sub_id_to_name: dict[str, str], subscriptions: Optional[set[str]] = None
-) -> dict[str, ControlPlane]:
+def _find_existing_lfo_control_planes(subscriptions: Optional[set[str]] = None) -> list[ControlPlane]:
     """Find existing LFO control planes in the tenant. If `subscriptions` is specified, search is limited to these subscriptions.
     Returns a dict mapping control plane ID to control plane data."""
     if subscriptions is not None:
         if len(subscriptions) == 0:
-            return {}  # searching empty set of subscriptions
+            return []  # searching empty set of subscriptions
         subscriptions_clause = " and subscriptionId in ({})".format(
             ", ".join(["'{}'".format(subscription_id) for subscription_id in subscriptions])
         )
@@ -47,15 +37,15 @@ def _find_existing_lfo_control_planes(
         execute(AzCmd("extension", "add").param("--name", "resource-graph").param("--yes", ""))
 
     function_app_query = f"\"Resources | where type == 'microsoft.web/sites' and kind contains 'functionapp' and name startswith '{RESOURCES_TASK_PREFIX}'{subscriptions_clause} | project name, resourceGroup, subscriptionId, location\""
-    function_app_control_planes = _find_existing_lfo_control_planes_by_type(sub_id_to_name, function_app_query, ControlPlaneType.FunctionApps)
+    function_app_control_planes = _find_existing_lfo_control_planes_by_type(function_app_query, ControlPlaneType.FunctionApps)
 
     caj_query = f"\"Resources | where type == 'microsoft.app/jobs' and name startswith '{RESOURCES_TASK_PREFIX}'{subscriptions_clause} | project name, resourceGroup, subscriptionId, location\""
-    caj_control_planes = _find_existing_lfo_control_planes_by_type(sub_id_to_name, caj_query, ControlPlaneType.ContainerAppJobs)
+    caj_control_planes = _find_existing_lfo_control_planes_by_type(caj_query, ControlPlaneType.ContainerAppJobs)
 
-    return function_app_control_planes | caj_control_planes
+    return function_app_control_planes + caj_control_planes
 
 
-def _find_existing_lfo_control_planes_by_type(sub_id_to_name: dict[str, str], arg_query: str, control_plane_type: ControlPlaneType) -> dict[str, ControlPlane]:
+def _find_existing_lfo_control_planes_by_type(arg_query: str, control_plane_type: ControlPlaneType) -> list[ControlPlane]:
     json = execute(AzCmd("graph", "query").param("-q", arg_query))
     try:
         resp = loads(json)
@@ -64,17 +54,18 @@ def _find_existing_lfo_control_planes_by_type(sub_id_to_name: dict[str, str], ar
         log.error(f"Error: {e}")
         raise
 
-    existing_control_planes: dict[str, ControlPlane] = {}
+    existing_control_planes: list[ControlPlane] = []
     for app in resp["data"]:
         subscription_id = app["subscriptionId"]
         control_plane_id = app["name"].split("-")[-1]
-        existing_control_planes[control_plane_id] = ControlPlane(
-            id=control_plane_id,
-            sub_id=subscription_id,
-            sub_name=sub_id_to_name[subscription_id],
-            resource_group=app["resourceGroup"],
-            region=app["location"],
-            type=control_plane_type,
+        existing_control_planes.append(
+            ControlPlane(
+                id=control_plane_id,
+                sub_id=subscription_id,
+                resource_group=app["resourceGroup"],
+                region=app["location"],
+                type=control_plane_type,
+            )
         )
     return existing_control_planes
 
@@ -112,31 +103,31 @@ def _query_task_env_vars(control_plane: ControlPlane, task_name: str) -> dict[st
         raise
 
 
-def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) -> dict[str, LfoMetadata]:
+def check_existing_lfo(subscriptions: set[str]) -> list[Configuration]:
     """Check if LFO is already installed on any of the given subscriptions. Returns a dict mapping control plane ID to LFO metadata."""
     log.info("Checking if log forwarding is already installed in this Azure environment...")
 
-    control_planes = _find_existing_lfo_control_planes(sub_id_to_name, subscriptions).items()
+    control_planes = _find_existing_lfo_control_planes(subscriptions)
 
     # if there is more than one, just return some LFO stubs since we won't be modifying them
     if len(control_planes) > 1:
-        return {
-            control_plane_id: LfoMetadata(control_plane, {}, "", "")
-            for control_plane_id, control_plane in control_planes
-        }
+        return [
+            Configuration(control_plane=control_plane, monitored_subs="", datadog_api_key="")
+            for control_plane in control_planes
+        ]
     if len(control_planes) <= 0:
-        return {}
+        return []
 
-    control_plane_id, control_plane = next(iter(control_planes))
-    resource_task_name = f"{RESOURCES_TASK_PREFIX}{control_plane_id}"
-    scaling_task_name = f"{SCALING_TASK_PREFIX}{control_plane_id}"
+    control_plane = control_planes[0]
+    resource_task_name = f"{RESOURCES_TASK_PREFIX}{control_plane.id}"
+    scaling_task_name = f"{SCALING_TASK_PREFIX}{control_plane.id}"
 
     resource_task_env_vars = _query_task_env_vars(control_plane, resource_task_name)
     scaling_task_env_vars = _query_task_env_vars(control_plane, scaling_task_name)
 
     monitored_sub_ids_str = resource_task_env_vars.get(MONITORED_SUBSCRIPTIONS_KEY, "")
     if not monitored_sub_ids_str:
-        return {}
+        return []
 
     try:
         monitored_sub_ids = loads(monitored_sub_ids_str)
@@ -148,23 +139,21 @@ def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) 
     tag_filters = resource_task_env_vars.get(RESOURCE_TAG_FILTERS_KEY, "")
     pii_rules = scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
 
-    return {
-        control_plane_id: LfoMetadata(
+    return [
+        Configuration(
             control_plane,
-            monitored_subs={
-                sub_id: sub_id_to_name[sub_id] if sub_id in sub_id_to_name else UNKNOWN_SUB_NAME_MESSAGE
-                for sub_id in monitored_sub_ids
-            },
-            tag_filter=tag_filters,
-            pii_rules=pii_rules,
+            monitored_subs=','.join(monitored_sub_ids),
+            datadog_api_key="",
+            resource_tag_filters=tag_filters,
+            pii_scrubber_rules=pii_rules,
         )
-    }
+    ]
 
 
-def update_existing_lfo(new_config: Configuration, existing_lfo: LfoMetadata):
+def update_existing_lfo(new_config: Configuration, existing_lfo: Configuration):
     """Update an existing LFO for the given configuration"""
 
-    existing_monitored_sub_ids = set(existing_lfo.monitored_subs.keys())
+    existing_monitored_sub_ids = set(existing_lfo.monitored_subscriptions)
     new_monitored_sub_ids = set(new_config.monitored_subscriptions)
     sub_ids_that_need_permissions = new_monitored_sub_ids - existing_monitored_sub_ids
     sub_ids_to_remove = existing_monitored_sub_ids - new_monitored_sub_ids
@@ -188,8 +177,8 @@ def update_existing_lfo(new_config: Configuration, existing_lfo: LfoMetadata):
         log.info("No modified subscription selections - skipping permission updates")
 
     log_header("STEP 3: Updating settings for control plane tasks")
-    existing_tag_filters = existing_lfo.tag_filter
-    existing_pii_rules = existing_lfo.pii_rules
+    existing_tag_filters = existing_lfo.resource_tag_filters
+    existing_pii_rules = existing_lfo.pii_scrubber_rules
     new_tag_filters = new_config.resource_tag_filters
     new_pii_rules = new_config.pii_scrubber_rules
 

@@ -204,18 +204,18 @@ def main():
         selected_subs = flatten_scopes_to_unique_subscriptions(selections.scopes)
         # App registration flow is add-only: when an LFO exists, monitored scopes becomes existing ∪ selected.
         if existing_lfo:
-            existing_subs = {Subscription(id=sub_id, name=name) for sub_id, name in existing_lfo.monitored_subs.items()}
-            final_scopes = existing_subs | selected_subs
+            existing_sub_ids = set(existing_lfo.monitored_subscriptions)
+            final_sub_ids = existing_sub_ids | {sub.id for sub in selected_subs}
         else:
-            final_scopes = selected_subs
-        existing_monitored = set(existing_lfo.monitored_subs.keys()) if existing_lfo else set()
+            final_sub_ids = {sub.id for sub in selected_subs}
+        existing_monitored = set(existing_lfo.monitored_subscriptions) if existing_lfo else set()
         wait_for_rg_delete_if_needed(
             selections.log_forwarding_config["resourceGroupName"],
             {s.id for s in selected_subs} - existing_monitored,
             status,
         )
         with status.report_step("upsert_log_forwarder", f"{'Updating' if existing_lfo else 'Creating'} Log Forwarder"):
-            upsert_log_forwarder(selections.log_forwarding_config, final_scopes)
+            upsert_log_forwarder(selections.log_forwarding_config, final_sub_ids)
 
     print("Script succeeded. You may exit this shell.")
 

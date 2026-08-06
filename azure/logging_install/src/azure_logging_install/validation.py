@@ -25,7 +25,7 @@ from .constants import (
     REQUIRED_RESOURCE_PROVIDERS,
     RESOURCE_PROVIDER_REGISTERED_STATUS,
 )
-from .existing_lfo import LfoMetadata, check_existing_lfo
+from .existing_lfo import check_existing_lfo
 from .resource_setup import register_missing_resource_providers
 
 
@@ -62,17 +62,17 @@ def validate_az_cli():
     log.debug("Azure CLI authentication verified")
 
 
-def check_fresh_install(config: Configuration, sub_id_to_name: dict[str, str]) -> dict[str, LfoMetadata]:
+def check_fresh_install(config: Configuration) -> list[Configuration]:
     """Validate whether we are doing a fresh log forwarding install."""
-    existing_lfos = check_existing_lfo(config.all_subscriptions, sub_id_to_name)
+    existing_lfos = check_existing_lfo(config.all_subscriptions)
     if existing_lfos:
         log.info("Found existing log forwarding installation(s)")
-        serializable_lfos = {k: asdict(v) for k, v in existing_lfos.items()}
+        serializable_lfos = [asdict(c) for c in existing_lfos]
         log.debug(json.dumps(serializable_lfos, indent=2))
     return existing_lfos
 
 
-def validate_singleton_lfo(config: Configuration, existing_lfos: dict[str, LfoMetadata]):
+def validate_singleton_lfo(config: Configuration, existing_lfos: list[Configuration]):
     uninstall_link = "https://docs.datadoghq.com/logs/guide/azure-automated-log-forwarding/#uninstall"
     existing_count = len(existing_lfos)
     if existing_count > 1:
@@ -86,7 +86,7 @@ def validate_singleton_lfo(config: Configuration, existing_lfos: dict[str, LfoMe
         log.info("Exiting...")
         sys.exit(0)
 
-    existing_lfo_control_plane_id = next(iter(existing_lfos.keys()))
+    existing_lfo_control_plane_id = existing_lfos[0].control_plane.id
 
     if existing_count == 1 and existing_lfo_control_plane_id.casefold() != config.control_plane.id.casefold():
         log.error(
