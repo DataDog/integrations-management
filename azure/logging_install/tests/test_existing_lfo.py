@@ -99,7 +99,8 @@ class TestExistingLfo(TestCase):
     def test_check_existing_lfo_no_installations(self):
         """Test when no LFO installations exist"""
         self.execute_mock.side_effect = self.make_execute_router(
-            json.dumps({"data": []}),  # graph query returns empty data
+            json.dumps({"data": []}),  # graph query for function apps returns empty data
+            caj_json=json.dumps({"data": []}),  # graph query for container app jobs returns empty data
         )
 
         result = check_existing_lfo(self.config.all_subscriptions)
@@ -132,6 +133,7 @@ class TestExistingLfo(TestCase):
                     PII_SCRUBBER_RULES_KEY: PII_SCRUBBER_RULES,
                 },
             },
+            caj_json=json.dumps({"data": []}),  # graph query for container app jobs returns empty data
         )
 
         result = check_existing_lfo(self.config.all_subscriptions)
@@ -170,6 +172,7 @@ class TestExistingLfo(TestCase):
 
         self.execute_mock.side_effect = self.make_execute_router(
             json.dumps(mock_func_apps),  # graph query for function apps
+            caj_json=json.dumps({"data": []}),  # graph query for container app jobs returns empty data
         )
 
         result = check_existing_lfo(self.config.all_subscriptions)
