@@ -25,7 +25,7 @@ from .constants import (
     REQUIRED_RESOURCE_PROVIDERS,
     RESOURCE_PROVIDER_REGISTERED_STATUS,
 )
-from .existing_lfo import LfoMetadata, check_existing_lfo
+from .existing_lfo import check_existing_lfo
 from .resource_setup import register_missing_resource_providers
 
 
@@ -46,12 +46,12 @@ def validate_user_parameters(config: Configuration):
 def validate_azure_env(config: Configuration):
     """Validate Azure parameters and environment before creating any resources."""
 
-    validate_control_plane_sub_access(config.control_plane_sub_id)
+    validate_control_plane_sub_access(config.control_plane.sub_id)
     validate_monitored_subs_access(config.monitored_subscriptions)
     validate_resource_provider_registrations(config.all_subscriptions)
     validate_resource_names(
-        config.control_plane_rg,
-        config.control_plane_sub_id,
+        config.control_plane.resource_group,
+        config.control_plane.sub_id,
         config.control_plane_cache_storage_name,
     )
 
@@ -62,17 +62,17 @@ def validate_az_cli():
     log.debug("Azure CLI authentication verified")
 
 
-def check_fresh_install(config: Configuration, sub_id_to_name: dict[str, str]) -> dict[str, LfoMetadata]:
+def check_fresh_install(config: Configuration) -> list[Configuration]:
     """Validate whether we are doing a fresh log forwarding install."""
-    existing_lfos = check_existing_lfo(config.all_subscriptions, sub_id_to_name)
+    existing_lfos = check_existing_lfo(config.all_subscriptions)
     if existing_lfos:
         log.info("Found existing log forwarding installation(s)")
-        serializable_lfos = {k: asdict(v) for k, v in existing_lfos.items()}
+        serializable_lfos = [asdict(c) for c in existing_lfos]
         log.debug(json.dumps(serializable_lfos, indent=2))
     return existing_lfos
 
 
-def validate_singleton_lfo(config: Configuration, existing_lfos: dict[str, LfoMetadata]):
+def validate_singleton_lfo(config: Configuration, existing_lfos: list[Configuration]):
     uninstall_link = "https://docs.datadoghq.com/logs/guide/azure-automated-log-forwarding/#uninstall"
     existing_count = len(existing_lfos)
     if existing_count > 1:
@@ -86,11 +86,11 @@ def validate_singleton_lfo(config: Configuration, existing_lfos: dict[str, LfoMe
         log.info("Exiting...")
         sys.exit(0)
 
-    existing_lfo_control_plane_id = next(iter(existing_lfos.keys()))
+    existing_lfo_control_plane_id = existing_lfos[0].control_plane.id
 
-    if existing_count == 1 and existing_lfo_control_plane_id.casefold() != config.control_plane_id.casefold():
+    if existing_count == 1 and existing_lfo_control_plane_id.casefold() != config.control_plane.id.casefold():
         log.error(
-            f"Existing log forwarding installation with differing control plane ID '{existing_lfo_control_plane_id}' found in this Azure environment. New installation ID is '{config.control_plane_id}'."
+            f"Existing log forwarding installation with differing control plane ID '{existing_lfo_control_plane_id}' found in this Azure environment. New installation ID is '{config.control_plane.id}'."
         )
         log.error(
             "Please delete the existing log forwarding installation before installing a new one or edit the existing one to have a larger scope."
@@ -216,18 +216,18 @@ def validate_user_config(config: Configuration):
     """Validate user-specified configuration parameters."""
     log.info("Validating configuration parameters...")
 
-    if is_empty_or_whitespace(config.control_plane_sub_id):
+    if is_empty_or_whitespace(config.control_plane.sub_id):
         raise InputParamValidationError("Control plane subscription cannot be empty")
 
-    if not _is_valid_azure_subscription_id(config.control_plane_sub_id):
+    if not _is_valid_azure_subscription_id(config.control_plane.sub_id):
         raise InputParamValidationError(
             "Control plane subscription ID is not a valid Azure subscription ID (must be a valid UUID)"
         )
 
-    if is_empty_or_whitespace(config.control_plane_rg):
+    if is_empty_or_whitespace(config.control_plane.resource_group):
         raise InputParamValidationError("Control plane resource group cannot be empty")
 
-    if is_empty_or_whitespace(config.control_plane_region):
+    if is_empty_or_whitespace(config.control_plane.region):
         raise InputParamValidationError("Control plane location cannot be empty")
 
     _validate_monitored_subscriptions(config.monitored_subs)

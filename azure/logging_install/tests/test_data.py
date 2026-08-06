@@ -6,7 +6,7 @@
 
 import copy
 
-from azure_logging_install.configuration import Configuration, ControlPlaneType
+from azure_logging_install.configuration import Configuration, ControlPlane, ControlPlaneType
 
 # Azure env test subscriptions
 SUB_1_ID = "11111111-1111-4111-a111-111111111111"
@@ -16,7 +16,6 @@ SUB_4_ID = "44444444-4444-4444-a444-444444444444"
 
 # Control plane user settings
 CONTROL_PLANE_SUBSCRIPTION_ID = "cccccccc-cccc-4ccc-accc-cccccccccccc"
-CONTROL_PLANE_SUBSCRIPTION_NAME = "Test Control Plane Subscription"
 CONTROL_PLANE_REGION = "eastus"
 CONTROL_PLANE_RESOURCE_GROUP = "test-rg"
 MONITORED_SUBSCRIPTIONS = f"{SUB_1_ID},{SUB_2_ID}"
@@ -30,26 +29,23 @@ SCALING_TASK_NAME = f"scaling-task-{CONTROL_PLANE_ID}"
 DIAGNOSTIC_SETTINGS_TASK_NAME = f"diagnostic-settings-task-{CONTROL_PLANE_ID}"
 DEPLOYER_JOB_NAME = f"deployer-task-{CONTROL_PLANE_ID}"
 
-SUB_ID_TO_NAME = {
-    CONTROL_PLANE_SUBSCRIPTION_ID: CONTROL_PLANE_SUBSCRIPTION_NAME,
-    SUB_1_ID: "Test Subscription 1",
-    SUB_2_ID: "Test Subscription 2",
-    SUB_3_ID: "Test Subscription 3",
-    SUB_4_ID: "Test Subscription 4",
-}
-
 # DD settings
 DATADOG_API_KEY = "test-api-key"
 DATADOG_SITE = "datadoghq.com"
 
 
+TEST_CONTROL_PLANE = ControlPlane(
+    id=CONTROL_PLANE_ID,
+    sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
+    resource_group=CONTROL_PLANE_RESOURCE_GROUP,
+    region=CONTROL_PLANE_REGION,
+    type=ControlPlaneType.ContainerAppJobs,
+)
+
 TEST_CONFIG = Configuration(
-    control_plane_region=CONTROL_PLANE_REGION,
-    control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-    control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
+    control_plane=TEST_CONTROL_PLANE,
     monitored_subs=MONITORED_SUBSCRIPTIONS,
     datadog_api_key=DATADOG_API_KEY,
-    control_plane_type=ControlPlaneType.ContainerAppJobs,
     datadog_site=DATADOG_SITE,
     resource_tag_filters=RESOURCE_TAG_FILTERS,
     pii_scrubber_rules=PII_SCRUBBER_RULES,

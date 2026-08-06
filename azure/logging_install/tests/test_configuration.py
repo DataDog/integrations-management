@@ -6,9 +6,10 @@ import json
 from unittest import TestCase
 from unittest.mock import patch as mock_patch
 
-from azure_logging_install.configuration import Configuration, ControlPlaneType
+from azure_logging_install.configuration import Configuration, ControlPlane, ControlPlaneType, generate_control_plane_id
 
 from logging_install.tests.test_data import (
+    CONTROL_PLANE_ID,
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_RESOURCE_GROUP,
     CONTROL_PLANE_SUBSCRIPTION_ID,
@@ -40,11 +41,25 @@ class TestConfiguration(TestCase):
 
     def create_test_config(self, **overrides):
         """Helper to create a test configuration with optional overrides"""
+        control_plane_defaults = {
+            "id": CONTROL_PLANE_ID,
+            "sub_id": CONTROL_PLANE_SUBSCRIPTION_ID,
+            "resource_group": CONTROL_PLANE_RESOURCE_GROUP,
+            "region": CONTROL_PLANE_REGION,
+            "type": ControlPlaneType.FunctionApps,
+        }
+        control_plane_overrides = {
+            "control_plane_region": "region",
+            "control_plane_sub_id": "sub_id",
+            "control_plane_rg": "resource_group",
+            "control_plane_type": "type",
+        }
+        for override_key, control_plane_key in control_plane_overrides.items():
+            if override_key in overrides:
+                control_plane_defaults[control_plane_key] = overrides.pop(override_key)
+
         defaults = {
-            "control_plane_region": CONTROL_PLANE_REGION,
-            "control_plane_sub_id": CONTROL_PLANE_SUBSCRIPTION_ID,
-            "control_plane_rg": CONTROL_PLANE_RESOURCE_GROUP,
-            "control_plane_type": ControlPlaneType.FunctionApps,
+            "control_plane": ControlPlane(**control_plane_defaults),
             "monitored_subs": MONITORED_SUBSCRIPTIONS,
             "datadog_api_key": DATADOG_API_KEY,
             "datadog_site": DATADOG_SITE,
@@ -59,18 +74,21 @@ class TestConfiguration(TestCase):
     def test_configuration_initialization_with_defaults(self):
         """Test Configuration initialization with default values"""
         config = Configuration(
-            control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-            control_plane_type=ControlPlaneType.FunctionApps,
+            control_plane=ControlPlane(
+                id=CONTROL_PLANE_ID,
+                sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
+                resource_group=CONTROL_PLANE_RESOURCE_GROUP,
+                region=CONTROL_PLANE_REGION,
+                type=ControlPlaneType.FunctionApps,
+            ),
             monitored_subs=MONITORED_SUBSCRIPTIONS,
             datadog_api_key=DATADOG_API_KEY,
         )
 
         # Required fields
-        self.assertEqual(config.control_plane_region, CONTROL_PLANE_REGION)
-        self.assertEqual(config.control_plane_sub_id, CONTROL_PLANE_SUBSCRIPTION_ID)
-        self.assertEqual(config.control_plane_rg, CONTROL_PLANE_RESOURCE_GROUP)
+        self.assertEqual(config.control_plane.region, CONTROL_PLANE_REGION)
+        self.assertEqual(config.control_plane.sub_id, CONTROL_PLANE_SUBSCRIPTION_ID)
+        self.assertEqual(config.control_plane.resource_group, CONTROL_PLANE_RESOURCE_GROUP)
         self.assertEqual(config.monitored_subs, MONITORED_SUBSCRIPTIONS)
         self.assertEqual(config.datadog_api_key, DATADOG_API_KEY)
 
@@ -95,11 +113,8 @@ class TestConfiguration(TestCase):
 
     def test_generate_control_plane_id_deterministic(self):
         """Test control plane ID generation is deterministic"""
-        config1 = self.create_test_config()
-        config2 = self.create_test_config()
-
-        id1 = config1.generate_control_plane_id()
-        id2 = config2.generate_control_plane_id()
+        id1 = generate_control_plane_id(CONTROL_PLANE_SUBSCRIPTION_ID, CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION)
+        id2 = generate_control_plane_id(CONTROL_PLANE_SUBSCRIPTION_ID, CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION)
 
         self.assertEqual(id1, id2)
         self.assertEqual(len(id1), CONTROL_PLANE_ID_LENGTH)
@@ -107,11 +122,8 @@ class TestConfiguration(TestCase):
 
     def test_generate_control_plane_id_different_inputs(self):
         """Test control plane ID changes with different inputs"""
-        config1 = self.create_test_config()
-        config2 = self.create_test_config(control_plane_rg="different-rg")
-
-        id1 = config1.generate_control_plane_id()
-        id2 = config2.generate_control_plane_id()
+        id1 = generate_control_plane_id(CONTROL_PLANE_SUBSCRIPTION_ID, CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION)
+        id2 = generate_control_plane_id(CONTROL_PLANE_SUBSCRIPTION_ID, "different-rg", CONTROL_PLANE_REGION)
 
         self.assertNotEqual(id1, id2)
 

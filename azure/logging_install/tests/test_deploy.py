@@ -8,13 +8,26 @@ from unittest.mock import patch as mock_patch
 
 from az_shared.errors import FatalError
 from azure_logging_install import deploy
-from azure_logging_install.configuration import Configuration, ControlPlaneType
+from azure_logging_install.configuration import Configuration, ControlPlane, ControlPlaneType
 
 from logging_install.tests.test_data import (
+    CONTROL_PLANE_ID,
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_RESOURCE_GROUP,
     CONTROL_PLANE_SUBSCRIPTION_ID,
 )
+
+
+def make_control_plane(**overrides):
+    defaults = {
+        "id": CONTROL_PLANE_ID,
+        "sub_id": CONTROL_PLANE_SUBSCRIPTION_ID,
+        "resource_group": CONTROL_PLANE_RESOURCE_GROUP,
+        "region": CONTROL_PLANE_REGION,
+        "type": ControlPlaneType.FunctionApps,
+    }
+    defaults.update(overrides)
+    return ControlPlane(**defaults)
 
 
 class TestDeploy(TestCase):
@@ -41,10 +54,7 @@ class TestDeploy(TestCase):
 
         # Create test configuration
         self.config = Configuration(
-            control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-            control_plane_type=ControlPlaneType.FunctionApps,
+            control_plane=make_control_plane(),
             monitored_subs="sub-1,sub-2",
             datadog_api_key="test-api-key",
         )
@@ -97,16 +107,16 @@ class TestDeploy(TestCase):
             deploy.deploy_control_plane(self.config)
 
         # Verify subscription is set
-        self.set_subscription_mock.assert_called_once_with(self.config.control_plane_sub_id)
+        self.set_subscription_mock.assert_called_once_with(self.config.control_plane.sub_id)
 
         # Verify storage account creation and setup
         self.create_storage_account_mock.assert_called_once_with(
             self.config.control_plane_cache_storage_name,
-            self.config.control_plane_rg,
-            self.config.control_plane_region,
+            self.config.control_plane.resource_group,
+            self.config.control_plane.region,
         )
         self.wait_for_storage_account_ready_mock.assert_called_once_with(
-            self.config.control_plane_cache_storage_name, self.config.control_plane_rg
+            self.config.control_plane_cache_storage_name, self.config.control_plane.resource_group
         )
         self.create_blob_container_mock.assert_called_once()
         self.create_file_share_mock.assert_called_once()
@@ -119,10 +129,7 @@ class TestDeploy(TestCase):
     def test_deploy_control_plane_container_app_jobs_success(self):
         """Test successful control plane deployment with the ContainerAppJobs control plane type"""
         caj_config = Configuration(
-            control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-            control_plane_type=ControlPlaneType.ContainerAppJobs,
+            control_plane=make_control_plane(type=ControlPlaneType.ContainerAppJobs),
             monitored_subs="sub-1,sub-2",
             datadog_api_key="test-api-key",
         )
@@ -143,10 +150,7 @@ class TestDeploy(TestCase):
     def test_deploy_control_plane_container_app_jobs_failure(self):
         """Test control plane deployment handles Container App Job creation failure"""
         caj_config = Configuration(
-            control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-            control_plane_type=ControlPlaneType.ContainerAppJobs,
+            control_plane=make_control_plane(type=ControlPlaneType.ContainerAppJobs),
             monitored_subs="sub-1,sub-2",
             datadog_api_key="test-api-key",
         )
@@ -206,8 +210,8 @@ class TestDeploy(TestCase):
         # run_initial_deploy takes 3 args: deployer_job_name, control_plane_rg, control_plane_sub_id
         deploy.run_initial_deploy(
             self.config.deployer_job_name,
-            self.config.control_plane_rg,
-            self.config.control_plane_sub_id,
+            self.config.control_plane.resource_group,
+            self.config.control_plane.sub_id,
         )
 
         # Verify job execution command is called
@@ -227,8 +231,8 @@ class TestDeploy(TestCase):
         with self.assertRaises(RuntimeError):  # The function wraps errors in RuntimeError
             deploy.run_initial_deploy(
                 self.config.deployer_job_name,
-                self.config.control_plane_rg,
-                self.config.control_plane_sub_id,
+                self.config.control_plane.resource_group,
+                self.config.control_plane.sub_id,
             )
 
     # ===== Configuration Integration Tests ===== #
@@ -237,10 +241,10 @@ class TestDeploy(TestCase):
         """Test that deploy functions correctly use configuration properties"""
         # Create a mock config with specific properties
         mock_config = MagicMock()
-        mock_config.control_plane_sub_id = "test-sub-123"
+        mock_config.control_plane.sub_id = "test-sub-123"
         mock_config.control_plane_cache_storage_name = "teststorage123"
-        mock_config.control_plane_rg = "test-rg-456"
-        mock_config.control_plane_region = "westus2"
+        mock_config.control_plane.resource_group = "test-rg-456"
+        mock_config.control_plane.region = "westus2"
         mock_config.control_plane_env_name = "test-env-789"
         mock_config.control_plane_job_name = "test-job-abc"
 

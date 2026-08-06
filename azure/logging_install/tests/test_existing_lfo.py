@@ -13,9 +13,7 @@ from azure_logging_install.existing_lfo import (
     RESOURCE_TAG_FILTERS_KEY,
     RESOURCES_TASK_PREFIX,
     SCALING_TASK_PREFIX,
-    UNKNOWN_SUB_NAME_MESSAGE,
-    LfoControlPlane,
-    LfoMetadata,
+    ControlPlane,
     check_existing_lfo,
     update_existing_lfo,
 )
@@ -25,7 +23,6 @@ from logging_install.tests.test_data import (
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_RESOURCE_GROUP,
     CONTROL_PLANE_SUBSCRIPTION_ID,
-    CONTROL_PLANE_SUBSCRIPTION_NAME,
     DATADOG_API_KEY,
     DATADOG_SITE,
     MONITORED_SUBSCRIPTIONS,
@@ -37,7 +34,6 @@ from logging_install.tests.test_data import (
     SUB_2_ID,
     SUB_3_ID,
     SUB_4_ID,
-    SUB_ID_TO_NAME,
     get_test_config,
 )
 
@@ -49,10 +45,13 @@ class TestExistingLfo(TestCase):
 
         # Create test configuration
         self.config = Configuration(
-            control_plane_region=CONTROL_PLANE_REGION,
-            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP,
-            control_plane_type=ControlPlaneType.FunctionApps,
+            control_plane=ControlPlane(
+                id=CONTROL_PLANE_ID,
+                sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
+                resource_group=CONTROL_PLANE_RESOURCE_GROUP,
+                region=CONTROL_PLANE_REGION,
+                type=ControlPlaneType.FunctionApps,
+            ),
             monitored_subs=MONITORED_SUBSCRIPTIONS,
             datadog_api_key=DATADOG_API_KEY,
             datadog_site=DATADOG_SITE,
@@ -100,12 +99,13 @@ class TestExistingLfo(TestCase):
     def test_check_existing_lfo_no_installations(self):
         """Test when no LFO installations exist"""
         self.execute_mock.side_effect = self.make_execute_router(
-            json.dumps({"data": []}),  # graph query returns empty data
+            json.dumps({"data": []}),  # graph query for function apps returns empty data
+            caj_json=json.dumps({"data": []}),  # graph query for container app jobs returns empty data
         )
 
-        result = check_existing_lfo(self.config.all_subscriptions, SUB_ID_TO_NAME)
+        result = check_existing_lfo(self.config.all_subscriptions)
 
-        self.assertEqual(result, {})
+        self.assertEqual(result, [])
         self.assertEqual(self.execute_mock.call_count, 3)
 
     def test_check_existing_lfo_single_installation(self):
@@ -118,21 +118,9 @@ class TestExistingLfo(TestCase):
                     "location": CONTROL_PLANE_REGION,
                     "subscriptionId": SUB_1_ID,
                 },
-                {
-                    "resourceGroup": CONTROL_PLANE_RESOURCE_GROUP,
-                    "name": SCALING_TASK_NAME,
-                    "location": CONTROL_PLANE_REGION,
-                    "subscriptionId": SUB_1_ID,
-                },
             ]
         }
-        mock_monitored_subs_json = json.dumps(
-            {
-                SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
-                SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
-                SUB_3_ID: SUB_ID_TO_NAME[SUB_3_ID],
-            }
-        )
+        mock_monitored_subs_json = json.dumps([SUB_1_ID, SUB_2_ID, SUB_3_ID])
 
         self.execute_mock.side_effect = self.make_execute_router(
             json.dumps(mock_func_apps),  # graph query for function apps
@@ -145,25 +133,20 @@ class TestExistingLfo(TestCase):
                     PII_SCRUBBER_RULES_KEY: PII_SCRUBBER_RULES,
                 },
             },
+            caj_json=json.dumps({"data": []}),  # graph query for container app jobs returns empty data
         )
 
-        result = check_existing_lfo(self.config.all_subscriptions, SUB_ID_TO_NAME)
+        result = check_existing_lfo(self.config.all_subscriptions)
 
         self.assertEqual(len(result), 1)
-        self.assertIn(CONTROL_PLANE_ID, result)
-
-        lfo_metadata = result[CONTROL_PLANE_ID]
-        self.assertIsInstance(lfo_metadata, LfoMetadata)
-        expected_monitored_subs = {
-            SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
-            SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
-            SUB_3_ID: SUB_ID_TO_NAME[SUB_3_ID],
-        }
+        configuration = result[0]
+        self.assertIsInstance(configuration, Configuration)
+        self.assertEqual(configuration.control_plane.id, CONTROL_PLANE_ID)
         self.assertIn(CONTROL_PLANE_SUBSCRIPTION_ID, self.config.all_subscriptions)
-        self.assertEqual(lfo_metadata.control_plane.resource_group, CONTROL_PLANE_RESOURCE_GROUP)
-        self.assertEqual(lfo_metadata.monitored_subs, expected_monitored_subs)
-        self.assertEqual(lfo_metadata.tag_filter, RESOURCE_TAG_FILTERS)
-        self.assertEqual(lfo_metadata.pii_rules, PII_SCRUBBER_RULES)
+        self.assertEqual(configuration.control_plane.resource_group, CONTROL_PLANE_RESOURCE_GROUP)
+        self.assertEqual(sorted(configuration.monitored_subscriptions), sorted([SUB_1_ID, SUB_2_ID, SUB_3_ID]))
+        self.assertEqual(configuration.resource_tag_filters, RESOURCE_TAG_FILTERS)
+        self.assertEqual(configuration.pii_scrubber_rules, PII_SCRUBBER_RULES)
 
     def test_check_existing_lfo_multiple_installations(self):
         """Test with multiple existing LFO installations"""
@@ -179,125 +162,39 @@ class TestExistingLfo(TestCase):
                     "subscriptionId": SUB_1_ID,
                 },
                 {
-                    "resourceGroup": CONTROL_PLANE_RESOURCE_GROUP,
-                    "name": f"{SCALING_TASK_PREFIX}{control_plane_1_id}",
-                    "location": CONTROL_PLANE_REGION,
-                    "subscriptionId": SUB_1_ID,
-                },
-                {
                     "resourceGroup": "lfo-rg-2",
                     "name": f"{RESOURCES_TASK_PREFIX}{control_plane_2_id}",
                     "location": CONTROL_PLANE_REGION,
                     "subscriptionId": SUB_2_ID,
                 },
-                {
-                    "resourceGroup": "lfo-rg-2",
-                    "name": f"{SCALING_TASK_PREFIX}{control_plane_2_id}",
-                    "location": CONTROL_PLANE_REGION,
-                    "subscriptionId": SUB_2_ID,
-                },
             ],
         }
-        mock_monitored_subs_1_json = json.dumps(
-            {
-                SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
-                SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
-            }
-        )
-        mock_monitored_subs_2_json = json.dumps(
-            {
-                SUB_3_ID: SUB_ID_TO_NAME[SUB_3_ID],
-                SUB_4_ID: SUB_ID_TO_NAME[SUB_4_ID],
-            }
-        )
-        mock_resource_tag_filters = RESOURCE_TAG_FILTERS
-        mock_pii_scrubber_rules = PII_SCRUBBER_RULES
 
         self.execute_mock.side_effect = self.make_execute_router(
             json.dumps(mock_func_apps),  # graph query for function apps
-            {
-                f"{RESOURCES_TASK_PREFIX}{control_plane_1_id}": {
-                    MONITORED_SUBSCRIPTIONS_KEY: mock_monitored_subs_1_json,
-                    RESOURCE_TAG_FILTERS_KEY: mock_resource_tag_filters,
-                },
-                f"{SCALING_TASK_PREFIX}{control_plane_1_id}": {
-                    PII_SCRUBBER_RULES_KEY: "",
-                },
-                f"{RESOURCES_TASK_PREFIX}{control_plane_2_id}": {
-                    MONITORED_SUBSCRIPTIONS_KEY: mock_monitored_subs_2_json,
-                    RESOURCE_TAG_FILTERS_KEY: "",
-                },
-                f"{SCALING_TASK_PREFIX}{control_plane_2_id}": {
-                    PII_SCRUBBER_RULES_KEY: mock_pii_scrubber_rules,
-                },
-            },
+            caj_json=json.dumps({"data": []}),  # graph query for container app jobs returns empty data
         )
 
-        result = check_existing_lfo(self.config.all_subscriptions, SUB_ID_TO_NAME)
+        result = check_existing_lfo(self.config.all_subscriptions)
 
         self.assertEqual(len(result), 2)
-        self.assertIn(control_plane_1_id, result)
-        self.assertIn(control_plane_2_id, result)
+        result_by_id = {configuration.control_plane.id: configuration for configuration in result}
+        self.assertIn(control_plane_1_id, result_by_id)
+        self.assertIn(control_plane_2_id, result_by_id)
 
-        lfo_1 = result[control_plane_1_id]
+        lfo_1 = result_by_id[control_plane_1_id]
         self.assertEqual(lfo_1.control_plane.resource_group, CONTROL_PLANE_RESOURCE_GROUP)
         # Expect the rest to be empty since we shortcut on multiple LFOs
-        self.assertEqual(lfo_1.monitored_subs, {})
-        self.assertEqual(lfo_1.tag_filter, "")
-        self.assertEqual(lfo_1.pii_rules, "")
+        self.assertEqual(lfo_1.monitored_subscriptions, [])
+        self.assertEqual(lfo_1.resource_tag_filters, "")
+        self.assertEqual(lfo_1.pii_scrubber_rules, "")
 
-        lfo_2 = result[control_plane_2_id]
+        lfo_2 = result_by_id[control_plane_2_id]
         self.assertEqual(lfo_2.control_plane.resource_group, "lfo-rg-2")
         # Expect the rest to be empty since we shortcut on multiple LFOs
-        self.assertEqual(lfo_2.monitored_subs, {})
-        self.assertEqual(lfo_2.tag_filter, "")
-        self.assertEqual(lfo_2.pii_rules, "")
-
-    def test_check_existing_lfo_insufficient_sub_permissions(self):
-        """Test with an existing LFO installation where the user doesn't have permissions to read a monitored subscription"""
-        unknown_sub_id = "unknown-sub-id"
-        mock_func_apps = {
-            "data": [
-                {
-                    "resourceGroup": "lfo-rg",
-                    "name": RESOURCE_TASK_NAME,
-                    "location": "eastus",
-                    "subscriptionId": SUB_1_ID,
-                }
-            ]
-        }
-        mock_monitored_subs_json = json.dumps(
-            {
-                SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
-                SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
-                unknown_sub_id: "User doesn't have access to read the subscription name",
-            }
-        )
-
-        self.execute_mock.side_effect = self.make_execute_router(
-            json.dumps(mock_func_apps),
-            {
-                RESOURCE_TASK_NAME: {
-                    MONITORED_SUBSCRIPTIONS_KEY: mock_monitored_subs_json,
-                }
-            },
-        )
-
-        result = check_existing_lfo(self.config.all_subscriptions, SUB_ID_TO_NAME)
-
-        self.assertEqual(len(result), 1)
-        self.assertIn(CONTROL_PLANE_ID, result)
-
-        lfo_metadata = result[CONTROL_PLANE_ID]
-        self.assertIsInstance(lfo_metadata, LfoMetadata)
-        self.assertEqual(
-            lfo_metadata.monitored_subs,
-            {
-                SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
-                SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
-                unknown_sub_id: UNKNOWN_SUB_NAME_MESSAGE,
-            },
-        )
+        self.assertEqual(lfo_2.monitored_subscriptions, [])
+        self.assertEqual(lfo_2.resource_tag_filters, "")
+        self.assertEqual(lfo_2.pii_scrubber_rules, "")
 
     def test_update_existing_lfo_monitored_subs_only(self):
         """Test successful update of existing LFO installation - new subscriptions only"""
@@ -307,24 +204,19 @@ class TestExistingLfo(TestCase):
         test_config.monitored_subscriptions = [SUB_1_ID, SUB_2_ID, SUB_3_ID]
 
         # Existing LFO has some overlapping subscriptions, but no sub 3. Filters & PII rules remain the same
-        existing_lfos = {
-            CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+        existing_lfo = Configuration(
+            control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
-                    CONTROL_PLANE_SUBSCRIPTION_NAME,
                     CONTROL_PLANE_RESOURCE_GROUP,
                     CONTROL_PLANE_REGION,
                     ControlPlaneType.FunctionApps,
-                ),
-                monitored_subs={
-                    SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
-                    SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
-                },
-                tag_filter=RESOURCE_TAG_FILTERS,
-                pii_rules=PII_SCRUBBER_RULES,
-            )
-        }
+            ),
+            monitored_subs=",".join([SUB_1_ID, SUB_2_ID]),
+            datadog_api_key="",
+            resource_tag_filters=RESOURCE_TAG_FILTERS,
+            pii_scrubber_rules=PII_SCRUBBER_RULES,
+        )
 
         with (
             mock_patch("azure_logging_install.existing_lfo.set_monitored_subscriptions") as mock_set_monitored_subs,
@@ -333,7 +225,6 @@ class TestExistingLfo(TestCase):
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
             mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
         ):
-            existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(test_config, existing_lfo)
 
             mock_set_monitored_subs.assert_called_once_with(existing_lfo.control_plane, test_config.monitored_subscriptions)
@@ -348,24 +239,19 @@ class TestExistingLfo(TestCase):
         test_config = get_test_config()
         test_config.monitored_subscriptions = [SUB_1_ID]  # was SUB_1, SUB_2; remove SUB_2
 
-        existing_lfos = {
-            CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+        existing_lfo = Configuration(
+            control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
-                    CONTROL_PLANE_SUBSCRIPTION_NAME,
                     CONTROL_PLANE_RESOURCE_GROUP,
                     CONTROL_PLANE_REGION,
                     ControlPlaneType.FunctionApps,
-                ),
-                monitored_subs={
-                    SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
-                    SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
-                },
-                tag_filter=RESOURCE_TAG_FILTERS,
-                pii_rules=PII_SCRUBBER_RULES,
-            )
-        }
+            ),
+            monitored_subs=",".join([SUB_1_ID, SUB_2_ID]),
+            datadog_api_key="",
+            resource_tag_filters=RESOURCE_TAG_FILTERS,
+            pii_scrubber_rules=PII_SCRUBBER_RULES,
+        )
 
         with (
             mock_patch("azure_logging_install.existing_lfo.set_monitored_subscriptions") as mock_set_monitored_subs,
@@ -374,7 +260,6 @@ class TestExistingLfo(TestCase):
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
             mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
         ):
-            existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(test_config, existing_lfo)
 
             mock_set_monitored_subs.assert_called_once_with(existing_lfo.control_plane, test_config.monitored_subscriptions)
@@ -392,24 +277,19 @@ class TestExistingLfo(TestCase):
         test_config = get_test_config()
         test_config.monitored_subscriptions = [SUB_1_ID, SUB_3_ID]
 
-        existing_lfos = {
-            CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+        existing_lfo = Configuration(
+            control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
                     CONTROL_PLANE_SUBSCRIPTION_ID,
-                    CONTROL_PLANE_SUBSCRIPTION_NAME,
                     CONTROL_PLANE_RESOURCE_GROUP,
                     CONTROL_PLANE_REGION,
                     ControlPlaneType.FunctionApps,
-                ),
-                monitored_subs={
-                    SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
-                    SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
-                },
-                tag_filter=RESOURCE_TAG_FILTERS,
-                pii_rules=PII_SCRUBBER_RULES,
-            )
-        }
+            ),
+            monitored_subs=",".join([SUB_1_ID, SUB_2_ID]),
+            datadog_api_key="",
+            resource_tag_filters=RESOURCE_TAG_FILTERS,
+            pii_scrubber_rules=PII_SCRUBBER_RULES,
+        )
 
         with (
             mock_patch("azure_logging_install.existing_lfo.set_monitored_subscriptions") as mock_set_monitored_subs,
@@ -418,7 +298,6 @@ class TestExistingLfo(TestCase):
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
             mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
         ):
-            existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(test_config, existing_lfo)
 
             mock_set_monitored_subs.assert_called_once_with(existing_lfo.control_plane, test_config.monitored_subscriptions)
@@ -431,21 +310,19 @@ class TestExistingLfo(TestCase):
         """Test update when only tag filter changes; partial update via set_resource_tag_filters."""
 
         test_config = get_test_config()
-        existing_lfos = {
-            CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+        existing_lfo = Configuration(
+            control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
-                    test_config.control_plane_sub_id,
-                    SUB_ID_TO_NAME[test_config.control_plane_sub_id],
-                    test_config.control_plane_rg,
-                    test_config.control_plane_region,
+                    test_config.control_plane.sub_id,
+                    test_config.control_plane.resource_group,
+                    test_config.control_plane.region,
                     ControlPlaneType.FunctionApps,
-                ),
-                monitored_subs={sub_id: SUB_ID_TO_NAME[sub_id] for sub_id in test_config.monitored_subscriptions},
-                tag_filter="env:staging,team:legacy",
-                pii_rules=PII_SCRUBBER_RULES,
-            )
-        }
+            ),
+            monitored_subs=",".join(test_config.monitored_subscriptions),
+            datadog_api_key="",
+            resource_tag_filters="env:staging,team:legacy",
+            pii_scrubber_rules=PII_SCRUBBER_RULES,
+        )
 
         with (
             mock_patch("azure_logging_install.existing_lfo.set_monitored_subscriptions") as mock_set_monitored_subs,
@@ -454,7 +331,6 @@ class TestExistingLfo(TestCase):
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
             mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
         ):
-            existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(test_config, existing_lfo)
 
             mock_set_monitored_subs.assert_not_called()
@@ -467,21 +343,19 @@ class TestExistingLfo(TestCase):
         """Test update when only PII rules change; partial update via set_pii_scrubber_rules."""
 
         test_config = get_test_config()
-        existing_lfos = {
-            CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+        existing_lfo = Configuration(
+            control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
-                    test_config.control_plane_sub_id,
-                    SUB_ID_TO_NAME[test_config.control_plane_sub_id],
-                    test_config.control_plane_rg,
-                    test_config.control_plane_region,
+                    test_config.control_plane.sub_id,
+                    test_config.control_plane.resource_group,
+                    test_config.control_plane.region,
                     ControlPlaneType.FunctionApps,
-                ),
-                monitored_subs={sub_id: SUB_ID_TO_NAME[sub_id] for sub_id in test_config.monitored_subscriptions},
-                tag_filter=RESOURCE_TAG_FILTERS,
-                pii_rules="old-rule:\n  pattern: 'old'\n  replacement: 'REDACTED'",
-            )
-        }
+            ),
+            monitored_subs=",".join(test_config.monitored_subscriptions),
+            datadog_api_key="",
+            resource_tag_filters=RESOURCE_TAG_FILTERS,
+            pii_scrubber_rules="old-rule:\n  pattern: 'old'\n  replacement: 'REDACTED'",
+        )
 
         with (
             mock_patch("azure_logging_install.existing_lfo.set_monitored_subscriptions") as mock_set_monitored_subs,
@@ -490,7 +364,6 @@ class TestExistingLfo(TestCase):
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
             mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
         ):
-            existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(test_config, existing_lfo)
 
             mock_set_monitored_subs.assert_not_called()
@@ -506,21 +379,19 @@ class TestExistingLfo(TestCase):
         test_config = get_test_config()
 
         # Existing LFO has same monitored subs, but old tag filters and PII rules
-        existing_lfos = {
-            CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+        existing_lfo = Configuration(
+            control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
-                    test_config.control_plane_sub_id,
-                    SUB_ID_TO_NAME[test_config.control_plane_sub_id],
-                    test_config.control_plane_rg,
-                    test_config.control_plane_region,
+                    test_config.control_plane.sub_id,
+                    test_config.control_plane.resource_group,
+                    test_config.control_plane.region,
                     ControlPlaneType.FunctionApps,
-                ),
-                monitored_subs={sub_id: SUB_ID_TO_NAME[sub_id] for sub_id in test_config.monitored_subscriptions},
-                tag_filter="env:staging,team:legacy",
-                pii_rules="old-rule:\n  pattern: 'old pattern'\n  replacement: 'OLD'",
-            )
-        }
+            ),
+            monitored_subs=",".join(test_config.monitored_subscriptions),
+            datadog_api_key="",
+            resource_tag_filters="env:staging,team:legacy",
+            pii_scrubber_rules="old-rule:\n  pattern: 'old pattern'\n  replacement: 'OLD'",
+        )
 
         with (
             mock_patch("azure_logging_install.existing_lfo.set_monitored_subscriptions") as mock_set_monitored_subs,
@@ -529,7 +400,6 @@ class TestExistingLfo(TestCase):
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
             mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
         ):
-            existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(test_config, existing_lfo)
 
             mock_set_monitored_subs.assert_not_called()
@@ -544,24 +414,19 @@ class TestExistingLfo(TestCase):
         test_config = get_test_config()
         test_config.monitored_subscriptions = [SUB_1_ID, SUB_2_ID, SUB_3_ID]
 
-        existing_lfos = {
-            CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+        existing_lfo = Configuration(
+            control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
-                    test_config.control_plane_sub_id,
-                    SUB_ID_TO_NAME[test_config.control_plane_sub_id],
-                    test_config.control_plane_rg,
-                    test_config.control_plane_region,
+                    test_config.control_plane.sub_id,
+                    test_config.control_plane.resource_group,
+                    test_config.control_plane.region,
                     ControlPlaneType.FunctionApps,
-                ),
-                monitored_subs={
-                    SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
-                    SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
-                },
-                tag_filter="env:staging,team:legacy",
-                pii_rules=PII_SCRUBBER_RULES,
-            )
-        }
+            ),
+            monitored_subs=",".join([SUB_1_ID, SUB_2_ID]),
+            datadog_api_key="",
+            resource_tag_filters="env:staging,team:legacy",
+            pii_scrubber_rules=PII_SCRUBBER_RULES,
+        )
 
         with (
             mock_patch("azure_logging_install.existing_lfo.set_monitored_subscriptions") as mock_set_monitored_subs,
@@ -570,7 +435,6 @@ class TestExistingLfo(TestCase):
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
             mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
         ):
-            existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(test_config, existing_lfo)
 
             mock_set_monitored_subs.assert_called_once_with(existing_lfo.control_plane, test_config.monitored_subscriptions)
@@ -585,24 +449,19 @@ class TestExistingLfo(TestCase):
         test_config = get_test_config()
         test_config.monitored_subscriptions = [SUB_1_ID]  # remove SUB_2
 
-        existing_lfos = {
-            CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+        existing_lfo = Configuration(
+            control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
-                    test_config.control_plane_sub_id,
-                    SUB_ID_TO_NAME[test_config.control_plane_sub_id],
-                    test_config.control_plane_rg,
-                    test_config.control_plane_region,
+                    test_config.control_plane.sub_id,
+                    test_config.control_plane.resource_group,
+                    test_config.control_plane.region,
                     ControlPlaneType.FunctionApps,
-                ),
-                monitored_subs={
-                    SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
-                    SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
-                },
-                tag_filter=RESOURCE_TAG_FILTERS,
-                pii_rules="old-rule:\n  pattern: 'old'\n  replacement: 'REDACTED'",
-            )
-        }
+            ),
+            monitored_subs=",".join([SUB_1_ID, SUB_2_ID]),
+            datadog_api_key="",
+            resource_tag_filters=RESOURCE_TAG_FILTERS,
+            pii_scrubber_rules="old-rule:\n  pattern: 'old'\n  replacement: 'REDACTED'",
+        )
 
         with (
             mock_patch("azure_logging_install.existing_lfo.set_monitored_subscriptions") as mock_set_monitored_subs,
@@ -611,7 +470,6 @@ class TestExistingLfo(TestCase):
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
             mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
         ):
-            existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(test_config, existing_lfo)
 
             mock_set_monitored_subs.assert_called_once_with(existing_lfo.control_plane, test_config.monitored_subscriptions)
@@ -629,24 +487,19 @@ class TestExistingLfo(TestCase):
         test_config.resource_tag_filters = "env:new,team:new"
         test_config.pii_scrubber_rules = "new-rule:\n  pattern: 'new'\n  replacement: 'MASKED'"
 
-        existing_lfos = {
-            CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+        existing_lfo = Configuration(
+            control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
-                    test_config.control_plane_sub_id,
-                    SUB_ID_TO_NAME[test_config.control_plane_sub_id],
-                    test_config.control_plane_rg,
-                    test_config.control_plane_region,
+                    test_config.control_plane.sub_id,
+                    test_config.control_plane.resource_group,
+                    test_config.control_plane.region,
                     ControlPlaneType.FunctionApps,
-                ),
-                monitored_subs={
-                    SUB_1_ID: SUB_ID_TO_NAME[SUB_1_ID],
-                    SUB_2_ID: SUB_ID_TO_NAME[SUB_2_ID],
-                },
-                tag_filter=RESOURCE_TAG_FILTERS,
-                pii_rules=PII_SCRUBBER_RULES,
-            )
-        }
+            ),
+            monitored_subs=",".join([SUB_1_ID, SUB_2_ID]),
+            datadog_api_key="",
+            resource_tag_filters=RESOURCE_TAG_FILTERS,
+            pii_scrubber_rules=PII_SCRUBBER_RULES,
+        )
 
         with (
             mock_patch("azure_logging_install.existing_lfo.set_monitored_subscriptions") as mock_set_monitored_subs,
@@ -655,7 +508,6 @@ class TestExistingLfo(TestCase):
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
             mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
         ):
-            existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(test_config, existing_lfo)
 
             mock_set_monitored_subs.assert_called_once_with(existing_lfo.control_plane, test_config.monitored_subscriptions)
@@ -669,21 +521,19 @@ class TestExistingLfo(TestCase):
 
         # test_config is same as existing LFO
         test_config = get_test_config()
-        existing_lfos = {
-            CONTROL_PLANE_ID: LfoMetadata(
-                control_plane=LfoControlPlane(
+        existing_lfo = Configuration(
+            control_plane=ControlPlane(
                     CONTROL_PLANE_ID,
-                    test_config.control_plane_sub_id,
-                    SUB_ID_TO_NAME[test_config.control_plane_sub_id],
-                    test_config.control_plane_rg,
-                    test_config.control_plane_region,
+                    test_config.control_plane.sub_id,
+                    test_config.control_plane.resource_group,
+                    test_config.control_plane.region,
                     ControlPlaneType.FunctionApps,
-                ),
-                monitored_subs={sub_id: SUB_ID_TO_NAME[sub_id] for sub_id in test_config.monitored_subscriptions},
-                tag_filter=RESOURCE_TAG_FILTERS,
-                pii_rules=PII_SCRUBBER_RULES,
-            )
-        }
+            ),
+            monitored_subs=",".join(test_config.monitored_subscriptions),
+            datadog_api_key="",
+            resource_tag_filters=RESOURCE_TAG_FILTERS,
+            pii_scrubber_rules=PII_SCRUBBER_RULES,
+        )
 
         with (
             mock_patch("azure_logging_install.existing_lfo.set_monitored_subscriptions") as mock_set_monitored_subs,
@@ -692,7 +542,6 @@ class TestExistingLfo(TestCase):
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
             mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
         ):
-            existing_lfo = next(iter(existing_lfos.values()))
             update_existing_lfo(test_config, existing_lfo)
 
             mock_set_monitored_subs.assert_not_called()
