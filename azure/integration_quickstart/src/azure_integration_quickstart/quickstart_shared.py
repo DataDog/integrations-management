@@ -28,6 +28,8 @@ from azure_logging_install.role_setup import ensure_control_plane_rg_not_deletin
 # Required environment variables for both quickstart variants
 REQUIRED_ENVIRONMENT_VARS = {"DD_API_KEY", "DD_APP_KEY", "DD_SITE", "WORKFLOW_ID"}
 
+UNKNOWN_SUB_NAME_MESSAGE = "Unknown (insufficient Azure permission)"
+
 
 class LogForwarderPayload(TypedDict):
     """Log Forwarder format expected by quickstart UI"""
@@ -87,19 +89,18 @@ def login() -> None:
         print("Connected! Leave this shell running and go back to the Datadog UI to continue.")
 
 
-def build_log_forwarder_payload(config: Configuration, include_monitored_scopes: bool) -> LogForwarderPayload:
+def build_log_forwarder_payload(config: Configuration, include_monitored_scopes: bool, sub_id_to_name: dict[str, str]) -> LogForwarderPayload:
     payload = LogForwarderPayload(
         resourceGroupName=config.control_plane.resource_group,
         controlPlaneSubscriptionId=config.control_plane.sub_id,
-        controlPlaneSubscriptionName=config.control_plane.sub_name,
+        controlPlaneSubscriptionName=sub_id_to_name.get(config.control_plane.sub_id, UNKNOWN_SUB_NAME_MESSAGE),
         controlPlaneRegion=config.control_plane.region,
         tagFilters=config.resource_tag_filters,
         piiFilters=config.pii_scrubber_rules,
     )
-    # TODO figure out how we can get id -> name
     if include_monitored_scopes:
         payload["monitoredSubscriptions"] = [
-            {"id": sub_id, "name": name} for sub_id, name in metadata.monitored_subs.items() # TODO use config.monitored_subscriptions
+            {"id": sub_id, "name": sub_id_to_name.get(sub_id, UNKNOWN_SUB_NAME_MESSAGE)} for sub_id in config.monitored_subscriptions
         ]
     return payload
 
@@ -109,10 +110,10 @@ def report_existing_log_forwarders(
 ) -> Optional[Configuration]:
     """Send Datadog any existing Log Forwarders in the tenant. Returns existing LFO metadata when exactly one is found, else None.
     When include_monitored_scopes is True, each payload includes monitoredSubscriptions."""
-    scope_id_to_name = {s.id: s.name for s in subscriptions}
-    forwarders: list[Configuration] = check_existing_lfo(set(scope_id_to_name.keys()), scope_id_to_name)
+    sub_id_to_name = {s.id: s.name for s in subscriptions}
+    forwarders: list[Configuration] = check_existing_lfo(set(sub_id_to_name.keys()))
     step_metadata["log_forwarders"] = [
-        build_log_forwarder_payload(forwarder, include_monitored_scopes) for forwarder in forwarders
+        build_log_forwarder_payload(forwarder, include_monitored_scopes, sub_id_to_name) for forwarder in forwarders
     ]
     if len(forwarders) != 1:
         return None
@@ -138,17 +139,16 @@ def wait_for_rg_delete_if_needed(rg_name: str, subs_to_check: set[str], status: 
         status.report("wait_for_rg_delete", Status.FINISHED, "Resource group deletion complete.")
 
 
-def upsert_log_forwarder(config: dict, subscriptions: Set[Scope]):
+def upsert_log_forwarder(config: dict, subscriptions: Set[str]):
     install_log_forwarder(
         Configuration(
             control_plane=ControlPlane(
                 id=generate_control_plane_id(config["controlPlaneSubscriptionId"], config["resourceGroupName"], config["controlPlaneRegion"]),
                 sub_id=config["controlPlaneSubscriptionId"],
-                sub_name=config["controlPlaneSubscriptionName"],
                 resource_group=config["resourceGroupName"],
                 region=config["controlPlaneRegion"],
             ),
-            monitored_subs=",".join([s.id for s in subscriptions]),
+            monitored_subs=",".join(subscriptions), # TODO order?
             datadog_api_key=os.environ["DD_API_KEY"],
             datadog_site=os.environ["DD_SITE"],
             resource_tag_filters=config.get("tagFilters", ""),

@@ -62,9 +62,9 @@ def validate_az_cli():
     log.debug("Azure CLI authentication verified")
 
 
-def check_fresh_install(config: Configuration, sub_id_to_name: dict[str, str]) -> list[Configuration]:
+def check_fresh_install(config: Configuration) -> list[Configuration]:
     """Validate whether we are doing a fresh log forwarding install."""
-    existing_lfos = check_existing_lfo(config.all_subscriptions, sub_id_to_name)
+    existing_lfos = check_existing_lfo(config.all_subscriptions)
     if existing_lfos:
         log.info("Found existing log forwarding installation(s)")
         serializable_lfos = [asdict(c) for c in existing_lfos]

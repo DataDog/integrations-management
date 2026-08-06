@@ -17,12 +17,10 @@ from .resource_setup import (
     set_resource_tag_filters,
 )
 from .role_setup import grant_subscriptions_permissions, revoke_subscriptions_permissions
-from .constants import MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_PREFIX, SCALING_TASK_PREFIX, UNKNOWN_SUB_NAME_MESSAGE
+from .constants import MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_PREFIX, SCALING_TASK_PREFIX
 
 
-def _find_existing_lfo_control_planes(
-    sub_id_to_name: dict[str, str], subscriptions: Optional[set[str]] = None
-) -> list[ControlPlane]:
+def _find_existing_lfo_control_planes(subscriptions: Optional[set[str]] = None) -> list[ControlPlane]:
     """Find existing LFO control planes in the tenant. If `subscriptions` is specified, search is limited to these subscriptions.
     Returns a dict mapping control plane ID to control plane data."""
     if subscriptions is not None:
@@ -39,15 +37,15 @@ def _find_existing_lfo_control_planes(
         execute(AzCmd("extension", "add").param("--name", "resource-graph").param("--yes", ""))
 
     function_app_query = f"\"Resources | where type == 'microsoft.web/sites' and kind contains 'functionapp' and name startswith '{RESOURCES_TASK_PREFIX}'{subscriptions_clause} | project name, resourceGroup, subscriptionId, location\""
-    function_app_control_planes = _find_existing_lfo_control_planes_by_type(sub_id_to_name, function_app_query, ControlPlaneType.FunctionApps)
+    function_app_control_planes = _find_existing_lfo_control_planes_by_type(function_app_query, ControlPlaneType.FunctionApps)
 
     caj_query = f"\"Resources | where type == 'microsoft.app/jobs' and name startswith '{RESOURCES_TASK_PREFIX}'{subscriptions_clause} | project name, resourceGroup, subscriptionId, location\""
-    caj_control_planes = _find_existing_lfo_control_planes_by_type(sub_id_to_name, caj_query, ControlPlaneType.ContainerAppJobs)
+    caj_control_planes = _find_existing_lfo_control_planes_by_type(caj_query, ControlPlaneType.ContainerAppJobs)
 
     return function_app_control_planes + caj_control_planes
 
 
-def _find_existing_lfo_control_planes_by_type(sub_id_to_name: dict[str, str], arg_query: str, control_plane_type: ControlPlaneType) -> list[ControlPlane]:
+def _find_existing_lfo_control_planes_by_type(arg_query: str, control_plane_type: ControlPlaneType) -> list[ControlPlane]:
     json = execute(AzCmd("graph", "query").param("-q", arg_query))
     try:
         resp = loads(json)
@@ -64,7 +62,6 @@ def _find_existing_lfo_control_planes_by_type(sub_id_to_name: dict[str, str], ar
             ControlPlane(
                 id=control_plane_id,
                 sub_id=subscription_id,
-                sub_name=sub_id_to_name[subscription_id],
                 resource_group=app["resourceGroup"],
                 region=app["location"],
                 type=control_plane_type,
@@ -106,11 +103,11 @@ def _query_task_env_vars(control_plane: ControlPlane, task_name: str) -> dict[st
         raise
 
 
-def check_existing_lfo(subscriptions: set[str], sub_id_to_name: dict[str, str]) -> list[Configuration]:
+def check_existing_lfo(subscriptions: set[str]) -> list[Configuration]:
     """Check if LFO is already installed on any of the given subscriptions. Returns a dict mapping control plane ID to LFO metadata."""
     log.info("Checking if log forwarding is already installed in this Azure environment...")
 
-    control_planes = _find_existing_lfo_control_planes(sub_id_to_name, subscriptions).items()
+    control_planes = _find_existing_lfo_control_planes(subscriptions).items()
 
     # if there is more than one, just return some LFO stubs since we won't be modifying them
     if len(control_planes) > 1:

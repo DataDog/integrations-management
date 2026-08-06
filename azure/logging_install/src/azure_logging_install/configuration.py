@@ -24,7 +24,6 @@ class ControlPlaneType(str, Enum):
 class ControlPlane:
     id: str
     sub_id: str
-    sub_name: str
     resource_group: str
     region: str
     type: ControlPlaneType = ControlPlaneType.ContainerAppJobs

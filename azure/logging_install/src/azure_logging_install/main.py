@@ -154,8 +154,7 @@ def install_log_forwarder(config: Configuration):
         log_header("STEP 1: Validating user configuration...")
         validate_az_cli()
         validate_user_parameters(config)
-        sub_id_to_name = list_users_subscriptions()
-        existing_lfos = check_fresh_install(config, sub_id_to_name)
+        existing_lfos = check_fresh_install(config)
         if existing_lfos:
             if SKIP_SINGLETON_CHECK:
                 log.debug("Skipping singleton check - existing log forwarding installation found")
@@ -190,7 +189,6 @@ def main():
             control_plane=ControlPlane(
                 id=generate_control_plane_id(args.control_plane_subscription, args.control_plane_resource_group, args.control_plane_region),
                 sub_id=args.control_plane_subscription,
-                sub_name="",
                 resource_group=args.control_plane_resource_group,
                 region=args.control_plane_region,
                 type=args.control_plane_type,

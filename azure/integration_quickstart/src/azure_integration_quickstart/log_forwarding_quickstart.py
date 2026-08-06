@@ -35,6 +35,7 @@ def main():
         tenant_id, subscriptions = get_tenant_and_subscriptions()
         with ThreadPoolExecutor() as executor:
             scopes_future = executor.submit(finish_collecting_scopes, tenant_id, subscriptions, step_metadata)
+            # can build sub id -> name
             lfo_future = executor.submit(
                 report_existing_log_forwarders,
                 subscriptions,
@@ -57,15 +58,6 @@ def main():
             else:
                 final_sub_ids = add_ids
 
-            # TODO figure out how we can get id -> name
-            id_to_name = {s.id: s.name for s in selections.add_subscriptions}
-            if existing_lfo:
-                id_to_name.update(existing_lfo.monitored_subscriptions)
-            final_subscriptions = {
-                Subscription(id=sub_id, name=id_to_name.get(sub_id, "Unknown"))
-                for sub_id in final_sub_ids
-            }
-
     if selections.log_forwarding_config:
         existing_monitored = set(existing_lfo.monitored_subscriptions) if existing_lfo else set()
         wait_for_rg_delete_if_needed(
@@ -76,7 +68,7 @@ def main():
         with status.report_step(
             "upsert_log_forwarder", f"{'Updating' if existing_lfo else 'Creating'} Log Forwarder"
         ):
-            upsert_log_forwarder(selections.log_forwarding_config, final_subscriptions)
+            upsert_log_forwarder(selections.log_forwarding_config, final_sub_ids)
 
     print("Script succeeded. You may exit this shell.")
 
