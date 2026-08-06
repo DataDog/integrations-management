@@ -9,7 +9,7 @@ from logging import basicConfig
 from az_shared.errors import InputParamValidationError
 from az_shared.logs import log, log_header
 
-from .az_cmd import list_users_subscriptions, set_subscription
+from .az_cmd import set_subscription
 from .configuration import Configuration, ControlPlaneType, ControlPlane, generate_control_plane_id
 from .deploy import deploy_control_plane, run_initial_deploy
 from .existing_lfo import update_existing_lfo

@@ -25,7 +25,7 @@ def _find_existing_lfo_control_planes(subscriptions: Optional[set[str]] = None) 
     Returns a dict mapping control plane ID to control plane data."""
     if subscriptions is not None:
         if len(subscriptions) == 0:
-            return {}  # searching empty set of subscriptions
+            return []  # searching empty set of subscriptions
         subscriptions_clause = " and subscriptionId in ({})".format(
             ", ".join(["'{}'".format(subscription_id) for subscription_id in subscriptions])
         )
@@ -107,16 +107,16 @@ def check_existing_lfo(subscriptions: set[str]) -> list[Configuration]:
     """Check if LFO is already installed on any of the given subscriptions. Returns a dict mapping control plane ID to LFO metadata."""
     log.info("Checking if log forwarding is already installed in this Azure environment...")
 
-    control_planes = _find_existing_lfo_control_planes(subscriptions).items()
+    control_planes = _find_existing_lfo_control_planes(subscriptions)
 
     # if there is more than one, just return some LFO stubs since we won't be modifying them
     if len(control_planes) > 1:
         return [
-            Configuration(control_plane=control_plane, monitored_subs="",datadog_api_key="")
+            Configuration(control_plane=control_plane, monitored_subs="", datadog_api_key="")
             for control_plane in control_planes
         ]
     if len(control_planes) <= 0:
-        return {}
+        return []
 
     control_plane = control_planes[0]
     resource_task_name = f"{RESOURCES_TASK_PREFIX}{control_plane.id}"
@@ -127,7 +127,7 @@ def check_existing_lfo(subscriptions: set[str]) -> list[Configuration]:
 
     monitored_sub_ids_str = resource_task_env_vars.get(MONITORED_SUBSCRIPTIONS_KEY, "")
     if not monitored_sub_ids_str:
-        return {}
+        return []
 
     try:
         monitored_sub_ids = loads(monitored_sub_ids_str)

@@ -86,7 +86,7 @@ def validate_singleton_lfo(config: Configuration, existing_lfos: list[Configurat
         log.info("Exiting...")
         sys.exit(0)
 
-    existing_lfo_control_plane_id = existing_lfos[0].id
+    existing_lfo_control_plane_id = existing_lfos[0].control_plane.id
 
     if existing_count == 1 and existing_lfo_control_plane_id.casefold() != config.control_plane.id.casefold():
         log.error(
