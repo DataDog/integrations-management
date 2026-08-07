@@ -127,6 +127,11 @@ class Configuration:
     def get_control_plane_cache_conn_string(self) -> str:
         return f"DefaultEndpointsProtocol=https;AccountName={self.control_plane_cache_storage_name};EndpointSuffix=core.windows.net;AccountKey={self.get_control_plane_cache_key()}"
 
+    def __repr__(self) -> str:
+        fields = {**vars(self), "datadog_api_key": "***REDACTED***"}
+        args = ", ".join(f"{name}={value!r}" for name, value in fields.items())
+        return f"{type(self).__name__}({args})"
+
 
 def _get_diagnostic_settings_task_name(control_plane_type: str, control_plane_id: str) -> str:
     if control_plane_type == ControlPlaneType.FunctionApps:

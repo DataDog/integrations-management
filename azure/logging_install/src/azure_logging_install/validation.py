@@ -67,7 +67,7 @@ def check_fresh_install(config: Configuration) -> list[Configuration]:
     existing_lfos = check_existing_lfo(config.all_subscriptions)
     if existing_lfos:
         log.info("Found existing log forwarding installation(s)")
-        serializable_lfos = [asdict(c) for c in existing_lfos]
+        serializable_lfos = [{**asdict(c), "datadog_api_key": "***REDACTED***"} for c in existing_lfos]
         log.debug(json.dumps(serializable_lfos, indent=2))
     return existing_lfos
 
