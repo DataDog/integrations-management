@@ -14,7 +14,6 @@ from azure_integration_quickstart.quickstart_shared import (
     upsert_log_forwarder,
     wait_for_rg_delete_if_needed,
 )
-from azure_integration_quickstart.scopes import Subscription
 from az_shared.script_status import Status
 from azure_logging_install.existing_lfo import ControlPlane, Configuration
 from azure_logging_install.configuration import ControlPlaneType
