@@ -16,7 +16,7 @@ from azure_integration_quickstart.quickstart_shared import (
 )
 from azure_integration_quickstart.scopes import Subscription
 from az_shared.script_status import Status
-from azure_logging_install.existing_lfo import ControlPlane, LfoMetadata
+from azure_logging_install.existing_lfo import ControlPlane, Configuration
 from azure_logging_install.configuration import ControlPlaneType
 
 from integration_quickstart.tests.dd_test_case import DDTestCase
@@ -24,19 +24,19 @@ from integration_quickstart.tests.dd_test_case import DDTestCase
 
 def _make_metadata(monitored_subs=None):
     if monitored_subs is None:
-        monitored_subs = {"sub-1": "Sub One", "sub-2": "Sub Two"}
-    return LfoMetadata(
+        monitored_subs = "sub-1,sub-2"
+    return Configuration(
         control_plane=ControlPlane(
             id="cp-id",
             sub_id="cp-sub",
-            sub_name="Control Plane Sub",
             resource_group="lfo-rg",
             region="eastus",
             type=ControlPlaneType.ContainerAppJobs,
         ),
+        datadog_api_key="",
         monitored_subs=monitored_subs,
-        tag_filter="env:prod",
-        pii_rules="rule: redact",
+        resource_tag_filters="env:prod",
+        pii_scrubber_rules="rule: redact",
     )
 
 
@@ -45,7 +45,8 @@ class TestBuildLogForwarderPayload(DDTestCase):
 
     def test_include_monitored_scopes_true_includes_monitored_subscriptions(self):
         metadata = _make_metadata()
-        payload = build_log_forwarder_payload(metadata, include_monitored_scopes=True)
+        sub_id_to_name = {"sub-1": "Sub One", "sub-2": "Sub Two"}
+        payload = build_log_forwarder_payload(metadata, include_monitored_scopes=True, sub_id_to_name=sub_id_to_name)
         self.assertIn("monitoredSubscriptions", payload)
         self.assertEqual(
             payload["monitoredSubscriptions"],
@@ -56,7 +57,8 @@ class TestBuildLogForwarderPayload(DDTestCase):
 
     def test_include_monitored_scopes_false_omits_monitored_subscriptions(self):
         metadata = _make_metadata()
-        payload = build_log_forwarder_payload(metadata, include_monitored_scopes=False)
+        sub_id_to_name = {"sub-1": "Sub One", "sub-2": "Sub Two"}
+        payload = build_log_forwarder_payload(metadata, include_monitored_scopes=False, sub_id_to_name=sub_id_to_name)
         self.assertNotIn("monitoredSubscriptions", payload)
         self.assertEqual(payload["resourceGroupName"], "lfo-rg")
 
@@ -107,12 +109,12 @@ class TestReportExistingLogForwarders(DDTestCase):
     """report_existing_log_forwarders populates step_metadata and returns existing_lfo or None."""
 
     def test_one_lfo_populates_step_metadata_and_returns_metadata(self):
-        """With one existing LFO, step_metadata gets one payload and we return that LfoMetadata."""
+        """With one existing LFO, step_metadata gets one payload and we return that Configuration."""
         metadata = _make_metadata()
         step_metadata = {}
         with mock_patch(
             "azure_integration_quickstart.quickstart_shared.check_existing_lfo",
-            return_value={"lfo-id": metadata},
+            return_value=[metadata],
         ):
             existing_lfo = report_existing_log_forwarders([], step_metadata, include_monitored_scopes=True)
         self.assertIs(existing_lfo, metadata)
@@ -149,14 +151,13 @@ class TestUpsertLogForwarder(DDTestCase):
             "tagFilters": "env:prod",
             "piiFilters": "rule: redact",
         }
-        subscriptions = {Subscription(id="sub-1", name="Sub One")}
+        subscriptions = {"sub-1"}
 
         upsert_log_forwarder(config, subscriptions)
 
         self.install_mock.assert_called_once()
         configuration = self.install_mock.call_args[0][0]
         self.assertEqual(configuration.control_plane.sub_id, "cp-sub")
-        self.assertEqual(configuration.control_plane.sub_name, "Control Plane Sub")
         self.assertEqual(configuration.control_plane.resource_group, "lfo-rg")
         self.assertEqual(configuration.control_plane.region, "eastus")
         self.assertEqual(configuration.monitored_subscriptions, ["sub-1"])
