@@ -12,7 +12,6 @@ from azure_logging_install.existing_lfo import (
     PII_SCRUBBER_RULES_KEY,
     RESOURCE_TAG_FILTERS_KEY,
     RESOURCES_TASK_PREFIX,
-    SCALING_TASK_PREFIX,
     ControlPlane,
     check_existing_lfo,
     update_existing_lfo,
@@ -33,7 +32,6 @@ from logging_install.tests.test_data import (
     SUB_1_ID,
     SUB_2_ID,
     SUB_3_ID,
-    SUB_4_ID,
     get_test_config,
 )
 
