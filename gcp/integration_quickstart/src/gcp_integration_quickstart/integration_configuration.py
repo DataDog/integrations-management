@@ -41,6 +41,111 @@ REQUIRED_ROLES: list[str] = [
     "roles/serviceusage.serviceUsageConsumer",
 ]
 
+# Per https://docs.google.com/document/d/1HvxTa20Z1psOoDnrKRnJHEqum_lbJYcCcjOxUzmxGHE/edit?pli=1&tab=t.8yt0vdl0pdr9#heading=h.fei8q0l8pfs1
+# it was decided that a custom role would be used for org folder resource collection 
+CUSTOM_ORG_ROLE_ID = "datadogOrgFolderResourceCollectionRole"
+CUSTOM_ORG_ROLE_PERMISSIONS: list[str] = [
+    "cloudasset.assets.analyzeIamPolicy",
+    "cloudasset.assets.analyzeMove",
+    "cloudasset.assets.analyzeOrgPolicy",
+    "cloudasset.assets.exportAccessPolicy",
+    "cloudasset.assets.exportIamPolicy",
+    "cloudasset.assets.exportOSInventories",
+    "cloudasset.assets.exportOrgPolicy",
+    "cloudasset.assets.exportResource",
+    "cloudasset.assets.listAccessPolicy",
+    "cloudasset.assets.listIamPolicy",
+    "cloudasset.assets.listOSInventories",
+    "cloudasset.assets.listOrgPolicy",
+    "cloudasset.assets.listResource",
+    "cloudasset.assets.queryAccessPolicy",
+    "cloudasset.assets.queryIamPolicy",
+    "cloudasset.assets.queryOSInventories",
+    "cloudasset.assets.queryResource",
+    "cloudasset.assets.searchAllIamPolicies",
+    "cloudasset.assets.searchAllResources",
+    "cloudasset.assets.searchEnrichmentResourceOwners",
+    "iam.roles.get",
+    "recommender.cloudAssetInsights.get",
+    "recommender.cloudAssetInsights.list",
+    "recommender.locations.get",
+    "recommender.locations.list",
+    "serviceusage.services.use",
+]
+
+def assign_organization_permissions(
+        step_reporter:StepStatusReporter, project_id:str, service_account_email: str, 
+) -> None: 
+    """Assign a custom role for org folder resource collection"""
+
+    step_reporter.report(message=f"Assigning custom role for org folder resource collection for organization that houses project '{project_id}'")
+
+    # first find the organization from the project id the service account lives in 
+    ancestors = gcloud(
+        GcloudCmd("projects", "get-ancestors").arg(project_id),
+        "id",
+        "type",
+    )
+
+    org_id = None
+    for ancestor in ancestors:
+        if ancestor.get("type") == "organization":
+            org_id = ancestor.get("id")
+            break
+
+    if not org_id:
+        raise RuntimeError(
+            f"could not determine organization_id for project '{project_id}'"
+        )
+
+    # if the custom role already exists - replace/update the perms, else create the role
+    existing_role_search = gcloud(
+        GcloudCmd("iam roles", "list")
+        .param("--organization", org_id)
+        .param_equals("--filter", f"name='organizations/{org_id}/roles/{CUSTOM_ORG_ROLE_ID}'"),
+        "name",
+    )
+    if existing_role_search and len(existing_role_search) > 0:
+        step_reporter.report(
+            message=f"Found existing custom role '{CUSTOM_ORG_ROLE_ID}', updating permissions"
+        )
+        gcloud(
+            GcloudCmd("iam roles", "update")
+            .arg(CUSTOM_ORG_ROLE_ID)
+            .param("--organization", org_id)
+            .param("--permissions", ",".join(CUSTOM_ORG_ROLE_PERMISSIONS))
+        )
+    else: 
+        step_reporter.report(
+            message=f"Creating custom role [{CUSTOM_ORG_ROLE_ID}] on organization '{org_id}'"
+        )
+
+        gcloud(
+            GcloudCmd("iam roles", "create")
+            .arg(CUSTOM_ORG_ROLE_ID)
+            .param("--organization", org_id)
+            .param("--title", "Datadog Org Folder Resource Collection Role")
+            .param(
+                "--description",
+                "Grants Datadog necessary permissions to collect org/folder resources via Cloud Asset Inventory",
+            )
+            .param("--permissions", ",".join(CUSTOM_ORG_ROLE_PERMISSIONS))
+            .param("--stage", "GA")
+        )
+
+    step_reporter.report(
+        message=f"Assigning custom role [{CUSTOM_ORG_ROLE_ID}] to service account '{service_account_email}' on organization '{org_id}'"
+    )
+
+    gcloud(
+        GcloudCmd("organizations", "add-iam-policy-binding")
+        .arg(org_id)
+        .param("--member", f"serviceAccount:{service_account_email}")
+        .param("--role", f"organizations/{org_id}/roles/{CUSTOM_ORG_ROLE_ID}")
+        .param("--condition", "None")
+        .flag("--quiet")
+    )
+    
 
 def assign_delegate_permissions(
     step_reporter: StepStatusReporter, service_account_email: str, project_id: str
