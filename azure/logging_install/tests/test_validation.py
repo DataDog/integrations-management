@@ -353,6 +353,23 @@ class TestValidation(TestCase):
             self.assertEqual(result, mock_existing_lfos)
             mock_check_existing.assert_called_once_with(self.config.all_subscriptions)
 
+    def test_check_fresh_install_redacts_api_key_in_debug_log(self):
+        """Test that debug logging of existing LFOs never exposes a Datadog API key"""
+        mock_existing_lfo = make_config(datadog_api_key=DATADOG_API_KEY)
+
+        with (
+            mock_patch(
+                "azure_logging_install.validation.check_existing_lfo",
+                return_value=[mock_existing_lfo],
+            ),
+            self.assertLogs("logging_installer", level="DEBUG") as captured_logs,
+        ):
+            validation.check_fresh_install(self.config)
+
+        logged_output = "\n".join(captured_logs.output)
+        self.assertNotIn(DATADOG_API_KEY, logged_output)
+        self.assertIn("***REDACTED***", logged_output)
+
     # ===== User Configuration Validation Tests ===== #
 
     def test_validate_user_config_success(self):

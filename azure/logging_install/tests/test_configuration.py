@@ -243,3 +243,11 @@ class TestConfiguration(TestCase):
 
         caj_config = self.create_test_config(control_plane_type=ControlPlaneType.ContainerAppJobs)
         self.assertTrue(caj_config.diagnostic_settings_task_name.startswith("diag-settings-task-"))
+
+    def test_repr_redacts_datadog_api_key(self):
+        """Test that repr/str never expose the raw Datadog API key"""
+        config = self.create_test_config()
+
+        self.assertNotIn(DATADOG_API_KEY, repr(config))
+        self.assertNotIn(DATADOG_API_KEY, str(config))
+        self.assertIn("***REDACTED***", repr(config))
