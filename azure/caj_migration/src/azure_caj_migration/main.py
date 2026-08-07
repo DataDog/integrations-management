@@ -8,8 +8,7 @@ from logging import basicConfig
 
 from az_shared.errors import InputParamValidationError
 from az_shared.logs import log, log_header
-from azure_logging_install.az_cmd import list_users_subscriptions
-from azure_logging_install.configuration import LfoControlPlane
+from azure_logging_install.configuration import ControlPlane
 from azure_logging_install.validation import validate_az_cli
 
 from .cleanup import cleanup_old_resources
@@ -59,11 +58,11 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def migrate_one_installation(control_plane: LfoControlPlane) -> None:
+def migrate_one_installation(control_plane: ControlPlane) -> None:
     """Run all migration phases for a single control plane, with automatic rollback on failure."""
     log_header(
         f"Migrating control plane {control_plane.id} "
-        f"({control_plane.sub_name} / {control_plane.resource_group})"
+        f"({control_plane.sub_id} / {control_plane.resource_group})"
     )
 
     deployer = locate_deployer(control_plane)
@@ -93,21 +92,22 @@ def migrate_one_installation(control_plane: LfoControlPlane) -> None:
 
 def run_migration(control_plane_ids: str | None, skip_confirmation: bool) -> None:
     validate_az_cli()
-    sub_id_to_name = list_users_subscriptions()
 
     explicit_ids = None
     if control_plane_ids:
         explicit_ids = {cp_id.strip() for cp_id in control_plane_ids.split(",") if cp_id.strip()}
 
-    candidates = find_migration_candidates(sub_id_to_name, explicit_ids)
+    candidates = find_migration_candidates(explicit_ids)
     if not candidates:
         log.info("No eligible Function-App-based LFO installations found to migrate")
         return
 
+    skip_confirmation = skip_confirmation or explicit_ids is not None
+
     for control_plane_id, control_plane in candidates.items():
         if not (skip_confirmation or confirm_yes_no(
             f"Migrate control plane '{control_plane_id}' in subscription "
-            f"'{control_plane.sub_name}' ({control_plane.sub_id}), resource group "
+            f"'{control_plane.sub_id}', resource group "
             f"'{control_plane.resource_group}' to Container App Jobs?"
         )):
             log.info(f"Skipping migration for control plane {control_plane_id}")

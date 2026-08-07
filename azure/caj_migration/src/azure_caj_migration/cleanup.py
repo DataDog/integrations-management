@@ -6,7 +6,7 @@ from az_shared.execute_cmd import execute
 from az_shared.logs import log
 from azure_logging_install.az_cmd import AzCmd
 from azure_logging_install.configuration import (
-    LfoControlPlane,
+    ControlPlane,
     get_control_plane_cache_storage_name,
 )
 from azure_logging_install.constants import CONTROL_PLANE_CACHE, WEBSITE_CONTRIBUTOR_ID
@@ -16,7 +16,7 @@ from azure_logging_install.role_setup import (
 )
 
 
-def get_function_app_service_plan_id(function_app_name: str, control_plane: LfoControlPlane) -> str | None:
+def get_function_app_service_plan_id(function_app_name: str, control_plane: ControlPlane) -> str | None:
     try:
         output = execute(
             AzCmd("functionapp", "show")
@@ -32,7 +32,7 @@ def get_function_app_service_plan_id(function_app_name: str, control_plane: LfoC
         return None
 
 
-def delete_function_app(function_app_name: str, control_plane: LfoControlPlane) -> None:
+def delete_function_app(function_app_name: str, control_plane: ControlPlane) -> None:
     log.info(f"Deleting Function App '{function_app_name}'")
     execute(
         AzCmd("functionapp", "delete")
@@ -47,7 +47,7 @@ def delete_app_service_plan(plan_id: str) -> None:
     execute(AzCmd("appservice", "plan delete").param("--ids", plan_id).flag("--yes"))
 
 
-def delete_control_plane_cache_file_share(storage_account_name: str, control_plane: LfoControlPlane) -> None:
+def delete_control_plane_cache_file_share(storage_account_name: str, control_plane: ControlPlane) -> None:
     log.info(f"Deleting file share '{CONTROL_PLANE_CACHE}' on storage account '{storage_account_name}'")
     execute(
         AzCmd("storage", "share-rm delete")
@@ -59,7 +59,7 @@ def delete_control_plane_cache_file_share(storage_account_name: str, control_pla
     )
 
 
-def remove_deployer_website_contributor_role(deployer_job_name: str, control_plane: LfoControlPlane) -> None:
+def remove_deployer_website_contributor_role(deployer_job_name: str, control_plane: ControlPlane) -> None:
     control_plane_rg_scope = f"/subscriptions/{control_plane.sub_id}/resourceGroups/{control_plane.resource_group}"
     deployer_principal_id = get_container_app_job_principal_id(
         control_plane.resource_group, control_plane.sub_id, deployer_job_name
@@ -67,7 +67,7 @@ def remove_deployer_website_contributor_role(deployer_job_name: str, control_pla
     remove_role(control_plane_rg_scope, deployer_principal_id, WEBSITE_CONTRIBUTOR_ID)
 
 
-def cleanup_old_resources(control_plane: LfoControlPlane, deployer_job_name: str) -> list[str]:
+def cleanup_old_resources(control_plane: ControlPlane, deployer_job_name: str) -> list[str]:
     """Best-effort cleanup of resources made obsolete by the migration. Every step is independent
     and wrapped in its own try/except - failures are logged and returned as a list of messages
     describing what needs manual cleanup. Per instructions.md, Phase 5 has no rollback: errors

@@ -9,7 +9,7 @@ from az_shared.errors import ResourceNotFoundError
 from az_shared.execute_cmd import execute
 from az_shared.logs import log
 from azure_logging_install.az_cmd import AzCmd
-from azure_logging_install.configuration import LfoControlPlane
+from azure_logging_install.configuration import ControlPlane
 from azure_logging_install.constants import (
     DIAGNOSTIC_SETTINGS_TASK_CONTAINER_APP_JOB_PREFIX,
     DIAGNOSTIC_SETTINGS_TASK_CRON,
@@ -45,7 +45,7 @@ class CreatedJob:
     already_existed: bool
 
 
-def get_task_specs(control_plane: LfoControlPlane) -> list[TaskSpec]:
+def get_task_specs(control_plane: ControlPlane) -> list[TaskSpec]:
     """The Container App Job replacement for each of the 3 Function App tasks.
     Resources and scaling task names are unchanged (the CAJ and Function App resource types
     can share a name within the same resource group); only the diagnostic-settings task gets
@@ -79,7 +79,7 @@ def get_task_specs(control_plane: LfoControlPlane) -> list[TaskSpec]:
     ]
 
 
-def job_exists(name: str, control_plane: LfoControlPlane) -> bool:
+def job_exists(name: str, control_plane: ControlPlane) -> bool:
     try:
         execute(
             AzCmd("containerapp", "job show")
@@ -92,7 +92,7 @@ def job_exists(name: str, control_plane: LfoControlPlane) -> bool:
         return False
 
 
-def _translate_env_vars(control_plane: LfoControlPlane, task: TaskSpec, old_env_vars: dict[str, str]) -> list[str]:
+def _translate_env_vars(control_plane: ControlPlane, task: TaskSpec, old_env_vars: dict[str, str]) -> list[str]:
     common = [
         "AzureWebJobsStorage=secretref:connection-string",
         "DD_API_KEY=secretref:dd-api-key",
@@ -121,7 +121,7 @@ def _translate_env_vars(control_plane: LfoControlPlane, task: TaskSpec, old_env_
     return common + specific
 
 
-def create_paused_task_job(control_plane: LfoControlPlane, control_plane_env_name: str, task: TaskSpec) -> CreatedJob:
+def create_paused_task_job(control_plane: ControlPlane, control_plane_env_name: str, task: TaskSpec) -> CreatedJob:
     """Idempotently create a paused (Manual trigger-type) Container App Job for a control plane task,
     with environment variables copied from the corresponding old Function App.
     """
@@ -157,7 +157,7 @@ def create_paused_task_job(control_plane: LfoControlPlane, control_plane_env_nam
     return CreatedJob(task=task, already_existed=False)
 
 
-def delete_task_job(control_plane: LfoControlPlane, created_job: CreatedJob) -> None:
+def delete_task_job(control_plane: ControlPlane, created_job: CreatedJob) -> None:
     """Rollback for create_paused_task_job - only deletes jobs this run actually created."""
     if created_job.already_existed:
         log.debug(f"Skipping rollback deletion of pre-existing job '{created_job.task.new_task_name}'")
@@ -173,7 +173,7 @@ def delete_task_job(control_plane: LfoControlPlane, created_job: CreatedJob) -> 
 
 
 def build_container_job_steps(
-    control_plane: LfoControlPlane, control_plane_env_name: str, created_jobs: dict[str, CreatedJob]
+    control_plane: ControlPlane, control_plane_env_name: str, created_jobs: dict[str, CreatedJob]
 ) -> list[Step]:
     """Build the Phase 2 steps: create 3 paused Container App Jobs. `created_jobs` is populated
     (keyed by task key) as each step's action runs, so later phases can inspect what happened.

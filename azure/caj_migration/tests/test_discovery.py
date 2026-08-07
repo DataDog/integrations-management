@@ -12,7 +12,7 @@ from azure_caj_migration.discovery import (
     get_monitored_subscription_ids,
     locate_deployer,
 )
-from azure_logging_install.configuration import ControlPlaneType, LfoControlPlane
+from azure_logging_install.configuration import ControlPlane, ControlPlaneType
 
 from caj_migration.tests.test_data import (
     CONTROL_PLANE_ENV_NAME,
@@ -21,7 +21,6 @@ from caj_migration.tests.test_data import (
     CONTROL_PLANE_SUBSCRIPTION_ID,
     DEPLOYER_JOB_NAME,
     RESOURCES_TASK_NAME,
-    SUB_ID_TO_NAME,
     make_function_app_control_plane,
 )
 
@@ -37,40 +36,38 @@ class TestFindMigrationCandidates(TestCase):
 
     def test_filters_out_container_app_job_control_planes(self):
         func_app_cp = make_function_app_control_plane()
-        caj_cp = LfoControlPlane(
+        caj_cp = ControlPlane(
             id="other123456",
             sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-            sub_name="Other",
             resource_group="other-rg",
             region=CONTROL_PLANE_REGION,
             type=ControlPlaneType.ContainerAppJobs,
         )
-        self.mock_find_existing.return_value = {CONTROL_PLANE_ID: func_app_cp, "other123456": caj_cp}
+        self.mock_find_existing.return_value = [func_app_cp, caj_cp]
 
-        result = find_migration_candidates(SUB_ID_TO_NAME)
+        result = find_migration_candidates()
 
         self.assertEqual(result, {CONTROL_PLANE_ID: func_app_cp})
 
     def test_explicit_ids_filter_further(self):
         func_app_cp = make_function_app_control_plane()
-        other_cp = LfoControlPlane(
+        other_cp = ControlPlane(
             id="other123456",
             sub_id=CONTROL_PLANE_SUBSCRIPTION_ID,
-            sub_name="Other",
             resource_group="other-rg",
             region=CONTROL_PLANE_REGION,
             type=ControlPlaneType.FunctionApps,
         )
-        self.mock_find_existing.return_value = {CONTROL_PLANE_ID: func_app_cp, "other123456": other_cp}
+        self.mock_find_existing.return_value = [func_app_cp, other_cp]
 
-        result = find_migration_candidates(SUB_ID_TO_NAME, {CONTROL_PLANE_ID})
+        result = find_migration_candidates({CONTROL_PLANE_ID})
 
         self.assertEqual(result, {CONTROL_PLANE_ID: func_app_cp})
 
     def test_explicit_ids_not_found_are_dropped_with_a_warning(self):
-        self.mock_find_existing.return_value = {}
+        self.mock_find_existing.return_value = []
 
-        result = find_migration_candidates(SUB_ID_TO_NAME, {"missing-id"})
+        result = find_migration_candidates({"missing-id"})
 
         self.assertEqual(result, {})
 

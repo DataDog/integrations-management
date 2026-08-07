@@ -9,7 +9,6 @@ from azure_caj_migration.main import run_migration
 
 from caj_migration.tests.test_data import (
     CONTROL_PLANE_ID,
-    SUB_ID_TO_NAME,
     make_function_app_control_plane,
 )
 
@@ -17,12 +16,10 @@ from caj_migration.tests.test_data import (
 class TestRunMigration(TestCase):
     def setUp(self) -> None:
         self.mock_validate_az_cli = self.patch("azure_caj_migration.main.validate_az_cli")
-        self.mock_list_subs = self.patch("azure_caj_migration.main.list_users_subscriptions")
         self.mock_find_candidates = self.patch("azure_caj_migration.main.find_migration_candidates")
         self.mock_confirm = self.patch("azure_caj_migration.main.confirm_yes_no")
         self.mock_migrate_one = self.patch("azure_caj_migration.main.migrate_one_installation")
 
-        self.mock_list_subs.return_value = SUB_ID_TO_NAME
         self.control_plane = make_function_app_control_plane()
         self.mock_find_candidates.return_value = {CONTROL_PLANE_ID: self.control_plane}
 
@@ -64,12 +61,12 @@ class TestRunMigration(TestCase):
 
         self.mock_confirm.assert_not_called()
         self.mock_migrate_one.assert_called_once_with(self.control_plane)
-        self.mock_find_candidates.assert_called_once_with(SUB_ID_TO_NAME, {CONTROL_PLANE_ID})
+        self.mock_find_candidates.assert_called_once_with({CONTROL_PLANE_ID})
 
     def test_explicit_control_plane_ids_are_parsed_as_a_comma_separated_set(self):
         run_migration(f"{CONTROL_PLANE_ID}, other-id ", skip_confirmation=False)
 
-        self.mock_find_candidates.assert_called_once_with(SUB_ID_TO_NAME, {CONTROL_PLANE_ID, "other-id"})
+        self.mock_find_candidates.assert_called_once_with({CONTROL_PLANE_ID, "other-id"})
 
     def test_failure_on_one_installation_does_not_prevent_others(self):
         other_control_plane = make_function_app_control_plane()

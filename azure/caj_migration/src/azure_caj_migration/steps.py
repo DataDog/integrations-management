@@ -17,7 +17,7 @@ class Step:
     """A single unit of migration work with a corresponding rollback action."""
 
     name: str
-    execute: Callable[[], None]
+    action: Callable[[], None]
     rollback: Callable[[], None] = field(default=_noop)
 
 
@@ -32,7 +32,7 @@ def run_steps(steps: list[Step]) -> None:
     for curr_step in steps:
         log_header(f"STEP: {curr_step.name}")
         try:
-            curr_step.execute()
+            curr_step.action()
         except Exception as e:
             log.error(f"Step '{curr_step.name}' failed: {e}")
             _safe_rollback(curr_step)

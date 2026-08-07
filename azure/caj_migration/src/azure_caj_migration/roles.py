@@ -4,7 +4,7 @@
 
 from collections.abc import Iterable
 
-from azure_logging_install.configuration import ControlPlaneType, LfoControlPlane
+from azure_logging_install.configuration import ControlPlaneType, ControlPlane
 from azure_logging_install.constants import (
     CONTAINER_APPS_JOBS_CONTRIBUTOR_ID,
     MONITORING_CONTRIBUTOR_ID,
@@ -22,22 +22,21 @@ from azure_logging_install.role_setup import (
 from .steps import Step
 
 
-def as_container_app_job_control_plane(control_plane: LfoControlPlane) -> LfoControlPlane:
+def as_container_app_job_control_plane(control_plane: ControlPlane) -> ControlPlane:
     """A synthetic view of the control plane as if it were already Container-App-Job-based, so the
     existing `azure_logging_install` role helpers (which key task names off `control_plane.type`)
     resolve the *new* CAJ task names instead of the old Function App ones.
     """
-    return LfoControlPlane(
+    return ControlPlane(
         id=control_plane.id,
         sub_id=control_plane.sub_id,
-        sub_name=control_plane.sub_name,
         resource_group=control_plane.resource_group,
         region=control_plane.region,
         type=ControlPlaneType.ContainerAppJobs,
     )
 
 
-def _revoke_subscriptions_role_assignments(caj_control_plane: LfoControlPlane, sub_ids: Iterable[str]) -> None:
+def _revoke_subscriptions_role_assignments(caj_control_plane: ControlPlane, sub_ids: Iterable[str]) -> None:
     """Rollback for grant_subscriptions_permissions - removes only the 4 role assignments per
     subscription. Deliberately does NOT reuse `revoke_subscriptions_permissions`, which also
     deletes the monitored subscription's forwarder resource group; that resource group pre-exists
@@ -66,7 +65,7 @@ def _revoke_subscriptions_role_assignments(caj_control_plane: LfoControlPlane, s
 
 
 def build_role_steps(
-    control_plane: LfoControlPlane, deployer_job_name: str, monitored_sub_ids: Iterable[str]
+    control_plane: ControlPlane, deployer_job_name: str, monitored_sub_ids: Iterable[str]
 ) -> list[Step]:
     """Build the Phase 3 steps: grant the new Container App Job tasks the same per-subscription
     permissions the old Function Apps had, and grant the deployer Container Apps Jobs Contributor

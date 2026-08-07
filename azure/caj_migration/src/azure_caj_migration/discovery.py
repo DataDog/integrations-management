@@ -10,16 +10,13 @@ from az_shared.execute_cmd import execute
 from az_shared.logs import log
 from azure_logging_install.az_cmd import AzCmd
 from azure_logging_install.configuration import (
+    ControlPlane,
     ControlPlaneType,
-    LfoControlPlane,
     get_control_plane_env_name,
     get_deployer_job_name,
 )
 from azure_logging_install.constants import MONITORED_SUBSCRIPTIONS_KEY
-from azure_logging_install.existing_lfo import (
-    find_existing_lfo_control_planes,
-    query_task_env_vars,
-)
+from azure_logging_install.existing_lfo import find_existing_lfo_control_planes, query_task_env_vars
 
 
 @dataclass(frozen=True)
@@ -29,15 +26,15 @@ class Deployer:
 
 
 def find_migration_candidates(
-    sub_id_to_name: dict[str, str], explicit_control_plane_ids: set[str] | None = None
-) -> dict[str, LfoControlPlane]:
+    explicit_control_plane_ids: set[str] | None = None,
+) -> dict[str, ControlPlane]:
     """Find Function-App-type LFO control planes eligible for migration to Container App Jobs.
     If `explicit_control_plane_ids` is given, only those control planes are returned (if found and eligible).
     """
-    all_control_planes = find_existing_lfo_control_planes(sub_id_to_name)
+    all_control_planes = find_existing_lfo_control_planes()
     candidates = {
-        control_plane_id: control_plane
-        for control_plane_id, control_plane in all_control_planes.items()
+        control_plane.id: control_plane
+        for control_plane in all_control_planes
         if control_plane.type == ControlPlaneType.FunctionApps
     }
 
@@ -57,7 +54,7 @@ def find_migration_candidates(
     }
 
 
-def locate_deployer(control_plane: LfoControlPlane) -> Deployer:
+def locate_deployer(control_plane: ControlPlane) -> Deployer:
     """Find and verify the deployer's Container App Job and Container App Environment for a control plane."""
     job_name = get_deployer_job_name(control_plane.id)
     try:
@@ -88,7 +85,7 @@ def locate_deployer(control_plane: LfoControlPlane) -> Deployer:
     return Deployer(job_name=job_name, env_name=env_name)
 
 
-def get_monitored_subscription_ids(control_plane: LfoControlPlane) -> list[str]:
+def get_monitored_subscription_ids(control_plane: ControlPlane) -> list[str]:
     """Get the list of monitored subscription IDs from the old resources-task's environment variables."""
     env_vars = query_task_env_vars(control_plane, control_plane.resources_task_name)
     monitored_subs_str = env_vars.get(MONITORED_SUBSCRIPTIONS_KEY, "")
