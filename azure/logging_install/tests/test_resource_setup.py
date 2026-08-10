@@ -14,6 +14,7 @@ from logging_install.tests.test_data import (
     CONTROL_PLANE_ID,
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_RESOURCE_GROUP,
+    CONTROL_PLANE_SUBSCRIPTION_ID,
     get_test_config,
 )
 
@@ -139,7 +140,7 @@ class TestResourceSetup(TestCase):
         ]
 
         resource_setup.create_container_app_environment(
-            CONTAINER_APP_ENV_NAME, CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION
+            CONTAINER_APP_ENV_NAME, CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_SUBSCRIPTION_ID, CONTROL_PLANE_REGION
         )
 
         # Should have been called twice: once for show, once for create

@@ -115,7 +115,7 @@ def create_function_app(config: Configuration, name: str):
     """Create a function app for a control plane task and configure function app runtime"""
     try:
         log.info(f"Checking if Function App '{name}' already exists...")
-        verify_function_app_exists(name, config.control_plane.resources_group, config.control_plane.sub_id)
+        verify_function_app_exists(name, config.control_plane.resource_group, config.control_plane.sub_id)
         log.info(f"Function App '{name}' already exists - skipping creation and updating configuration")
         function_app_exists = True
     except ResourceNotFoundError:
