@@ -258,8 +258,8 @@ class TestResourceSetup(TestCase):
         create_cmd = str(self.execute_mock.call_args_list[1][0][0])
         self.assertIn("containerapp", create_cmd)
         self.assertIn("job create", create_cmd)
-        self.assertIn(caj_config.resources_task_name, create_cmd)
-        self.assertIn(caj_config.resources_task_image, create_cmd)
+        self.assertIn(caj_config.control_plane.resources_task_name, create_cmd)
+        self.assertIn(caj_config.control_plane.resources_task_image, create_cmd)
         self.assertIn(caj_config.control_plane_env_name, create_cmd)
         self.assertIn("300", create_cmd)
         self.assertIn("*/5 * * * *", create_cmd)
@@ -292,8 +292,8 @@ class TestResourceSetup(TestCase):
 
         create_cmd = str(self.execute_mock.call_args_list[1][0][0])
         self.assertIn("job create", create_cmd)
-        self.assertIn(caj_config.diagnostic_settings_task_name, create_cmd)
-        self.assertIn(caj_config.diagnostic_settings_task_image, create_cmd)
+        self.assertIn(caj_config.control_plane.diagnostic_settings_task_name, create_cmd)
+        self.assertIn(caj_config.control_plane.diagnostic_settings_task_image, create_cmd)
         self.assertIn("300", create_cmd)
         self.assertIn("*/5 * * * *", create_cmd)
         self.assertIn("RESOURCE_GROUP", create_cmd)
@@ -313,8 +313,8 @@ class TestResourceSetup(TestCase):
 
         create_cmd = str(self.execute_mock.call_args_list[1][0][0])
         self.assertIn("job create", create_cmd)
-        self.assertIn(caj_config.scaling_task_name, create_cmd)
-        self.assertIn(caj_config.scaling_task_image, create_cmd)
+        self.assertIn(caj_config.control_plane.scaling_task_name, create_cmd)
+        self.assertIn(caj_config.control_plane.scaling_task_image, create_cmd)
         self.assertIn("500", create_cmd)
         self.assertIn("3/5 * * * *", create_cmd)
         self.assertIn("RESOURCE_GROUP", create_cmd)
@@ -355,7 +355,7 @@ class TestResourceSetup(TestCase):
                 None,  # Third call (configure runtime)
             ]
 
-            resource_setup.create_function_app(self.config, self.config.resources_task_name)
+            resource_setup.create_function_app(self.config, self.config.control_plane.resources_task_name)
 
             # Should call execute 3 times: check existence, create app, configure runtime
             self.assertEqual(self.execute_mock.call_count, 3)

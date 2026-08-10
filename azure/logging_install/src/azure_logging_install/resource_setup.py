@@ -167,16 +167,16 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
     }
 
     # Task-specific settings
-    if function_app_name == config.resources_task_name:
+    if function_app_name == config.control_plane.resources_task_name:
         specific_settings = {
             MONITORED_SUBSCRIPTIONS_KEY: json.dumps(config.monitored_subscriptions),
             RESOURCE_TAG_FILTERS_KEY: config.resource_tag_filters,
         }
-    elif function_app_name == config.diagnostic_settings_task_name:
+    elif function_app_name == config.control_plane.diagnostic_settings_task_name:
         specific_settings = {
             "RESOURCE_GROUP": config.control_plane.resource_group,
         }
-    elif function_app_name == config.scaling_task_name:
+    elif function_app_name == config.control_plane.scaling_task_name:
         specific_settings = {
             "RESOURCE_GROUP": config.control_plane.resource_group,
             "FORWARDER_IMAGE": fully_qualified_image("forwarder:latest"),
@@ -257,7 +257,7 @@ def create_control_plane_function_apps(config: Configuration):
     """Create function apps for LFO Resources Task, Scaling Task, and Diagnostic Settings Task"""
 
     log.info("Creating control plane Function Apps...")
-    for function_app_name in config.control_plane_task_names:
+    for function_app_name in config.control_plane.task_names:
         create_function_app(config, function_app_name)
         set_function_app_env_vars(config, function_app_name)
 
@@ -327,8 +327,8 @@ def _create_resources_task_container_app_job(config: Configuration):
     ]
     _create_control_plane_task_container_app_job(
         config, 
-        config.resources_task_name, 
-        config.resources_task_image, 
+        config.control_plane.resources_task_name, 
+        config.control_plane.resources_task_image, 
         extra_vars, 
         "300",
         "*/5 * * * *"
@@ -340,8 +340,8 @@ def _create_diagnostic_settings_task_container_app_job(config: Configuration):
     ]
     _create_control_plane_task_container_app_job(
         config, 
-        config.diagnostic_settings_task_name, 
-        config.diagnostic_settings_task_image, 
+        config.control_plane.diagnostic_settings_task_name, 
+        config.control_plane.diagnostic_settings_task_image, 
         extra_vars, 
         "300",
         "*/5 * * * *"
@@ -355,8 +355,8 @@ def _create_scaling_task_container_app_job(config: Configuration):
     ]
     _create_control_plane_task_container_app_job(
         config, 
-        config.scaling_task_name, 
-        config.scaling_task_image, 
+        config.control_plane.scaling_task_name, 
+        config.control_plane.scaling_task_image, 
         extra_vars, 
         "500",
         "3/5 * * * *"
