@@ -2,7 +2,6 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-from dataclasses import dataclass
 from json import JSONDecodeError, loads
 from typing import Optional
 
@@ -20,7 +19,7 @@ from .role_setup import grant_subscriptions_permissions, revoke_subscriptions_pe
 from .constants import MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_PREFIX, SCALING_TASK_PREFIX
 
 
-def find_existing_lfo_control_planes(subscriptions: Optional[set[str]] = None) -> list[ControlPlane]:
+def find_existing_lfo_control_planes(subscriptions: Optional[set[str]] = None, control_plane_type: Optional[ControlPlaneType] = None) -> list[ControlPlane]:
     """Find existing LFO control planes in the tenant. If `subscriptions` is specified, search is limited to these subscriptions.
     Returns a dict mapping control plane ID to control plane data."""
     if subscriptions is not None:
@@ -37,11 +36,20 @@ def find_existing_lfo_control_planes(subscriptions: Optional[set[str]] = None) -
         execute(AzCmd("extension", "add").param("--name", "resource-graph").param("--yes", ""))
 
     function_app_query = f"\"Resources | where type == 'microsoft.web/sites' and kind contains 'functionapp' and name startswith '{RESOURCES_TASK_PREFIX}'{subscriptions_clause} | project name, resourceGroup, subscriptionId, location\""
-    function_app_control_planes = _find_existing_lfo_control_planes_by_type(function_app_query, ControlPlaneType.FunctionApps)
-
     caj_query = f"\"Resources | where type == 'microsoft.app/jobs' and name startswith '{RESOURCES_TASK_PREFIX}'{subscriptions_clause} | project name, resourceGroup, subscriptionId, location\""
-    caj_control_planes = _find_existing_lfo_control_planes_by_type(caj_query, ControlPlaneType.ContainerAppJobs)
 
+    function_app_control_planes = []
+    caj_control_planes = []
+
+    # query the provided type, or both types if not specified.
+    if control_plane_type is None:
+        function_app_control_planes = _find_existing_lfo_control_planes_by_type(function_app_query, ControlPlaneType.FunctionApps)
+        caj_control_planes = _find_existing_lfo_control_planes_by_type(caj_query, ControlPlaneType.ContainerAppJobs)
+    if control_plane_type is ControlPlaneType.FunctionApps:
+        function_app_control_planes = _find_existing_lfo_control_planes_by_type(function_app_query, ControlPlaneType.FunctionApps)
+    if control_plane_type is ControlPlaneType.ContainerAppJobs:
+        caj_control_planes = _find_existing_lfo_control_planes_by_type(caj_query, ControlPlaneType.ContainerAppJobs)
+   
     return function_app_control_planes + caj_control_planes
 
 
@@ -68,7 +76,6 @@ def _find_existing_lfo_control_planes_by_type(arg_query: str, control_plane_type
             )
         )
     return existing_control_planes
-
 
 
 def query_task_env_vars(control_plane: ControlPlane, task_name: str) -> dict[str, str]:
@@ -104,6 +111,33 @@ def query_task_env_vars(control_plane: ControlPlane, task_name: str) -> dict[str
         raise
 
 
+def get_current_config_for_control_plane(control_plane: ControlPlane) -> Configuration:
+    resource_task_env_vars = query_task_env_vars(control_plane, control_plane.resources_task_name)
+    scaling_task_env_vars = query_task_env_vars(control_plane, control_plane.scaling_task_name)
+
+    monitored_sub_ids_str = resource_task_env_vars.get(MONITORED_SUBSCRIPTIONS_KEY, "")
+    if not monitored_sub_ids_str:
+        return [] # TODO is empty valid?
+
+    try:
+        monitored_sub_ids = loads(monitored_sub_ids_str)
+    except JSONDecodeError as e:
+        log.error(f"Invalid JSON in MONITORED_SUBSCRIPTIONS env variable: {monitored_sub_ids_str}")
+        log.error(f"Error: {e}")
+        raise
+
+    tag_filters = resource_task_env_vars.get(RESOURCE_TAG_FILTERS_KEY, "")
+    pii_rules = scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
+
+    return Configuration(
+        control_plane,
+        monitored_subs=','.join(monitored_sub_ids),
+        datadog_api_key="",
+        resource_tag_filters=tag_filters,
+        pii_scrubber_rules=pii_rules,
+    )
+
+
 def check_existing_lfo(subscriptions: set[str]) -> list[Configuration]:
     """Check if LFO is already installed on any of the given subscriptions. Returns a dict mapping control plane ID to LFO metadata."""
     log.info("Checking if log forwarding is already installed in this Azure environment...")
@@ -119,38 +153,8 @@ def check_existing_lfo(subscriptions: set[str]) -> list[Configuration]:
     if len(control_planes) <= 0:
         return []
 
-    control_plane = control_planes[0]
-    resource_task_name = f"{RESOURCES_TASK_PREFIX}{control_plane.id}"
-    scaling_task_name = f"{SCALING_TASK_PREFIX}{control_plane.id}"
-
-    resource_task_env_vars = query_task_env_vars(control_plane, resource_task_name)
-    scaling_task_env_vars = query_task_env_vars(control_plane, scaling_task_name)
-
-    monitored_sub_ids_str = resource_task_env_vars.get(MONITORED_SUBSCRIPTIONS_KEY, "")
-    if not monitored_sub_ids_str:
-        return []
-
-    try:
-        monitored_sub_ids = loads(monitored_sub_ids_str)
-    except JSONDecodeError as e:
-        log.error(f"Invalid JSON: {monitored_sub_ids_str}")
-        log.error(f"Error: {e}")
-        raise
-
-    tag_filters = resource_task_env_vars.get(RESOURCE_TAG_FILTERS_KEY, "")
-    pii_rules = scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
-
-    return [
-        Configuration(
-            control_plane,
-            monitored_subs=','.join(monitored_sub_ids),
-            datadog_api_key="",
-            resource_tag_filters=tag_filters,
-            pii_scrubber_rules=pii_rules,
-        )
-    ]
-
-
+    return [get_current_config_for_control_plane(control_planes[0])]
+   
 def update_existing_lfo(new_config: Configuration, existing_lfo: Configuration):
     """Update an existing LFO for the given configuration"""
 

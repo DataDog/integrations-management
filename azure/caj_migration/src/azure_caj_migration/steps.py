@@ -2,28 +2,31 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
-
 from az_shared.logs import log, log_header
 
 
-def _noop() -> None:
+def noop() -> None:
     pass
 
 
-@dataclass
 class Step:
     """A single unit of migration work with a corresponding rollback action."""
 
     name: str
-    action: Callable[[], None]
-    rollback: Callable[[], None] = field(default=_noop)
+
+    def __init__(self, name: str):
+        self.name = name
+
+    def execute(self) -> None:
+        raise NotImplementedError()
+
+    def rollback(self) -> None:
+        raise NotImplementedError()
 
 
 def run_steps(steps: list[Step]) -> None:
     """Run steps in order. If a step fails, its own rollback is run first, then the
-    rollback actions of all preceding (completed) steps are run in reverse order, and
+    rollback actions of all preceding steps are run in reverse order, and
     the original error is re-raised. A rollback failure is logged but does not prevent
     the remaining rollbacks from running.
     """
@@ -32,7 +35,7 @@ def run_steps(steps: list[Step]) -> None:
     for curr_step in steps:
         log_header(f"STEP: {curr_step.name}")
         try:
-            curr_step.action()
+            curr_step.execute()
         except Exception as e:
             log.error(f"Step '{curr_step.name}' failed: {e}")
             _safe_rollback(curr_step)

@@ -3,10 +3,10 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 
-def confirm_yes_no(prompt: str, default: bool = False) -> bool:
-    """Prompt the user for a yes/no answer, returning `default` if they just press enter."""
-    suffix = " [Y/n] " if default else " [y/N] "
+def confirm_yes(prompt: str) -> bool:
+    """Prompt the user for a yes/no answer, returning True if they just press enter."""
+    suffix = " [Y/n] "
     answer = input(prompt + suffix).strip().lower()
     if not answer:
-        return default
+        return True
     return answer in ("y", "yes")

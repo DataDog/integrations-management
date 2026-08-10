@@ -29,9 +29,23 @@ class ControlPlane:
     type: ControlPlaneType = ControlPlaneType.ContainerAppJobs
 
     def __post_init__(self):
-        self.resources_task_name = _get_resources_task_name(self.id)
+        self.container_app_env_name = f"dd-log-forwarder-env-{self.control_plane.id}-{self.control_plane.region}"
+
+        self.deployer_job_name = f"deployer-task-{self.control_plane.id}"
+
         self.scaling_task_name = _get_scaling_task_name(self.id)
         self.diagnostic_settings_task_name = _get_diagnostic_settings_task_name(self.type, self.id)
+        self.resources_task_name = _get_resources_task_name(self.id)
+
+        self.scaling_task_image = fully_qualified_image(SCALING_TASK_IMAGE)
+        self.diagnostic_settings_task_image = fully_qualified_image(DIAGNOSTIC_SETTINGS_TASK_IMAGE)
+        self.resources_task_image = fully_qualified_image(RESOURCES_TASK_IMAGE)
+
+        self.task_names = [
+            self.resources_task_name,
+            self.scaling_task_name,
+            self.diagnostic_settings_task_name,
+        ]
 
 
 @dataclass
@@ -63,27 +77,12 @@ class Configuration:
         self.control_plane_cache_storage_key = None  # lazy-loaded
         self.control_plane_sub_scope = f"/subscriptions/{self.control_plane.sub_id}"
         self.control_plane_rg_scope = f"{self.control_plane_sub_scope}/resourceGroups/{self.control_plane.resource_group}"
-        self.control_plane_env_name = f"dd-log-forwarder-env-{self.control_plane.id}-{self.control_plane.region}"
+        self.control_plane_env_name = self.control_plane.container_app_env_name
 
         # Deployer
-        self.deployer_job_name = f"deployer-task-{self.control_plane.id}"
+        self.deployer_job_name = self.control_plane.deployer_job_name # TODO remove this
         self.deployer_image_url = _get_deployer_image(self.control_plane.type)
         self.container_app_start_role_name = f"ContainerAppStartRole{self.control_plane.id}"
-
-        # Control plane tasks
-        self.resources_task_name = _get_resources_task_name(self.control_plane.id)
-        self.resources_task_image = fully_qualified_image(RESOURCES_TASK_IMAGE)
-
-        self.scaling_task_name = _get_scaling_task_name(self.control_plane.id)
-        self.scaling_task_image = fully_qualified_image(SCALING_TASK_IMAGE)
-
-        self.diagnostic_settings_task_name = _get_diagnostic_settings_task_name(self.control_plane.type, self.control_plane.id)
-        self.diagnostic_settings_task_image = fully_qualified_image(DIAGNOSTIC_SETTINGS_TASK_IMAGE)
-        self.control_plane_task_names = [
-            self.resources_task_name,
-            self.scaling_task_name,
-            self.diagnostic_settings_task_name,
-        ]
 
 
     def get_control_plane_cache_key(self) -> str:
