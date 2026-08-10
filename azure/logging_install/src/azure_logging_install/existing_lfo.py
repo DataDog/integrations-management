@@ -19,6 +19,30 @@ from .role_setup import grant_subscriptions_permissions, revoke_subscriptions_pe
 from .constants import MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_PREFIX, SCALING_TASK_PREFIX
 
 
+def get_current_config_for_control_plane(control_plane: ControlPlane) -> Configuration:
+    resource_task_env_vars = _query_task_env_vars(control_plane, control_plane.resources_task_name)
+    scaling_task_env_vars = _query_task_env_vars(control_plane, control_plane.scaling_task_name)
+
+    monitored_sub_ids_str = resource_task_env_vars.get(MONITORED_SUBSCRIPTIONS_KEY, "")
+    try:
+        monitored_sub_ids = loads(monitored_sub_ids_str)
+    except JSONDecodeError as e:
+        log.error(f"Invalid JSON: {monitored_sub_ids_str}")
+        log.error(f"Error: {e}")
+        raise
+
+    tag_filters = resource_task_env_vars.get(RESOURCE_TAG_FILTERS_KEY, "")
+    pii_rules = scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
+
+    return Configuration(
+        control_plane,
+        monitored_subs=','.join(monitored_sub_ids),
+        datadog_api_key="",
+        resource_tag_filters=tag_filters,
+        pii_scrubber_rules=pii_rules,
+    )
+
+
 def find_existing_lfo_control_planes(subscriptions: Optional[set[str]] = None, control_plane_type: Optional[ControlPlaneType] = None) -> list[ControlPlane]:
     """Find existing LFO control planes in the tenant. 
     If `subscriptions` or `control_plane_type` is specified, search is limited to these subscriptions and control plane type, respectively.
@@ -124,39 +148,10 @@ def check_existing_lfo(subscriptions: set[str]) -> list[Configuration]:
             Configuration(control_plane=control_plane, monitored_subs="", datadog_api_key="")
             for control_plane in control_planes
         ]
-    if len(control_planes) <= 0:
+    if len(control_planes) == 0:
         return []
 
-    control_plane = control_planes[0]
-    resource_task_name = f"{RESOURCES_TASK_PREFIX}{control_plane.id}"
-    scaling_task_name = f"{SCALING_TASK_PREFIX}{control_plane.id}"
-
-    resource_task_env_vars = _query_task_env_vars(control_plane, resource_task_name)
-    scaling_task_env_vars = _query_task_env_vars(control_plane, scaling_task_name)
-
-    monitored_sub_ids_str = resource_task_env_vars.get(MONITORED_SUBSCRIPTIONS_KEY, "")
-    if not monitored_sub_ids_str:
-        return []
-
-    try:
-        monitored_sub_ids = loads(monitored_sub_ids_str)
-    except JSONDecodeError as e:
-        log.error(f"Invalid JSON: {monitored_sub_ids_str}")
-        log.error(f"Error: {e}")
-        raise
-
-    tag_filters = resource_task_env_vars.get(RESOURCE_TAG_FILTERS_KEY, "")
-    pii_rules = scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
-
-    return [
-        Configuration(
-            control_plane,
-            monitored_subs=','.join(monitored_sub_ids),
-            datadog_api_key="",
-            resource_tag_filters=tag_filters,
-            pii_scrubber_rules=pii_rules,
-        )
-    ]
+    return [get_current_config_for_control_plane(control_planes[0])]
 
 
 def update_existing_lfo(new_config: Configuration, existing_lfo: Configuration):
