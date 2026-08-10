@@ -22,6 +22,7 @@ from .integration_configuration import (
     assign_delegate_permissions,
     create_logs_forwarding_integration,
     create_integration_with_permissions,
+    assign_organization_permissions,
 )
 from .models import IntegrationConfiguration, ProductRequirements
 
@@ -40,6 +41,7 @@ class OnboardingStep(str, Enum):
     SELECTIONS = "selections"
     CREATE_SERVICE_ACCOUNT = "create_service_account"
     ASSIGN_DELEGATE_PERMISSIONS = "assign_delegate_permissions"
+    CREATE_CUSTOM_ORG_ROLE = "create_custom_organization_role"
     CREATE_INTEGRATION_WITH_PERMISSIONS = "create_integration_with_permissions"
     CREATE_LOGS_FORWARDING_INTEGRATION = "create_logs_forwarding_integration"
 
@@ -72,13 +74,14 @@ def main():
 
     with workflow_reporter.report_step(OnboardingStep.SELECTIONS):
         user_selections = workflow_reporter.receive_user_selections()
+        default_project_id = user_selections["default_project_id"]
     with workflow_reporter.report_step(
         OnboardingStep.CREATE_SERVICE_ACCOUNT
     ) as step_reporter:
         service_account_email = find_or_create_service_account(
             step_reporter,
             user_selections["service_account_id"],
-            user_selections["default_project_id"],
+            default_project_id,
         )
     with workflow_reporter.report_step(
         OnboardingStep.ASSIGN_DELEGATE_PERMISSIONS
@@ -86,7 +89,7 @@ def main():
         assign_delegate_permissions(
             step_reporter,
             service_account_email,
-            user_selections["default_project_id"],
+            default_project_id,
         )
 
     configuration_scope = ConfigurationScope(
@@ -97,6 +100,16 @@ def main():
             from_dict_recursive(folder) for folder in user_selections.get("folders", [])
         ],
     )
+
+    integration_configuration = IntegrationConfiguration(**user_selections["integration_configuration"])
+
+    if integration_configuration.is_org_folder_resource_collection_enabled: 
+        with workflow_reporter.report_step(OnboardingStep.CREATE_CUSTOM_ORG_ROLE) as step_reporter:
+            assign_organization_permissions(
+                step_reporter,
+                service_account_email,
+                default_project_id,
+            )
 
     with workflow_reporter.report_step(
         OnboardingStep.CREATE_INTEGRATION_WITH_PERMISSIONS
@@ -110,7 +123,7 @@ def main():
         create_integration_with_permissions(
             step_reporter,
             service_account_email,
-            IntegrationConfiguration(**user_selections["integration_configuration"]),
+            integration_configuration,
             configuration_scope,
             product_requirements,
         )
@@ -127,7 +140,7 @@ def main():
                 step_reporter,
                 service_account_email,
                 logs_forwarding_configuration,
-                user_selections["default_project_id"],
+                default_project_id,
                 configuration_scope,
             )
 
