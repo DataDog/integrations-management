@@ -4,7 +4,7 @@
 
 from unittest import TestCase
 
-from azure_caj_migration.steps import Step, run_steps
+from azure_lfo_container_app_migration.steps import Step, run_steps
 
 
 class TestRunSteps(TestCase):

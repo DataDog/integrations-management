@@ -5,7 +5,7 @@
 from unittest import TestCase
 from unittest.mock import patch as mock_patch
 
-from azure_caj_migration.roles import (
+from azure_lfo_container_app_migration.roles import (
     as_container_app_job_control_plane,
     build_role_steps,
 )
@@ -36,10 +36,10 @@ class TestAsContainerAppJobControlPlane(TestCase):
 class TestBuildRoleSteps(TestCase):
     def setUp(self) -> None:
         self.control_plane = make_function_app_control_plane()
-        self.mock_grant = self.patch("azure_caj_migration.roles.grant_subscriptions_permissions")
-        self.mock_get_principal_id = self.patch("azure_caj_migration.roles.get_container_app_job_principal_id")
-        self.mock_assign_role = self.patch("azure_caj_migration.roles.assign_role")
-        self.mock_remove_role = self.patch("azure_caj_migration.roles.remove_role")
+        self.mock_grant = self.patch("azure_lfo_container_app_migration.roles.grant_subscriptions_permissions")
+        self.mock_get_principal_id = self.patch("azure_lfo_container_app_migration.roles.get_container_app_job_principal_id")
+        self.mock_assign_role = self.patch("azure_lfo_container_app_migration.roles.assign_role")
+        self.mock_remove_role = self.patch("azure_lfo_container_app_migration.roles.remove_role")
         self.mock_get_principal_id.return_value = "deployer-principal-id"
 
     def patch(self, path: str, **kwargs):

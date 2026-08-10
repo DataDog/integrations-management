@@ -26,7 +26,7 @@ python -m pytest caj_migration/tests/ --tb=short
 
 ### Build/Ship
 Run from the `azure` folder:
-Zip app into a single executable file `dist/azure_caj_migration.pyz`
+Zip app into a single executable file `dist/azure_lfo_container_app_migration.pyz`
 
 ```bash
 caj_migration/build.sh
@@ -35,7 +35,7 @@ caj_migration/build.sh
 ### Execution
 Usage
 ```bash
-usage: azure_caj_migration.pyz [-h] [--control-plane-ids CONTROL_PLANE_IDS]
+usage: azure_lfo_container_app_migration.pyz [-h] [--control-plane-ids CONTROL_PLANE_IDS]
                                [--yes]
                                [--log-level {DEBUG,INFO,WARNING,ERROR}]
 

@@ -6,7 +6,7 @@ from unittest import TestCase
 from unittest.mock import patch as mock_patch
 
 from az_shared.errors import ResourceNotFoundError
-from azure_caj_migration.container_jobs import (
+from azure_lfo_container_app_migration.container_jobs import (
     DIAGNOSTIC_SETTINGS,
     RESOURCES,
     build_container_job_steps,
@@ -41,8 +41,8 @@ class TestGetTaskSpecs(TestCase):
 
 class TestCreatePausedTaskJob(TestCase):
     def setUp(self) -> None:
-        self.mock_execute = self.patch("azure_caj_migration.container_jobs.execute")
-        self.mock_query_env_vars = self.patch("azure_caj_migration.container_jobs.query_task_env_vars")
+        self.mock_execute = self.patch("azure_lfo_container_app_migration.container_jobs.execute")
+        self.mock_query_env_vars = self.patch("azure_lfo_container_app_migration.container_jobs.query_task_env_vars")
         self.control_plane = make_function_app_control_plane()
         self.task = get_task_specs(self.control_plane)[0]
 
@@ -88,10 +88,10 @@ class TestBuildContainerJobSteps(TestCase):
     def test_rollback_only_deletes_jobs_created_this_run(self):
         created_jobs = {}
         with (
-            mock_patch("azure_caj_migration.container_jobs.create_paused_task_job") as mock_create,
-            mock_patch("azure_caj_migration.container_jobs.execute") as mock_execute,
+            mock_patch("azure_lfo_container_app_migration.container_jobs.create_paused_task_job") as mock_create,
+            mock_patch("azure_lfo_container_app_migration.container_jobs.execute") as mock_execute,
         ):
-            from azure_caj_migration.container_jobs import CreatedJob
+            from azure_lfo_container_app_migration.container_jobs import CreatedJob
 
             def fake_create(control_plane, env_name, task):
                 already_existed = task.key != RESOURCES

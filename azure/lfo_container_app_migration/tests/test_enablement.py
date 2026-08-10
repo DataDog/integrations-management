@@ -7,8 +7,8 @@ from unittest import TestCase
 from unittest.mock import patch as mock_patch
 
 from az_shared.errors import FatalError, TimeoutError
-from azure_caj_migration.container_jobs import get_task_specs
-from azure_caj_migration.enablement import (
+from azure_lfo_container_app_migration.container_jobs import get_task_specs
+from azure_lfo_container_app_migration.enablement import (
     build_enablement_steps,
     trigger_and_wait_for_job,
 )
@@ -31,8 +31,8 @@ def _execution(status: str) -> str:
 class TestTriggerAndWaitForJob(TestCase):
     def setUp(self) -> None:
         self.control_plane = make_function_app_control_plane()
-        self.mock_execute = self.patch("azure_caj_migration.enablement.execute")
-        self.patch("azure_caj_migration.enablement.sleep")
+        self.mock_execute = self.patch("azure_lfo_container_app_migration.enablement.execute")
+        self.patch("azure_lfo_container_app_migration.enablement.sleep")
 
     def patch(self, path: str, **kwargs):
         patcher = mock_patch(path, **kwargs)
@@ -54,7 +54,7 @@ class TestTriggerAndWaitForJob(TestCase):
 
     def test_times_out_if_never_terminal(self):
         times = iter([0, 100, 200, 300, 400, 500, 600, 700, 800, 900])
-        self.patch("azure_caj_migration.enablement.time", side_effect=lambda: next(times))
+        self.patch("azure_lfo_container_app_migration.enablement.time", side_effect=lambda: next(times))
         self.mock_execute.side_effect = [""] + [_execution("Running")] * 8
 
         with self.assertRaises(TimeoutError):
@@ -65,13 +65,13 @@ class TestBuildEnablementSteps(TestCase):
     def setUp(self) -> None:
         self.control_plane = make_function_app_control_plane()
         self.task_specs = get_task_specs(self.control_plane)
-        self.mock_stop_caj = self.patch("azure_caj_migration.enablement.stop_container_app_job")
-        self.mock_start_caj = self.patch("azure_caj_migration.enablement.start_container_app_job")
-        self.mock_stop_func = self.patch("azure_caj_migration.enablement.stop_function_app")
-        self.mock_start_func = self.patch("azure_caj_migration.enablement.start_function_app")
-        self.mock_trigger = self.patch("azure_caj_migration.enablement.trigger_and_wait_for_job")
-        self.mock_set_trigger = self.patch("azure_caj_migration.enablement.set_job_trigger_type")
-        self.mock_update_image = self.patch("azure_caj_migration.enablement.update_container_app_job_image")
+        self.mock_stop_caj = self.patch("azure_lfo_container_app_migration.enablement.stop_container_app_job")
+        self.mock_start_caj = self.patch("azure_lfo_container_app_migration.enablement.start_container_app_job")
+        self.mock_stop_func = self.patch("azure_lfo_container_app_migration.enablement.stop_function_app")
+        self.mock_start_func = self.patch("azure_lfo_container_app_migration.enablement.start_function_app")
+        self.mock_trigger = self.patch("azure_lfo_container_app_migration.enablement.trigger_and_wait_for_job")
+        self.mock_set_trigger = self.patch("azure_lfo_container_app_migration.enablement.set_job_trigger_type")
+        self.mock_update_image = self.patch("azure_lfo_container_app_migration.enablement.update_container_app_job_image")
 
     def patch(self, path: str, **kwargs):
         patcher = mock_patch(path, **kwargs)

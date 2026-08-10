@@ -5,7 +5,7 @@
 from unittest import TestCase
 from unittest.mock import patch as mock_patch
 
-from azure_caj_migration.main import run_migration
+from azure_lfo_container_app_migration.main import run_migration
 
 from caj_migration.tests.test_data import (
     CONTROL_PLANE_ID,
@@ -15,10 +15,10 @@ from caj_migration.tests.test_data import (
 
 class TestRunMigration(TestCase):
     def setUp(self) -> None:
-        self.mock_validate_az_cli = self.patch("azure_caj_migration.main.validate_az_cli")
-        self.mock_find_candidates = self.patch("azure_caj_migration.main.find_migration_candidates")
-        self.mock_confirm = self.patch("azure_caj_migration.main.confirm_yes_no")
-        self.mock_migrate_one = self.patch("azure_caj_migration.main.migrate_one_installation")
+        self.mock_validate_az_cli = self.patch("azure_lfo_container_app_migration.main.validate_az_cli")
+        self.mock_find_candidates = self.patch("azure_lfo_container_app_migration.main.find_migration_candidates")
+        self.mock_confirm = self.patch("azure_lfo_container_app_migration.main.confirm_yes_no")
+        self.mock_migrate_one = self.patch("azure_lfo_container_app_migration.main.migrate_one_installation")
 
         self.control_plane = make_function_app_control_plane()
         self.mock_find_candidates.return_value = {CONTROL_PLANE_ID: self.control_plane}

@@ -15,9 +15,9 @@ find caj_migration/dist/tmp \( -name __pycache__ -o -name .ruff_cache \) -type d
 find caj_migration/dist/tmp -name .DS_Store -delete
 
 python -m zipapp caj_migration/dist/tmp \
-  -o caj_migration/dist/azure_caj_migration.pyz \
+  -o caj_migration/dist/azure_lfo_container_app_migration.pyz \
   -p "/usr/bin/env python3" \
-  -m "azure_caj_migration.main:main"
-chmod +x caj_migration/dist/azure_caj_migration.pyz
+  -m "azure_lfo_container_app_migration.main:main"
+chmod +x caj_migration/dist/azure_lfo_container_app_migration.pyz
 
 rm -r caj_migration/dist/tmp

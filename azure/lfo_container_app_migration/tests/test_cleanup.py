@@ -5,7 +5,7 @@
 from unittest import TestCase
 from unittest.mock import patch as mock_patch
 
-from azure_caj_migration.cleanup import (
+from azure_lfo_container_app_migration.cleanup import (
     cleanup_old_resources,
     get_function_app_service_plan_id,
 )
@@ -22,7 +22,7 @@ from caj_migration.tests.test_data import (
 
 class TestGetFunctionAppServicePlanId(TestCase):
     def setUp(self) -> None:
-        self.mock_execute = self.patch("azure_caj_migration.cleanup.execute")
+        self.mock_execute = self.patch("azure_lfo_container_app_migration.cleanup.execute")
         self.control_plane = make_function_app_control_plane()
 
     def patch(self, path: str, **kwargs):
@@ -48,11 +48,11 @@ class TestGetFunctionAppServicePlanId(TestCase):
 class TestCleanupOldResources(TestCase):
     def setUp(self) -> None:
         self.control_plane = make_function_app_control_plane()
-        self.mock_get_plan_id = self.patch("azure_caj_migration.cleanup.get_function_app_service_plan_id")
-        self.mock_delete_function_app = self.patch("azure_caj_migration.cleanup.delete_function_app")
-        self.mock_delete_plan = self.patch("azure_caj_migration.cleanup.delete_app_service_plan")
-        self.mock_delete_share = self.patch("azure_caj_migration.cleanup.delete_control_plane_cache_file_share")
-        self.mock_remove_role = self.patch("azure_caj_migration.cleanup.remove_deployer_website_contributor_role")
+        self.mock_get_plan_id = self.patch("azure_lfo_container_app_migration.cleanup.get_function_app_service_plan_id")
+        self.mock_delete_function_app = self.patch("azure_lfo_container_app_migration.cleanup.delete_function_app")
+        self.mock_delete_plan = self.patch("azure_lfo_container_app_migration.cleanup.delete_app_service_plan")
+        self.mock_delete_share = self.patch("azure_lfo_container_app_migration.cleanup.delete_control_plane_cache_file_share")
+        self.mock_remove_role = self.patch("azure_lfo_container_app_migration.cleanup.remove_deployer_website_contributor_role")
 
     def patch(self, path: str, **kwargs):
         patcher = mock_patch(path, **kwargs)

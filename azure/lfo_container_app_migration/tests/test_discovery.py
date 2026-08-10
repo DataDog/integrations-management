@@ -7,7 +7,7 @@ from unittest import TestCase
 from unittest.mock import patch as mock_patch
 
 from az_shared.errors import FatalError, ResourceNotFoundError
-from azure_caj_migration.discovery import (
+from azure_lfo_container_app_migration.discovery import (
     find_migration_candidates,
     get_monitored_subscription_ids,
     locate_deployer,
@@ -27,7 +27,7 @@ from caj_migration.tests.test_data import (
 
 class TestFindMigrationCandidates(TestCase):
     def setUp(self) -> None:
-        self.mock_find_existing = self.patch("azure_caj_migration.discovery.find_existing_lfo_control_planes")
+        self.mock_find_existing = self.patch("azure_lfo_container_app_migration.discovery.find_existing_lfo_control_planes")
 
     def patch(self, path: str, **kwargs):
         patcher = mock_patch(path, **kwargs)
@@ -74,7 +74,7 @@ class TestFindMigrationCandidates(TestCase):
 
 class TestLocateDeployer(TestCase):
     def setUp(self) -> None:
-        self.execute_mock = self.patch("azure_caj_migration.discovery.execute")
+        self.execute_mock = self.patch("azure_lfo_container_app_migration.discovery.execute")
         self.control_plane = make_function_app_control_plane()
 
     def patch(self, path: str, **kwargs):
@@ -105,7 +105,7 @@ class TestLocateDeployer(TestCase):
 
 class TestGetMonitoredSubscriptionIds(TestCase):
     def setUp(self) -> None:
-        self.mock_query_env_vars = self.patch("azure_caj_migration.discovery.query_task_env_vars")
+        self.mock_query_env_vars = self.patch("azure_lfo_container_app_migration.discovery.query_task_env_vars")
         self.control_plane = make_function_app_control_plane()
 
     def patch(self, path: str, **kwargs):
