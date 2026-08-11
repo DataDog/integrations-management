@@ -7,6 +7,7 @@ from azure_logging_install.configuration import ControlPlane, ControlPlaneType, 
 from azure_logging_install.existing_lfo import find_existing_lfo_control_planes, get_current_config_for_control_plane
 from azure_logging_install.resource_setup import verify_container_app_env_exists, verify_container_app_job_exists, verify_function_app_exists
 
+from .create_container_app_job import CreateContainerAppJob
 from .prompts import confirm_yes
 from .steps import run_steps, Step
 
@@ -51,7 +52,13 @@ def migrate_control_plane(control_plane: ControlPlane) -> None:
 
 
 def _build_migration_steps(config: Configuration) -> list[Step]:
-    return []
+    control_plane = config.control_plane
+
+    return [
+        CreateContainerAppJob(config, control_plane.resources_task_name, control_plane.resources_task_image),
+        CreateContainerAppJob(config, control_plane.diagnostic_settings_task_name, control_plane.diagnostic_settings_task_image),
+        CreateContainerAppJob(config, control_plane.scaling_task_name, control_plane.scaling_task_image, timeout="500"),
+    ]
 
 
 def _verify_function_app_installation(config: Configuration) -> None:
