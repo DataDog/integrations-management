@@ -56,6 +56,7 @@ def deploy_control_plane(config: Configuration):
     create_container_app_environment(
         config.control_plane_env_name,
         config.control_plane.resource_group,
+        config.control_plane.sub_id,
         config.control_plane.region,
     )
 

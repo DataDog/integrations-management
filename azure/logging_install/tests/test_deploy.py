@@ -258,7 +258,7 @@ class TestDeploy(TestCase):
         # Test LFO deployer deployment
         deploy.deploy_lfo_deployer(mock_config)
 
-        self.create_container_app_environment_mock.assert_called_with("test-env-789", "test-rg-456", "westus2")
+        self.create_container_app_environment_mock.assert_called_with("test-env-789", "test-rg-456", "test-sub-123", "westus2")
 
     # ===== Deployment Flow Integration Tests ===== #
 

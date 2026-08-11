@@ -239,10 +239,10 @@ class TestConfiguration(TestCase):
     def test_diagnostic_settings_task_name(self):
         """Test diagnostic_settings_task_name format"""
         function_app_config = self.create_test_config()
-        self.assertTrue(function_app_config.diagnostic_settings_task_name.startswith("diagnostic-settings-task-"))
+        self.assertTrue(function_app_config.control_plane.diagnostic_settings_task_name.startswith("diagnostic-settings-task-"))
 
         caj_config = self.create_test_config(control_plane_type=ControlPlaneType.ContainerAppJobs)
-        self.assertTrue(caj_config.diagnostic_settings_task_name.startswith("diag-settings-task-"))
+        self.assertTrue(caj_config.control_plane.diagnostic_settings_task_name.startswith("diag-settings-task-"))
 
     def test_repr_redacts_datadog_api_key(self):
         """Test that repr/str never expose the raw Datadog API key"""
