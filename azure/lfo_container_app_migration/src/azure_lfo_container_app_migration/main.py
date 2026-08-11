@@ -55,8 +55,8 @@ def main():
 
     try:
         optional_control_plane_ids = {cp_id.strip() for cp_id in args.control_plane_ids.split(",") if cp_id.strip()}
-    except Exception as e:
-        log.error(f"Failed to parse --control-plane-ids. Value must be a comma separated list of strings.")
+    except Exception:
+        log.error("Failed to parse --control-plane-ids. Value must be a comma separated list of strings.")
         raise InputParamValidationError("Failed parse --control-plane-ids")
 
     validate_az_cli()

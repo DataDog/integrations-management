@@ -16,7 +16,7 @@ from .resource_setup import (
     set_resource_tag_filters,
 )
 from .role_setup import grant_subscriptions_permissions, revoke_subscriptions_permissions
-from .constants import MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_PREFIX, SCALING_TASK_PREFIX
+from .constants import MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_PREFIX
 
 
 def get_current_config_for_control_plane(control_plane: ControlPlane) -> Configuration:
