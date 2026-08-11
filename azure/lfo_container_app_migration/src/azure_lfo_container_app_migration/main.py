@@ -53,11 +53,14 @@ def main():
         log.error(f"Failed to parse arguments: {e}")
         raise InputParamValidationError(f"Failed to initialize: {e}")
 
-    try:
-        optional_control_plane_ids = {cp_id.strip() for cp_id in args.control_plane_ids.split(",") if cp_id.strip()}
-    except Exception:
-        log.error("Failed to parse --control-plane-ids. Value must be a comma separated list of strings.")
-        raise InputParamValidationError("Failed parse --control-plane-ids")
+    if args.control_plane_ids is None:
+        optional_control_plane_ids = set()
+    else:
+        try:
+            optional_control_plane_ids = {cp_id.strip() for cp_id in args.control_plane_ids.split(",") if cp_id.strip()}
+        except Exception:
+            log.error("Failed to parse --control-plane-ids. Value must be a comma separated list of strings.")
+            raise InputParamValidationError("Failed parse --control-plane-ids")
 
     validate_az_cli()
     # TODO add other user validation?
