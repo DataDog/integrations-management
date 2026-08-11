@@ -13,7 +13,6 @@ from az_shared.logs import log
 from .migration import run_migration
 
 def parse_arguments():
-    """Parse command line arguments."""
     parser = argparse.ArgumentParser(
         description="Migrate an Azure Log Forwarding Orchestration control plane from Function Apps to Container App Jobs",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -47,7 +46,6 @@ def parse_arguments():
 
 
 def main():
-    """Main migration flow that orchestrates all steps."""
     try:
         args = parse_arguments()
         basicConfig(level=getattr(logging, args.log_level))

@@ -148,6 +148,8 @@ def check_existing_lfo(subscriptions: set[str]) -> list[Configuration]:
             Configuration(control_plane=control_plane, monitored_subs="", datadog_api_key="")
             for control_plane in control_planes
         ]
+
+    # TODO this used to check len(monitored_subscriptions) > 0. Why?
     if len(control_planes) == 0:
         return []
 
