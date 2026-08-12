@@ -1,1 +1,0 @@
-Reuse existing code when reuse would improve code readability and reduce duplication. If existing function signatures need to change to enable reuse, that is OK.

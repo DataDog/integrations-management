@@ -77,8 +77,7 @@ def _verify_function_app_installation(config: Configuration) -> None:
 
 
 def _build_caj_config(function_app_config: Configuration, log_level: str) -> Configuration:
-    # Take the function app Configuration and use it to create a CAJ configuration, sharing the same
-    # control plane id/subscription/resource group/region so resource names line up across the two types.
+    """Build a Container App Job configuration with the same options as the Function App Configuration"""
     function_app_control_plane = function_app_config.control_plane
     caj_control_plane = ControlPlane(
         id=function_app_control_plane.id,

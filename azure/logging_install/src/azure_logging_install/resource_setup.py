@@ -299,55 +299,24 @@ def _create_control_plane_task_container_app_job(config: Configuration, task_nam
         f"LOG_LEVEL={config.log_level}",
     ]
 
-    create_container_app_job(
-        job_name=task_name,
-        resource_group=config.control_plane.resource_group,
-        subscription_id=config.control_plane.sub_id,
-        environment_name=config.control_plane_env_name,
-        image=image_name,
-        env_vars=common_vars + extra_vars,
-        secrets=secrets,
-        cron_expression=cron,
-        timeout=timeout,
-        retry_limit="0",
-    )
+    all_vars = common_vars + extra_vars
 
-
-def create_container_app_job(
-    job_name: str,
-    resource_group: str,
-    subscription_id: str,
-    environment_name: str,
-    image: str,
-    env_vars: list[str],
-    secrets: list[str],
-    cron_expression: str,
-    timeout: str,
-    retry_limit: str,
-) -> None:
-    """Create a Container App Job with a system-assigned managed identity, scheduled with the given cron expression."""
-    log.info(f"Creating Container App job {job_name}")
-
-    cmd = (
+    execute(
         AzCmd("containerapp", "job create")
-        .param("--name", job_name)
-        .param("--resource-group", resource_group)
-        .param("--subscription", subscription_id)
-        .param("--environment", environment_name)
+        .param("--name", task_name)
+        .param("--resource-group", config.control_plane.resource_group)
+        .param("--environment", config.control_plane_env_name)
         .param("--replica-timeout", timeout)
-        .param("--replica-retry-limit", retry_limit)
+        .param("--replica-retry-limit", "0")
         .param("--trigger-type", "Schedule")
-        .param("--cron-expression", shlex.quote(cron_expression))
-        .param("--image", image)
+        .param("--cron-expression", shlex.quote(cron))
+        .param("--image", image_name)
         .param("--cpu", "0.5")
         .param("--memory", "1Gi")
         .flag("--mi-system-assigned")
-        .param_list("--env-vars", env_vars)
+        .param_list("--env-vars", all_vars)
+        .param_list("--secrets", secrets)
     )
-    if secrets:
-        cmd = cmd.param_list("--secrets", secrets)
-
-    execute(cmd)
 
 
 def delete_container_app_job(job_name: str, resource_group: str, subscription_id: str) -> None:

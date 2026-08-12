@@ -20,8 +20,8 @@ from .constants import MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESO
 
 
 def get_current_config_for_control_plane(control_plane: ControlPlane) -> Configuration:
-    resource_task_env_vars = query_task_env_vars(control_plane, control_plane.resources_task_name)
-    scaling_task_env_vars = query_task_env_vars(control_plane, control_plane.scaling_task_name)
+    resource_task_env_vars = _query_task_env_vars(control_plane, control_plane.resources_task_name)
+    scaling_task_env_vars = _query_task_env_vars(control_plane, control_plane.scaling_task_name)
 
     monitored_sub_ids_str = resource_task_env_vars.get(MONITORED_SUBSCRIPTIONS_KEY, "")
     if not monitored_sub_ids_str:
@@ -36,7 +36,7 @@ def get_current_config_for_control_plane(control_plane: ControlPlane) -> Configu
 
     tag_filters = resource_task_env_vars.get(RESOURCE_TAG_FILTERS_KEY, "")
     pii_rules = scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
-    datadog_api_key = resource_task_env_vars.get("DD_API_KEY", "")
+    datadog_api_key = resource_task_env_vars.get("DD_API_KEY", "") # TODO fetch the secret ref for CAJ's
 
     return Configuration(
         control_plane,
@@ -107,7 +107,7 @@ def _find_existing_lfo_control_planes_by_type(arg_query: str, control_plane_type
     return existing_control_planes
 
 
-def query_task_env_vars(control_plane: ControlPlane, task_name: str) -> dict[str, str]:
+def _query_task_env_vars(control_plane: ControlPlane, task_name: str) -> dict[str, str]:
     """
     Query all environment variables for a task, either Function App or Container App Jobs, and return as a dictionary.
     NOTE For Container App Jobs, environment variables that are secretrefs, like DD_API_KEY, are returned with an empty value
