@@ -550,7 +550,7 @@ def register_missing_resource_providers(sub_to_unregistered_provider_list: dict[
 
 
 def verify_function_app_exists(name: str, resource_group: str, subscription_id: str) -> None:
-    return execute(
+    execute(
         AzCmd("functionapp", "show")
         .param("--name", name)
         .param("--resource-group", resource_group)
@@ -568,7 +568,6 @@ def verify_container_app_env_exists(name: str, resource_group: str, subscription
 
 
 def verify_container_app_job_exists(name: str, resource_group: str, subscription_id: str) -> None:
-    """Verify the deployer's Container App Job and Container App Environment exist."""
     execute(
         AzCmd("containerapp", "job show")
         .param("--name", name)
