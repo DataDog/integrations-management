@@ -230,11 +230,11 @@ class TestResourceSetup(TestCase):
     def test_create_control_plane_container_app_jobs_success(self):
         """Test that all three control plane Container App Jobs are created"""
         with (
-            mock_patch("azure_logging_install.resource_setup._create_resources_task_container_app_job") as mock_resources,
+            mock_patch("azure_logging_install.resource_setup.create_resources_task_container_app_job") as mock_resources,
             mock_patch(
-                "azure_logging_install.resource_setup._create_diagnostic_settings_task_container_app_job"
+                "azure_logging_install.resource_setup.create_diagnostic_settings_task_container_app_job"
             ) as mock_diagnostic,
-            mock_patch("azure_logging_install.resource_setup._create_scaling_task_container_app_job") as mock_scaling,
+            mock_patch("azure_logging_install.resource_setup.create_scaling_task_container_app_job") as mock_scaling,
         ):
             caj_config = get_test_config()
             resource_setup.create_control_plane_container_app_jobs(caj_config)
@@ -252,7 +252,7 @@ class TestResourceSetup(TestCase):
         ]
 
         with mock_patch.object(caj_config, "get_control_plane_cache_key", return_value="test-key"):
-            resource_setup._create_resources_task_container_app_job(caj_config)
+            resource_setup.create_resources_task_container_app_job(caj_config)
 
         self.assertEqual(self.execute_mock.call_count, 2)
 
@@ -272,7 +272,7 @@ class TestResourceSetup(TestCase):
         caj_config = get_test_config()
         self.execute_mock.return_value = None  # job show succeeds
 
-        resource_setup._create_resources_task_container_app_job(caj_config)
+        resource_setup.create_resources_task_container_app_job(caj_config)
 
         self.execute_mock.assert_called_once()
         create_cmd = str(self.execute_mock.call_args[0][0])
@@ -287,7 +287,7 @@ class TestResourceSetup(TestCase):
         ]
 
         with mock_patch.object(caj_config, "get_control_plane_cache_key", return_value="test-key"):
-            resource_setup._create_diagnostic_settings_task_container_app_job(caj_config)
+            resource_setup.create_diagnostic_settings_task_container_app_job(caj_config)
 
         self.assertEqual(self.execute_mock.call_count, 2)
 
@@ -308,7 +308,7 @@ class TestResourceSetup(TestCase):
         ]
 
         with mock_patch.object(caj_config, "get_control_plane_cache_key", return_value="test-key"):
-            resource_setup._create_scaling_task_container_app_job(caj_config)
+            resource_setup.create_scaling_task_container_app_job(caj_config)
 
         self.assertEqual(self.execute_mock.call_count, 2)
 
@@ -328,7 +328,7 @@ class TestResourceSetup(TestCase):
         self.execute_mock.side_effect = FatalError("Unexpected failure")
 
         with self.assertRaises(FatalError):
-            resource_setup._create_resources_task_container_app_job(caj_config)
+            resource_setup.create_resources_task_container_app_job(caj_config)
 
         self.execute_mock.assert_called_once()
 
