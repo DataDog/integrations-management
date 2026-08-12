@@ -12,6 +12,7 @@ from .create_container_app_job import (
     CreateResourcesTaskContainerAppJob,
     CreateScalingTaskContainerAppJob,
 )
+from .grant_permissions import GrantContainerAppJobPermissionsStep
 from .prompts import confirm_yes
 from .steps import run_steps, Step
 
@@ -62,6 +63,7 @@ def _build_migration_steps(caj_config: Configuration) -> list[Step]:
         CreateResourcesTaskContainerAppJob(caj_config),
         CreateDiagnosticSettingsTaskContainerAppJob(caj_config),
         CreateScalingTaskContainerAppJob(caj_config),
+        GrantContainerAppJobPermissionsStep(caj_config),
     ]
 
 
