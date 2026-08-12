@@ -36,11 +36,12 @@ def get_current_config_for_control_plane(control_plane: ControlPlane) -> Configu
 
     tag_filters = resource_task_env_vars.get(RESOURCE_TAG_FILTERS_KEY, "")
     pii_rules = scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
+    datadog_api_key = resource_task_env_vars.get("DD_API_KEY", "")
 
     return Configuration(
         control_plane,
         monitored_subs=','.join(monitored_sub_ids),
-        datadog_api_key="",
+        datadog_api_key=datadog_api_key,
         resource_tag_filters=tag_filters,
         pii_scrubber_rules=pii_rules,
     )

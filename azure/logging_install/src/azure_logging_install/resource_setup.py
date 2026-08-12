@@ -268,9 +268,9 @@ def create_control_plane_container_app_jobs(config: Configuration):
     """Create container app jobs for LFO Resources Task, Scaling Task, and Diagnostic Settings Task"""
 
     log.info("Creating control plane Container App Jobs...")
-    _create_resources_task_container_app_job(config)
-    _create_diagnostic_settings_task_container_app_job(config)
-    _create_scaling_task_container_app_job(config)
+    create_resources_task_container_app_job(config)
+    create_diagnostic_settings_task_container_app_job(config)
+    create_scaling_task_container_app_job(config)
     log.info("Container App Jobs created and configured")
 
 
@@ -362,47 +362,47 @@ def delete_container_app_job(job_name: str, resource_group: str, subscription_id
     )
 
 
-def _create_resources_task_container_app_job(config: Configuration):
+def create_resources_task_container_app_job(config: Configuration, cron: Optional[str] = None):
     monitored_subs = ','.join(config.monitored_subscriptions)
     extra_vars = [
         f"{MONITORED_SUBSCRIPTIONS_KEY}={shlex.quote(monitored_subs)}",
         f"{RESOURCE_TAG_FILTERS_KEY}={shlex.quote(config.resource_tag_filters)}"
     ]
     _create_control_plane_task_container_app_job(
-        config, 
-        config.control_plane.resources_task_name, 
-        config.control_plane.resources_task_image, 
-        extra_vars, 
+        config,
+        config.control_plane.resources_task_name,
+        config.control_plane.resources_task_image,
+        extra_vars,
         "300",
-        "*/5 * * * *"
+        cron or "*/5 * * * *"
     )
 
-def _create_diagnostic_settings_task_container_app_job(config: Configuration):
+def create_diagnostic_settings_task_container_app_job(config: Configuration, cron: Optional[str] = None):
     extra_vars = [
         f"RESOURCE_GROUP={json.dumps(config.control_plane.resource_group)}",
     ]
     _create_control_plane_task_container_app_job(
-        config, 
-        config.control_plane.diagnostic_settings_task_name, 
-        config.control_plane.diagnostic_settings_task_image, 
-        extra_vars, 
+        config,
+        config.control_plane.diagnostic_settings_task_name,
+        config.control_plane.diagnostic_settings_task_image,
+        extra_vars,
         "300",
-        "*/5 * * * *"
+        cron or "*/5 * * * *"
     )
 
-def _create_scaling_task_container_app_job(config: Configuration):
+def create_scaling_task_container_app_job(config: Configuration, cron: Optional[str] = None):
     extra_vars = [
         f"RESOURCE_GROUP={json.dumps(config.control_plane.resource_group)}",
         f"FORWARDER_IMAGE={fully_qualified_image('forwarder:latest')}",
         f"{PII_SCRUBBER_RULES_KEY}={shlex.quote(config.pii_scrubber_rules)}"
     ]
     _create_control_plane_task_container_app_job(
-        config, 
-        config.control_plane.scaling_task_name, 
-        config.control_plane.scaling_task_image, 
-        extra_vars, 
+        config,
+        config.control_plane.scaling_task_name,
+        config.control_plane.scaling_task_image,
+        extra_vars,
         "500",
-        "3/5 * * * *"
+        cron or "3/5 * * * *"
     )
 
 

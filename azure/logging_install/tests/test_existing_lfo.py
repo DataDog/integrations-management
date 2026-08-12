@@ -126,6 +126,7 @@ class TestExistingLfo(TestCase):
                 RESOURCE_TASK_NAME: {
                     MONITORED_SUBSCRIPTIONS_KEY: mock_monitored_subs_json,
                     RESOURCE_TAG_FILTERS_KEY: RESOURCE_TAG_FILTERS,
+                    "DD_API_KEY": DATADOG_API_KEY,
                 },
                 SCALING_TASK_NAME: {
                     PII_SCRUBBER_RULES_KEY: PII_SCRUBBER_RULES,
@@ -145,6 +146,7 @@ class TestExistingLfo(TestCase):
         self.assertEqual(sorted(configuration.monitored_subscriptions), sorted([SUB_1_ID, SUB_2_ID, SUB_3_ID]))
         self.assertEqual(configuration.resource_tag_filters, RESOURCE_TAG_FILTERS)
         self.assertEqual(configuration.pii_scrubber_rules, PII_SCRUBBER_RULES)
+        self.assertEqual(configuration.datadog_api_key, DATADOG_API_KEY)
 
     def test_check_existing_lfo_multiple_installations(self):
         """Test with multiple existing LFO installations"""

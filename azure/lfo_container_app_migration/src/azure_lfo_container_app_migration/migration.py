@@ -7,12 +7,16 @@ from azure_logging_install.configuration import ControlPlane, ControlPlaneType, 
 from azure_logging_install.existing_lfo import find_existing_lfo_control_planes, get_current_config_for_control_plane
 from azure_logging_install.resource_setup import verify_container_app_env_exists, verify_container_app_job_exists, verify_function_app_exists
 
-from .create_container_app_job import CreateContainerAppJob
+from .create_container_app_job import (
+    CreateDiagnosticSettingsTaskContainerAppJob,
+    CreateResourcesTaskContainerAppJob,
+    CreateScalingTaskContainerAppJob,
+)
 from .prompts import confirm_yes
 from .steps import run_steps, Step
 
 
-def run_migration(optional_control_plane_ids: set[str], skip_confirmation: bool) -> None:
+def run_migration(optional_control_plane_ids: set[str], skip_confirmation: bool, log_level: str) -> None:
     control_planes: list[ControlPlane] = find_existing_lfo_control_planes(subscriptions=None, control_plane_type=ControlPlaneType.FunctionApps)
     if len(optional_control_plane_ids) > 0:
         control_plane = [c for c in control_planes if c.id in optional_control_plane_ids]
@@ -31,7 +35,7 @@ def run_migration(optional_control_plane_ids: set[str], skip_confirmation: bool)
             continue
 
         try:
-            migrate_control_plane(control_plane)
+            migrate_control_plane(control_plane, log_level)
         except Exception as e:
             log.error(f"Migration failed for control plane {control_plane.id}: {e}")
             log.error("Changes for this installation were rolled back.")
@@ -40,24 +44,24 @@ def run_migration(optional_control_plane_ids: set[str], skip_confirmation: bool)
             log_header(f"Success! Control plane {control_plane.id} migrated.")
 
 
-def migrate_control_plane(control_plane: ControlPlane) -> None:
+def migrate_control_plane(control_plane: ControlPlane, log_level: str) -> None:
     log_header(
         f"Migrating control plane {control_plane.id} "
         f"({control_plane.sub_id} / {control_plane.resource_group})"
     )
 
-    config = get_current_config_for_control_plane(control_plane)
-    _verify_function_app_installation(config)
-    run_steps(_build_migration_steps(config))
+    function_app_config = get_current_config_for_control_plane(control_plane)
+    _verify_function_app_installation(function_app_config)
+    caj_config = _build_caj_config(function_app_config, log_level)
+
+    run_steps(_build_migration_steps(caj_config))
 
 
-def _build_migration_steps(config: Configuration) -> list[Step]:
-    control_plane = config.control_plane
-
+def _build_migration_steps(caj_config: Configuration) -> list[Step]:
     return [
-        CreateContainerAppJob(config, control_plane.resources_task_name, control_plane.resources_task_image),
-        CreateContainerAppJob(config, control_plane.diagnostic_settings_task_name, control_plane.diagnostic_settings_task_image),
-        CreateContainerAppJob(config, control_plane.scaling_task_name, control_plane.scaling_task_image, timeout="500"),
+        CreateResourcesTaskContainerAppJob(caj_config),
+        CreateDiagnosticSettingsTaskContainerAppJob(caj_config),
+        CreateScalingTaskContainerAppJob(caj_config),
     ]
 
 
@@ -70,3 +74,27 @@ def _verify_function_app_installation(config: Configuration) -> None:
     verify_function_app_exists(config.control_plane.resources_task_name, config.control_plane.resource_group, config.control_plane.sub_id)
     verify_function_app_exists(config.control_plane.diagnostic_settings_task_name, config.control_plane.resource_group, config.control_plane.sub_id)
     verify_function_app_exists(config.control_plane.scaling_task_name, config.control_plane.resource_group, config.control_plane.sub_id)
+
+
+def _build_caj_config(function_app_config: Configuration, log_level: str) -> Configuration:
+    # Take the function app Configuration and use it to create a CAJ configuration, sharing the same
+    # control plane id/subscription/resource group/region so resource names line up across the two types.
+    function_app_control_plane = function_app_config.control_plane
+    caj_control_plane = ControlPlane(
+        id=function_app_control_plane.id,
+        sub_id=function_app_control_plane.sub_id,
+        resource_group=function_app_control_plane.resource_group,
+        region=function_app_control_plane.region,
+        type=ControlPlaneType.ContainerAppJobs,
+    )
+
+    return Configuration(
+        control_plane=caj_control_plane,
+        monitored_subs=function_app_config.monitored_subs,
+        datadog_api_key=function_app_config.datadog_api_key,
+        datadog_site=function_app_config.datadog_site,
+        resource_tag_filters=function_app_config.resource_tag_filters,
+        pii_scrubber_rules=function_app_config.pii_scrubber_rules,
+        datadog_telemetry=function_app_config.datadog_telemetry,
+        log_level=log_level,
+    )
