@@ -12,6 +12,13 @@ from .create_container_app_job import (
     CreateResourcesTaskContainerAppJob,
     CreateScalingTaskContainerAppJob,
 )
+from .enablement import (
+    PauseDeployer,
+    PauseOldFunctionApps,
+    UnpauseDeployer,
+    UnpauseNewContainerAppJobs,
+    UpdateDeployerImage,
+)
 from .grant_permissions import GrantContainerAppJobPermissionsStep
 from .prompts import confirm_yes
 from .steps import run_steps, Step
@@ -54,15 +61,20 @@ def migrate_control_plane(control_plane: ControlPlane, log_level: str) -> None:
     _verify_function_app_installation(function_app_config)
     caj_config = _build_caj_config(function_app_config, log_level)
 
-    run_steps(_build_migration_steps(caj_config))
+    run_steps(_build_migration_steps(caj_config, function_app_config))
 
 
-def _build_migration_steps(caj_config: Configuration) -> list[Step]:
+def _build_migration_steps(caj_config: Configuration, function_app_config: Configuration) -> list[Step]:
     return [
         CreateResourcesTaskContainerAppJob(caj_config),
         CreateDiagnosticSettingsTaskContainerAppJob(caj_config),
         CreateScalingTaskContainerAppJob(caj_config),
         GrantContainerAppJobPermissionsStep(caj_config),
+        PauseDeployer(caj_config),
+        PauseOldFunctionApps(function_app_config),
+        UnpauseNewContainerAppJobs(caj_config),
+        UpdateDeployerImage(caj_config, function_app_config),
+        UnpauseDeployer(caj_config),
     ]
 
 

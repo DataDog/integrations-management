@@ -21,7 +21,7 @@ from az_shared.logs import log
 
 from .az_cmd import AzCmd
 from .configuration import Configuration, ControlPlaneType, ControlPlane, fully_qualified_image
-from .constants import CONTROL_PLANE_CACHE, LFO_PUBLIC_STORAGE_ACCOUNT_URL, MAX_THREAD_POOL_WORKERS, MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY
+from .constants import CONTROL_PLANE_CACHE, DIAGNOSTIC_SETTINGS_TASK_CRON, LFO_PUBLIC_STORAGE_ACCOUNT_URL, MAX_THREAD_POOL_WORKERS, MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_CRON, SCALING_TASK_CRON
 
 # =============================================================================
 # Subscription, Resource Group, Storage Account
@@ -264,6 +264,28 @@ def create_control_plane_function_apps(config: Configuration):
     log.info("Function Apps created and configured")
 
 
+def stop_function_app(name: str, resource_group: str, subscription_id: str) -> None:
+    """Stop a Function App, halting its trigger executions."""
+    log.info(f"Stopping Function App {name}")
+    execute(
+        AzCmd("functionapp", "stop")
+        .param("--name", name)
+        .param("--resource-group", resource_group)
+        .param("--subscription", subscription_id)
+    )
+
+
+def start_function_app(name: str, resource_group: str, subscription_id: str) -> None:
+    """Start a Function App."""
+    log.info(f"Starting Function App {name}")
+    execute(
+        AzCmd("functionapp", "start")
+        .param("--name", name)
+        .param("--resource-group", resource_group)
+        .param("--subscription", subscription_id)
+    )
+
+
 def create_control_plane_container_app_jobs(config: Configuration):
     """Create container app jobs for LFO Resources Task, Scaling Task, and Diagnostic Settings Task"""
 
@@ -331,6 +353,52 @@ def delete_container_app_job(job_name: str, resource_group: str, subscription_id
     )
 
 
+def stop_container_app_job(job_name: str, resource_group: str, subscription_id: str) -> None:
+    """Stop any running executions of a Container App Job."""
+    log.info(f"Stopping Container App job {job_name}")
+    execute(
+        AzCmd("containerapp", "job stop")
+        .param("--name", job_name)
+        .param("--resource-group", resource_group)
+        .param("--subscription", subscription_id)
+    )
+
+
+def start_container_app_job(job_name: str, resource_group: str, subscription_id: str) -> None:
+    """Start a Container App Job execution."""
+    log.info(f"Starting Container App job {job_name}")
+    execute(
+        AzCmd("containerapp", "job start")
+        .param("--name", job_name)
+        .param("--resource-group", resource_group)
+        .param("--subscription", subscription_id)
+    )
+
+
+def update_container_app_job_cron_expression(job_name: str, resource_group: str, subscription_id: str, cron_expression: str) -> None:
+    """Update the schedule trigger cron expression for a Container App Job."""
+    log.info(f"Updating cron expression for Container App job {job_name}")
+    execute(
+        AzCmd("containerapp", "job update")
+        .param("--name", job_name)
+        .param("--resource-group", resource_group)
+        .param("--subscription", subscription_id)
+        .param("--cron-expression", shlex.quote(cron_expression))
+    )
+
+
+def update_container_app_job_image(job_name: str, resource_group: str, subscription_id: str, image: str) -> None:
+    """Update the container image for a Container App Job."""
+    log.info(f"Updating image for Container App job {job_name} to {image}")
+    execute(
+        AzCmd("containerapp", "job update")
+        .param("--name", job_name)
+        .param("--resource-group", resource_group)
+        .param("--subscription", subscription_id)
+        .param("--image", image)
+    )
+
+
 def create_resources_task_container_app_job(config: Configuration, cron: Optional[str] = None):
     monitored_subs = ','.join(config.monitored_subscriptions)
     extra_vars = [
@@ -343,7 +411,7 @@ def create_resources_task_container_app_job(config: Configuration, cron: Optiona
         config.control_plane.resources_task_image,
         extra_vars,
         "300",
-        cron or "*/5 * * * *"
+        cron or RESOURCES_TASK_CRON
     )
 
 def create_diagnostic_settings_task_container_app_job(config: Configuration, cron: Optional[str] = None):
@@ -356,7 +424,7 @@ def create_diagnostic_settings_task_container_app_job(config: Configuration, cro
         config.control_plane.diagnostic_settings_task_image,
         extra_vars,
         "300",
-        cron or "*/5 * * * *"
+        cron or DIAGNOSTIC_SETTINGS_TASK_CRON
     )
 
 def create_scaling_task_container_app_job(config: Configuration, cron: Optional[str] = None):
@@ -371,7 +439,7 @@ def create_scaling_task_container_app_job(config: Configuration, cron: Optional[
         config.control_plane.scaling_task_image,
         extra_vars,
         "500",
-        cron or "3/5 * * * *"
+        cron or SCALING_TASK_CRON
     )
 
 
