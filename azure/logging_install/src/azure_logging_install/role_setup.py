@@ -372,7 +372,7 @@ def grant_subscriptions_permissions(control_plane: ControlPlane, sub_ids: Iterab
         )
 
     set_subscription(control_plane.sub_id)
-    log.info("Subscriptions permission setup complete")
+    log.info("Role assignment complete")
 
 
 def revoke_subscriptions_permissions(control_plane: ControlPlane, sub_ids: Iterable[str]) -> None:
@@ -418,8 +418,6 @@ def revoke_subscriptions_permissions(control_plane: ControlPlane, sub_ids: Itera
 
 def grant_permissions(config: Configuration):
     """Grant permissions for control plane and monitored subscriptions"""
-    log.info("Setting up permissions for control plane and monitored subscriptions...")
-
     log.info("Assigning Website Contributor role to deployer container app job...")
     deployer_principal_id = get_container_app_job_principal_id(config.control_plane.resource_group, config.control_plane.sub_id, config.deployer_job_name)
 

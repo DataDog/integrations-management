@@ -12,6 +12,7 @@ from .create_container_app_job import (
     CreateResourcesTaskContainerAppJob,
     CreateScalingTaskContainerAppJob,
 )
+from .grant_permissions import GrantContainerAppJobPermissionsStep
 from .prompts import confirm_yes
 from .steps import run_steps, Step
 
@@ -46,8 +47,7 @@ def run_migration(optional_control_plane_ids: set[str], skip_confirmation: bool,
 
 def migrate_control_plane(control_plane: ControlPlane, log_level: str) -> None:
     log_header(
-        f"Migrating control plane {control_plane.id} "
-        f"({control_plane.sub_id} / {control_plane.resource_group})"
+        f"Migrating control plane {control_plane.id} in resource group {control_plane.resource_group}) subscription {control_plane.sub_id}"
     )
 
     function_app_config = get_current_config_for_control_plane(control_plane)
@@ -62,6 +62,7 @@ def _build_migration_steps(caj_config: Configuration) -> list[Step]:
         CreateResourcesTaskContainerAppJob(caj_config),
         CreateDiagnosticSettingsTaskContainerAppJob(caj_config),
         CreateScalingTaskContainerAppJob(caj_config),
+        GrantContainerAppJobPermissionsStep(caj_config),
     ]
 
 
