@@ -38,7 +38,6 @@ class CreateContainerAppJob(Step):
             log.info(f"Container App Job '{self.job_name}' already exists - skipping creation")
             return
 
-        log.info(f"Creating Container App Job '{self.job_name}'")
         self.create_job()
         self._created = True
 

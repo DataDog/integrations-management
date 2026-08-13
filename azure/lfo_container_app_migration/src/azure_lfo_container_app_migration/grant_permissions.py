@@ -16,12 +16,7 @@ from .steps import Step
 
 
 class GrantContainerAppJobPermissionsStep(Step):
-    """Grants the role assignments the new Container App Job identities need: Reader and Data
-    Access + Monitoring Contributor for the diagnostic settings job, Contributor for the scaling
-    job, Monitoring Reader for the resources job (all per monitored subscription), and Container
-    Apps Jobs Contributor for the deployer on the control plane resource group. Reuses the same
-    grant_permissions() used by a fresh Container App Job installation.
-    """
+    """Creates the role assignments the 3 task Jobs and the deployer needs."""
 
     def __init__(self, config: Configuration):
         super().__init__("Grant role assignments to Container App Job identities")
