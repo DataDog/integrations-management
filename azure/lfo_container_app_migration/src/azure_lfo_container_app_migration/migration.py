@@ -7,6 +7,11 @@ from azure_logging_install.configuration import ControlPlane, ControlPlaneType, 
 from azure_logging_install.existing_lfo import find_existing_lfo_control_planes, get_current_config_for_control_plane
 from azure_logging_install.resource_setup import verify_container_app_env_exists, verify_container_app_job_exists, verify_function_app_exists
 
+from .cleanup import (
+    DeleteControlPlaneCacheFileShare,
+    DeleteOldFunctionApps,
+    RevokeDeployerWebsiteContributorRole,
+)
 from .create_container_app_job import (
     CreateDiagnosticSettingsTaskContainerAppJob,
     CreateResourcesTaskContainerAppJob,
@@ -21,7 +26,7 @@ from .enablement import (
 )
 from .grant_permissions import GrantContainerAppJobPermissionsStep
 from .prompts import confirm_yes
-from .steps import run_steps, Step
+from .steps import run_cleanup_steps, run_steps, CleanupStep, Step
 
 
 def run_migration(optional_control_plane_ids: set[str], skip_confirmation: bool, log_level: str) -> None:
@@ -62,6 +67,7 @@ def migrate_control_plane(control_plane: ControlPlane, log_level: str) -> None:
     caj_config = _build_caj_config(function_app_config, log_level)
 
     run_steps(_build_migration_steps(caj_config, function_app_config))
+    run_cleanup_steps(_build_cleanup_steps(caj_config, function_app_config))
 
 
 def _build_migration_steps(caj_config: Configuration, function_app_config: Configuration) -> list[Step]:
@@ -75,6 +81,14 @@ def _build_migration_steps(caj_config: Configuration, function_app_config: Confi
         UnpauseNewContainerAppJobs(caj_config),
         UpdateDeployerImage(caj_config, function_app_config),
         UnpauseDeployer(caj_config),
+    ]
+
+
+def _build_cleanup_steps(caj_config: Configuration, function_app_config: Configuration) -> list[CleanupStep]:
+    return [
+        DeleteOldFunctionApps(function_app_config),
+        DeleteControlPlaneCacheFileShare(caj_config),
+        RevokeDeployerWebsiteContributorRole(caj_config),
     ]
 
 

@@ -73,6 +73,19 @@ def create_file_share(storage_account_name: str, control_plane_rg: str):
     )
 
 
+def delete_file_share(storage_account_name: str, control_plane_rg: str, subscription_id: str) -> None:
+    """Delete the control plane cache file share."""
+    log.info(f"Deleting file share {CONTROL_PLANE_CACHE}")
+    execute(
+        AzCmd("storage", "share-rm delete")
+        .param("--storage-account", storage_account_name)
+        .param("--name", CONTROL_PLANE_CACHE)
+        .param("--resource-group", control_plane_rg)
+        .param("--subscription", subscription_id)
+        .flag("--yes")
+    )
+
+
 def wait_for_storage_account_ready(storage_account_name: str, control_plane_rg: str) -> None:
     """Waits for storage account to be in 'Succeeded' provisioning state.
     Storage accounts are created asynchronously, so we need to wait for them to be ready.
@@ -284,6 +297,40 @@ def start_function_app(name: str, resource_group: str, subscription_id: str) -> 
         .param("--resource-group", resource_group)
         .param("--subscription", subscription_id)
     )
+
+
+def delete_function_app(name: str, resource_group: str, subscription_id: str) -> None:
+    """Delete a Function App."""
+    log.info(f"Deleting Function App {name}")
+    execute(
+        AzCmd("functionapp", "delete")
+        .param("--name", name)
+        .param("--resource-group", resource_group)
+        .param("--subscription", subscription_id)
+    )
+
+
+def delete_empty_function_app_plans(resource_group: str, subscription_id: str) -> None:
+    """Delete any Consumption App Service plans left behind in the resource group that no longer host any
+    Function Apps. Consumption plans are created implicitly by `functionapp create` and can be shared across
+    the Function Apps in a resource group, so they must be cleaned up separately once all apps are deleted."""
+    output = execute(
+        AzCmd("functionapp", "plan list")
+        .param("--resource-group", resource_group)
+        .param("--subscription", subscription_id)
+        .param("--query", "[?sku.family=='Y' && numberOfSites==`0`].name")
+        .param("--output", "tsv")
+    )
+    plan_names = [name.strip() for name in output.strip().splitlines() if name.strip()]
+    for plan_name in plan_names:
+        log.info(f"Deleting empty Function App plan {plan_name}")
+        execute(
+            AzCmd("functionapp", "plan delete")
+            .param("--name", plan_name)
+            .param("--resource-group", resource_group)
+            .param("--subscription", subscription_id)
+            .flag("--yes")
+        )
 
 
 def create_control_plane_container_app_jobs(config: Configuration):
