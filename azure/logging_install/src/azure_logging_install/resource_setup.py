@@ -310,27 +310,25 @@ def delete_function_app(name: str, resource_group: str, subscription_id: str) ->
     )
 
 
-def delete_empty_function_app_plans(resource_group: str, subscription_id: str) -> None:
-    """Delete any Consumption App Service plans left behind in the resource group that no longer host any
-    Function Apps. Consumption plans are created implicitly by `functionapp create` and can be shared across
-    the Function Apps in a resource group, so they must be cleaned up separately once all apps are deleted."""
+def get_function_app_plan_id(name: str, resource_group: str, subscription_id: str) -> str:
+    """Get the resource ID of the App Service plan hosting a Function App. Consumption plans are created
+    implicitly by `functionapp create` (no explicit name to compute), and can be shared across the Function
+    Apps in the same resource group/region/OS, so the plan must be looked up per app rather than assumed."""
     output = execute(
-        AzCmd("functionapp", "plan list")
+        AzCmd("functionapp", "show")
+        .param("--name", name)
         .param("--resource-group", resource_group)
         .param("--subscription", subscription_id)
-        .param("--query", "[?sku.family=='Y' && numberOfSites==`0`].name")
+        .param("--query", "serverFarmId")
         .param("--output", "tsv")
     )
-    plan_names = [name.strip() for name in output.strip().splitlines() if name.strip()]
-    for plan_name in plan_names:
-        log.info(f"Deleting empty Function App plan {plan_name}")
-        execute(
-            AzCmd("functionapp", "plan delete")
-            .param("--name", plan_name)
-            .param("--resource-group", resource_group)
-            .param("--subscription", subscription_id)
-            .flag("--yes")
-        )
+    return output.strip()
+
+
+def delete_function_app_plan(plan_id: str) -> None:
+    """Delete an App Service plan by its resource ID."""
+    log.info(f"Deleting Function App plan {plan_id}")
+    execute(AzCmd("functionapp", "plan delete").param("--ids", plan_id).flag("--yes"))
 
 
 def create_control_plane_container_app_jobs(config: Configuration):

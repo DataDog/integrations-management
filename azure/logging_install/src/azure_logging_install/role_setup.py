@@ -418,13 +418,14 @@ def revoke_subscriptions_permissions(control_plane: ControlPlane, sub_ids: Itera
 
 def grant_permissions(config: Configuration):
     """Grant permissions for control plane and monitored subscriptions"""
-    log.info("Assigning Website Contributor role to deployer container app job...")
     deployer_principal_id = get_container_app_job_principal_id(config.control_plane.resource_group, config.control_plane.sub_id, config.deployer_job_name)
 
     deployer_role = None
     if config.control_plane.type == ControlPlaneType.FunctionApps:
+        log.info("Assigning Website Contributor role to deployer container app job...")
         deployer_role = WEBSITE_CONTRIBUTOR_ID
     if config.control_plane.type == ControlPlaneType.ContainerAppJobs:
+        log.info("Assigning Container Apps Jobs role to deployer container app job...")
         deployer_role = CONTAINER_APPS_JOBS_CONTRIBUTOR
     assign_role(
         config.control_plane_rg_scope,

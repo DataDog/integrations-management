@@ -5,9 +5,10 @@
 from azure_logging_install.configuration import Configuration
 from azure_logging_install.constants import WEBSITE_CONTRIBUTOR_ID
 from azure_logging_install.resource_setup import (
-    delete_empty_function_app_plans,
     delete_file_share,
     delete_function_app,
+    delete_function_app_plan,
+    get_function_app_plan_id,
 )
 from azure_logging_install.role_setup import get_container_app_job_principal_id, remove_role
 
@@ -15,7 +16,9 @@ from .steps import CleanupStep
 
 
 class DeleteOldFunctionApps(CleanupStep):
-    """Deletes the 3 legacy Function Apps and any Consumption plan left with no apps hosted on it."""
+    """Deletes the 3 legacy Function Apps and the App Service plan(s) hosting them. The ASP does not have 
+    a consistent naming and is be shared across the 3 apps, so each app's plan is looked up before any 
+    app is deleted, then the distinct plans are deleted once the apps are gone."""
 
     def __init__(self, function_app_config: Configuration):
         super().__init__("Delete old Function Apps")
@@ -23,9 +26,16 @@ class DeleteOldFunctionApps(CleanupStep):
 
     def execute(self) -> None:
         control_plane = self.function_app_config.control_plane
+        plan_ids = {
+            get_function_app_plan_id(name, control_plane.resource_group, control_plane.sub_id)
+            for name in control_plane.task_names
+        }
+
         for name in control_plane.task_names:
             delete_function_app(name, control_plane.resource_group, control_plane.sub_id)
-        delete_empty_function_app_plans(control_plane.resource_group, control_plane.sub_id)
+
+        for plan_id in plan_ids:
+            delete_function_app_plan(plan_id)
 
 
 class DeleteControlPlaneCacheFileShare(CleanupStep):
