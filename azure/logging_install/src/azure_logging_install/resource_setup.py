@@ -21,7 +21,7 @@ from az_shared.logs import log
 
 from .az_cmd import AzCmd
 from .configuration import Configuration, ControlPlaneType, ControlPlane, fully_qualified_image
-from .constants import CONTROL_PLANE_CACHE, DIAGNOSTIC_SETTINGS_TASK_CRON, LFO_PUBLIC_STORAGE_ACCOUNT_URL, MAX_THREAD_POOL_WORKERS, MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_CRON, SCALING_TASK_CRON
+from .constants import CONTROL_PLANE_CACHE, DEPLOYER_TASK_CRON, DIAGNOSTIC_SETTINGS_TASK_CRON, LFO_PUBLIC_STORAGE_ACCOUNT_URL, MAX_THREAD_POOL_WORKERS, MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_CRON, SCALING_TASK_CRON
 
 # =============================================================================
 # Subscription, Resource Group, Storage Account
@@ -398,28 +398,6 @@ def delete_container_app_job(job_name: str, resource_group: str, subscription_id
     )
 
 
-def stop_container_app_job(job_name: str, resource_group: str, subscription_id: str) -> None:
-    """Stop any running executions of a Container App Job."""
-    log.info(f"Stopping Container App job {job_name}")
-    execute(
-        AzCmd("containerapp", "job stop")
-        .param("--name", job_name)
-        .param("--resource-group", resource_group)
-        .param("--subscription", subscription_id)
-    )
-
-
-def start_container_app_job(job_name: str, resource_group: str, subscription_id: str) -> None:
-    """Start a Container App Job execution."""
-    log.info(f"Starting Container App job {job_name}")
-    execute(
-        AzCmd("containerapp", "job start")
-        .param("--name", job_name)
-        .param("--resource-group", resource_group)
-        .param("--subscription", subscription_id)
-    )
-
-
 def update_container_app_job_cron_expression(job_name: str, resource_group: str, subscription_id: str, cron_expression: str) -> None:
     """Update the schedule trigger cron expression for a Container App Job."""
     log.info(f"Updating cron expression for Container App job {job_name}")
@@ -559,7 +537,7 @@ def create_deployer_container_app_job(config: Configuration):
         .param("--replica-timeout", "1800")
         .param("--replica-retry-limit", "1")
         .param("--trigger-type", "Schedule")
-        .param("--cron-expression", shlex.quote("*/30 * * * *"))
+        .param("--cron-expression", shlex.quote(DEPLOYER_TASK_CRON))
         .param("--image", config.deployer_image_url)
         .param("--cpu", "0.5")
         .param("--memory", "1Gi")
