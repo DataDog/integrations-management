@@ -223,14 +223,14 @@ class TestExistingLfo(TestCase):
             mock_patch("azure_logging_install.existing_lfo.set_resource_tag_filters") as mock_set_tag_filters,
             mock_patch("azure_logging_install.existing_lfo.set_pii_scrubber_rules") as mock_set_pii_rules,
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
-            mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
+            mock_patch("azure_logging_install.existing_lfo.remove_subscription_resources") as mock_remove_subscription_resources,
         ):
             update_existing_lfo(test_config, existing_lfo)
 
             mock_set_monitored_subs.assert_called_once_with(existing_lfo.control_plane, test_config.monitored_subscriptions)
             mock_set_tag_filters.assert_not_called()
             mock_set_pii_rules.assert_not_called()
-            mock_revoke_subs_perms.assert_not_called()
+            mock_remove_subscription_resources.assert_not_called()
             mock_grant_subs_perms.assert_called_once_with(existing_lfo.control_plane, {SUB_3_ID})
 
     def test_update_existing_lfo_remove_scopes_only(self):
@@ -258,15 +258,15 @@ class TestExistingLfo(TestCase):
             mock_patch("azure_logging_install.existing_lfo.set_resource_tag_filters") as mock_set_tag_filters,
             mock_patch("azure_logging_install.existing_lfo.set_pii_scrubber_rules") as mock_set_pii_rules,
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
-            mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
+            mock_patch("azure_logging_install.existing_lfo.remove_subscription_resources") as mock_remove_subscription_resources,
         ):
             update_existing_lfo(test_config, existing_lfo)
 
             mock_set_monitored_subs.assert_called_once_with(existing_lfo.control_plane, test_config.monitored_subscriptions)
             mock_set_tag_filters.assert_not_called()
             mock_set_pii_rules.assert_not_called()
-            mock_revoke_subs_perms.assert_called_once()
-            call_args = mock_revoke_subs_perms.call_args[0]
+            mock_remove_subscription_resources.assert_called_once()
+            call_args = mock_remove_subscription_resources.call_args[0]
             self.assertEqual(call_args[0], existing_lfo.control_plane)
             self.assertEqual(set(call_args[1]), {SUB_2_ID})
             mock_grant_subs_perms.assert_not_called()
@@ -296,7 +296,7 @@ class TestExistingLfo(TestCase):
             mock_patch("azure_logging_install.existing_lfo.set_resource_tag_filters") as mock_set_tag_filters,
             mock_patch("azure_logging_install.existing_lfo.set_pii_scrubber_rules") as mock_set_pii_rules,
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
-            mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
+            mock_patch("azure_logging_install.existing_lfo.remove_subscription_resources") as mock_remove_subscription_resources,
         ):
             update_existing_lfo(test_config, existing_lfo)
 
@@ -304,7 +304,7 @@ class TestExistingLfo(TestCase):
             mock_set_tag_filters.assert_not_called()
             mock_set_pii_rules.assert_not_called()
             mock_grant_subs_perms.assert_called_once_with(existing_lfo.control_plane, {SUB_3_ID})
-            mock_revoke_subs_perms.assert_called_once_with(existing_lfo.control_plane, {SUB_2_ID})
+            mock_remove_subscription_resources.assert_called_once_with(existing_lfo.control_plane, {SUB_2_ID})
 
     def test_update_existing_lfo_tag_filter_only(self):
         """Test update when only tag filter changes; partial update via set_resource_tag_filters."""
@@ -329,7 +329,7 @@ class TestExistingLfo(TestCase):
             mock_patch("azure_logging_install.existing_lfo.set_resource_tag_filters") as mock_set_tag_filters,
             mock_patch("azure_logging_install.existing_lfo.set_pii_scrubber_rules") as mock_set_pii_rules,
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
-            mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
+            mock_patch("azure_logging_install.existing_lfo.remove_subscription_resources") as mock_remove_subscription_resources,
         ):
             update_existing_lfo(test_config, existing_lfo)
 
@@ -337,7 +337,7 @@ class TestExistingLfo(TestCase):
             mock_set_tag_filters.assert_called_once_with(existing_lfo.control_plane, test_config.resource_tag_filters)
             mock_set_pii_rules.assert_not_called()
             mock_grant_subs_perms.assert_not_called()
-            mock_revoke_subs_perms.assert_not_called()
+            mock_remove_subscription_resources.assert_not_called()
 
     def test_update_existing_lfo_pii_rules_only(self):
         """Test update when only PII rules change; partial update via set_pii_scrubber_rules."""
@@ -362,7 +362,7 @@ class TestExistingLfo(TestCase):
             mock_patch("azure_logging_install.existing_lfo.set_resource_tag_filters") as mock_set_tag_filters,
             mock_patch("azure_logging_install.existing_lfo.set_pii_scrubber_rules") as mock_set_pii_rules,
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
-            mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
+            mock_patch("azure_logging_install.existing_lfo.remove_subscription_resources") as mock_remove_subscription_resources,
         ):
             update_existing_lfo(test_config, existing_lfo)
 
@@ -370,7 +370,7 @@ class TestExistingLfo(TestCase):
             mock_set_tag_filters.assert_not_called()
             mock_set_pii_rules.assert_called_once_with(existing_lfo.control_plane, test_config.pii_scrubber_rules)
             mock_grant_subs_perms.assert_not_called()
-            mock_revoke_subs_perms.assert_not_called()
+            mock_remove_subscription_resources.assert_not_called()
 
     def test_update_existing_lfo_tag_filter_pii_settings(self):
         """Test update when no new subscriptions are added but tag filters and PII rules change"""
@@ -398,14 +398,14 @@ class TestExistingLfo(TestCase):
             mock_patch("azure_logging_install.existing_lfo.set_resource_tag_filters") as mock_set_tag_filters,
             mock_patch("azure_logging_install.existing_lfo.set_pii_scrubber_rules") as mock_set_pii_rules,
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
-            mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
+            mock_patch("azure_logging_install.existing_lfo.remove_subscription_resources") as mock_remove_subscription_resources,
         ):
             update_existing_lfo(test_config, existing_lfo)
 
             mock_set_monitored_subs.assert_not_called()
             mock_set_tag_filters.assert_called_once_with(existing_lfo.control_plane, test_config.resource_tag_filters)
             mock_set_pii_rules.assert_called_once_with(existing_lfo.control_plane, test_config.pii_scrubber_rules)
-            mock_revoke_subs_perms.assert_not_called()
+            mock_remove_subscription_resources.assert_not_called()
             mock_grant_subs_perms.assert_not_called()
 
     def test_update_existing_lfo_tag_and_monitored(self):
@@ -433,7 +433,7 @@ class TestExistingLfo(TestCase):
             mock_patch("azure_logging_install.existing_lfo.set_resource_tag_filters") as mock_set_tag_filters,
             mock_patch("azure_logging_install.existing_lfo.set_pii_scrubber_rules") as mock_set_pii_rules,
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
-            mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
+            mock_patch("azure_logging_install.existing_lfo.remove_subscription_resources") as mock_remove_subscription_resources,
         ):
             update_existing_lfo(test_config, existing_lfo)
 
@@ -441,7 +441,7 @@ class TestExistingLfo(TestCase):
             mock_set_tag_filters.assert_called_once_with(existing_lfo.control_plane, test_config.resource_tag_filters)
             mock_set_pii_rules.assert_not_called()
             mock_grant_subs_perms.assert_called_once_with(existing_lfo.control_plane, {SUB_3_ID})
-            mock_revoke_subs_perms.assert_not_called()
+            mock_remove_subscription_resources.assert_not_called()
 
     def test_update_existing_lfo_pii_and_monitored(self):
         """Test update when PII rules and monitored subscriptions both change; full env update."""
@@ -468,7 +468,7 @@ class TestExistingLfo(TestCase):
             mock_patch("azure_logging_install.existing_lfo.set_resource_tag_filters") as mock_set_tag_filters,
             mock_patch("azure_logging_install.existing_lfo.set_pii_scrubber_rules") as mock_set_pii_rules,
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
-            mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
+            mock_patch("azure_logging_install.existing_lfo.remove_subscription_resources") as mock_remove_subscription_resources,
         ):
             update_existing_lfo(test_config, existing_lfo)
 
@@ -476,8 +476,8 @@ class TestExistingLfo(TestCase):
             mock_set_tag_filters.assert_not_called()
             mock_set_pii_rules.assert_called_once_with(existing_lfo.control_plane, test_config.pii_scrubber_rules)
             mock_grant_subs_perms.assert_not_called()
-            mock_revoke_subs_perms.assert_called_once()
-            self.assertEqual(set(mock_revoke_subs_perms.call_args[0][1]), {SUB_2_ID})
+            mock_remove_subscription_resources.assert_called_once()
+            self.assertEqual(set(mock_remove_subscription_resources.call_args[0][1]), {SUB_2_ID})
 
     def test_update_existing_lfo_all_three_changed(self):
         """Test update when tag, PII, and monitored subscriptions all change; full env update."""
@@ -506,7 +506,7 @@ class TestExistingLfo(TestCase):
             mock_patch("azure_logging_install.existing_lfo.set_resource_tag_filters") as mock_set_tag_filters,
             mock_patch("azure_logging_install.existing_lfo.set_pii_scrubber_rules") as mock_set_pii_rules,
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
-            mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
+            mock_patch("azure_logging_install.existing_lfo.remove_subscription_resources") as mock_remove_subscription_resources,
         ):
             update_existing_lfo(test_config, existing_lfo)
 
@@ -514,7 +514,7 @@ class TestExistingLfo(TestCase):
             mock_set_tag_filters.assert_called_once_with(existing_lfo.control_plane, test_config.resource_tag_filters)
             mock_set_pii_rules.assert_called_once_with(existing_lfo.control_plane, test_config.pii_scrubber_rules)
             mock_grant_subs_perms.assert_called_once_with(existing_lfo.control_plane, {SUB_3_ID})
-            mock_revoke_subs_perms.assert_not_called()
+            mock_remove_subscription_resources.assert_not_called()
 
     def test_update_existing_lfo_noop(self):
         """Test update when no changes are needed"""
@@ -540,7 +540,7 @@ class TestExistingLfo(TestCase):
             mock_patch("azure_logging_install.existing_lfo.set_resource_tag_filters") as mock_set_tag_filters,
             mock_patch("azure_logging_install.existing_lfo.set_pii_scrubber_rules") as mock_set_pii_rules,
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
-            mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions") as mock_revoke_subs_perms,
+            mock_patch("azure_logging_install.existing_lfo.remove_subscription_resources") as mock_remove_subscription_resources,
         ):
             update_existing_lfo(test_config, existing_lfo)
 
@@ -548,4 +548,4 @@ class TestExistingLfo(TestCase):
             mock_set_tag_filters.assert_not_called()
             mock_set_pii_rules.assert_not_called()
             mock_grant_subs_perms.assert_not_called()
-            mock_revoke_subs_perms.assert_not_called()
+            mock_remove_subscription_resources.assert_not_called()

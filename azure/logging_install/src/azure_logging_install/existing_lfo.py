@@ -15,7 +15,7 @@ from .resource_setup import (
     set_pii_scrubber_rules,
     set_resource_tag_filters,
 )
-from .role_setup import grant_subscriptions_permissions, revoke_subscriptions_permissions
+from .role_setup import grant_subscriptions_permissions, remove_subscription_resources
 from .constants import MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_PREFIX
 
 
@@ -37,6 +37,9 @@ def get_current_config_for_control_plane(control_plane: ControlPlane) -> Configu
     tag_filters = resource_task_env_vars.get(RESOURCE_TAG_FILTERS_KEY, "")
     pii_rules = scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
     datadog_api_key = resource_task_env_vars.get("DD_API_KEY", "") # TODO fetch the secret ref for CAJ's
+    datadog_site = resource_task_env_vars.get("DD_SITE", "datadoghq.com")
+    datadog_telemetry = resource_task_env_vars.get("DD_TELEMETRY", "false").lower() == "true"
+    log_level = resource_task_env_vars.get("LOG_LEVEL", "INFO")
 
     return Configuration(
         control_plane,
@@ -44,6 +47,9 @@ def get_current_config_for_control_plane(control_plane: ControlPlane) -> Configu
         datadog_api_key=datadog_api_key,
         resource_tag_filters=tag_filters,
         pii_scrubber_rules=pii_rules,
+        datadog_site=datadog_site,
+        datadog_telemetry=datadog_telemetry,
+        log_level=log_level,
     )
 
 
@@ -180,7 +186,7 @@ def update_existing_lfo(new_config: Configuration, existing_lfo: Configuration):
         grant_subscriptions_permissions(existing_lfo.control_plane, sub_ids_that_need_permissions)
 
     if sub_ids_to_remove:
-        revoke_subscriptions_permissions(existing_lfo.control_plane, sub_ids_to_remove)
+        remove_subscription_resources(existing_lfo.control_plane, sub_ids_to_remove)
 
     if not sub_ids_that_need_permissions and not sub_ids_to_remove:
         log.info("No modified subscription selections - skipping permission updates")

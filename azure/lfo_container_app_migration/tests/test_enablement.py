@@ -6,7 +6,7 @@ from unittest import TestCase
 from unittest.mock import call, patch as mock_patch
 
 from azure_logging_install.configuration import Configuration, ControlPlane, ControlPlaneType
-from azure_logging_install.constants import DIAGNOSTIC_SETTINGS_TASK_CRON, RESOURCES_TASK_CRON, SCALING_TASK_CRON
+from azure_logging_install.constants import DEPLOYER_TASK_CRON, DIAGNOSTIC_SETTINGS_TASK_CRON, RESOURCES_TASK_CRON, SCALING_TASK_CRON
 
 from azure_lfo_container_app_migration.create_container_app_job import NEVER_RUN_CRON_EXPRESSION
 from azure_lfo_container_app_migration.enablement import (
@@ -57,18 +57,21 @@ class EnablementTestCase(TestCase):
 class TestPauseDeployer(EnablementTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.stop_mock = self.patch("azure_lfo_container_app_migration.enablement.stop_container_app_job")
-        self.start_mock = self.patch("azure_lfo_container_app_migration.enablement.start_container_app_job")
+        self.update_cron_mock = self.patch("azure_lfo_container_app_migration.enablement.update_container_app_job_cron_expression")
 
-    def test_execute_stops_the_deployer_job(self):
+    def test_execute_sets_the_deployer_job_to_never_run(self):
         step = PauseDeployer(self.caj_config)
         step.execute()
-        self.stop_mock.assert_called_once_with(self.caj_config.deployer_job_name, RESOURCE_GROUP, SUBSCRIPTION_ID)
+        self.update_cron_mock.assert_called_once_with(
+            self.caj_config.deployer_job_name, RESOURCE_GROUP, SUBSCRIPTION_ID, NEVER_RUN_CRON_EXPRESSION
+        )
 
-    def test_rollback_starts_the_deployer_job(self):
+    def test_rollback_restores_the_deployer_jobs_real_cron(self):
         step = PauseDeployer(self.caj_config)
         step.rollback()
-        self.start_mock.assert_called_once_with(self.caj_config.deployer_job_name, RESOURCE_GROUP, SUBSCRIPTION_ID)
+        self.update_cron_mock.assert_called_once_with(
+            self.caj_config.deployer_job_name, RESOURCE_GROUP, SUBSCRIPTION_ID, DEPLOYER_TASK_CRON
+        )
 
 
 class TestPauseOldFunctionApps(EnablementTestCase):
@@ -149,15 +152,18 @@ class TestUpdateDeployerImage(EnablementTestCase):
 class TestUnpauseDeployer(EnablementTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.stop_mock = self.patch("azure_lfo_container_app_migration.enablement.stop_container_app_job")
-        self.start_mock = self.patch("azure_lfo_container_app_migration.enablement.start_container_app_job")
+        self.update_cron_mock = self.patch("azure_lfo_container_app_migration.enablement.update_container_app_job_cron_expression")
 
-    def test_execute_starts_the_deployer_job(self):
+    def test_execute_restores_the_deployer_jobs_real_cron(self):
         step = UnpauseDeployer(self.caj_config)
         step.execute()
-        self.start_mock.assert_called_once_with(self.caj_config.deployer_job_name, RESOURCE_GROUP, SUBSCRIPTION_ID)
+        self.update_cron_mock.assert_called_once_with(
+            self.caj_config.deployer_job_name, RESOURCE_GROUP, SUBSCRIPTION_ID, DEPLOYER_TASK_CRON
+        )
 
-    def test_rollback_stops_the_deployer_job(self):
+    def test_rollback_sets_the_deployer_job_to_never_run(self):
         step = UnpauseDeployer(self.caj_config)
         step.rollback()
-        self.stop_mock.assert_called_once_with(self.caj_config.deployer_job_name, RESOURCE_GROUP, SUBSCRIPTION_ID)
+        self.update_cron_mock.assert_called_once_with(
+            self.caj_config.deployer_job_name, RESOURCE_GROUP, SUBSCRIPTION_ID, NEVER_RUN_CRON_EXPRESSION
+        )
