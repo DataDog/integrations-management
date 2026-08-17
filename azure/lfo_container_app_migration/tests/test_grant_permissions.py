@@ -25,8 +25,8 @@ class TestGrantContainerAppJobPermissionsStep(TestCase):
             return_value=DEPLOYER_PRINCIPAL_ID,
         )
         self.remove_role_mock = self.patch("azure_lfo_container_app_migration.grant_permissions.remove_role")
-        self.revoke_subscriptions_permissions_mock = self.patch(
-            "azure_lfo_container_app_migration.grant_permissions.revoke_subscriptions_permissions"
+        self.revoke_subscriptions_role_assignments_mock = self.patch(
+            "azure_lfo_container_app_migration.grant_permissions.revoke_subscriptions_role_assignments"
         )
 
         self.config = Configuration(
@@ -62,6 +62,6 @@ class TestGrantContainerAppJobPermissionsStep(TestCase):
         self.remove_role_mock.assert_called_once_with(
             self.config.control_plane_rg_scope, DEPLOYER_PRINCIPAL_ID, CONTAINER_APPS_JOBS_CONTRIBUTOR
         )
-        self.revoke_subscriptions_permissions_mock.assert_called_once_with(
+        self.revoke_subscriptions_role_assignments_mock.assert_called_once_with(
             self.config.control_plane, self.config.all_subscriptions
         )

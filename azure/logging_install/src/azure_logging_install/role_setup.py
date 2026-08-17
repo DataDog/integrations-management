@@ -328,19 +328,24 @@ def ensure_control_plane_rg_not_deleting(
             break
 
 
+def _ensure_resource_group_exists(rg_name: str, sub_id: str, region: str) -> None:
+    """Create the resource group in the given subscription if it doesn't already exist."""
+    try:
+        execute(AzCmd("group", "show").param("--name", rg_name).param("--subscription", sub_id))
+        log.info(f"Resource group {rg_name} already exists in subscription: {sub_id}")
+    except (ResourceGroupNotFoundError, ResourceNotFoundError):
+        log.info(f"Creating resource group {rg_name} in subscription: {sub_id}")
+        execute(AzCmd("group", "create").param("--name", rg_name).param("--location", region))
+
+
 def grant_subscriptions_permissions(control_plane: ControlPlane, sub_ids: Iterable[str]):
     """Grant permissions to a set of subscriptions."""
 
     resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_control_plane_task_principal_ids(control_plane)
 
     for sub_id in sub_ids:
-        log.info(f"Create resource group in subscription: {sub_id}")
         set_subscription(sub_id)
-        execute(
-            AzCmd("group", "create")
-            .param("--name", control_plane.resource_group)
-            .param("--location", control_plane.region)
-        )
+        _ensure_resource_group_exists(control_plane.resource_group, sub_id, control_plane.region)
 
         subscription_scope = f"/subscriptions/{sub_id}"
         resource_group_scope = f"{subscription_scope}/resourceGroups/{control_plane.resource_group}"
@@ -375,18 +380,17 @@ def grant_subscriptions_permissions(control_plane: ControlPlane, sub_ids: Iterab
     log.info("Role assignment complete")
 
 
-def revoke_subscriptions_permissions(control_plane: ControlPlane, sub_ids: Iterable[str]) -> None:
-    """Revoke permissions and delete the LFO-created resource group for each subscription in sub_ids.
-    Mirrors grant_subscriptions_permissions: remove the four role assignments per subscription, then delete the RG."""
+def revoke_subscriptions_role_assignments(control_plane: ControlPlane, sub_ids: Iterable[str]) -> None:
+    """Revoke the four role assignments per subscription granted by grant_subscriptions_permissions, without
+    touching the LFO-created resource group. Used when only the role assignments need to be undone, e.g. rolling
+    back a partially-applied permission grant."""
     resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_control_plane_task_principal_ids(control_plane)
 
     for sub_id in sub_ids:
         subscription_scope = f"/subscriptions/{sub_id}"
         resource_group_scope = f"{subscription_scope}/resourceGroups/{control_plane.resource_group}"
 
-        log.info(
-            f"Revoking permissions and deleting resource group {control_plane.resource_group} in subscription: {sub_id}"
-        )
+        log.info(f"Revoking permissions in subscription: {sub_id}")
         for scope, principal_id, role_id in [
             (subscription_scope, resource_principal_id, MONITORING_READER_ID),
             (resource_group_scope, scaling_principal_id, SCALING_CONTRIBUTOR_ID),
@@ -395,6 +399,16 @@ def revoke_subscriptions_permissions(control_plane: ControlPlane, sub_ids: Itera
         ]:
             remove_role(scope, principal_id, role_id)
 
+    log.info("Revoke complete")
+
+
+def remove_subscription_resources(control_plane: ControlPlane, sub_ids: Iterable[str]) -> None:
+    """Revoke permissions and delete the LFO-created resource group for each subscription in sub_ids.
+    Mirrors grant_subscriptions_permissions: remove the four role assignments per subscription, then delete the RG."""
+    revoke_subscriptions_role_assignments(control_plane, sub_ids)
+
+    for sub_id in sub_ids:
+        log.info(f"Deleting resource group {control_plane.resource_group} in subscription: {sub_id}")
         try:
             execute(
                 AzCmd("group", "delete")

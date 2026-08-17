@@ -9,7 +9,7 @@ from azure_logging_install.role_setup import (
     get_container_app_job_principal_id,
     grant_permissions,
     remove_role,
-    revoke_subscriptions_permissions,
+    revoke_subscriptions_role_assignments,
 )
 
 from .steps import Step
@@ -31,4 +31,4 @@ class GrantContainerAppJobPermissionsStep(Step):
             self.config.control_plane.resource_group, self.config.control_plane.sub_id, self.config.deployer_job_name
         )
         remove_role(self.config.control_plane_rg_scope, deployer_principal_id, CONTAINER_APPS_JOBS_CONTRIBUTOR)
-        revoke_subscriptions_permissions(self.config.control_plane, self.config.all_subscriptions)
+        revoke_subscriptions_role_assignments(self.config.control_plane, self.config.all_subscriptions)
