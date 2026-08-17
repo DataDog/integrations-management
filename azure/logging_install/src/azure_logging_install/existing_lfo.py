@@ -37,6 +37,9 @@ def get_current_config_for_control_plane(control_plane: ControlPlane) -> Configu
     tag_filters = resource_task_env_vars.get(RESOURCE_TAG_FILTERS_KEY, "")
     pii_rules = scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
     datadog_api_key = resource_task_env_vars.get("DD_API_KEY", "") # TODO fetch the secret ref for CAJ's
+    datadog_site = resource_task_env_vars.get("DD_SITE", "datadoghq.com")
+    datadog_telemetry = resource_task_env_vars.get("DD_TELEMETRY", "false").lower() == "true"
+    log_level = resource_task_env_vars.get("LOG_LEVEL", "INFO")
 
     return Configuration(
         control_plane,
@@ -44,6 +47,9 @@ def get_current_config_for_control_plane(control_plane: ControlPlane) -> Configu
         datadog_api_key=datadog_api_key,
         resource_tag_filters=tag_filters,
         pii_scrubber_rules=pii_rules,
+        datadog_site=datadog_site,
+        datadog_telemetry=datadog_telemetry,
+        log_level=log_level,
     )
 
 

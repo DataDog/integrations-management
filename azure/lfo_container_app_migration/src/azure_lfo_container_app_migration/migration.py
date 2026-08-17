@@ -29,7 +29,7 @@ from .prompts import confirm_yes
 from .steps import run_cleanup_steps, run_steps, CleanupStep, Step
 
 
-def run_migration(optional_control_plane_ids: set[str], skip_confirmation: bool, log_level: str) -> None:
+def run_migration(optional_control_plane_ids: set[str], skip_confirmation: bool) -> None:
     control_planes: list[ControlPlane] = find_existing_lfo_control_planes(subscriptions=None, control_plane_type=ControlPlaneType.FunctionApps)
     if len(optional_control_plane_ids) > 0:
         control_plane = [c for c in control_planes if c.id in optional_control_plane_ids]
@@ -48,7 +48,7 @@ def run_migration(optional_control_plane_ids: set[str], skip_confirmation: bool,
             continue
 
         try:
-            migrate_control_plane(control_plane, log_level)
+            migrate_control_plane(control_plane)
         except Exception as e:
             log.error(f"Migration failed for control plane {control_plane.id}: {e}")
             log.error("Changes for this installation were rolled back.")
@@ -57,14 +57,14 @@ def run_migration(optional_control_plane_ids: set[str], skip_confirmation: bool,
             log_header(f"Success! Control plane {control_plane.id} migrated.")
 
 
-def migrate_control_plane(control_plane: ControlPlane, log_level: str) -> None:
+def migrate_control_plane(control_plane: ControlPlane) -> None:
     log_header(
         f"Migrating control plane {control_plane.id} in resource group {control_plane.resource_group}) subscription {control_plane.sub_id}"
     )
 
     function_app_config = get_current_config_for_control_plane(control_plane)
     _verify_function_app_installation(function_app_config)
-    caj_config = _build_caj_config(function_app_config, log_level)
+    caj_config = _build_caj_config(function_app_config)
 
     run_steps(_build_migration_steps(caj_config, function_app_config))
     run_cleanup_steps(_build_cleanup_steps(caj_config, function_app_config))
@@ -103,7 +103,7 @@ def _verify_function_app_installation(config: Configuration) -> None:
     verify_function_app_exists(config.control_plane.scaling_task_name, config.control_plane.resource_group, config.control_plane.sub_id)
 
 
-def _build_caj_config(function_app_config: Configuration, log_level: str) -> Configuration:
+def _build_caj_config(function_app_config: Configuration) -> Configuration:
     """Build a Container App Job configuration with the same options as the Function App Configuration"""
     function_app_control_plane = function_app_config.control_plane
     caj_control_plane = ControlPlane(
@@ -122,5 +122,5 @@ def _build_caj_config(function_app_config: Configuration, log_level: str) -> Con
         resource_tag_filters=function_app_config.resource_tag_filters,
         pii_scrubber_rules=function_app_config.pii_scrubber_rules,
         datadog_telemetry=function_app_config.datadog_telemetry,
-        log_level=log_level,
+        log_level=function_app_config.log_level,
     )
