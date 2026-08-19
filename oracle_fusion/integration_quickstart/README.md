@@ -7,6 +7,7 @@ assigns the required Fusion role, and grants EPM Service Administrator access.
 ## Prerequisites
 
 - [OCI CLI](https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm) configured with Identity Domain Administrator permissions
+  - The configured tenancy and region must match the identity domain you pass to `--identity-domain-url`. Verify with `oci iam region list` and check `~/.oci/config`.
 - `python3` and `curl` available on your PATH
 - Datadog API and application keys with `integrations_read` and `integrations_write` permissions
 
