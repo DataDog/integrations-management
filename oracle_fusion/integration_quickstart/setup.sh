@@ -394,7 +394,8 @@ except Exception:
     [[ -z "$fusion_app_name" ]] && fatal \
         "Fusion app ID '${FUSION_APP_ID}' was not found in identity domain '${IDENTITY_DOMAIN_URL}'" \
         "Verify the Application ID at: OCI Console → Domains → Oracle Cloud Services → Fusion Apps Cloud Service" \
-        "Ensure you are using the hex Application ID, not the OCID."
+        "Ensure you are using the hex Application ID, not the OCID." \
+        "Check that your local OCI credentials (~/.oci/config) are for the correct tenancy, and that your user has Identity Domain Administrator permissions on this domain."
     FUSION_SCOPE=$(oci_derive_scope "$fusion_app_resp") || true
     [[ -z "$FUSION_SCOPE" ]] && fatal \
         "Failed to derive OAuth scope from Fusion app '${FUSION_APP_ID}'" \
@@ -420,7 +421,8 @@ except Exception:
     [[ -z "$epm_app_name" ]] && fatal \
         "EPM app ID '${EPM_APP_ID}' was not found in identity domain '${IDENTITY_DOMAIN_URL}'" \
         "Verify the Application ID at: OCI Console → Domains → Oracle Cloud Services → your EPM app" \
-        "Ensure you are using the hex Application ID, not the OCID."
+        "Ensure you are using the hex Application ID, not the OCID." \
+        "Check that your local OCI credentials (~/.oci/config) are for the correct tenancy, and that your user has Identity Domain Administrator permissions on this domain."
     EPM_SCOPE=$(oci_derive_scope "$epm_app_resp") || true
     [[ -z "$EPM_SCOPE" ]] && fatal \
         "Failed to derive OAuth scope from EPM app '${EPM_APP_ID}'" \
