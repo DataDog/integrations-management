@@ -271,7 +271,7 @@ oci_prompt_for_session() {
     echo -e "  ${YELLOW}Some tenants (e.g. those that enforce SSO) restrict API signing keys.${NC}"
     echo -e "  ${YELLOW}You can authenticate the OCI CLI via your browser instead.${NC}"
     echo -e "  ${YELLOW}To configure OCI CLI credentials manually, see:${NC}"
-    echo -e "  ${YELLOW}https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm${NC}"
+    echo -e "  ${YELLOW}https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm#configfile${NC}"
     echo ""
     read -r -p "  Use browser-based authentication? [y/N] " _answer
     case "${_answer,,}" in
@@ -523,7 +523,7 @@ oci_ensure_auth() {
             "Configure local OCI CLI credentials and re-run:" \
             "  Run: oci setup config" \
             "  Your OCI user must have identity domain administrator permissions." \
-            "  Docs: https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm"
+            "  Docs: https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm#configfile"
     fi
     # 2. No session profile: fall back to the API key if it works.
     if oci_api_key_works; then
@@ -537,7 +537,7 @@ oci_ensure_auth() {
         "Otherwise, configure local OCI CLI credentials and re-run:" \
         "  Run: oci setup config" \
         "  Your OCI user must have identity domain administrator permissions." \
-        "  Docs: https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm"
+        "  Docs: https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm#configfile"
 }
 
 oci_ensure_auth

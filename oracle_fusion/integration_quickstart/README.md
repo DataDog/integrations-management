@@ -6,7 +6,7 @@ assigns the required Fusion role, and grants EPM Service Administrator access.
 
 ## Prerequisites
 
-- [OCI CLI](https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm) configured with Identity Domain Administrator permissions, using **either** of these auth methods:
+- [OCI CLI](https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm#configfile) configured with Identity Domain Administrator permissions, using **either** of these auth methods:
   - **API key** (default): run `oci setup config`. The configured tenancy must match the identity domain you pass to `--identity-domain-url`. Check the `tenancy` value in `~/.oci/config`.
   - **Browser-based session** (for tenants that enforce SSO / restrict API signing keys): run `oci session authenticate` once. The script will detect and reuse the session across runs.
 - `python3` and `curl` available on your PATH
@@ -91,7 +91,7 @@ If you decline browser-based auth, you must configure local OCI CLI credentials 
 oci setup config
 ```
 
-Your OCI user must have Identity Domain Administrator permissions. See the [OCI CLI install/setup docs](https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm) for details.
+Your OCI user must have Identity Domain Administrator permissions. See the [OCI CLI install/setup docs](https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm#configfile) for details.
 
 ### Notes
 
