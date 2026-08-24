@@ -146,6 +146,41 @@ class TestExistingLfo(TestCase):
         self.assertEqual(configuration.resource_tag_filters, RESOURCE_TAG_FILTERS)
         self.assertEqual(configuration.pii_scrubber_rules, PII_SCRUBBER_RULES)
 
+    def test_check_existing_lfo_accepts_legacy_csv_monitored_subscriptions(self):
+        mock_container_app_jobs = {
+            "data": [
+                {
+                    "resourceGroup": CONTROL_PLANE_RESOURCE_GROUP,
+                    "name": RESOURCE_TASK_NAME,
+                    "location": CONTROL_PLANE_REGION,
+                    "subscriptionId": SUB_1_ID,
+                },
+            ]
+        }
+        legacy_monitored_subs = ",".join([SUB_1_ID, SUB_2_ID, SUB_3_ID])
+
+        self.execute_mock.side_effect = self.make_execute_router(
+            json.dumps({"data": []}),
+            caj_json=json.dumps(mock_container_app_jobs),
+            caj_settings={
+                RESOURCE_TASK_NAME: {
+                    MONITORED_SUBSCRIPTIONS_KEY: legacy_monitored_subs,
+                    RESOURCE_TAG_FILTERS_KEY: RESOURCE_TAG_FILTERS,
+                },
+                SCALING_TASK_NAME: {
+                    PII_SCRUBBER_RULES_KEY: PII_SCRUBBER_RULES,
+                },
+            },
+        )
+
+        result = check_existing_lfo(self.config.all_subscriptions)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(
+            sorted(result[0].monitored_subscriptions),
+            sorted([SUB_1_ID, SUB_2_ID, SUB_3_ID]),
+        )
+
     def test_check_existing_lfo_multiple_installations(self):
         """Test with multiple existing LFO installations"""
         control_plane_1_id = "def456"

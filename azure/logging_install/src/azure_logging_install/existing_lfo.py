@@ -130,10 +130,10 @@ def check_existing_lfo(subscriptions: set[str]) -> list[Configuration]:
 
     try:
         monitored_sub_ids = loads(monitored_sub_ids_str)
-    except JSONDecodeError as e:
-        log.error(f"Invalid JSON: {monitored_sub_ids_str}")
-        log.error(f"Error: {e}")
-        raise
+    except JSONDecodeError:
+        # Container App Jobs created before CLOUDS-8668 stored this value as CSV.
+        # Continue to recognize those installations so the update flow can repair them.
+        monitored_sub_ids = [sub_id.strip() for sub_id in monitored_sub_ids_str.split(",") if sub_id.strip()]
 
     tag_filters = resource_task_env_vars.get(RESOURCE_TAG_FILTERS_KEY, "")
     pii_rules = scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
