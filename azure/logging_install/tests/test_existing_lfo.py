@@ -181,6 +181,32 @@ class TestExistingLfo(TestCase):
             sorted([SUB_1_ID, SUB_2_ID, SUB_3_ID]),
         )
 
+    def test_check_existing_lfo_rejects_malformed_monitored_subscriptions(self):
+        mock_container_app_jobs = {
+            "data": [
+                {
+                    "resourceGroup": CONTROL_PLANE_RESOURCE_GROUP,
+                    "name": RESOURCE_TASK_NAME,
+                    "location": CONTROL_PLANE_REGION,
+                    "subscriptionId": SUB_1_ID,
+                },
+            ]
+        }
+
+        self.execute_mock.side_effect = self.make_execute_router(
+            json.dumps({"data": []}),
+            caj_json=json.dumps(mock_container_app_jobs),
+            caj_settings={
+                RESOURCE_TASK_NAME: {
+                    MONITORED_SUBSCRIPTIONS_KEY: '["malformed-json",]',
+                },
+                SCALING_TASK_NAME: {},
+            },
+        )
+
+        with self.assertRaises(json.JSONDecodeError):
+            check_existing_lfo(self.config.all_subscriptions)
+
     def test_check_existing_lfo_multiple_installations(self):
         """Test with multiple existing LFO installations"""
         control_plane_1_id = "def456"

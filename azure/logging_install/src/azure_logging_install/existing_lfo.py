@@ -4,6 +4,7 @@
 
 from json import JSONDecodeError, loads
 from typing import Optional
+from uuid import UUID
 
 from az_shared.execute_cmd import execute
 from az_shared.logs import log, log_header
@@ -130,10 +131,17 @@ def check_existing_lfo(subscriptions: set[str]) -> list[Configuration]:
 
     try:
         monitored_sub_ids = loads(monitored_sub_ids_str)
-    except JSONDecodeError:
+    except JSONDecodeError as json_error:
         # Container App Jobs created before CLOUDS-8668 stored this value as CSV.
-        # Continue to recognize those installations so the update flow can repair them.
-        monitored_sub_ids = [sub_id.strip() for sub_id in monitored_sub_ids_str.split(",") if sub_id.strip()]
+        legacy_sub_ids = [sub_id.strip() for sub_id in monitored_sub_ids_str.split(",") if sub_id.strip()]
+        try:
+            if not legacy_sub_ids:
+                raise ValueError("No subscription IDs found")
+            for sub_id in legacy_sub_ids:
+                UUID(sub_id)
+        except ValueError:
+            raise json_error from None
+        monitored_sub_ids = legacy_sub_ids
 
     tag_filters = resource_task_env_vars.get(RESOURCE_TAG_FILTERS_KEY, "")
     pii_rules = scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
