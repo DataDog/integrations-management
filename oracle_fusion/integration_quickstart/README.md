@@ -31,7 +31,6 @@ assigns the required Fusion role, and grants EPM Service Administrator access.
 | `--fusion-admin-password PASS` | Fusion admin password (required for Fusion; not used with `--account-name`; not stored) |
 | `--user-email EMAIL` | Email address to attach to the created integration user. |
 | `--account-name NAME` | Name of an existing Datadog Fusion account to add EPM to. Requires `--fusion-app-id` and `--epm-app-id`. Cannot be used with `--identity-domain-url`, `--fusion-base-url`, `--fusion-admin-username`, `--fusion-admin-password`, or `--user-email`. |
-| `--oci-auth MODE` | How to authenticate the OCI CLI: `api_key`, `session`, or `auto` (default: `auto`). See "Browser-based authentication" below. |
 
 ## Environment Variables
 
@@ -80,23 +79,24 @@ export DD_SITE=datadoghq.com
 
 Some OCI identity domains enforce SSO via the browser and restrict traditional API signing keys. In that case, the script can authenticate the OCI CLI with a browser-based session token instead of an API key.
 
-By default (`--oci-auth auto`), the script:
+The script automatically:
 
 1. Reuses an existing valid browser session if one is present in `~/.oci/config` (so re-runs don't re-prompt).
 2. Otherwise falls back to the API key in `~/.oci/config`.
 3. If neither works, prompts **"Use browser-based authentication? [y/N]"** and, on `y`, runs `oci session authenticate` to open your browser.
 
-To force a specific method:
+If you decline browser-based auth, you must configure local OCI CLI credentials and re-run the script:
 
 ```bash
-./setup.sh --oci-auth session ...   # browser-based session only
-./setup.sh --oci-auth api_key ...   # API key only
+oci setup config
 ```
+
+Your OCI user must have Identity Domain Administrator permissions. See the [OCI CLI install/setup docs](https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm) for details.
 
 ### Notes
 
 - Browser sessions persist in `~/.oci/config` as a profile with a `security_token_file` entry. The script detects and reuses them, so you only authenticate in the browser once per session lifetime.
 - Session tokens expire after about an hour and are refreshable up to 24 hours. The script refreshes an expired session automatically; if it can't, it will prompt you to re-authenticate.
 - Browser-based auth grants the same permissions as an API key for the same user — it is a way to authenticate when API keys are unavailable, not a way to escalate privileges. The signed-in user must still have Identity Domain Administrator access to the target domain.
-- For headless/CI runs without a browser, run `oci session authenticate` on a machine with a browser, then `oci session export` / `oci session import` to copy the session. Use `--oci-auth session` to skip the interactive prompt.
+- For headless/CI runs without a browser, run `oci session authenticate` on a machine with a browser, then `oci session export` / `oci session import` to copy the session.
 
