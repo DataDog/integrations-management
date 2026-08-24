@@ -48,6 +48,7 @@ FUSION_ADMIN_USERNAME=""
 FUSION_ADMIN_PASSWORD=""
 ACCOUNT_NAME=""
 USER_EMAIL=""
+OCI_AUTH="auto"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -60,6 +61,7 @@ while [[ $# -gt 0 ]]; do
         --fusion-admin-password)      FUSION_ADMIN_PASSWORD="$2"; shift 2 ;;
         --user-email)                 USER_EMAIL="$2";            shift 2 ;;
         --account-name)               ACCOUNT_NAME="$2";          shift 2 ;;
+        --oci-auth)                   OCI_AUTH="$2";               shift 2 ;;
 --help|-h)
             cat <<'EOF'
 Usage: ./setup.sh [OPTIONS]
@@ -81,6 +83,13 @@ Add EPM to an existing Fusion account (--account-name):
   --fusion-app-id ID            Fusion SaaS app ID in OCI IAM (required)
   --epm-app-id ID               EPM SaaS app ID in OCI IAM (required)
   --epm-base-url URL            EPM environment base URL (required if not already set)
+
+OCI CLI authentication:
+  --oci-auth MODE               How to authenticate the OCI CLI: api_key, session, or auto (default: auto)
+                                api_key  use the API key in ~/.oci/config (current behavior)
+                                session  use/renew a browser-based session token (oci session authenticate)
+                                auto     use an existing valid session if present, else the API key,
+                                         else prompt to run browser-based auth
 
 Environment variables:
   DD_API_KEY   Datadog API key (required)
@@ -177,6 +186,113 @@ if os.environ.get('FUSION_SCOPE'): scopes.append({'fqs':os.environ['FUSION_SCOPE
 if os.environ.get('EPM_SCOPE'):    scopes.append({'fqs':os.environ['EPM_SCOPE']})
 print(json.dumps(scopes))
 "
+}
+
+# ── OCI CLI authentication helpers ────────────────────────────────────────────
+#
+# The script normally authenticates the OCI CLI with an API key from
+# ~/.oci/config. Some tenants (e.g. those that enforce SSO) restrict API
+# signing keys, so we also support browser-based session auth via
+# `oci session authenticate`. Session tokens are persisted in ~/.oci/config as
+# a profile with a `security_token_file` entry, so they are reusable across
+# runs (`oci session refresh` renews them without a browser).
+
+OCI_CONFIG_FILE="${OCI_CONFIG_FILE:-$HOME/.oci/config}"
+
+# oci_session_profiles
+# Print the names of profiles in ~/.oci/config that have a security_token_file
+# (i.e. browser-session profiles created by `oci session authenticate`).
+oci_session_profiles() {
+    [[ -f "$OCI_CONFIG_FILE" ]] || return 0
+    python3 -c "
+import configparser, os
+path = os.environ.get('OCI_CONFIG_FILE', os.path.expanduser('~/.oci/config'))
+cfg = configparser.ConfigParser()
+cfg.read(path)
+for section in cfg.sections():
+    if cfg.get(section, 'security_token_file', fallback=''):
+        print(section)
+" 2>/dev/null
+}
+
+# oci_session_valid <profile>
+# Return 0 if the given session profile has a valid (unexpired) token.
+oci_session_valid() {
+    local profile="$1"
+    OCI_CLI_PROFILE="$profile" OCI_CLI_AUTH=security_token \
+        oci session validate --profile "$profile" --auth security_token > /dev/null 2>&1
+}
+
+# oci_session_refresh <profile>
+# Refresh the given session profile's token (no browser needed).
+oci_session_refresh() {
+    local profile="$1"
+    OCI_CLI_PROFILE="$profile" OCI_CLI_AUTH=security_token \
+        oci session refresh --profile "$profile" --auth security_token > /dev/null 2>&1
+}
+
+# oci_api_key_works
+# Return 0 if the default OCI CLI profile can authenticate with an API key.
+oci_api_key_works() {
+    oci iam region list --output json > /dev/null 2>&1
+}
+
+# oci_use_session <profile>
+# Export the env vars so all subsequent `oci` calls use the session profile.
+oci_use_session() {
+    export OCI_CLI_PROFILE="$1"
+    export OCI_CLI_AUTH=security_token
+    info "Using OCI CLI session profile '${OCI_CLI_PROFILE}' (browser-based auth)"
+}
+
+# oci_run_session_auth
+# Run `oci session authenticate`, which opens the browser for the user to sign
+# in via their IdP/SSO, then returns the name of the created profile.
+oci_run_session_auth() {
+    local region="${1:-}"
+    local tenancy="${2:-}"
+    local profile="${3:-datadog-fusion}"
+    local args=(--profile-name "$profile")
+    [[ -n "$region" ]]  && args+=(--region "$region")
+    [[ -n "$tenancy" ]] && args+=(--tenancy-name "$tenancy")
+    echo ""
+    info "Opening your browser to sign in to OCI (SSO)..."
+    info "If a browser does not open automatically, visit the URL printed above and paste the code."
+    oci session authenticate "${args[@]}" || return 1
+    echo ""
+    oci_use_session "$profile"
+}
+
+# oci_prompt_for_session
+# Ask the user whether they want to use browser-based auth, then run it.
+# Returns 0 if a session was established, 1 if the user declined.
+oci_prompt_for_session() {
+    echo ""
+    echo -e "  ${YELLOW}${BOLD}OCI CLI API-key authentication failed or is not configured.${NC}"
+    echo -e "  ${YELLOW}Some tenants (e.g. those that enforce SSO) restrict API signing keys.${NC}"
+    echo -e "  ${YELLOW}You can authenticate the OCI CLI via your browser instead.${NC}"
+    echo ""
+    read -r -p "  Use browser-based authentication? [y/N] " _answer
+    case "${_answer,,}" in
+        y|yes)
+            echo ""
+            info "Starting browser-based OCI authentication..."
+            info "You will be asked for your OCI region and tenancy name, then your browser will open."
+            echo ""
+            read -r -p "  OCI region (e.g. us-ashburn-1) [default: us-ashburn-1]: " _region
+            _region="${_region:-us-ashburn-1}"
+            read -r -p "  OCI tenancy name (your cloud account name): " _tenancy
+            if [[ -z "$_tenancy" ]]; then
+                warn "Tenancy name is required for browser-based auth."
+                return 1
+            fi
+            oci_run_session_auth "$_region" "$_tenancy"
+            return $?
+            ;;
+        *)
+            return 1
+            ;;
+    esac
 }
 
 # ── State tracking ────────────────────────────────────────────────────────────
@@ -368,13 +484,93 @@ success "Required tools present"
 
 # 4. OCI CLI configured
 info "Checking OCI CLI credentials..."
-if ! oci iam region list --output json > /dev/null 2>&1; then
-    fatal "OCI CLI credentials are invalid or not configured" \
-        "Run: oci setup config" \
-        "Your OCI user must have identity domain administrator permissions." \
-        "Docs: https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm"
+OCI_AUTH_MODE="${OCI_AUTH:-auto}"
+OCI_SESSION_PROFILE=""
+
+# oci_ensure_auth
+# Establish OCI CLI authentication (API key or browser session) based on the
+# requested mode, reusing an existing valid session where possible so re-runs
+# don't re-prompt. On success, exports OCI_CLI_AUTH / OCI_CLI_PROFILE when a
+# session is in use, so every subsequent `oci` call inherits it.
+oci_ensure_auth() {
+    case "$OCI_AUTH_MODE" in
+        api_key)
+            if oci_api_key_works; then
+                success "OCI CLI credentials valid (API key)"
+                return 0
+            fi
+            fatal "OCI CLI API-key authentication failed" \
+                "Run: oci setup config" \
+                "Your OCI user must have identity domain administrator permissions." \
+                "If your tenant restricts API signing keys, re-run with --oci-auth session." \
+                "Docs: https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm"
+            ;;
+        session)
+            # Reuse an existing valid session if present, else open the browser.
+            _session_profile=$(oci_session_profiles | head -n 1)
+            if [[ -n "$_session_profile" ]] && oci_session_valid "$_session_profile"; then
+                oci_use_session "$_session_profile"
+                success "OCI CLI session valid (profile: ${_session_profile})"
+                return 0
+            fi
+            if [[ -n "$_session_profile" ]]; then
+                info "Session profile '${_session_profile}' found but expired — refreshing..."
+                if oci_session_refresh "$_session_profile" && oci_session_valid "$_session_profile"; then
+                    oci_use_session "$_session_profile"
+                    success "OCI CLI session refreshed (profile: ${_session_profile})"
+                    return 0
+                fi
+                warn "Could not refresh session '${_session_profile}' — will re-authenticate."
+            fi
+            oci_prompt_for_session && return 0
+            fatal "Browser-based OCI authentication declined" \
+                "Re-run with --oci-auth session to use browser-based auth, or configure an API key."
+            ;;
+        auto)
+            # 1. Reuse an existing valid session if present (no prompt on re-runs).
+            _session_profile=$(oci_session_profiles | head -n 1)
+            if [[ -n "$_session_profile" ]] && oci_session_valid "$_session_profile"; then
+                oci_use_session "$_session_profile"
+                success "OCI CLI session valid (profile: ${_session_profile})"
+                return 0
+            fi
+            # 2. Fall back to the API key if it works.
+            if oci_api_key_works; then
+                success "OCI CLI credentials valid (API key)"
+                return 0
+            fi
+            # 3. Otherwise, offer browser-based auth.
+            oci_prompt_for_session && return 0
+            fatal "OCI CLI credentials are invalid or not configured" \
+                "Run: oci setup config" \
+                "Your OCI user must have identity domain administrator permissions." \
+                "If your tenant restricts API signing keys, choose 'y' to authenticate via your browser." \
+                "Docs: https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm"
+            ;;
+        *)
+            fatal "Invalid --oci-auth mode '${OCI_AUTH_MODE}'" \
+                "Valid values: api_key, session, auto"
+            ;;
+    esac
+}
+
+oci_ensure_auth
+
+# If a browser session is in use, confirm the signed-in user has Identity Domain
+# Administrator access to the target domain. This distinguishes "not
+# authenticated" from "authenticated but lacks the required role", which is the
+# misleading 'Not an OCI Admin' error customers hit when API keys are blocked.
+if [[ "${OCI_CLI_AUTH:-}" == "security_token" ]]; then
+    if ! oci iam region list --output json > /dev/null 2>&1; then
+        fatal "OCI CLI session is not authorized for this tenancy" \
+            "The browser session authenticated successfully, but the signed-in user lacks the" \
+            "required permissions. Your user must have Identity Domain Administrator access" \
+            "to the identity domain at '${IDENTITY_DOMAIN_URL}'." \
+            "Verify the tenancy you signed in to matches the identity domain, and that your" \
+            "user has the Identity Domain Administrator role."
+    fi
+    success "OCI CLI session authorized for this tenancy"
 fi
-success "OCI CLI credentials valid"
 
 # 5. Fusion app ID resolves in identity domain
 if [[ -n "$FUSION_APP_ID" ]]; then
