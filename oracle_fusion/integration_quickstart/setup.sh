@@ -190,19 +190,27 @@ print(json.dumps(scopes))
 
 OCI_CONFIG_FILE="${OCI_CONFIG_FILE:-$HOME/.oci/config}"
 
-# oci_session_profiles
-# Print the names of profiles in ~/.oci/config that have a security_token_file
-# (i.e. browser-session profiles created by `oci session authenticate`).
-oci_session_profiles() {
-    [[ -f "$OCI_CONFIG_FILE" ]] || return 0
-    python3 -c "
+# The name of the OCI CLI session profile this script creates and reuses.
+# Scoping reuse to this specific profile means we never touch session
+# profiles the user created for other purposes (which may belong to a
+# different identity / permission level).
+OCI_SESSION_PROFILE_NAME="datadog-fusion"
+
+# oci_session_profile_exists <profile>
+# Return 0 if the given profile exists in ~/.oci/config with a
+# security_token_file entry (i.e. a browser-session profile created by
+# `oci session authenticate`).
+oci_session_profile_exists() {
+    local profile="$1"
+    [[ -f "$OCI_CONFIG_FILE" ]] || return 1
+    PROFILE="$profile" OCI_CONFIG_FILE="$OCI_CONFIG_FILE" python3 -c "
 import configparser, os
-path = os.environ.get('OCI_CONFIG_FILE', os.path.expanduser('~/.oci/config'))
+profile = os.environ.get('PROFILE', '')
 cfg = configparser.ConfigParser()
-cfg.read(path)
-for section in cfg.sections():
-    if cfg.get(section, 'security_token_file', fallback=''):
-        print(section)
+cfg.read(os.environ.get('OCI_CONFIG_FILE', os.path.expanduser('~/.oci/config')))
+if cfg.has_section(profile) and cfg.get(profile, 'security_token_file', fallback=''):
+    raise SystemExit(0)
+raise SystemExit(1)
 " 2>/dev/null
 }
 
@@ -242,7 +250,7 @@ oci_use_session() {
 oci_run_session_auth() {
     local region="${1:-}"
     local tenancy="${2:-}"
-    local profile="${3:-datadog-fusion}"
+    local profile="${3:-$OCI_SESSION_PROFILE_NAME}"
     local args=(--profile-name "$profile")
     [[ -n "$region" ]]  && args+=(--region "$region")
     [[ -n "$tenancy" ]] && args+=(--tenancy-name "$tenancy")
@@ -484,8 +492,14 @@ OCI_SESSION_PROFILE=""
 # OCI_CLI_AUTH / OCI_CLI_PROFILE when a session is in use, so every subsequent
 # `oci` call inherits it.
 oci_ensure_auth() {
-    # 1. Reuse an existing valid session if present (no prompt on re-runs).
-    _session_profile=$(oci_session_profiles | head -n 1)
+    # 1. Reuse our own session profile if present (no prompt on re-runs).
+    #    We only ever reuse the profile this script creates, never session
+    #    profiles the user set up for other purposes (which may belong to a
+    #    different identity / permission level).
+    _session_profile=""
+    if oci_session_profile_exists "$OCI_SESSION_PROFILE_NAME"; then
+        _session_profile="$OCI_SESSION_PROFILE_NAME"
+    fi
     if [[ -n "$_session_profile" ]] && oci_session_valid "$_session_profile"; then
         oci_use_session "$_session_profile"
         success "OCI CLI session valid (profile: ${_session_profile})"
@@ -499,7 +513,7 @@ oci_ensure_auth() {
             return 0
         fi
         warn "Could not refresh session '${_session_profile}' — will re-authenticate."
-        # A session profile exists but can't be refreshed: the user clearly
+        # Our session profile exists but can't be refreshed: the user clearly
         # intends to use browser auth, so prompt to re-authenticate rather
         # than silently falling back to the API key.
         oci_prompt_for_session && return 0

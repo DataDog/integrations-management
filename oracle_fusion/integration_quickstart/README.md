@@ -81,7 +81,7 @@ Some OCI identity domains enforce SSO via the browser and restrict traditional A
 
 The script automatically:
 
-1. Reuses an existing valid browser session if one is present in `~/.oci/config` (so re-runs don't re-prompt).
+1. Reuses the script's own `datadog-fusion` browser session profile if it's present and valid in `~/.oci/config` (so re-runs don't re-prompt). The script only ever reuses the profile it creates — it never touches session profiles you set up for other purposes.
 2. Otherwise falls back to the API key in `~/.oci/config`.
 3. If neither works, prompts **"Use browser-based authentication? [y/N]"** and, on `y`, runs `oci session authenticate` to open your browser.
 
@@ -95,7 +95,7 @@ Your OCI user must have Identity Domain Administrator permissions. See the [OCI 
 
 ### Notes
 
-- Browser sessions persist in `~/.oci/config` as a profile with a `security_token_file` entry. The script detects and reuses them, so you only authenticate in the browser once per session lifetime.
+- Browser sessions persist in `~/.oci/config` as a profile with a `security_token_file` entry. The script creates and reuses a profile named `datadog-fusion`, so you only authenticate in the browser once per session lifetime.
 - Session tokens expire after about an hour and are refreshable up to 24 hours. The script refreshes an expired session automatically; if it can't, it will prompt you to re-authenticate.
 - Browser-based auth grants the same permissions as an API key for the same user — it is a way to authenticate when API keys are unavailable, not a way to escalate privileges. The signed-in user must still have Identity Domain Administrator access to the target domain.
 - For headless/CI runs without a browser, run `oci session authenticate` on a machine with a browser, then `oci session export` / `oci session import` to copy the session.
