@@ -270,6 +270,8 @@ oci_prompt_for_session() {
     echo -e "  ${YELLOW}${BOLD}OCI CLI API-key authentication failed or is not configured.${NC}"
     echo -e "  ${YELLOW}Some tenants (e.g. those that enforce SSO) restrict API signing keys.${NC}"
     echo -e "  ${YELLOW}You can authenticate the OCI CLI via your browser instead.${NC}"
+    echo -e "  ${YELLOW}To configure OCI CLI credentials manually, see:${NC}"
+    echo -e "  ${YELLOW}https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm${NC}"
     echo ""
     read -r -p "  Use browser-based authentication? [y/N] " _answer
     case "${_answer,,}" in
