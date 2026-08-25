@@ -140,6 +140,8 @@ def check_existing_lfo(subscriptions: set[str]) -> list[Configuration]:
             for sub_id in legacy_sub_ids:
                 UUID(sub_id)
         except ValueError:
+            log.error(f"Invalid JSON: {monitored_sub_ids_str}")
+            log.error(f"Error: {json_error}")
             raise json_error from None
         monitored_sub_ids = legacy_sub_ids
 

@@ -40,6 +40,7 @@ class TestExistingLfo(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures"""
         self.execute_mock = self.patch("azure_logging_install.existing_lfo.execute")
+        self.log_mock = self.patch("azure_logging_install.existing_lfo.log")
 
         # Create test configuration
         self.config = Configuration(
@@ -182,6 +183,7 @@ class TestExistingLfo(TestCase):
         )
 
     def test_check_existing_lfo_rejects_malformed_monitored_subscriptions(self):
+        malformed_monitored_subscriptions = '["malformed-json",]'
         mock_container_app_jobs = {
             "data": [
                 {
@@ -198,14 +200,17 @@ class TestExistingLfo(TestCase):
             caj_json=json.dumps(mock_container_app_jobs),
             caj_settings={
                 RESOURCE_TASK_NAME: {
-                    MONITORED_SUBSCRIPTIONS_KEY: '["malformed-json",]',
+                    MONITORED_SUBSCRIPTIONS_KEY: malformed_monitored_subscriptions,
                 },
                 SCALING_TASK_NAME: {},
             },
         )
 
-        with self.assertRaises(json.JSONDecodeError):
+        with self.assertRaises(json.JSONDecodeError) as error_context:
             check_existing_lfo(self.config.all_subscriptions)
+
+        self.log_mock.error.assert_any_call(f"Invalid JSON: {malformed_monitored_subscriptions}")
+        self.log_mock.error.assert_any_call(f"Error: {error_context.exception}")
 
     def test_check_existing_lfo_multiple_installations(self):
         """Test with multiple existing LFO installations"""
