@@ -179,6 +179,126 @@ print(json.dumps(scopes))
 "
 }
 
+# ── OCI CLI authentication helpers ────────────────────────────────────────────
+#
+# The script normally authenticates the OCI CLI with an API key from
+# ~/.oci/config. Some tenants (e.g. those that enforce SSO) restrict API
+# signing keys, so we also support browser-based session auth via
+# `oci session authenticate`. Session tokens are persisted in ~/.oci/config as
+# a profile with a `security_token_file` entry, so they are reusable across
+# runs (`oci session refresh` renews them without a browser).
+
+OCI_CONFIG_FILE="${OCI_CONFIG_FILE:-$HOME/.oci/config}"
+
+# The name of the OCI CLI session profile this script creates and reuses.
+# Scoping reuse to this specific profile means we never touch session
+# profiles the user created for other purposes (which may belong to a
+# different identity / permission level).
+OCI_SESSION_PROFILE_NAME="datadog-fusion"
+
+# oci_session_profile_exists <profile>
+# Return 0 if the given profile exists in ~/.oci/config with a
+# security_token_file entry (i.e. a browser-session profile created by
+# `oci session authenticate`).
+oci_session_profile_exists() {
+    local profile="$1"
+    [[ -f "$OCI_CONFIG_FILE" ]] || return 1
+    PROFILE="$profile" OCI_CONFIG_FILE="$OCI_CONFIG_FILE" python3 -c "
+import configparser, os
+profile = os.environ.get('PROFILE', '')
+cfg = configparser.ConfigParser()
+cfg.read(os.environ.get('OCI_CONFIG_FILE', os.path.expanduser('~/.oci/config')))
+if cfg.has_section(profile) and cfg.get(profile, 'security_token_file', fallback=''):
+    raise SystemExit(0)
+raise SystemExit(1)
+" 2>/dev/null
+}
+
+# oci_session_valid <profile>
+# Return 0 if the given session profile has a valid (unexpired) token.
+oci_session_valid() {
+    local profile="$1"
+    OCI_CLI_PROFILE="$profile" OCI_CLI_AUTH=security_token \
+        oci session validate --profile "$profile" --auth security_token > /dev/null 2>&1
+}
+
+# oci_session_refresh <profile>
+# Refresh the given session profile's token (no browser needed).
+oci_session_refresh() {
+    local profile="$1"
+    OCI_CLI_PROFILE="$profile" OCI_CLI_AUTH=security_token \
+        oci session refresh --profile "$profile" --auth security_token > /dev/null 2>&1
+}
+
+# oci_api_key_works
+# Return 0 if the default OCI CLI profile can authenticate with an API key.
+oci_api_key_works() {
+    oci iam region list --output json > /dev/null 2>&1
+}
+
+# oci_use_session <profile>
+# Export the env vars so all subsequent `oci` calls use the session profile.
+oci_use_session() {
+    export OCI_CLI_PROFILE="$1"
+    export OCI_CLI_AUTH=security_token
+    info "Using OCI CLI session profile '${OCI_CLI_PROFILE}' (browser-based auth)"
+}
+
+# oci_run_session_auth
+# Run `oci session authenticate`, which opens the browser for the user to sign
+# in via their IdP/SSO, then returns the name of the created profile.
+oci_run_session_auth() {
+    local region="${1:-}"
+    local tenancy="${2:-}"
+    local profile="${3:-$OCI_SESSION_PROFILE_NAME}"
+    local args=(--profile-name "$profile")
+    [[ -n "$region" ]]  && args+=(--region "$region")
+    [[ -n "$tenancy" ]] && args+=(--tenancy-name "$tenancy")
+    echo ""
+    info "Opening your browser to sign in to OCI (SSO)..."
+    info "If a browser does not open automatically, visit the URL printed above and paste the code."
+    oci session authenticate "${args[@]}" || return 1
+    echo ""
+    oci_use_session "$profile"
+}
+
+# oci_prompt_for_session
+# Ask the user whether they want to use browser-based auth, then run it.
+# Returns 0 if a session was established, 1 if the user declined.
+oci_prompt_for_session() {
+    echo ""
+    echo -e "  ${YELLOW}${BOLD}OCI CLI API-key authentication failed or is not configured.${NC}"
+    echo -e "  ${YELLOW}Some tenants (e.g. those that enforce SSO) restrict API signing keys.${NC}"
+    echo -e "  ${YELLOW}You can authenticate the OCI CLI via your browser instead.${NC}"
+    echo -e "  ${YELLOW}To configure OCI CLI credentials manually, see:${NC}"
+    echo -e "  ${YELLOW}https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm#configfile${NC}"
+    echo ""
+    read -r -p "  Use browser-based authentication? [y/N] " _answer
+    # Normalize to lowercase so any casing (y, Y, yes, YES, yEs, ...) matches.
+    # tr is portable across bash versions; the ${var,,} expansion is bash 4+ only.
+    _answer=$(printf '%s' "$_answer" | tr '[:upper:]' '[:lower:]')
+    case "$_answer" in
+        y|yes)
+            echo ""
+            info "Starting browser-based OCI authentication..."
+            info "You will be asked for your OCI region and tenancy name, then your browser will open."
+            echo ""
+            read -r -p "  OCI region (e.g. us-ashburn-1) [default: us-ashburn-1]: " _region
+            _region="${_region:-us-ashburn-1}"
+            read -r -p "  OCI tenancy name (your cloud account name): " _tenancy
+            if [[ -z "$_tenancy" ]]; then
+                warn "Tenancy name is required for browser-based auth."
+                return 1
+            fi
+            oci_run_session_auth "$_region" "$_tenancy"
+            return $?
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 # ── State tracking ────────────────────────────────────────────────────────────
 CLIENT_ID=""
 CLIENT_SECRET=""
@@ -368,13 +488,70 @@ success "Required tools present"
 
 # 4. OCI CLI configured
 info "Checking OCI CLI credentials..."
-if ! oci iam region list --output json > /dev/null 2>&1; then
+OCI_SESSION_PROFILE=""
+
+# oci_ensure_auth
+# Establish OCI CLI authentication, reusing an existing valid browser session
+# where possible (so re-runs don't re-prompt), else falling back to the API
+# key in ~/.oci/config, else offering browser-based auth. On success, exports
+# OCI_CLI_AUTH / OCI_CLI_PROFILE when a session is in use, so every subsequent
+# `oci` call inherits it.
+oci_ensure_auth() {
+    # 1. Prefer the API key if it works — a working API key should never be
+    #    blocked by a stale browser session profile.
+    if oci_api_key_works; then
+        success "OCI CLI credentials valid (API key)"
+        return 0
+    fi
+    # 2. Otherwise reuse our own session profile if present (no prompt on
+    #    re-runs). We only ever reuse the profile this script creates, never
+    #    session profiles the user set up for other purposes (which may belong
+    #    to a different identity / permission level).
+    _session_profile=""
+    if oci_session_profile_exists "$OCI_SESSION_PROFILE_NAME"; then
+        _session_profile="$OCI_SESSION_PROFILE_NAME"
+    fi
+    if [[ -n "$_session_profile" ]] && oci_session_valid "$_session_profile"; then
+        oci_use_session "$_session_profile"
+        success "OCI CLI session valid (profile: ${_session_profile})"
+        return 0
+    fi
+    if [[ -n "$_session_profile" ]]; then
+        info "Session profile '${_session_profile}' found but expired — refreshing..."
+        if oci_session_refresh "$_session_profile" && oci_session_valid "$_session_profile"; then
+            oci_use_session "$_session_profile"
+            success "OCI CLI session refreshed (profile: ${_session_profile})"
+            return 0
+        fi
+        warn "Could not refresh session '${_session_profile}' — will re-authenticate."
+    fi
+    # 3. No working API key and no usable session: offer browser-based auth.
+    oci_prompt_for_session && return 0
     fatal "OCI CLI credentials are invalid or not configured" \
-        "Run: oci setup config" \
-        "Your OCI user must have identity domain administrator permissions." \
-        "Docs: https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm"
+        "If your tenant restricts API signing keys, choose 'y' to authenticate via your browser." \
+        "Otherwise, configure local OCI CLI credentials and re-run:" \
+        "  Run: oci setup config" \
+        "  Your OCI user must have identity domain administrator permissions." \
+        "  Docs: https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm#configfile"
+}
+
+oci_ensure_auth
+
+# If a browser session is in use, confirm the signed-in user has Identity Domain
+# Administrator access to the target domain. This distinguishes "not
+# authenticated" from "authenticated but lacks the required role", which is the
+# misleading 'Not an OCI Admin' error customers hit when API keys are blocked.
+if [[ "${OCI_CLI_AUTH:-}" == "security_token" ]]; then
+    if ! oci iam region list --output json > /dev/null 2>&1; then
+        fatal "OCI CLI session is not authorized for this tenancy" \
+            "The browser session authenticated successfully, but the signed-in user lacks the" \
+            "required permissions. Your user must have Identity Domain Administrator access" \
+            "to the identity domain at '${IDENTITY_DOMAIN_URL}'." \
+            "Verify the tenancy you signed in to matches the identity domain, and that your" \
+            "user has the Identity Domain Administrator role."
+    fi
+    success "OCI CLI session authorized for this tenancy"
 fi
-success "OCI CLI credentials valid"
 
 # 5. Fusion app ID resolves in identity domain
 if [[ -n "$FUSION_APP_ID" ]]; then
