@@ -274,8 +274,11 @@ oci_prompt_for_session() {
     echo -e "  ${YELLOW}https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm#configfile${NC}"
     echo ""
     read -r -p "  Use browser-based authentication? [y/N] " _answer
+    # Normalize to lowercase so any casing (y, Y, yes, YES, yEs, ...) matches.
+    # tr is portable across bash versions; the ${var,,} expansion is bash 4+ only.
+    _answer=$(printf '%s' "$_answer" | tr '[:upper:]' '[:lower:]')
     case "$_answer" in
-        y|Y|yes|YES|Yes)
+        y|yes)
             echo ""
             info "Starting browser-based OCI authentication..."
             info "You will be asked for your OCI region and tenancy name, then your browser will open."
