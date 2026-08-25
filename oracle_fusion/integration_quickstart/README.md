@@ -81,8 +81,8 @@ Some OCI identity domains enforce SSO via the browser and restrict traditional A
 
 The script automatically:
 
-1. Reuses the script's own `datadog-fusion` browser session profile if it's present and valid in `~/.oci/config` (so re-runs don't re-prompt). The script only ever reuses the profile it creates — it never touches session profiles you set up for other purposes.
-2. Otherwise falls back to the API key in `~/.oci/config`.
+1. Uses the API key in `~/.oci/config` if it works.
+2. Otherwise reuses the script's own `datadog-fusion` browser session profile if it's present and valid (so re-runs don't re-prompt). The script only ever reuses the profile it creates — it never touches session profiles you set up for other purposes.
 3. If neither works, prompts **"Use browser-based authentication? [y/N]"** and, on `y`, runs `oci session authenticate` to open your browser.
 
 If you decline browser-based auth, you must configure local OCI CLI credentials and re-run the script:
