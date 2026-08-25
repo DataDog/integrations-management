@@ -497,10 +497,16 @@ OCI_SESSION_PROFILE=""
 # OCI_CLI_AUTH / OCI_CLI_PROFILE when a session is in use, so every subsequent
 # `oci` call inherits it.
 oci_ensure_auth() {
-    # 1. Reuse our own session profile if present (no prompt on re-runs).
-    #    We only ever reuse the profile this script creates, never session
-    #    profiles the user set up for other purposes (which may belong to a
-    #    different identity / permission level).
+    # 1. Prefer the API key if it works — a working API key should never be
+    #    blocked by a stale browser session profile.
+    if oci_api_key_works; then
+        success "OCI CLI credentials valid (API key)"
+        return 0
+    fi
+    # 2. Otherwise reuse our own session profile if present (no prompt on
+    #    re-runs). We only ever reuse the profile this script creates, never
+    #    session profiles the user set up for other purposes (which may belong
+    #    to a different identity / permission level).
     _session_profile=""
     if oci_session_profile_exists "$OCI_SESSION_PROFILE_NAME"; then
         _session_profile="$OCI_SESSION_PROFILE_NAME"
@@ -518,22 +524,8 @@ oci_ensure_auth() {
             return 0
         fi
         warn "Could not refresh session '${_session_profile}' — will re-authenticate."
-        # Our session profile exists but can't be refreshed: the user clearly
-        # intends to use browser auth, so prompt to re-authenticate rather
-        # than silently falling back to the API key.
-        oci_prompt_for_session && return 0
-        fatal "Browser-based OCI authentication declined" \
-            "Configure local OCI CLI credentials and re-run:" \
-            "  Run: oci setup config" \
-            "  Your OCI user must have identity domain administrator permissions." \
-            "  Docs: https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm#configfile"
     fi
-    # 2. No session profile: fall back to the API key if it works.
-    if oci_api_key_works; then
-        success "OCI CLI credentials valid (API key)"
-        return 0
-    fi
-    # 3. Otherwise, offer browser-based auth.
+    # 3. No working API key and no usable session: offer browser-based auth.
     oci_prompt_for_session && return 0
     fatal "OCI CLI credentials are invalid or not configured" \
         "If your tenant restricts API signing keys, choose 'y' to authenticate via your browser." \
