@@ -610,9 +610,9 @@ fi
 # 7. Validate Fusion admin credentials + connectivity
 if [[ -n "$FUSION_APP_ID" && "$FUSION_ALREADY_PROVISIONED" != true ]]; then
     info "Validating Fusion admin credentials and connectivity..."
-    fusion_auth_status=$(curl -s --compressed -o /dev/null -w "%{http_code}" \
+    fusion_auth_status=$(curl -sS --compressed -o /dev/null -w "%{http_code}" \
         "${FUSION_BASE_URL}/hcmRestApi/scim/Users?count=1" \
-        -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" 2>/dev/null) || true
+        -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}") || true
     if [[ "$fusion_auth_status" == "000" ]]; then
         fatal "Cannot reach Fusion at '${FUSION_BASE_URL}'" \
             "Check that the URL is correct and reachable from this machine." \
@@ -628,8 +628,8 @@ fi
 # 8. EPM URL reachable
 if [[ -n "$EPM_APP_ID" ]]; then
     info "Checking EPM URL reachability..."
-    epm_status=$(curl -s -o /dev/null -w "%{http_code}" \
-        "${EPM_BASE_URL}/HyperionPlanning/rest/v3/applications" 2>/dev/null) || true
+    epm_status=$(curl -sS -o /dev/null -w "%{http_code}" \
+        "${EPM_BASE_URL}/HyperionPlanning/rest/v3/applications") || true
     [[ "$epm_status" == "000" ]] && fatal \
         "Cannot reach EPM at '${EPM_BASE_URL}'" \
         "Check that the EPM base URL is correct and reachable from this machine."
@@ -642,10 +642,10 @@ fi
 if [[ -n "$FUSION_APP_ID" && "$FUSION_ALREADY_PROVISIONED" != true ]]; then
     info "Checking for role with code 'DD_INTEGRATION_ROLE' in Fusion..."
     info "(The role CODE must be exactly 'DD_INTEGRATION_ROLE')"
-    role_check=$(curl -s --compressed \
+    role_check=$(curl -sS --compressed \
         "${FUSION_BASE_URL}/hcmRestApi/scim/Roles?filter=name+eq+%22DD_INTEGRATION_ROLE%22" \
         -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" \
-        -H "Accept: application/json" 2>/dev/null) || true
+        -H "Accept: application/json") || true
     role_count=$(echo "$role_check" | python3 -c "
 import sys,json
 try:
@@ -733,10 +733,10 @@ if [[ -n "$CLIENT_ID" ]]; then
             info "Fusion user already provisioned — skipping check"
         else
             info "Checking if Fusion user '${CLIENT_ID}' already exists..."
-            existing_user=$(curl -s --compressed \
+            existing_user=$(curl -sS --compressed \
                 "${FUSION_BASE_URL}/hcmRestApi/scim/Users?filter=userName+eq+%22${CLIENT_ID}%22" \
                 -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" \
-                -H "Accept: application/json" 2>/dev/null) || true
+                -H "Accept: application/json") || true
             existing_user_id=$(echo "$existing_user" | python3 -c "
 import sys,json
 try: rs=json.load(sys.stdin).get('Resources',[]); print(rs[0].get('id','') if rs else '')
@@ -958,12 +958,12 @@ if email:
     body['emails'] = [{'value': email, 'type': 'work', 'primary': True}]
 print(json.dumps(body))
 ")
-        user_response=$(curl -s --compressed -w $'\n%{http_code}' \
+        user_response=$(curl -sS --compressed -w $'\n%{http_code}' \
             -X POST "${FUSION_BASE_URL}/hcmRestApi/scim/Users" \
             -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
-            -d "$_fusion_user_body" 2>/dev/null)
+            -d "$_fusion_user_body")
         user_status="${user_response##*$'\n'}"
         user_body="${user_response%$'\n'*}"
 
@@ -984,7 +984,7 @@ import sys,json; print(json.load(sys.stdin).get('id',''))
     step "STEP 3: ASSIGN FUSION ROLE (DD_INTEGRATION_ROLE)"
 
     info "Assigning 'DD_INTEGRATION_ROLE' to user..."
-    patch_result=$(curl -s --compressed -w "\n%{http_code}" \
+    patch_result=$(curl -sS --compressed -w "\n%{http_code}" \
         -X PATCH "${FUSION_BASE_URL}/hcmRestApi/scim/Roles/${DD_INTEGRATION_ROLE_ID}" \
         -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" \
         -H "Content-Type: application/json" \
