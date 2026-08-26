@@ -806,7 +806,7 @@ except Exception:
                     {\"op\": \"replace\", \"path\": \"bypassConsent\",   \"value\": true},
                     {\"op\": \"replace\", \"path\": \"active\",          \"value\": true}
                 ]" \
-                --output json > /dev/null 2>/dev/null || fatal \
+                --output json >/dev/null || fatal \
                 "Failed to update existing confidential app" \
                 "Ensure your OCI credentials have 'Identity Domain Administrator' permissions."
             success "Fusion scope added and app configuration verified"
@@ -835,7 +835,7 @@ except Exception:
                     {\"op\": \"replace\", \"path\": \"bypassConsent\",   \"value\": true},
                     {\"op\": \"replace\", \"path\": \"active\",          \"value\": true}
                 ]" \
-                --output json > /dev/null 2>/dev/null || fatal \
+                --output json >/dev/null || fatal \
                 "Failed to update existing confidential app" \
                 "Ensure your OCI credentials have 'Identity Domain Administrator' permissions."
             success "EPM scope added and app configuration verified"
@@ -859,7 +859,7 @@ else
         --bypass-consent true \
         --active true \
         --allowed-scopes "$SCOPES_JSON" \
-        --output json 2>/dev/null) || fatal \
+        --output json) || fatal \
         "Failed to create confidential application in OCI IAM" \
         "Ensure your OCI credentials have 'Identity Domain Administrator' permissions." \
         "Check: OCI Console → Identity & Security → Domains → your domain → Administrators"
@@ -920,7 +920,7 @@ if [[ -z "$FUSION_APP_ID" && -n "$EPM_APP_ID" ]]; then
             --name '{"familyName": "Datadog Integration"}' \
             --active true \
             ${_oci_emails_arg[@]+"${_oci_emails_arg[@]}"} \
-            --output json 2>/dev/null) || fatal \
+            --output json) || fatal \
             "Failed to create OCI IAM user '${CLIENT_ID}'" \
             "Ensure your OCI credentials have permission to create users in the identity domain." \
             "Check: OCI Console → Domains → Administrators"
@@ -999,6 +999,7 @@ import sys,json; print(json.load(sys.stdin).get('id',''))
 
     if [[ "$patch_status" != "204" && "$patch_status" != "200" ]]; then
         fatal "Failed to assign DD_INTEGRATION_ROLE (HTTP ${patch_status})" \
+            "Response: ${patch_body}" \
             "Verify that 'DD_INTEGRATION_ROLE' is marked Requestable in Role Provisioning Rules:" \
             "  Setup and Maintenance → search 'Manage Role Provisioning Rules' → open it" \
             "  Click 'Add' to create a new mapping:" \
@@ -1092,7 +1093,7 @@ print(len(rs))
             --grantee "{\"type\": \"User\", \"value\": \"${OCI_IAM_USER_ID}\"}" \
             --app "{\"value\": \"${EPM_APP_ID}\"}" \
             --entitlement "{\"attributeName\": \"appRoles\", \"attributeValue\": \"${SERVICE_ADMIN_ROLE_ID}\"}" \
-            --output json 2>/dev/null) || fatal \
+            --output json) || fatal \
             "Failed to create EPM Service Administrator grant" \
             "Ensure your OCI credentials have Identity Domain Administrator permissions." \
             "Check: OCI Console → Domains → Administrators"
@@ -1286,7 +1287,7 @@ except Exception:
         oci identity-domains o-auth-partner-certificate delete \
             --endpoint "$IDENTITY_DOMAIN_URL" \
             --o-auth-partner-certificate-id "$_existing_partner_cert_id" \
-            --force > /dev/null 2>&1 || fatal \
+            --force >/dev/null || fatal \
             "Failed to replace existing EPM JWT assertion certificate (alias: ${EPM_JWT_CERT_ALIAS})" \
             "Ensure your OCI credentials have 'Identity Domain Administrator' permissions."
     fi
@@ -1295,7 +1296,7 @@ except Exception:
         --schemas '["urn:ietf:params:scim:schemas:oracle:idcs:OAuthPartnerCertificate"]' \
         --certificate-alias "$EPM_JWT_CERT_ALIAS" \
         --x509-base64-certificate "$_jwt_cert_b64" \
-        --output json > /dev/null 2>&1 || fatal \
+        --output json >/dev/null || fatal \
         "Failed to register EPM JWT assertion certificate" \
         "Ensure your OCI credentials have 'Identity Domain Administrator' permissions."
     success "EPM JWT assertion signing key generated and certificate registered"
