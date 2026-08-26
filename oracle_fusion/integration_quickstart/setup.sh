@@ -992,7 +992,7 @@ import sys,json; print(json.load(sys.stdin).get('id',''))
         -d "{
             \"schemas\": [\"urn:oracle:apps:scim:schemas:fa:1.0:Role\"],
             \"members\": [{\"value\": \"${FUSION_USER_ID}\", \"operation\": \"ADD\"}]
-        }" 2>/dev/null)
+        }")
 
     patch_status="${patch_result##*$'\n'}"
     patch_body="${patch_result%$'\n'*}"
