@@ -2,6 +2,8 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
+import json
+import shlex
 from unittest import TestCase
 from unittest.mock import MagicMock
 from unittest.mock import patch as mock_patch
@@ -265,6 +267,18 @@ class TestResourceSetup(TestCase):
         self.assertIn("*/5 * * * *", create_cmd)
         self.assertIn("MONITORED_SUBSCRIPTIONS", create_cmd)
         self.assertIn("RESOURCE_TAG_FILTERS", create_cmd)
+
+    def test_create_resources_task_container_app_job_serializes_monitored_subscriptions_as_json(self):
+        caj_config = get_test_config()
+
+        with mock_patch(
+            "azure_logging_install.resource_setup._create_control_plane_task_container_app_job"
+        ) as mock_create:
+            resource_setup._create_resources_task_container_app_job(caj_config)
+
+        extra_vars = mock_create.call_args.args[3]
+        monitored_subs = json.dumps(caj_config.monitored_subscriptions)
+        self.assertIn(f"MONITORED_SUBSCRIPTIONS={shlex.quote(monitored_subs)}", extra_vars)
 
     def test_create_resources_task_container_app_job_reuses_existing(self):
         """Test the resources task Container App Job is reused when it already exists"""

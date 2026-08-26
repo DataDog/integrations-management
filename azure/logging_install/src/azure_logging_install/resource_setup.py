@@ -325,7 +325,7 @@ def _create_control_plane_task_container_app_job(config: Configuration, task_nam
 
 
 def _create_resources_task_container_app_job(config: Configuration):
-    monitored_subs = ','.join(config.monitored_subscriptions)
+    monitored_subs = json.dumps(config.monitored_subscriptions)
     extra_vars = [
         f"{MONITORED_SUBSCRIPTIONS_KEY}={shlex.quote(monitored_subs)}",
         f"{RESOURCE_TAG_FILTERS_KEY}={shlex.quote(config.resource_tag_filters)}"
