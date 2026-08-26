@@ -1169,7 +1169,7 @@ if [[ "$APP_EXISTS" == true && -z "$CLIENT_SECRET" ]]; then
         --app-id "$existing_app_ocid" \
         --schemas '["urn:ietf:params:scim:api:messages:2.0:PatchOp"]' \
         --operations '[{"op":"replace","path":"clientSecret","value":""}]' \
-        --output json 2>/dev/null) || true
+        --output json) || true
     CLIENT_SECRET=$(echo "$regen_resp" | python3 -c "
 import sys,json
 try: print(json.load(sys.stdin).get('data',{}).get('client-secret',''))
