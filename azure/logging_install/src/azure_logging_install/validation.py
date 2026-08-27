@@ -90,6 +90,10 @@ def validate_singleton_lfo(config: Configuration, existing_lfos: list[Configurat
     existing_lfo_control_plane_id = existing_control_plane.id
 
     if existing_count == 1 and existing_lfo_control_plane_id.casefold() != config.control_plane.id.casefold():
+        # ARM installations include the management-group ID when generating the
+        # control-plane ID, while Quickstart generates it using the subscription,
+        # resource group, and region. This can produce different IDs for the same LFO,
+        # so allow the update when those three fields match the existing control plane.
         existing_control_plane_location = (
             existing_control_plane.sub_id.casefold(),
             existing_control_plane.resource_group.casefold(),
