@@ -610,9 +610,9 @@ fi
 # 7. Validate Fusion admin credentials + connectivity
 if [[ -n "$FUSION_APP_ID" && "$FUSION_ALREADY_PROVISIONED" != true ]]; then
     info "Validating Fusion admin credentials and connectivity..."
-    fusion_auth_status=$(curl -s --compressed -o /dev/null -w "%{http_code}" \
+    fusion_auth_status=$(curl -sS --compressed -o /dev/null -w "%{http_code}" \
         "${FUSION_BASE_URL}/hcmRestApi/scim/Users?count=1" \
-        -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" 2>/dev/null) || true
+        -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}") || true
     if [[ "$fusion_auth_status" == "000" ]]; then
         fatal "Cannot reach Fusion at '${FUSION_BASE_URL}'" \
             "Check that the URL is correct and reachable from this machine." \
@@ -628,8 +628,8 @@ fi
 # 8. EPM URL reachable
 if [[ -n "$EPM_APP_ID" ]]; then
     info "Checking EPM URL reachability..."
-    epm_status=$(curl -s -o /dev/null -w "%{http_code}" \
-        "${EPM_BASE_URL}/HyperionPlanning/rest/v3/applications" 2>/dev/null) || true
+    epm_status=$(curl -sS -o /dev/null -w "%{http_code}" \
+        "${EPM_BASE_URL}/HyperionPlanning/rest/v3/applications") || true
     [[ "$epm_status" == "000" ]] && fatal \
         "Cannot reach EPM at '${EPM_BASE_URL}'" \
         "Check that the EPM base URL is correct and reachable from this machine."
@@ -642,10 +642,10 @@ fi
 if [[ -n "$FUSION_APP_ID" && "$FUSION_ALREADY_PROVISIONED" != true ]]; then
     info "Checking for role with code 'DD_INTEGRATION_ROLE' in Fusion..."
     info "(The role CODE must be exactly 'DD_INTEGRATION_ROLE')"
-    role_check=$(curl -s --compressed \
+    role_check=$(curl -sS --compressed \
         "${FUSION_BASE_URL}/hcmRestApi/scim/Roles?filter=name+eq+%22DD_INTEGRATION_ROLE%22" \
         -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" \
-        -H "Accept: application/json" 2>/dev/null) || true
+        -H "Accept: application/json") || true
     role_count=$(echo "$role_check" | python3 -c "
 import sys,json
 try:
@@ -733,10 +733,10 @@ if [[ -n "$CLIENT_ID" ]]; then
             info "Fusion user already provisioned — skipping check"
         else
             info "Checking if Fusion user '${CLIENT_ID}' already exists..."
-            existing_user=$(curl -s --compressed \
+            existing_user=$(curl -sS --compressed \
                 "${FUSION_BASE_URL}/hcmRestApi/scim/Users?filter=userName+eq+%22${CLIENT_ID}%22" \
                 -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" \
-                -H "Accept: application/json" 2>/dev/null) || true
+                -H "Accept: application/json") || true
             existing_user_id=$(echo "$existing_user" | python3 -c "
 import sys,json
 try: rs=json.load(sys.stdin).get('Resources',[]); print(rs[0].get('id','') if rs else '')
@@ -806,7 +806,7 @@ except Exception:
                     {\"op\": \"replace\", \"path\": \"bypassConsent\",   \"value\": true},
                     {\"op\": \"replace\", \"path\": \"active\",          \"value\": true}
                 ]" \
-                --output json > /dev/null 2>/dev/null || fatal \
+                --output json >/dev/null || fatal \
                 "Failed to update existing confidential app" \
                 "Ensure your OCI credentials have 'Identity Domain Administrator' permissions."
             success "Fusion scope added and app configuration verified"
@@ -835,7 +835,7 @@ except Exception:
                     {\"op\": \"replace\", \"path\": \"bypassConsent\",   \"value\": true},
                     {\"op\": \"replace\", \"path\": \"active\",          \"value\": true}
                 ]" \
-                --output json > /dev/null 2>/dev/null || fatal \
+                --output json >/dev/null || fatal \
                 "Failed to update existing confidential app" \
                 "Ensure your OCI credentials have 'Identity Domain Administrator' permissions."
             success "EPM scope added and app configuration verified"
@@ -859,7 +859,7 @@ else
         --bypass-consent true \
         --active true \
         --allowed-scopes "$SCOPES_JSON" \
-        --output json 2>/dev/null) || fatal \
+        --output json) || fatal \
         "Failed to create confidential application in OCI IAM" \
         "Ensure your OCI credentials have 'Identity Domain Administrator' permissions." \
         "Check: OCI Console → Identity & Security → Domains → your domain → Administrators"
@@ -920,7 +920,7 @@ if [[ -z "$FUSION_APP_ID" && -n "$EPM_APP_ID" ]]; then
             --name '{"familyName": "Datadog Integration"}' \
             --active true \
             ${_oci_emails_arg[@]+"${_oci_emails_arg[@]}"} \
-            --output json 2>/dev/null) || fatal \
+            --output json) || fatal \
             "Failed to create OCI IAM user '${CLIENT_ID}'" \
             "Ensure your OCI credentials have permission to create users in the identity domain." \
             "Check: OCI Console → Domains → Administrators"
@@ -958,12 +958,12 @@ if email:
     body['emails'] = [{'value': email, 'type': 'work', 'primary': True}]
 print(json.dumps(body))
 ")
-        user_response=$(curl -s --compressed -w $'\n%{http_code}' \
+        user_response=$(curl -sS --compressed -w $'\n%{http_code}' \
             -X POST "${FUSION_BASE_URL}/hcmRestApi/scim/Users" \
             -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
-            -d "$_fusion_user_body" 2>/dev/null)
+            -d "$_fusion_user_body")
         user_status="${user_response##*$'\n'}"
         user_body="${user_response%$'\n'*}"
 
@@ -984,7 +984,7 @@ import sys,json; print(json.load(sys.stdin).get('id',''))
     step "STEP 3: ASSIGN FUSION ROLE (DD_INTEGRATION_ROLE)"
 
     info "Assigning 'DD_INTEGRATION_ROLE' to user..."
-    patch_result=$(curl -s --compressed -w "\n%{http_code}" \
+    patch_result=$(curl -sS --compressed -w "\n%{http_code}" \
         -X PATCH "${FUSION_BASE_URL}/hcmRestApi/scim/Roles/${DD_INTEGRATION_ROLE_ID}" \
         -u "${FUSION_ADMIN_USERNAME}:${FUSION_ADMIN_PASSWORD}" \
         -H "Content-Type: application/json" \
@@ -992,13 +992,14 @@ import sys,json; print(json.load(sys.stdin).get('id',''))
         -d "{
             \"schemas\": [\"urn:oracle:apps:scim:schemas:fa:1.0:Role\"],
             \"members\": [{\"value\": \"${FUSION_USER_ID}\", \"operation\": \"ADD\"}]
-        }" 2>/dev/null)
+        }")
 
     patch_status="${patch_result##*$'\n'}"
     patch_body="${patch_result%$'\n'*}"
 
     if [[ "$patch_status" != "204" && "$patch_status" != "200" ]]; then
         fatal "Failed to assign DD_INTEGRATION_ROLE (HTTP ${patch_status})" \
+            "Response: ${patch_body}" \
             "Verify that 'DD_INTEGRATION_ROLE' is marked Requestable in Role Provisioning Rules:" \
             "  Setup and Maintenance → search 'Manage Role Provisioning Rules' → open it" \
             "  Click 'Add' to create a new mapping:" \
@@ -1092,7 +1093,7 @@ print(len(rs))
             --grantee "{\"type\": \"User\", \"value\": \"${OCI_IAM_USER_ID}\"}" \
             --app "{\"value\": \"${EPM_APP_ID}\"}" \
             --entitlement "{\"attributeName\": \"appRoles\", \"attributeValue\": \"${SERVICE_ADMIN_ROLE_ID}\"}" \
-            --output json 2>/dev/null) || fatal \
+            --output json) || fatal \
             "Failed to create EPM Service Administrator grant" \
             "Ensure your OCI credentials have Identity Domain Administrator permissions." \
             "Check: OCI Console → Domains → Administrators"
@@ -1168,7 +1169,7 @@ if [[ "$APP_EXISTS" == true && -z "$CLIENT_SECRET" ]]; then
         --app-id "$existing_app_ocid" \
         --schemas '["urn:ietf:params:scim:api:messages:2.0:PatchOp"]' \
         --operations '[{"op":"replace","path":"clientSecret","value":""}]' \
-        --output json 2>/dev/null) || true
+        --output json) || true
     CLIENT_SECRET=$(echo "$regen_resp" | python3 -c "
 import sys,json
 try: print(json.load(sys.stdin).get('data',{}).get('client-secret',''))
@@ -1286,7 +1287,7 @@ except Exception:
         oci identity-domains o-auth-partner-certificate delete \
             --endpoint "$IDENTITY_DOMAIN_URL" \
             --o-auth-partner-certificate-id "$_existing_partner_cert_id" \
-            --force > /dev/null 2>&1 || fatal \
+            --force >/dev/null || fatal \
             "Failed to replace existing EPM JWT assertion certificate (alias: ${EPM_JWT_CERT_ALIAS})" \
             "Ensure your OCI credentials have 'Identity Domain Administrator' permissions."
     fi
@@ -1295,7 +1296,7 @@ except Exception:
         --schemas '["urn:ietf:params:scim:schemas:oracle:idcs:OAuthPartnerCertificate"]' \
         --certificate-alias "$EPM_JWT_CERT_ALIAS" \
         --x509-base64-certificate "$_jwt_cert_b64" \
-        --output json > /dev/null 2>&1 || fatal \
+        --output json >/dev/null || fatal \
         "Failed to register EPM JWT assertion certificate" \
         "Ensure your OCI credentials have 'Identity Domain Administrator' permissions."
     success "EPM JWT assertion signing key generated and certificate registered"
