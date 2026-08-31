@@ -328,7 +328,8 @@ fi
 if [[ -z "$FUSION_APP_ID" && -z "$EPM_APP_ID" ]]; then
     fatal "At least one of --fusion-app-id or --epm-app-id is required" \
         "Find these in: OCI Console → Domains → Oracle Cloud Services" \
-        "Click on the Fusion or EPM app → copy the Application ID"
+        "Click on the Fusion or EPM app → copy the Application ID" \
+        "For Fusion, the service is usually called \"Fusion Applications Cloud Service\". Pick the one whose OAuth configuration lists your Fusion base URL as a secondary audience — that confirms it is the correct service."
 fi
 if [[ -n "$ACCOUNT_NAME" ]]; then
     _account_name_forbidden=()
@@ -570,7 +571,8 @@ except Exception:
 " 2>/dev/null)
     [[ -z "$fusion_app_name" ]] && fatal \
         "Fusion app ID '${FUSION_APP_ID}' was not found in identity domain '${IDENTITY_DOMAIN_URL}'" \
-        "Verify the Application ID at: OCI Console → Domains → Oracle Cloud Services → Fusion Apps Cloud Service" \
+        "Verify the Application ID at: OCI Console → Domains → Oracle Cloud Services → Fusion Applications Cloud Service" \
+        "The Fusion service is usually named \"Fusion Applications Cloud Service\". Confirm you have the right one by checking its OAuth configuration lists your Fusion base URL (${FUSION_BASE_URL:-<your Fusion base URL>}) as a secondary audience." \
         "Ensure you are using the hex Application ID, not the OCID." \
         "Check that your local OCI credentials (~/.oci/config) are for the correct tenancy, and that your user has Identity Domain Administrator permissions on this domain."
     FUSION_SCOPE=$(oci_derive_scope "$fusion_app_resp") || true
