@@ -86,7 +86,11 @@ Add EPM to an existing Fusion account (--account-name):
 
 Diagnose/repair an existing account (--account-name --fix):
   --account-name NAME           Existing Datadog Fusion or EPM account name (required)
-  --fix                         Run diagnostics and repair drift for the account
+  --fix                         Diagnose and repair drift for the account by rerunning onboarding.
+                                 Recreates missing OCI app scopes, the Fusion/OCI IAM integration
+                                 user, and EPM grants; always rotates and re-registers the OCI
+                                 client secret. Cannot recover a deleted OCI confidential app —
+                                 reinstall from scratch in that case (run without --account-name).
   --fusion-admin-username USER  Fusion admin username (required if the account has Fusion configured)
   --fusion-admin-password PASS  Fusion admin password (required if the account has Fusion configured)
 
@@ -749,8 +753,12 @@ if [[ -n "$ACCOUNT_NAME" ]]; then
         warn "Confidential application found — reusing (client_id: ${CLIENT_ID})"
     else
         fatal "No confidential application found for client_id '${CLIENT_ID}' in identity domain '${IDENTITY_DOMAIN_URL}'" \
-            "The OCI confidential application may have been deleted." \
-            "Check: OCI Console → Domains → Integrated Applications"
+            "The OCI confidential application appears to have been deleted." \
+            "Check: OCI Console → Domains → Integrated Applications" \
+            "--fix cannot recover from this: recreating the app would issue a new client_id/secret," \
+            "which is a bigger change than a repair should make automatically." \
+            "Remove the '${ACCOUNT_NAME}' account from the Datadog integration tile and reinstall the" \
+            "integration from scratch (run this script without --account-name or --fix)."
     fi
 else
     info "Checking if '${APP_NAME}' already exists in OCI IAM..."
@@ -819,26 +827,22 @@ success "Prerequisite checks passed"
 if [[ "$FIX" == true ]]; then
     step "REPAIR: '${ACCOUNT_NAME}'"
 
-    # The prerequisite checks above already re-ran, for whichever products are
-    # configured on this account (via the backfilled FUSION_APP_ID/EPM_APP_ID):
-    #   - Fusion/EPM app ID resolves in the identity domain, scope re-derived
-    #   - Fusion admin credentials are valid and Fusion is reachable
-    #   - EPM URL is reachable
-    #   - DD_INTEGRATION_ROLE still exists in Fusion
-    #   - Fusion/OCI IAM integration user still exists
-    #     (FUSION_USER_EXISTS, FUSION_USER_ID, OCI_IAM_USER_EXISTS, OCI_IAM_USER_ID)
-    # Also available: CLIENT_ID, IDENTITY_DOMAIN_URL, TOKEN_URL, FUSION_BASE_URL,
-    # EPM_BASE_URL, FUSION_SCOPE, EPM_SCOPE, APP_EXISTS, existing_app_ocid.
+    # --fix is a reset, not a diagnostic report: it doesn't try to figure out what's
+    # wrong and describe it, it just reasserts every piece of desired state so the
+    # account ends up healthy regardless of what had drifted. The prerequisite
+    # checks above already re-validated the fixed inputs that can't be reset by this
+    # script (Fusion/EPM app ID still resolves, scope re-derived, Fusion admin
+    # credentials valid, EPM URL reachable, DD_INTEGRATION_ROLE exists in Fusion —
+    # that role must be created manually and can't be auto-repaired) and found
+    # FUSION_USER_EXISTS/FUSION_USER_ID/OCI_IAM_USER_EXISTS/OCI_IAM_USER_ID.
     #
-    # TODO: add remaining diagnostic checks and repairs, e.g.:
-    #   - confirm the OCI confidential app still has the expected scopes/grants
-    #   - confirm DD_INTEGRATION_ROLE is still assigned specifically to the Fusion user
-    #   - confirm the EPM Service Administrator grant is still in place
-    #   - detect and correct drift between OCI IAM state and the Datadog
-    #     account's stored settings
-
-    success "Repair complete"
-    exit 0
+    # From here, execution falls through into the same Steps 1-5 used for fresh
+    # onboarding, which unconditionally reassert the app's scopes, the Fusion/OCI
+    # IAM integration user and its role assignment, the EPM grant, and the OCI
+    # client secret + Datadog account registration — recreating anything missing
+    # and re-confirming anything already correct, with no distinction between the
+    # two. The client secret and EPM JWT cert are rotated on every run since OCI
+    # has no way to retrieve an existing one, only replace it.
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1009,7 +1013,9 @@ import sys,json; print(json.load(sys.stdin).get('data',{}).get('id',''))
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
-if [[ -n "$FUSION_APP_ID" && "$FUSION_ALREADY_PROVISIONED" != true ]]; then
+# (--fix re-enters this even when Fusion was already provisioned, to recreate
+# the user/role assignment if diagnostics found either missing)
+if [[ -n "$FUSION_APP_ID" && ( "$FUSION_ALREADY_PROVISIONED" != true || "$FIX" == true ) ]]; then
 
     step "STEP 2: CREATE FUSION INTEGRATION USER"
 
@@ -1439,7 +1445,11 @@ fi
 
 # ══════════════════════════════════════════════════════════════════════════════
 echo ""
-echo -e "${GREEN}${BOLD}━━━ ONBOARDING COMPLETE ━━━${NC}"
+if [[ "$FIX" == true ]]; then
+    echo -e "${GREEN}${BOLD}━━━ REPAIR COMPLETE ━━━${NC}"
+else
+    echo -e "${GREEN}${BOLD}━━━ ONBOARDING COMPLETE ━━━${NC}"
+fi
 echo ""
 echo -e "  ${BOLD}Summary:${NC}"
 echo -e "  account_name:    ${ACCOUNT_NAME}"
