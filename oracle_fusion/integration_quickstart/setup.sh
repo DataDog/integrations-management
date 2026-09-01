@@ -87,6 +87,8 @@ Add EPM to an existing Fusion account (--account-name):
 Diagnose/repair an existing account (--account-name --fix):
   --account-name NAME           Existing Datadog Fusion account name (required)
   --fix                         Run diagnostics and repair drift for the account
+  --fusion-admin-username USER  Fusion admin username (required for Fusion-only accounts)
+  --fusion-admin-password PASS  Fusion admin password (required for Fusion-only accounts)
 
 Environment variables:
   DD_API_KEY   Datadog API key (required)
@@ -334,12 +336,10 @@ if [[ "$FIX" == true ]]; then
     [[ -n "$EPM_APP_ID" ]]             && _fix_forbidden+=("--epm-app-id")
     [[ -n "$FUSION_BASE_URL" ]]        && _fix_forbidden+=("--fusion-base-url")
     [[ -n "$EPM_BASE_URL" ]]           && _fix_forbidden+=("--epm-base-url")
-    [[ -n "$FUSION_ADMIN_USERNAME" ]]  && _fix_forbidden+=("--fusion-admin-username")
-    [[ -n "$FUSION_ADMIN_PASSWORD" ]]  && _fix_forbidden+=("--fusion-admin-password")
     [[ -n "$USER_EMAIL" ]]             && _fix_forbidden+=("--user-email")
     if [[ ${#_fix_forbidden[@]} -gt 0 ]]; then
         fatal "Invalid flags provided with --fix: ${_fix_forbidden[*]}" \
-            "When --fix is provided, only --account-name is allowed."
+            "When --fix is provided, only --account-name, --fusion-admin-username, and --fusion-admin-password are allowed."
     fi
 else
     # IDENTITY_DOMAIN_URL may be omitted when --account-name names an existing DD account;
@@ -479,6 +479,14 @@ print(u.scheme + '://' + u.netloc)
     if [[ "$FIX" == true && -n "$_fetched_epm_base" ]]; then
         fatal "Account '${ACCOUNT_NAME}' has EPM configured" \
             "--fix currently only supports accounts with Fusion only (no EPM)."
+    fi
+    if [[ "$FIX" == true ]]; then
+        [[ -z "$FUSION_ADMIN_USERNAME" ]] && fatal \
+            "--fusion-admin-username is required when --fix is provided for a Fusion-only account" \
+            "Provide a Fusion admin account username. These credentials are used only for" \
+            "repair and are never stored by Datadog."
+        [[ -z "$FUSION_ADMIN_PASSWORD" ]] && fatal \
+            "--fusion-admin-password is required when --fix is provided for a Fusion-only account"
     fi
     # EPM base URL is required if it's not already set on the account.
     if [[ -n "$EPM_APP_ID" && -z "$_fetched_epm_base" ]]; then
