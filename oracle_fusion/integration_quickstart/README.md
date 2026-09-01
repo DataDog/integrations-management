@@ -31,6 +31,7 @@ assigns the required Fusion role, and grants EPM Service Administrator access.
 | `--fusion-admin-password PASS` | Fusion admin password (required for Fusion; not used with `--account-name`; not stored) |
 | `--user-email EMAIL` | Email address to attach to the created integration user. |
 | `--account-name NAME` | Name of an existing Datadog Fusion account to add EPM to. Requires `--fusion-app-id` and `--epm-app-id`. Cannot be used with `--identity-domain-url`, `--fusion-base-url`, `--fusion-admin-username`, `--fusion-admin-password`, or `--user-email`. |
+| `--fix` | Diagnose and repair drift on an existing Datadog Fusion/EPM account named by `--account-name`. Reruns onboarding to recreate missing OCI app scopes, the Fusion/OCI IAM integration user, and EPM grants; always rotates and re-registers the OCI client secret. Requires `--account-name` (and `--fusion-admin-username`/`--fusion-admin-password` if the account has Fusion configured); no other flags are allowed. Cannot recover a deleted OCI confidential app — reinstall from scratch in that case (run without `--account-name`). |
 
 ## Environment Variables
 
@@ -73,6 +74,19 @@ export DD_SITE=datadoghq.com
   --fusion-app-id a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4 \
   --epm-app-id b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5 \
   --epm-base-url https://your-epm-env.epm.us-ashburn-1.ocs.oraclecloud.com
+```
+
+**Repair drift on an existing account:**
+
+```bash
+export DD_API_KEY=<your-api-key>
+export DD_APP_KEY=<your-app-key>
+export DD_SITE=datadoghq.com
+./setup.sh \
+  --account-name "My Fusion Account" \
+  --fix \
+  --fusion-admin-username admin@example.com \
+  --fusion-admin-password mypassword
 ```
 
 ## Browser-based authentication
