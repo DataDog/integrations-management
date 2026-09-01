@@ -85,10 +85,10 @@ Add EPM to an existing Fusion account (--account-name):
   --epm-base-url URL            EPM environment base URL (required if not already set)
 
 Diagnose/repair an existing account (--account-name --fix):
-  --account-name NAME           Existing Datadog Fusion account name (required)
+  --account-name NAME           Existing Datadog Fusion or EPM account name (required)
   --fix                         Run diagnostics and repair drift for the account
-  --fusion-admin-username USER  Fusion admin username (required for Fusion-only accounts)
-  --fusion-admin-password PASS  Fusion admin password (required for Fusion-only accounts)
+  --fusion-admin-username USER  Fusion admin username (required if the account has Fusion configured)
+  --fusion-admin-password PASS  Fusion admin password (required if the account has Fusion configured)
 
 Environment variables:
   DD_API_KEY   Datadog API key (required)
@@ -469,25 +469,24 @@ print(u.scheme + '://' + u.netloc)
     [[ -z "$FUSION_SCOPE" ]]    && FUSION_SCOPE="$_fetched_fusion_scope"
     [[ -z "$EPM_BASE_URL" ]]    && EPM_BASE_URL="$_fetched_epm_base"
     [[ -z "$EPM_SCOPE" ]]       && EPM_SCOPE="$_fetched_epm_scope"
-    # Only adding EPM to an existing Fusion account is supported via --account-name.
-    [[ -z "$_fetched_fusion_base" ]] && fatal \
-        "Account '${ACCOUNT_NAME}' does not have a Fusion integration configured" \
-        "Adding EPM via --account-name is only supported for existing Fusion accounts." \
-        "To set up a new Fusion + EPM account, run without --account-name."
-    FUSION_ALREADY_PROVISIONED=true
-    # --fix only supports Fusion-only accounts for now.
-    if [[ "$FIX" == true && -n "$_fetched_epm_base" ]]; then
-        fatal "Account '${ACCOUNT_NAME}' has EPM configured" \
-            "--fix currently only supports accounts with Fusion only (no EPM)."
-    fi
     if [[ "$FIX" == true ]]; then
-        [[ -z "$FUSION_ADMIN_USERNAME" ]] && fatal \
-            "--fusion-admin-username is required when --fix is provided for a Fusion-only account" \
-            "Provide a Fusion admin account username. These credentials are used only for" \
-            "repair and are never stored by Datadog."
-        [[ -z "$FUSION_ADMIN_PASSWORD" ]] && fatal \
-            "--fusion-admin-password is required when --fix is provided for a Fusion-only account"
+        # --fix supports accounts with Fusion, EPM, or both; only Fusion needs admin credentials.
+        if [[ -n "$_fetched_fusion_base" ]]; then
+            [[ -z "$FUSION_ADMIN_USERNAME" ]] && fatal \
+                "--fusion-admin-username is required when --fix is provided for an account with Fusion configured" \
+                "Provide a Fusion admin account username. These credentials are used only for" \
+                "repair and are never stored by Datadog."
+            [[ -z "$FUSION_ADMIN_PASSWORD" ]] && fatal \
+                "--fusion-admin-password is required when --fix is provided for an account with Fusion configured"
+        fi
+    else
+        # Only adding EPM to an existing Fusion account is supported via --account-name.
+        [[ -z "$_fetched_fusion_base" ]] && fatal \
+            "Account '${ACCOUNT_NAME}' does not have a Fusion integration configured" \
+            "Adding EPM via --account-name is only supported for existing Fusion accounts." \
+            "To set up a new Fusion + EPM account, run without --account-name."
     fi
+    [[ -n "$_fetched_fusion_base" ]] && FUSION_ALREADY_PROVISIONED=true
     # EPM base URL is required if it's not already set on the account.
     if [[ -n "$EPM_APP_ID" && -z "$_fetched_epm_base" ]]; then
         [[ -z "$EPM_BASE_URL" ]] && fatal \
