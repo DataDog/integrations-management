@@ -340,10 +340,9 @@ if [[ "$FIX" == true ]]; then
     [[ -n "$EPM_APP_ID" ]]             && _fix_forbidden+=("--epm-app-id")
     [[ -n "$FUSION_BASE_URL" ]]        && _fix_forbidden+=("--fusion-base-url")
     [[ -n "$EPM_BASE_URL" ]]           && _fix_forbidden+=("--epm-base-url")
-    [[ -n "$USER_EMAIL" ]]             && _fix_forbidden+=("--user-email")
     if [[ ${#_fix_forbidden[@]} -gt 0 ]]; then
         fatal "Invalid flags provided with --fix: ${_fix_forbidden[*]}" \
-            "When --fix is provided, only --account-name, --fusion-admin-username, and --fusion-admin-password are allowed."
+            "When --fix is provided, only --account-name, --fusion-admin-username, --fusion-admin-password, and --user-email are allowed."
     fi
 else
     # IDENTITY_DOMAIN_URL may be omitted when --account-name names an existing DD account;
