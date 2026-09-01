@@ -84,15 +84,15 @@ Add EPM to an existing Fusion account (--account-name):
   --epm-app-id ID               EPM SaaS app ID in OCI IAM (required)
   --epm-base-url URL            EPM environment base URL (required if not already set)
 
-Diagnose/repair an existing account (--account-name --fix):
+Diagnose/repair an existing account (--account-name ... --fix):
   --account-name NAME           Existing Datadog Fusion or EPM account name (required)
+  --fusion-admin-username USER  Fusion admin username (required if the account has Fusion configured)
+  --fusion-admin-password PASS  Fusion admin password (required if the account has Fusion configured)
   --fix                         Diagnose and repair drift for the account by rerunning onboarding.
                                  Recreates missing OCI app scopes, the Fusion/OCI IAM integration
                                  user, and EPM grants; always rotates and re-registers the OCI
                                  client secret. Cannot recover a deleted OCI confidential app —
                                  reinstall from scratch in that case (run without --account-name).
-  --fusion-admin-username USER  Fusion admin username (required if the account has Fusion configured)
-  --fusion-admin-password PASS  Fusion admin password (required if the account has Fusion configured)
 
 Environment variables:
   DD_API_KEY   Datadog API key (required)

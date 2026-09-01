@@ -84,9 +84,9 @@ export DD_APP_KEY=<your-app-key>
 export DD_SITE=datadoghq.com
 ./setup.sh \
   --account-name "My Fusion Account" \
-  --fix \
   --fusion-admin-username admin@example.com \
-  --fusion-admin-password mypassword
+  --fusion-admin-password mypassword \
+  --fix
 ```
 
 ## Browser-based authentication
