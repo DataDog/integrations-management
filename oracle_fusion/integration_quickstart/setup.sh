@@ -438,9 +438,11 @@ if matched:
         s.get('oauth_scope', ''),
         s.get('epm_base_url', ''),
         s.get('epm_oauth_scope', ''),
+        s.get('fusion_application_id', ''),
+        s.get('epm_application_id', ''),
     ]))
 else:
-    print('|||||')
+    print('|' * 7)
 " 2>/dev/null)
     _fetched_client_id=$(echo "$_account_fields"   | cut -d'|' -f1)
     _fetched_token_url=$(echo "$_account_fields"   | cut -d'|' -f2)
@@ -448,6 +450,8 @@ else:
     _fetched_fusion_scope=$(echo "$_account_fields"| cut -d'|' -f4)
     _fetched_epm_base=$(echo "$_account_fields"    | cut -d'|' -f5)
     _fetched_epm_scope=$(echo "$_account_fields"   | cut -d'|' -f6)
+    _fetched_fusion_app_id=$(echo "$_account_fields" | cut -d'|' -f7)
+    _fetched_epm_app_id=$(echo "$_account_fields"    | cut -d'|' -f8)
     [[ -z "$_fetched_client_id" ]] && fatal \
         "No Datadog Oracle Fusion account named '${ACCOUNT_NAME}' found" \
         "Verify the account name matches exactly what is shown in the Datadog integration tile." \
@@ -469,6 +473,8 @@ print(u.scheme + '://' + u.netloc)
     [[ -z "$FUSION_SCOPE" ]]    && FUSION_SCOPE="$_fetched_fusion_scope"
     [[ -z "$EPM_BASE_URL" ]]    && EPM_BASE_URL="$_fetched_epm_base"
     [[ -z "$EPM_SCOPE" ]]       && EPM_SCOPE="$_fetched_epm_scope"
+    [[ -z "$FUSION_APP_ID" ]]   && FUSION_APP_ID="$_fetched_fusion_app_id"
+    [[ -z "$EPM_APP_ID" ]]      && EPM_APP_ID="$_fetched_epm_app_id"
     if [[ "$FIX" == true ]]; then
         # --fix supports accounts with Fusion, EPM, or both; only Fusion needs admin credentials.
         if [[ -n "$_fetched_fusion_base" ]]; then
@@ -647,7 +653,8 @@ except Exception:
 fi
 
 # 7. Validate Fusion admin credentials + connectivity
-if [[ -n "$FUSION_APP_ID" && "$FUSION_ALREADY_PROVISIONED" != true ]]; then
+# (--fix re-runs this even on an already-provisioned account, as a drift check)
+if [[ -n "$FUSION_APP_ID" && ( "$FUSION_ALREADY_PROVISIONED" != true || "$FIX" == true ) ]]; then
     info "Validating Fusion admin credentials and connectivity..."
     fusion_auth_status=$(curl -sS --compressed -o /dev/null -w "%{http_code}" \
         "${FUSION_BASE_URL}/hcmRestApi/scim/Users?count=1" \
@@ -678,7 +685,7 @@ fi
 # 9. DD_INTEGRATION_ROLE exists in Fusion and is accessible via API
 #    We check the role CODE (the 'name' field in SCIM).
 #    The role code must be exactly 'DD_INTEGRATION_ROLE'.
-if [[ -n "$FUSION_APP_ID" && "$FUSION_ALREADY_PROVISIONED" != true ]]; then
+if [[ -n "$FUSION_APP_ID" && ( "$FUSION_ALREADY_PROVISIONED" != true || "$FIX" == true ) ]]; then
     info "Checking for role with code 'DD_INTEGRATION_ROLE' in Fusion..."
     info "(The role CODE must be exactly 'DD_INTEGRATION_ROLE')"
     role_check=$(curl -sS --compressed \
@@ -767,7 +774,7 @@ FUSION_USER_EXISTS=false
 OCI_IAM_USER_EXISTS=false
 if [[ -n "$CLIENT_ID" ]]; then
     if [[ -n "$FUSION_APP_ID" ]]; then
-        if [[ "$FUSION_ALREADY_PROVISIONED" == true ]]; then
+        if [[ "$FUSION_ALREADY_PROVISIONED" == true && "$FIX" != true ]]; then
             FUSION_USER_EXISTS=true
             info "Fusion user already provisioned — skipping check"
         else
@@ -812,15 +819,20 @@ success "Prerequisite checks passed"
 if [[ "$FIX" == true ]]; then
     step "REPAIR: '${ACCOUNT_NAME}'"
 
-    # State already gathered during the prerequisite checks above is available
-    # here for diagnostics, e.g.:
-    #   CLIENT_ID, IDENTITY_DOMAIN_URL, TOKEN_URL, FUSION_BASE_URL, EPM_BASE_URL,
-    #   FUSION_SCOPE, EPM_SCOPE, APP_EXISTS, existing_app_ocid,
-    #   FUSION_USER_EXISTS, FUSION_USER_ID, OCI_IAM_USER_EXISTS, OCI_IAM_USER_ID
+    # The prerequisite checks above already re-ran, for whichever products are
+    # configured on this account (via the backfilled FUSION_APP_ID/EPM_APP_ID):
+    #   - Fusion/EPM app ID resolves in the identity domain, scope re-derived
+    #   - Fusion admin credentials are valid and Fusion is reachable
+    #   - EPM URL is reachable
+    #   - DD_INTEGRATION_ROLE still exists in Fusion
+    #   - Fusion/OCI IAM integration user still exists
+    #     (FUSION_USER_EXISTS, FUSION_USER_ID, OCI_IAM_USER_EXISTS, OCI_IAM_USER_ID)
+    # Also available: CLIENT_ID, IDENTITY_DOMAIN_URL, TOKEN_URL, FUSION_BASE_URL,
+    # EPM_BASE_URL, FUSION_SCOPE, EPM_SCOPE, APP_EXISTS, existing_app_ocid.
     #
-    # TODO: add diagnostic checks and repairs, e.g.:
+    # TODO: add remaining diagnostic checks and repairs, e.g.:
     #   - confirm the OCI confidential app still has the expected scopes/grants
-    #   - confirm DD_INTEGRATION_ROLE is still assigned to the Fusion user
+    #   - confirm DD_INTEGRATION_ROLE is still assigned specifically to the Fusion user
     #   - confirm the EPM Service Administrator grant is still in place
     #   - detect and correct drift between OCI IAM state and the Datadog
     #     account's stored settings
