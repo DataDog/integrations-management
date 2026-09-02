@@ -44,7 +44,6 @@ FUSION_BASE_URL=""
 EPM_BASE_URL=""
 FUSION_SCOPE=""
 EPM_SCOPE=""
-FUSION_SYSTEM_NAME=""
 FUSION_LEGACY_AUDIENCE=false
 FUSION_AUDIENCE=""
 FUSION_ADMIN_USERNAME=""
@@ -62,7 +61,6 @@ while [[ $# -gt 0 ]]; do
         --epm-base-url)               EPM_BASE_URL="$2";          shift 2 ;;
         --fusion-admin-username)      FUSION_ADMIN_USERNAME="$2"; shift 2 ;;
         --fusion-admin-password)      FUSION_ADMIN_PASSWORD="$2"; shift 2 ;;
-        --fusion-system-name)         FUSION_SYSTEM_NAME="$2";    shift 2 ;;
         --user-email)                 USER_EMAIL="$2";            shift 2 ;;
         --account-name)               ACCOUNT_NAME="$2";          shift 2 ;;
         --fix)                        FIX=true;                   shift ;;
@@ -79,11 +77,6 @@ Fresh Fusion + EPM onboarding (no --account-name):
   --fusion-base-url URL         Fusion environment base URL (required for Fusion)
   --fusion-admin-username USER  Fusion admin username (required for Fusion)
   --fusion-admin-password PASS  Fusion admin password (required for Fusion)
-  --fusion-system-name NAME     Fusion instance System Name. Used to rebuild the OAuth scope
-                                 when the app's audience is not the expected urn:opc:resource:faaas:fa:
-                                 form (e.g. older "legacy" Fusion instances). Find it at: OCI Console →
-                                 My Applications → Fusion Applications → Environments → <instance> →
-                                 System Name. Casing matters. Skips the interactive prompt.
   --epm-base-url URL            EPM environment base URL (required for EPM)
   --user-email EMAIL            Email to attach to the created integration user
 
@@ -649,7 +642,7 @@ except Exception:
     # audience (e.g. urn:opc:resource:fusion:wls:monitoring), whose derived scope
     # typically fails to authenticate against the Fusion REST API. When we detect
     # that, warn the user and offer to rebuild the scope from the instance's
-    # System Name (or pass --fusion-system-name to skip the prompt).
+    # System Name.
     fusion_audience=$(echo "$fusion_app_resp" | python3 -c "
 import sys,json
 try:
@@ -662,36 +655,30 @@ except Exception:
         FUSION_LEGACY_AUDIENCE=true
         FUSION_AUDIENCE="$fusion_audience"
         warn "Unexpected OAuth scope (audience: '${fusion_audience}'), likely due to an older Fusion instance."
-        if [[ -n "$FUSION_SYSTEM_NAME" ]]; then
-            FUSION_SCOPE="urn:opc:resource:faaas:fa:${FUSION_SYSTEM_NAME}urn:opc:resource:consumer::all"
-            success "Rebuilt Fusion scope from --fusion-system-name '${FUSION_SYSTEM_NAME}'"
-        else
-            echo ""
-            echo -e "  ${YELLOW}${BOLD}You can:${NC}"
-            echo -e "  ${YELLOW}  1) Continue with the derived scope and see if the script succeeds.${NC}"
-            echo -e "  ${YELLOW}  2) Provide your Fusion instance's System Name to generate the correct OAuth scope.${NC}"
-            echo -e "  ${YELLOW}     Find it at: OCI Console → My Applications → Fusion Applications → Environments →${NC}"
-            echo -e "  ${YELLOW}     <select the current instance> → examine the 'System Name' field.${NC}"
-            echo -e "  ${YELLOW}     e.g. base URL https://test-instance.fa.ocs.oraclecloud.com → system name 'test-instance'.${NC}"
-            echo -e "  ${YELLOW}     Casing matters — copy the exact value from the System Name field.${NC}"
-            echo ""
-            read -r -p "  Choose [1/2]: " _scope_choice || _scope_choice=""
-            case "$_scope_choice" in
-                2)
-                    read -r -p "  Fusion instance System Name: " _sys_name || _sys_name=""
-                    if [[ -z "$_sys_name" ]]; then
-                        warn "No System Name provided — keeping derived scope '${FUSION_SCOPE}'"
-                    else
-                        FUSION_SYSTEM_NAME="$_sys_name"
-                        FUSION_SCOPE="urn:opc:resource:faaas:fa:${FUSION_SYSTEM_NAME}urn:opc:resource:consumer::all"
-                        success "Rebuilt Fusion scope from System Name '${FUSION_SYSTEM_NAME}'"
-                    fi
-                    ;;
-                *)
-                    warn "Continuing with derived scope '${FUSION_SCOPE}' — onboarding may fail."
-                    ;;
-            esac
-        fi
+        echo ""
+        echo -e "  ${YELLOW}${BOLD}You can:${NC}"
+        echo -e "  ${YELLOW}  1) Continue with the derived scope and see if the script succeeds.${NC}"
+        echo -e "  ${YELLOW}  2) Provide your Fusion instance's System Name to generate the correct OAuth scope.${NC}"
+        echo -e "  ${YELLOW}     Find it at: OCI Console → My Applications → Fusion Applications → Environments →${NC}"
+        echo -e "  ${YELLOW}     <select the current instance> → examine the 'System Name' field.${NC}"
+        echo -e "  ${YELLOW}     e.g. base URL https://test-instance.fa.ocs.oraclecloud.com → system name 'test-instance'.${NC}"
+        echo -e "  ${YELLOW}     Casing matters — copy the exact value from the System Name field.${NC}"
+        echo ""
+        read -r -p "  Choose [1/2]: " _scope_choice || _scope_choice=""
+        case "$_scope_choice" in
+            2)
+                read -r -p "  Fusion instance System Name: " _sys_name || _sys_name=""
+                if [[ -z "$_sys_name" ]]; then
+                    warn "No System Name provided — keeping derived scope '${FUSION_SCOPE}'"
+                else
+                    FUSION_SCOPE="urn:opc:resource:faaas:fa:${_sys_name}urn:opc:resource:consumer::all"
+                    success "Rebuilt Fusion scope from System Name '${_sys_name}'"
+                fi
+                ;;
+            *)
+                warn "Continuing with derived scope '${FUSION_SCOPE}' — onboarding may fail."
+                ;;
+        esac
     fi
     success "Fusion app found: '${fusion_app_name}' — scope: ${FUSION_SCOPE}"
 fi
@@ -1008,7 +995,7 @@ else
                 "Ensure your OCI credentials have 'Identity Domain Administrator' permissions." \
                 "Check: OCI Console → Identity & Security → Domains → your domain → Administrators" \
                 "The Fusion app's audience was '${FUSION_AUDIENCE}', which is not the expected urn:opc:resource:faaas:fa: form — this is likely a legacy Fusion instance." \
-                "Provide the Fusion instance System Name via --fusion-system-name (or re-run and choose option 2 at the prompt) to rebuild the OAuth scope, and verify the casing matches the System Name field exactly (e.g. https://test-instance.fa.ocs.oraclecloud.com → 'test-instance')."
+                "Re-run and choose option 2 at the prompt to provide the Fusion instance's System Name and rebuild the OAuth scope. Verify the casing matches the System Name field exactly (e.g. https://test-instance.fa.ocs.oraclecloud.com → 'test-instance')."
         else
             fatal "Failed to create confidential application in OCI IAM" \
                 "Ensure your OCI credentials have 'Identity Domain Administrator' permissions." \
