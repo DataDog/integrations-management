@@ -654,7 +654,7 @@ except Exception:
         echo -e "  ${YELLOW}  2) Provide your Fusion instance's System Name to generate the correct OAuth scope.${NC}"
         echo -e "  ${YELLOW}     Find it at: OCI Console → My Applications → Fusion Applications → Environments →${NC}"
         echo -e "  ${YELLOW}     <select the current instance> → examine the 'System Name' field.${NC}"
-        echo -e "  ${YELLOW}     e.g. base URL https://test-instance.fa.ocs.oraclecloud.com → system name 'test-instance'.${NC}"
+        echo -e "  ${YELLOW}     e.g. base URL https://test-instance.fa.ocs.oraclecloud.com → system name 'TEST-INSTANCE'.${NC}"
         echo -e "  ${YELLOW}     Casing matters — copy the exact value from the System Name field.${NC}"
         echo ""
         read -r -p "  Choose [1/2]: " _scope_choice || _scope_choice=""
@@ -934,7 +934,7 @@ except Exception:
                     fatal "Failed to update existing confidential app" \
                         "Ensure your OCI credentials have 'Identity Domain Administrator' permissions." \
                         "The derived OAuth scope '${FUSION_DERIVED_SCOPE}' is not in the expected urn:opc:resource:faaas:fa: form — this is likely a legacy Fusion instance." \
-                        "Re-run and choose option 2 at the prompt to provide the Fusion instance's System Name and rebuild the OAuth scope. Verify the casing matches the System Name field exactly (e.g. https://test-instance.fa.ocs.oraclecloud.com → 'test-instance')."
+                        "Re-run and choose option 2 at the prompt to provide the Fusion instance's System Name and rebuild the OAuth scope. Verify the casing matches the System Name field exactly (e.g. https://test-instance.fa.ocs.oraclecloud.com → 'TEST-INSTANCE')."
                 else
                     fatal "Failed to update existing confidential app" \
                         "Ensure your OCI credentials have 'Identity Domain Administrator' permissions."
@@ -971,7 +971,7 @@ except Exception:
                     fatal "Failed to update existing confidential app" \
                         "Ensure your OCI credentials have 'Identity Domain Administrator' permissions." \
                         "The derived OAuth scope '${FUSION_DERIVED_SCOPE}' is not in the expected urn:opc:resource:faaas:fa: form — this is likely a legacy Fusion instance." \
-                        "Re-run and choose option 2 at the prompt to provide the Fusion instance's System Name and rebuild the OAuth scope. Verify the casing matches the System Name field exactly (e.g. https://test-instance.fa.ocs.oraclecloud.com → 'test-instance')."
+                        "Re-run and choose option 2 at the prompt to provide the Fusion instance's System Name and rebuild the OAuth scope. Verify the casing matches the System Name field exactly (e.g. https://test-instance.fa.ocs.oraclecloud.com → 'TEST-INSTANCE')."
                 else
                     fatal "Failed to update existing confidential app" \
                         "Ensure your OCI credentials have 'Identity Domain Administrator' permissions."
@@ -1004,7 +1004,7 @@ else
                 "Ensure your OCI credentials have 'Identity Domain Administrator' permissions." \
                 "Check: OCI Console → Identity & Security → Domains → your domain → Administrators" \
                 "The derived OAuth scope '${FUSION_DERIVED_SCOPE}' is not in the expected urn:opc:resource:faaas:fa: form — this is likely a legacy Fusion instance." \
-                "Re-run and choose option 2 at the prompt to provide the Fusion instance's System Name and rebuild the OAuth scope. Verify the casing matches the System Name field exactly (e.g. https://test-instance.fa.ocs.oraclecloud.com → 'test-instance')."
+                "Re-run and choose option 2 at the prompt to provide the Fusion instance's System Name and rebuild the OAuth scope. Verify the casing matches the System Name field exactly (e.g. https://test-instance.fa.ocs.oraclecloud.com → 'TEST-INSTANCE')."
         else
             fatal "Failed to create confidential application in OCI IAM" \
                 "Ensure your OCI credentials have 'Identity Domain Administrator' permissions." \
