@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-# ── Colours ───────────────────────────────────────────────────────────────────
+# ── Colors ───────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -48,6 +48,7 @@ FUSION_ADMIN_USERNAME=""
 FUSION_ADMIN_PASSWORD=""
 ACCOUNT_NAME=""
 USER_EMAIL=""
+FIX=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -60,6 +61,7 @@ while [[ $# -gt 0 ]]; do
         --fusion-admin-password)      FUSION_ADMIN_PASSWORD="$2"; shift 2 ;;
         --user-email)                 USER_EMAIL="$2";            shift 2 ;;
         --account-name)               ACCOUNT_NAME="$2";          shift 2 ;;
+        --fix)                        FIX=true;                   shift ;;
 --help|-h)
             cat <<'EOF'
 Usage: ./setup.sh [OPTIONS]
@@ -81,6 +83,18 @@ Add EPM to an existing Fusion account (--account-name):
   --fusion-app-id ID            Fusion SaaS app ID in OCI IAM (required)
   --epm-app-id ID               EPM SaaS app ID in OCI IAM (required)
   --epm-base-url URL            EPM environment base URL (required if not already set)
+
+Diagnose/repair an existing account (--account-name ... --fix):
+  --account-name NAME           Existing Datadog Fusion or EPM account name (required)
+  --fusion-app-id ID            Fusion SaaS app ID in OCI IAM (required if the account has Fusion
+                                 configured and does not already have a Fusion app ID on record)
+  --fusion-admin-username USER  Fusion admin username (required if the account has Fusion configured)
+  --fusion-admin-password PASS  Fusion admin password (required if the account has Fusion configured)
+  --fix                         Diagnose and repair drift for the account by rerunning onboarding.
+                                 Recreates missing OCI app scopes, the Fusion/OCI IAM integration
+                                 user, and EPM grants; always rotates and re-registers the OCI
+                                 client secret. Cannot recover a deleted OCI confidential app —
+                                 reinstall from scratch in that case (run without --account-name).
 
 Environment variables:
   DD_API_KEY   Datadog API key (required)
@@ -316,62 +330,79 @@ step "PREREQUISITE CHECKS"
 
 # 1. Required arguments
 info "Checking required inputs..."
-# IDENTITY_DOMAIN_URL may be omitted when --account-name names an existing DD account;
-# it will be derived from the account's token_url after DD credentials are validated.
-if [[ -z "$IDENTITY_DOMAIN_URL" && -z "$ACCOUNT_NAME" ]]; then
-    fatal "--identity-domain-url is required" \
-        "Provide your OCI IAM identity domain URL." \
-        "Find it at: OCI Console → Identity & Security → Domains → copy the Domain URL" \
-        "Or provide --account-name to look up an existing Datadog account and derive the URL automatically."
-fi
-
-if [[ -z "$FUSION_APP_ID" && -z "$EPM_APP_ID" ]]; then
-    fatal "At least one of --fusion-app-id or --epm-app-id is required" \
-        "Find these in: OCI Console → Domains → Oracle Cloud Services" \
-        "Click on the Fusion or EPM app → copy the Application ID"
-fi
-if [[ -n "$ACCOUNT_NAME" ]]; then
-    _account_name_forbidden=()
-    [[ -n "$IDENTITY_DOMAIN_URL" ]]    && _account_name_forbidden+=("--identity-domain-url")
-    [[ -n "$FUSION_BASE_URL" ]]        && _account_name_forbidden+=("--fusion-base-url")
-    [[ -n "$FUSION_ADMIN_USERNAME" ]]  && _account_name_forbidden+=("--fusion-admin-username")
-    [[ -n "$FUSION_ADMIN_PASSWORD" ]]  && _account_name_forbidden+=("--fusion-admin-password")
-    [[ -n "$USER_EMAIL" ]]             && _account_name_forbidden+=("--user-email")
-    if [[ ${#_account_name_forbidden[@]} -gt 0 ]]; then
-        fatal "Invalid flags provided with --account-name: ${_account_name_forbidden[*]}" \
-            "When --account-name is provided, only the following flags are allowed:" \
-            "  --fusion-app-id, --epm-app-id, --epm-base-url"
+if [[ "$FIX" == true ]]; then
+    # --fix runs its own diagnostics/repair flow (see REPAIR step below) and
+    # does not need any of the provisioning inputs required by the other modes.
+    [[ -z "$ACCOUNT_NAME" ]] && fatal \
+        "--account-name is required when --fix is provided" \
+        "Provide the existing Datadog Fusion account name to diagnose/repair."
+    _fix_forbidden=()
+    [[ -n "$IDENTITY_DOMAIN_URL" ]]    && _fix_forbidden+=("--identity-domain-url")
+    [[ -n "$EPM_APP_ID" ]]             && _fix_forbidden+=("--epm-app-id")
+    [[ -n "$FUSION_BASE_URL" ]]        && _fix_forbidden+=("--fusion-base-url")
+    [[ -n "$EPM_BASE_URL" ]]           && _fix_forbidden+=("--epm-base-url")
+    if [[ ${#_fix_forbidden[@]} -gt 0 ]]; then
+        fatal "Invalid flags provided with --fix: ${_fix_forbidden[*]}" \
+            "When --fix is provided, only --account-name, --fusion-app-id, --fusion-admin-username, --fusion-admin-password, and --user-email are allowed."
     fi
-    [[ -z "$FUSION_APP_ID" ]] && fatal \
-        "--fusion-app-id is required when --account-name is provided" \
-        "When --account-name is provided, only adding EPM to an existing Fusion account is supported."
-    [[ -z "$EPM_APP_ID" ]] && fatal \
-        "--epm-app-id is required when --account-name is provided" \
-        "When --account-name is provided, only adding EPM to an existing Fusion account is supported."
-fi
+else
+    # IDENTITY_DOMAIN_URL may be omitted when --account-name names an existing DD account;
+    # it will be derived from the account's token_url after DD credentials are validated.
+    if [[ -z "$IDENTITY_DOMAIN_URL" && -z "$ACCOUNT_NAME" ]]; then
+        fatal "--identity-domain-url is required" \
+            "Provide your OCI IAM identity domain URL." \
+            "Find it at: OCI Console → Identity & Security → Domains → copy the Domain URL" \
+            "Or provide --account-name to look up an existing Datadog account and derive the URL automatically."
+    fi
 
-[[ -z "$FUSION_APP_ID" ]] && warn "No --fusion-app-id provided — skipping Fusion scope"
-# Fusion base URL and admin credentials are only required for fresh Fusion provisioning.
-# When --account-name is provided and the account already has Fusion, these are not needed
-# (Fusion user and role are already set up). We check this after back-fill below.
-if [[ -n "$FUSION_APP_ID" && -z "$ACCOUNT_NAME" ]]; then
-    [[ -z "$FUSION_BASE_URL" ]] && fatal \
-        "--fusion-base-url is required when --fusion-app-id is provided" \
-        "Provide your Oracle Fusion environment URL, e.g. https://icjnjb.fa.ocs.oraclecloud.com"
-    [[ -z "$FUSION_ADMIN_USERNAME" ]] && fatal \
-        "--fusion-admin-username is required for Fusion user provisioning" \
-        "Provide a Fusion admin account username. These credentials are used only for" \
-        "provisioning and are never stored by Datadog."
-    [[ -z "$FUSION_ADMIN_PASSWORD" ]] && fatal \
-        "--fusion-admin-password is required for Fusion user provisioning"
-fi
+    if [[ -z "$FUSION_APP_ID" && -z "$EPM_APP_ID" ]]; then
+        fatal "At least one of --fusion-app-id or --epm-app-id is required" \
+            "Find these in: OCI Console → Domains → Oracle Cloud Services" \
+            "Click on the Fusion or EPM app → copy the Application ID"
+    fi
+    if [[ -n "$ACCOUNT_NAME" ]]; then
+        _account_name_forbidden=()
+        [[ -n "$IDENTITY_DOMAIN_URL" ]]    && _account_name_forbidden+=("--identity-domain-url")
+        [[ -n "$FUSION_BASE_URL" ]]        && _account_name_forbidden+=("--fusion-base-url")
+        [[ -n "$FUSION_ADMIN_USERNAME" ]]  && _account_name_forbidden+=("--fusion-admin-username")
+        [[ -n "$FUSION_ADMIN_PASSWORD" ]]  && _account_name_forbidden+=("--fusion-admin-password")
+        [[ -n "$USER_EMAIL" ]]             && _account_name_forbidden+=("--user-email")
+        if [[ ${#_account_name_forbidden[@]} -gt 0 ]]; then
+            fatal "Invalid flags provided with --account-name: ${_account_name_forbidden[*]}" \
+                "When --account-name is provided, only the following flags are allowed:" \
+                "  --fusion-app-id, --epm-app-id, --epm-base-url"
+        fi
+        [[ -z "$FUSION_APP_ID" ]] && fatal \
+            "--fusion-app-id is required when --account-name is provided" \
+            "When --account-name is provided, only adding EPM to an existing Fusion account is supported."
+        [[ -z "$EPM_APP_ID" ]] && fatal \
+            "--epm-app-id is required when --account-name is provided" \
+            "When --account-name is provided, only adding EPM to an existing Fusion account is supported."
+    fi
 
-[[ -z "$EPM_APP_ID" ]] && warn "No --epm-app-id provided — skipping EPM provisioning"
-if [[ -n "$EPM_APP_ID" && -z "$ACCOUNT_NAME" ]]; then
-    [[ -z "$EPM_BASE_URL" ]] && fatal \
-        "--epm-base-url is required when --epm-app-id is provided" \
-        "Provide your Oracle Fusion EPM environment URL," \
-        "e.g. https://epmprod-xx.epm.us-ashburn-1.ocs.oraclecloud.com"
+    [[ -z "$FUSION_APP_ID" ]] && warn "No --fusion-app-id provided — skipping Fusion scope"
+    # Fusion base URL and admin credentials are only required for fresh Fusion provisioning.
+    # When --account-name is provided and the account already has Fusion, these are not needed
+    # (Fusion user and role are already set up). We check this after back-fill below.
+    if [[ -n "$FUSION_APP_ID" && -z "$ACCOUNT_NAME" ]]; then
+        [[ -z "$FUSION_BASE_URL" ]] && fatal \
+            "--fusion-base-url is required when --fusion-app-id is provided" \
+            "Provide your Oracle Fusion environment URL, e.g. https://icjnjb.fa.ocs.oraclecloud.com"
+        [[ -z "$FUSION_ADMIN_USERNAME" ]] && fatal \
+            "--fusion-admin-username is required for Fusion user provisioning" \
+            "Provide a Fusion admin account username. These credentials are used only for" \
+            "provisioning and are never stored by Datadog."
+        [[ -z "$FUSION_ADMIN_PASSWORD" ]] && fatal \
+            "--fusion-admin-password is required for Fusion user provisioning"
+    fi
+
+    [[ -z "$EPM_APP_ID" ]] && warn "No --epm-app-id provided — skipping EPM provisioning"
+    if [[ -n "$EPM_APP_ID" && -z "$ACCOUNT_NAME" ]]; then
+        [[ -z "$EPM_BASE_URL" ]] && fatal \
+            "--epm-base-url is required when --epm-app-id is provided" \
+            "Provide your Oracle Fusion EPM environment URL," \
+            "e.g. https://epmprod-xx.epm.us-ashburn-1.ocs.oraclecloud.com"
+    fi
 fi
 success "Required inputs present"
 
@@ -411,9 +442,11 @@ if matched:
         s.get('oauth_scope', ''),
         s.get('epm_base_url', ''),
         s.get('epm_oauth_scope', ''),
+        s.get('fusion_application_id', ''),
+        s.get('epm_application_id', ''),
     ]))
 else:
-    print('|||||')
+    print('|' * 7)
 " 2>/dev/null)
     _fetched_client_id=$(echo "$_account_fields"   | cut -d'|' -f1)
     _fetched_token_url=$(echo "$_account_fields"   | cut -d'|' -f2)
@@ -421,6 +454,8 @@ else:
     _fetched_fusion_scope=$(echo "$_account_fields"| cut -d'|' -f4)
     _fetched_epm_base=$(echo "$_account_fields"    | cut -d'|' -f5)
     _fetched_epm_scope=$(echo "$_account_fields"   | cut -d'|' -f6)
+    _fetched_fusion_app_id=$(echo "$_account_fields" | cut -d'|' -f7)
+    _fetched_epm_app_id=$(echo "$_account_fields"    | cut -d'|' -f8)
     [[ -z "$_fetched_client_id" ]] && fatal \
         "No Datadog Oracle Fusion account named '${ACCOUNT_NAME}' found" \
         "Verify the account name matches exactly what is shown in the Datadog integration tile." \
@@ -442,12 +477,33 @@ print(u.scheme + '://' + u.netloc)
     [[ -z "$FUSION_SCOPE" ]]    && FUSION_SCOPE="$_fetched_fusion_scope"
     [[ -z "$EPM_BASE_URL" ]]    && EPM_BASE_URL="$_fetched_epm_base"
     [[ -z "$EPM_SCOPE" ]]       && EPM_SCOPE="$_fetched_epm_scope"
-    # Only adding EPM to an existing Fusion account is supported via --account-name.
-    [[ -z "$_fetched_fusion_base" ]] && fatal \
-        "Account '${ACCOUNT_NAME}' does not have a Fusion integration configured" \
-        "Adding EPM via --account-name is only supported for existing Fusion accounts." \
-        "To set up a new Fusion + EPM account, run without --account-name."
-    FUSION_ALREADY_PROVISIONED=true
+    [[ -z "$FUSION_APP_ID" ]]   && FUSION_APP_ID="$_fetched_fusion_app_id"
+    [[ -z "$EPM_APP_ID" ]]      && EPM_APP_ID="$_fetched_epm_app_id"
+    if [[ "$FIX" == true ]]; then
+        # --fix supports accounts with Fusion, EPM, or both; only Fusion needs admin credentials
+        # and a resolvable Fusion app ID. Older accounts may not have fusion_application_id
+        # stored, so fall back to requiring --fusion-app-id explicitly in that case.
+        if [[ -n "$_fetched_fusion_base" ]]; then
+            [[ -z "$FUSION_APP_ID" ]] && fatal \
+                "--fusion-app-id is required when --fix is provided for an account with Fusion configured" \
+                "This account does not have a Fusion app ID on record." \
+                "Provide the Fusion SaaS app ID in OCI IAM via --fusion-app-id." \
+                "Find it at: OCI Console → Domains → Oracle Cloud Services → Fusion Apps Cloud Service → copy the Application ID"
+            [[ -z "$FUSION_ADMIN_USERNAME" ]] && fatal \
+                "--fusion-admin-username is required when --fix is provided for an account with Fusion configured" \
+                "Provide a Fusion admin account username. These credentials are used only for" \
+                "repair and are never stored by Datadog."
+            [[ -z "$FUSION_ADMIN_PASSWORD" ]] && fatal \
+                "--fusion-admin-password is required when --fix is provided for an account with Fusion configured"
+        fi
+    else
+        # Only adding EPM to an existing Fusion account is supported via --account-name.
+        [[ -z "$_fetched_fusion_base" ]] && fatal \
+            "Account '${ACCOUNT_NAME}' does not have a Fusion integration configured" \
+            "Adding EPM via --account-name is only supported for existing Fusion accounts." \
+            "To set up a new Fusion + EPM account, run without --account-name."
+    fi
+    [[ -n "$_fetched_fusion_base" ]] && FUSION_ALREADY_PROVISIONED=true
     # EPM base URL is required if it's not already set on the account.
     if [[ -n "$EPM_APP_ID" && -z "$_fetched_epm_base" ]]; then
         [[ -z "$EPM_BASE_URL" ]] && fatal \
@@ -608,7 +664,8 @@ except Exception:
 fi
 
 # 7. Validate Fusion admin credentials + connectivity
-if [[ -n "$FUSION_APP_ID" && "$FUSION_ALREADY_PROVISIONED" != true ]]; then
+# (--fix re-runs this even on an already-provisioned account, as a drift check)
+if [[ -n "$FUSION_APP_ID" && ( "$FUSION_ALREADY_PROVISIONED" != true || "$FIX" == true ) ]]; then
     info "Validating Fusion admin credentials and connectivity..."
     fusion_auth_status=$(curl -sS --compressed -o /dev/null -w "%{http_code}" \
         "${FUSION_BASE_URL}/hcmRestApi/scim/Users?count=1" \
@@ -639,7 +696,7 @@ fi
 # 9. DD_INTEGRATION_ROLE exists in Fusion and is accessible via API
 #    We check the role CODE (the 'name' field in SCIM).
 #    The role code must be exactly 'DD_INTEGRATION_ROLE'.
-if [[ -n "$FUSION_APP_ID" && "$FUSION_ALREADY_PROVISIONED" != true ]]; then
+if [[ -n "$FUSION_APP_ID" && ( "$FUSION_ALREADY_PROVISIONED" != true || "$FIX" == true ) ]]; then
     info "Checking for role with code 'DD_INTEGRATION_ROLE' in Fusion..."
     info "(The role CODE must be exactly 'DD_INTEGRATION_ROLE')"
     role_check=$(curl -sS --compressed \
@@ -703,8 +760,12 @@ if [[ -n "$ACCOUNT_NAME" ]]; then
         warn "Confidential application found — reusing (client_id: ${CLIENT_ID})"
     else
         fatal "No confidential application found for client_id '${CLIENT_ID}' in identity domain '${IDENTITY_DOMAIN_URL}'" \
-            "The OCI confidential application may have been deleted." \
-            "Check: OCI Console → Domains → Integrated Applications"
+            "The OCI confidential application appears to have been deleted." \
+            "Check: OCI Console → Domains → Integrated Applications" \
+            "--fix cannot recover from this: recreating the app would issue a new client_id/secret," \
+            "which is a bigger change than a repair should make automatically." \
+            "Remove the '${ACCOUNT_NAME}' account from the Datadog integration tile and reinstall the" \
+            "integration from scratch (run this script without --account-name or --fix)."
     fi
 else
     info "Checking if '${APP_NAME}' already exists in OCI IAM..."
@@ -728,7 +789,7 @@ FUSION_USER_EXISTS=false
 OCI_IAM_USER_EXISTS=false
 if [[ -n "$CLIENT_ID" ]]; then
     if [[ -n "$FUSION_APP_ID" ]]; then
-        if [[ "$FUSION_ALREADY_PROVISIONED" == true ]]; then
+        if [[ "$FUSION_ALREADY_PROVISIONED" == true && "$FIX" != true ]]; then
             FUSION_USER_EXISTS=true
             info "Fusion user already provisioned — skipping check"
         else
@@ -768,6 +829,28 @@ print(rs[0].get('id','') if rs else '')
 fi
 
 success "Prerequisite checks passed"
+
+# ══════════════════════════════════════════════════════════════════════════════
+if [[ "$FIX" == true ]]; then
+    step "REPAIR: '${ACCOUNT_NAME}'"
+
+    # --fix is a reset, not a diagnostic report: it doesn't try to figure out what's
+    # wrong and describe it, it just reasserts every piece of desired state so the
+    # account ends up healthy regardless of what had drifted. The prerequisite
+    # checks above already re-validated the fixed inputs that can't be reset by this
+    # script (Fusion/EPM app ID still resolves, scope re-derived, Fusion admin
+    # credentials valid, EPM URL reachable, DD_INTEGRATION_ROLE exists in Fusion —
+    # that role must be created manually and can't be auto-repaired) and found
+    # FUSION_USER_EXISTS/FUSION_USER_ID/OCI_IAM_USER_EXISTS/OCI_IAM_USER_ID.
+    #
+    # From here, execution falls through into the same Steps 1-5 used for fresh
+    # onboarding, which unconditionally reassert the app's scopes, the Fusion/OCI
+    # IAM integration user and its role assignment, the EPM grant, and the OCI
+    # client secret + Datadog account registration — recreating anything missing
+    # and re-confirming anything already correct, with no distinction between the
+    # two. The client secret and EPM JWT cert are rotated on every run since OCI
+    # has no way to retrieve an existing one, only replace it.
+fi
 
 # ══════════════════════════════════════════════════════════════════════════════
 step "STEP 1: CREATE CONFIDENTIAL APPLICATION"
@@ -937,7 +1020,9 @@ import sys,json; print(json.load(sys.stdin).get('data',{}).get('id',''))
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
-if [[ -n "$FUSION_APP_ID" && "$FUSION_ALREADY_PROVISIONED" != true ]]; then
+# (--fix re-enters this even when Fusion was already provisioned, to recreate
+# the user/role assignment if diagnostics found either missing)
+if [[ -n "$FUSION_APP_ID" && ( "$FUSION_ALREADY_PROVISIONED" != true || "$FIX" == true ) ]]; then
 
     step "STEP 2: CREATE FUSION INTEGRATION USER"
 
@@ -1367,7 +1452,11 @@ fi
 
 # ══════════════════════════════════════════════════════════════════════════════
 echo ""
-echo -e "${GREEN}${BOLD}━━━ ONBOARDING COMPLETE ━━━${NC}"
+if [[ "$FIX" == true ]]; then
+    echo -e "${GREEN}${BOLD}━━━ REPAIR COMPLETE ━━━${NC}"
+else
+    echo -e "${GREEN}${BOLD}━━━ ONBOARDING COMPLETE ━━━${NC}"
+fi
 echo ""
 echo -e "  ${BOLD}Summary:${NC}"
 echo -e "  account_name:    ${ACCOUNT_NAME}"
