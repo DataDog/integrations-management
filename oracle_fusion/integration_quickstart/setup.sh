@@ -45,7 +45,7 @@ EPM_BASE_URL=""
 FUSION_SCOPE=""
 EPM_SCOPE=""
 FUSION_LEGACY_AUDIENCE=false
-FUSION_AUDIENCE=""
+FUSION_DERIVED_SCOPE=""
 FUSION_ADMIN_USERNAME=""
 FUSION_ADMIN_PASSWORD=""
 ACCOUNT_NAME=""
@@ -642,19 +642,12 @@ except Exception:
     # audience (e.g. urn:opc:resource:fusion:wls:monitoring), whose derived scope
     # typically fails to authenticate against the Fusion REST API. When we detect
     # that, warn the user and offer to rebuild the scope from the instance's
-    # System Name.
-    fusion_audience=$(echo "$fusion_app_resp" | python3 -c "
-import sys,json
-try:
-    apps = json.load(sys.stdin).get('data',{}).get('resources',[])
-    print(apps[0].get('audience','') if apps else '')
-except Exception:
-    print('')
-" 2>/dev/null)
-    if [[ -n "$fusion_audience" && "$fusion_audience" != urn:opc:resource:faaas:fa:* ]]; then
+    # System Name. We check the derived scope directly (it starts with
+    # urn:opc:resource:faaas:fa: for modern apps), so no extra parse is needed.
+    if [[ "$FUSION_SCOPE" != urn:opc:resource:faaas:fa:* ]]; then
         FUSION_LEGACY_AUDIENCE=true
-        FUSION_AUDIENCE="$fusion_audience"
-        warn "Unexpected OAuth scope (audience: '${fusion_audience}'), likely due to an older Fusion instance."
+        FUSION_DERIVED_SCOPE="$FUSION_SCOPE"
+        warn "Unexpected OAuth scope '${FUSION_SCOPE}', likely due to an older Fusion instance."
         echo ""
         echo -e "  ${YELLOW}${BOLD}You can:${NC}"
         echo -e "  ${YELLOW}  1) Continue with the derived scope and see if the script succeeds.${NC}"
@@ -994,7 +987,7 @@ else
             fatal "Failed to create confidential application in OCI IAM" \
                 "Ensure your OCI credentials have 'Identity Domain Administrator' permissions." \
                 "Check: OCI Console → Identity & Security → Domains → your domain → Administrators" \
-                "The Fusion app's audience was '${FUSION_AUDIENCE}', which is not the expected urn:opc:resource:faaas:fa: form — this is likely a legacy Fusion instance." \
+                "The derived OAuth scope '${FUSION_DERIVED_SCOPE}' is not in the expected urn:opc:resource:faaas:fa: form — this is likely a legacy Fusion instance." \
                 "Re-run and choose option 2 at the prompt to provide the Fusion instance's System Name and rebuild the OAuth scope. Verify the casing matches the System Name field exactly (e.g. https://test-instance.fa.ocs.oraclecloud.com → 'test-instance')."
         else
             fatal "Failed to create confidential application in OCI IAM" \
