@@ -86,6 +86,8 @@ Add EPM to an existing Fusion account (--account-name):
 
 Diagnose/repair an existing account (--account-name ... --fix):
   --account-name NAME           Existing Datadog Fusion or EPM account name (required)
+  --fusion-app-id ID            Fusion SaaS app ID in OCI IAM (required if the account has Fusion
+                                 configured and does not already have a Fusion app ID on record)
   --fusion-admin-username USER  Fusion admin username (required if the account has Fusion configured)
   --fusion-admin-password PASS  Fusion admin password (required if the account has Fusion configured)
   --fix                         Diagnose and repair drift for the account by rerunning onboarding.
@@ -336,13 +338,12 @@ if [[ "$FIX" == true ]]; then
         "Provide the existing Datadog Fusion account name to diagnose/repair."
     _fix_forbidden=()
     [[ -n "$IDENTITY_DOMAIN_URL" ]]    && _fix_forbidden+=("--identity-domain-url")
-    [[ -n "$FUSION_APP_ID" ]]          && _fix_forbidden+=("--fusion-app-id")
     [[ -n "$EPM_APP_ID" ]]             && _fix_forbidden+=("--epm-app-id")
     [[ -n "$FUSION_BASE_URL" ]]        && _fix_forbidden+=("--fusion-base-url")
     [[ -n "$EPM_BASE_URL" ]]           && _fix_forbidden+=("--epm-base-url")
     if [[ ${#_fix_forbidden[@]} -gt 0 ]]; then
         fatal "Invalid flags provided with --fix: ${_fix_forbidden[*]}" \
-            "When --fix is provided, only --account-name, --fusion-admin-username, --fusion-admin-password, and --user-email are allowed."
+            "When --fix is provided, only --account-name, --fusion-app-id, --fusion-admin-username, --fusion-admin-password, and --user-email are allowed."
     fi
 else
     # IDENTITY_DOMAIN_URL may be omitted when --account-name names an existing DD account;
@@ -479,8 +480,15 @@ print(u.scheme + '://' + u.netloc)
     [[ -z "$FUSION_APP_ID" ]]   && FUSION_APP_ID="$_fetched_fusion_app_id"
     [[ -z "$EPM_APP_ID" ]]      && EPM_APP_ID="$_fetched_epm_app_id"
     if [[ "$FIX" == true ]]; then
-        # --fix supports accounts with Fusion, EPM, or both; only Fusion needs admin credentials.
+        # --fix supports accounts with Fusion, EPM, or both; only Fusion needs admin credentials
+        # and a resolvable Fusion app ID. Older accounts may not have fusion_application_id
+        # stored, so fall back to requiring --fusion-app-id explicitly in that case.
         if [[ -n "$_fetched_fusion_base" ]]; then
+            [[ -z "$FUSION_APP_ID" ]] && fatal \
+                "--fusion-app-id is required when --fix is provided for an account with Fusion configured" \
+                "This account does not have a Fusion app ID on record." \
+                "Provide the Fusion SaaS app ID in OCI IAM via --fusion-app-id." \
+                "Find it at: OCI Console → Domains → Oracle Cloud Services → Fusion Apps Cloud Service → copy the Application ID"
             [[ -z "$FUSION_ADMIN_USERNAME" ]] && fatal \
                 "--fusion-admin-username is required when --fix is provided for an account with Fusion configured" \
                 "Provide a Fusion admin account username. These credentials are used only for" \
