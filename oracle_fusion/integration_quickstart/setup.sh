@@ -45,6 +45,8 @@ EPM_BASE_URL=""
 FUSION_SCOPE=""
 EPM_SCOPE=""
 FUSION_SYSTEM_NAME=""
+FUSION_LEGACY_AUDIENCE=false
+FUSION_AUDIENCE=""
 FUSION_ADMIN_USERNAME=""
 FUSION_ADMIN_PASSWORD=""
 ACCOUNT_NAME=""
@@ -657,6 +659,8 @@ except Exception:
     print('')
 " 2>/dev/null)
     if [[ -n "$fusion_audience" && "$fusion_audience" != urn:opc:resource:faaas:fa:* ]]; then
+        FUSION_LEGACY_AUDIENCE=true
+        FUSION_AUDIENCE="$fusion_audience"
         warn "Unexpected OAuth scope (audience: '${fusion_audience}'), likely due to an older Fusion instance."
         if [[ -n "$FUSION_SYSTEM_NAME" ]]; then
             FUSION_SCOPE="urn:opc:resource:faaas:fa:${FUSION_SYSTEM_NAME}urn:opc:resource:consumer::all"
@@ -998,10 +1002,19 @@ else
         --bypass-consent true \
         --active true \
         --allowed-scopes "$SCOPES_JSON" \
-        --output json) || fatal \
-        "Failed to create confidential application in OCI IAM" \
-        "Ensure your OCI credentials have 'Identity Domain Administrator' permissions." \
-        "Check: OCI Console → Identity & Security → Domains → your domain → Administrators"
+        --output json) || {
+        if [[ "$FUSION_LEGACY_AUDIENCE" == true ]]; then
+            fatal "Failed to create confidential application in OCI IAM" \
+                "Ensure your OCI credentials have 'Identity Domain Administrator' permissions." \
+                "Check: OCI Console → Identity & Security → Domains → your domain → Administrators" \
+                "The Fusion app's audience was '${FUSION_AUDIENCE}', which is not the expected urn:opc:resource:faaas:fa: form — this is likely a legacy Fusion instance." \
+                "Provide the Fusion instance System Name via --fusion-system-name (or re-run and choose option 2 at the prompt) to rebuild the OAuth scope, and verify the casing matches the System Name field exactly (e.g. https://test-instance.fa.ocs.oraclecloud.com → 'test-instance')."
+        else
+            fatal "Failed to create confidential application in OCI IAM" \
+                "Ensure your OCI credentials have 'Identity Domain Administrator' permissions." \
+                "Check: OCI Console → Identity & Security → Domains → your domain → Administrators"
+        fi
+    }
 
     CLIENT_ID=$(echo "$app_result" | python3 -c "
 import sys,json; print(json.load(sys.stdin).get('data',{}).get('name',''))
