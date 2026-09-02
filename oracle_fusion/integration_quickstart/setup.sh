@@ -675,10 +675,10 @@ except Exception:
             echo -e "  ${YELLOW}     e.g. base URL https://test-instance.fa.ocs.oraclecloud.com → system name 'test-instance'.${NC}"
             echo -e "  ${YELLOW}     Casing matters — copy the exact value from the System Name field.${NC}"
             echo ""
-            read -r -p "  Choose [1/2]: " _scope_choice
+            read -r -p "  Choose [1/2]: " _scope_choice || _scope_choice=""
             case "$_scope_choice" in
                 2)
-                    read -r -p "  Fusion instance System Name: " _sys_name
+                    read -r -p "  Fusion instance System Name: " _sys_name || _sys_name=""
                     if [[ -z "$_sys_name" ]]; then
                         warn "No System Name provided — keeping derived scope '${FUSION_SCOPE}'"
                     else
