@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from itertools import chain
 
+from az_shared.errors import AccessError
 from az_shared.execute_cmd import execute, execute_json
 from azure_integration_quickstart.permissions import EntraIdPermission
 from azure_integration_quickstart.util import MAX_WORKERS
@@ -41,22 +42,35 @@ def add_app_role_assignments(client_id: str, api_id: str, roles: Iterable[str]) 
 
 
 def get_active_entra_role_ids(user_id: str) -> set[str]:
-    return set(
+    # Permanent directory role assignments.
+    permanent = set(
         execute_json(
             Cmd(["az", "rest"])
-            .param("--resource", "https://management.core.windows.net/")
             .param(
                 "-u",
-                "https://api.azrbac.mspim.azure.com/api/v2/privilegedAccess/aadroles/roleAssignments?"
-                + odata_query(
-                    select="roleDefinitionId",
-                    filter=f"subjectId eq '{user_id}' and assignmentState eq 'Active'",
-                    top=999,
-                ),
+                "https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments?"
+                + odata_query(select="roleDefinitionId", filter=f"principalId eq '{user_id}'", top=999),
             )
             .param("--query", "value[].roleDefinitionId")
         )
     )
+    # PIM-activated (time-bound) assignments. Regular users without elevated roles lack the
+    # RoleManagement.Read.Directory scope to call this endpoint; Forbidden means no PIM roles.
+    try:
+        pim_active = set(
+            execute_json(
+                Cmd(["az", "rest"])
+                .param(
+                    "-u",
+                    "https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignmentScheduleInstances?"
+                    + odata_query(select="roleDefinitionId", filter=f"principalId eq '{user_id}'", top=999),
+                )
+                .param("--query", "value[].roleDefinitionId")
+            )
+        )
+    except (AccessError, RuntimeError):
+        pim_active = set()
+    return permanent | pim_active
 
 
 def get_entra_role_permissions(role_id: str) -> Iterable[EntraIdPermission]:
