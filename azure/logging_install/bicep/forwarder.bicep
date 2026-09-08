@@ -52,6 +52,18 @@ param datadogApiKey string
 ])
 param datadogSite string = 'datadoghq.com'
 
+@description('Resource ID of the subnet for the Container App Environment (e.g. /subscriptions/.../subnets/aca-subnet). Must be delegated to Microsoft.App/environments and be at least /23. Leave empty to skip VNet integration.')
+param infrastructureSubnetId string = ''
+
+@description('Resource ID of the VNet containing the subnet above. Required when infrastructureSubnetId is provided. Used to link the private DNS zone.')
+param vnetId string = ''
+
+@description('Resource ID of the subnet for the storage account private endpoint. Defaults to infrastructureSubnetId when left empty.')
+param storagePrivateEndpointSubnetId string = ''
+
+var enableVnet = infrastructureSubnetId != '' && vnetId != ''
+var peSubnetId = storagePrivateEndpointSubnetId != '' ? storagePrivateEndpointSubnetId : infrastructureSubnetId
+
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: storageAccountName
   location: resourceGroup().location
@@ -63,6 +75,11 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
     minimumTlsVersion: 'TLS1_2'
     supportsHttpsTrafficOnly: true
     allowBlobPublicAccess: false
+    publicNetworkAccess: enableVnet ? 'Disabled' : null
+    networkAcls: enableVnet ? {
+      defaultAction: 'Deny'
+      bypass: 'AzureServices'
+    } : null
   }
 }
 
@@ -105,7 +122,11 @@ resource storageManagementPolicy 'Microsoft.Storage/storageAccounts/managementPo
 resource forwarderEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: environmentName
   location: resourceGroup().location
-  properties: {}
+  properties: enableVnet ? {
+    vnetConfiguration: {
+      infrastructureSubnetId: infrastructureSubnetId
+    }
+  } : {}
 }
 
 resource forwarder 'Microsoft.App/jobs@2023-05-01' = {
@@ -149,5 +170,52 @@ resource forwarder 'Microsoft.App/jobs@2023-05-01' = {
         }
       ]
     }
+  }
+}
+
+resource storagePrivateEndpoint 'Microsoft.Network/privateEndpoints@2023-11-01' = if (enableVnet) {
+  name: '${storageAccountName}-blob-pe'
+  location: resourceGroup().location
+  properties: {
+    subnet: { id: peSubnetId }
+    privateLinkServiceConnections: [
+      {
+        name: '${storageAccountName}-blob-connection'
+        properties: {
+          privateLinkServiceId: storageAccount.id
+          groupIds: ['blob']
+        }
+      }
+    ]
+  }
+}
+
+resource storageBlobPrivateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = if (enableVnet) {
+  name: 'privatelink.blob.${environment().suffixes.storage}'
+  location: 'global'
+}
+
+resource storageBlobPrivateDnsZoneLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01' = if (enableVnet) {
+  name: 'blob-dns-zone-vnet-link'
+  parent: storageBlobPrivateDnsZone
+  location: 'global'
+  properties: {
+    virtualNetwork: { id: vnetId }
+    registrationEnabled: false
+  }
+}
+
+resource storageBlobDnsZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2023-11-01' = if (enableVnet) {
+  name: 'blob-dns-zone-group'
+  parent: storagePrivateEndpoint
+  properties: {
+    privateDnsZoneConfigs: [
+      {
+        name: 'config'
+        properties: {
+          privateDnsZoneId: storageBlobPrivateDnsZone.id
+        }
+      }
+    ]
   }
 }
