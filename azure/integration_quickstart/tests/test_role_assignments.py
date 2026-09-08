@@ -3,7 +3,7 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 from unittest import TestCase
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from az_shared.errors import AccessError, ResourceNotFoundError
 from azure_integration_quickstart.role_assignments import get_active_entra_role_ids
