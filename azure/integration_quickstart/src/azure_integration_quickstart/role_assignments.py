@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from itertools import chain
 
-from az_shared.errors import AccessError
+from az_shared.errors import AzIntegrationError
 from az_shared.execute_cmd import execute, execute_json
 from azure_integration_quickstart.permissions import EntraIdPermission
 from azure_integration_quickstart.util import MAX_WORKERS
@@ -68,7 +68,7 @@ def get_active_entra_role_ids(user_id: str) -> set[str]:
                 .param("--query", "value[].roleDefinitionId")
             )
         )
-    except (AccessError, RuntimeError):
+    except (AzIntegrationError, RuntimeError):
         pim_active = set()
     return permanent | pim_active
 
