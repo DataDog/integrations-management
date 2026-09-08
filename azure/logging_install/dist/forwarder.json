@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.40.2.10011",
-      "templateHash": "14560109537296580782"
+      "templateHash": "11147977700026558090"
     }
   },
   "parameters": {
@@ -82,7 +82,32 @@
         "us5.datadoghq.com",
         "ddog-gov.com"
       ]
+    },
+    "infrastructureSubnetId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Resource ID of the subnet for the Container App Environment (e.g. /subscriptions/.../subnets/aca-subnet). Must be delegated to Microsoft.App/environments and be at least /23. Leave empty to skip VNet integration."
+      }
+    },
+    "vnetId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Resource ID of the VNet containing the subnet above. Required when infrastructureSubnetId is provided. Used to link the private DNS zone."
+      }
+    },
+    "storagePrivateEndpointSubnetId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Resource ID of the subnet for the storage account private endpoint. Defaults to infrastructureSubnetId when left empty."
+      }
     }
+  },
+  "variables": {
+    "enableVnet": "[and(not(equals(parameters('infrastructureSubnetId'), '')), not(equals(parameters('vnetId'), '')))]",
+    "peSubnetId": "[if(not(equals(parameters('storagePrivateEndpointSubnetId'), '')), parameters('storagePrivateEndpointSubnetId'), parameters('infrastructureSubnetId'))]"
   },
   "resources": [
     {
@@ -97,7 +122,9 @@
       "properties": {
         "minimumTlsVersion": "TLS1_2",
         "supportsHttpsTrafficOnly": true,
-        "allowBlobPublicAccess": false
+        "allowBlobPublicAccess": false,
+        "publicNetworkAccess": "[if(variables('enableVnet'), 'Disabled', null())]",
+        "networkAcls": "[if(variables('enableVnet'), createObject('defaultAction', 'Deny', 'bypass', 'AzureServices'), null())]"
       }
     },
     {
@@ -144,7 +171,7 @@
       "apiVersion": "2024-03-01",
       "name": "[parameters('environmentName')]",
       "location": "[resourceGroup().location]",
-      "properties": {}
+      "properties": "[if(variables('enableVnet'), createObject('vnetConfiguration', createObject('infrastructureSubnetId', parameters('infrastructureSubnetId'))), createObject())]"
     },
     {
       "type": "Microsoft.App/jobs",
@@ -211,6 +238,75 @@
       "dependsOn": [
         "[resourceId('Microsoft.App/managedEnvironments', parameters('environmentName'))]",
         "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+      ]
+    },
+    {
+      "condition": "[variables('enableVnet')]",
+      "type": "Microsoft.Network/privateEndpoints",
+      "apiVersion": "2023-11-01",
+      "name": "[format('{0}-blob-pe', parameters('storageAccountName'))]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "subnet": {
+          "id": "[variables('peSubnetId')]"
+        },
+        "privateLinkServiceConnections": [
+          {
+            "name": "[format('{0}-blob-connection', parameters('storageAccountName'))]",
+            "properties": {
+              "privateLinkServiceId": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]",
+              "groupIds": [
+                "blob"
+              ]
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+      ]
+    },
+    {
+      "condition": "[variables('enableVnet')]",
+      "type": "Microsoft.Network/privateDnsZones",
+      "apiVersion": "2020-06-01",
+      "name": "[format('privatelink.blob.{0}', environment().suffixes.storage)]",
+      "location": "global"
+    },
+    {
+      "condition": "[variables('enableVnet')]",
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "apiVersion": "2020-06-01",
+      "name": "[format('{0}/{1}', format('privatelink.blob.{0}', environment().suffixes.storage), 'blob-dns-zone-vnet-link')]",
+      "location": "global",
+      "properties": {
+        "virtualNetwork": {
+          "id": "[parameters('vnetId')]"
+        },
+        "registrationEnabled": false
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', format('privatelink.blob.{0}', environment().suffixes.storage))]"
+      ]
+    },
+    {
+      "condition": "[variables('enableVnet')]",
+      "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+      "apiVersion": "2023-11-01",
+      "name": "[format('{0}/{1}', format('{0}-blob-pe', parameters('storageAccountName')), 'blob-dns-zone-group')]",
+      "properties": {
+        "privateDnsZoneConfigs": [
+          {
+            "name": "config",
+            "properties": {
+              "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', format('privatelink.blob.{0}', environment().suffixes.storage))]"
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', format('privatelink.blob.{0}', environment().suffixes.storage))]",
+        "[resourceId('Microsoft.Network/privateEndpoints', format('{0}-blob-pe', parameters('storageAccountName')))]"
       ]
     }
   ]
