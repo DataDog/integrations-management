@@ -1,0 +1,59 @@
+{
+  "storageAccountsByRegion": {
+    "type": "Object",
+    "metadata": {
+      "displayName": "Storage accounts by region",
+      "description": "Map of Azure region name to storage account resource ID. Example: {\"eastus\": \"/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-diag/providers/Microsoft.Storage/storageAccounts/stdiageastus\", \"westeurope\": \"/subscriptions/...\"}"
+    }
+  },
+  "diagnosticSettingName": {
+    "type": "String",
+    "metadata": {
+      "displayName": "Diagnostic setting name",
+      "description": "Name of the diagnostic setting created and managed by this policy."
+    },
+    "defaultValue": "setByAzurePolicy"
+  },
+  "effect": {
+    "type": "String",
+    "metadata": {
+      "displayName": "Effect"
+    },
+    "allowedValues": [
+      "DeployIfNotExists",
+      "AuditIfNotExists",
+      "Disabled"
+    ],
+    "defaultValue": "DeployIfNotExists"
+  },
+  "tagIncludeFilter": {
+    "type": "Object",
+    "metadata": {
+      "displayName": "Tag include filter",
+      "description": "Map of tag name to tag value. Only resources matching ALL specified tags will have diagnostic settings deployed. Leave empty to apply to all resources."
+    },
+    "defaultValue": {}
+  },
+  "tagExcludeFilter": {
+    "type": "Object",
+    "metadata": {
+      "displayName": "Tag exclude filter",
+      "description": "Map of tag name to tag value. Resources matching ALL specified tags will be excluded from diagnostic settings deployment. Leave empty to exclude no resources."
+    },
+    "defaultValue": {}
+  },
+  "categoryGroups": {
+    "type": "Array",
+    "metadata": {
+      "displayName": "Log category groups",
+      "description": "Log category groups to enable. 'allLogs' captures every available category; 'audit' captures audit events only. Specify one or both."
+    },
+    "allowedValues": [
+      "allLogs",
+      "audit"
+    ],
+    "defaultValue": [
+      "allLogs"
+    ]
+  }
+}
