@@ -111,12 +111,11 @@ def wait_for_storage_account_ready(storage_account_name: str, control_plane_rg: 
 # Function Apps
 # =============================================================================
 
-
 def create_function_app(config: Configuration, name: str):
     """Create a function app for a control plane task and configure function app runtime"""
     try:
         log.info(f"Checking if Function App '{name}' already exists...")
-        execute(AzCmd("functionapp", "show").param("--name", name).param("--resource-group", config.control_plane.resource_group))
+        verify_function_app_exists(name, config.control_plane.resource_group, config.control_plane.sub_id)
         log.info(f"Function App '{name}' already exists - skipping creation and updating configuration")
         function_app_exists = True
     except ResourceNotFoundError:
@@ -168,16 +167,16 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
     }
 
     # Task-specific settings
-    if function_app_name == config.resources_task_name:
+    if function_app_name == config.control_plane.resources_task_name:
         specific_settings = {
             MONITORED_SUBSCRIPTIONS_KEY: json.dumps(config.monitored_subscriptions),
             RESOURCE_TAG_FILTERS_KEY: config.resource_tag_filters,
         }
-    elif function_app_name == config.diagnostic_settings_task_name:
+    elif function_app_name == config.control_plane.diagnostic_settings_task_name:
         specific_settings = {
             "RESOURCE_GROUP": config.control_plane.resource_group,
         }
-    elif function_app_name == config.scaling_task_name:
+    elif function_app_name == config.control_plane.scaling_task_name:
         specific_settings = {
             "RESOURCE_GROUP": config.control_plane.resource_group,
             "FORWARDER_IMAGE": fully_qualified_image("forwarder:latest"),
@@ -258,7 +257,7 @@ def create_control_plane_function_apps(config: Configuration):
     """Create function apps for LFO Resources Task, Scaling Task, and Diagnostic Settings Task"""
 
     log.info("Creating control plane Function Apps...")
-    for function_app_name in config.control_plane_task_names:
+    for function_app_name in config.control_plane.task_names:
         create_function_app(config, function_app_name)
         set_function_app_env_vars(config, function_app_name)
 
@@ -278,11 +277,7 @@ def create_control_plane_container_app_jobs(config: Configuration):
 def _create_control_plane_task_container_app_job(config: Configuration, task_name: str, image_name: str, extra_vars: list[str], timeout: str, cron: str):
     try:
         log.info(f"Checking if Container App job '{task_name}' already exists...")
-        execute(
-            AzCmd("containerapp", "job show")
-            .param("--name", task_name)
-            .param("--resource-group", config.control_plane.resource_group)
-        )
+        verify_container_app_job_exists(task_name, config.control_plane.resource_group, config.control_plane.sub_id)
         log.info(f"Container App job '{task_name}' already exists - reusing existing job")
         return
     except ResourceNotFoundError:
@@ -332,8 +327,8 @@ def _create_resources_task_container_app_job(config: Configuration):
     ]
     _create_control_plane_task_container_app_job(
         config, 
-        config.resources_task_name, 
-        config.resources_task_image, 
+        config.control_plane.resources_task_name, 
+        config.control_plane.resources_task_image, 
         extra_vars, 
         "300",
         "*/5 * * * *"
@@ -345,8 +340,8 @@ def _create_diagnostic_settings_task_container_app_job(config: Configuration):
     ]
     _create_control_plane_task_container_app_job(
         config, 
-        config.diagnostic_settings_task_name, 
-        config.diagnostic_settings_task_image, 
+        config.control_plane.diagnostic_settings_task_name, 
+        config.control_plane.diagnostic_settings_task_image, 
         extra_vars, 
         "300",
         "*/5 * * * *"
@@ -360,8 +355,8 @@ def _create_scaling_task_container_app_job(config: Configuration):
     ]
     _create_control_plane_task_container_app_job(
         config, 
-        config.scaling_task_name, 
-        config.scaling_task_image, 
+        config.control_plane.scaling_task_name, 
+        config.control_plane.scaling_task_image, 
         extra_vars, 
         "500",
         "3/5 * * * *"
@@ -376,17 +371,14 @@ def _create_scaling_task_container_app_job(config: Configuration):
 def create_container_app_environment(
     control_plane_env: str,
     control_plane_resource_group: str,
+    control_plane_subscription_id: str,
     control_plane_location: str,
 ):
     """Create the Container App environment if it does not exist"""
 
     try:
         log.info(f"Checking if Container App environment '{control_plane_env}' already exists...")
-        execute(
-            AzCmd("containerapp", "env show")
-            .param("--name", control_plane_env)
-            .param("--resource-group", control_plane_resource_group)
-        )
+        verify_container_app_env_exists(control_plane_env, control_plane_resource_group, control_plane_subscription_id)
         log.info(f"Container App environment '{control_plane_env}' already exists - reusing existing environment")
         return
     except ResourceNotFoundError:
@@ -399,6 +391,7 @@ def create_container_app_environment(
         .param("--name", control_plane_env)
         .param("--resource-group", control_plane_resource_group)
         .param("--location", control_plane_location)
+        .param("--subscription", control_plane_subscription_id)
     )
 
 
@@ -407,11 +400,7 @@ def create_deployer_container_app_job(config: Configuration):
 
     try:
         log.info(f"Checking if Container App job '{config.deployer_job_name}' already exists...")
-        execute(
-            AzCmd("containerapp", "job show")
-            .param("--name", config.deployer_job_name)
-            .param("--resource-group", config.control_plane.resource_group)
-        )
+        verify_container_app_job_exists(config.deployer_job_name, config.control_plane.resource_group, config.control_plane.sub_id)
         log.info(f"Container App job '{config.deployer_job_name}' already exists - reusing existing job")
         return
     except ResourceNotFoundError:
@@ -515,3 +504,30 @@ def register_missing_resource_providers(sub_to_unregistered_provider_list: dict[
         raise ResourceProviderRegistrationValidationError(error_msg.strip())
 
     log.info("Successfully registered missing resource providers")
+
+
+def verify_function_app_exists(name: str, resource_group: str, subscription_id: str) -> None:
+    execute(
+        AzCmd("functionapp", "show")
+        .param("--name", name)
+        .param("--resource-group", resource_group)
+        .param("--subscription", subscription_id)
+    )
+
+
+def verify_container_app_env_exists(name: str, resource_group: str, subscription_id: str) -> None:
+    execute(
+        AzCmd("containerapp", "env show")
+        .param("--name", name)
+        .param("--resource-group", resource_group)
+        .param("--subscription", subscription_id)
+    )
+
+
+def verify_container_app_job_exists(name: str, resource_group: str, subscription_id: str) -> None:
+    execute(
+        AzCmd("containerapp", "job show")
+        .param("--name", name)
+        .param("--resource-group", resource_group)
+        .param("--subscription", subscription_id)
+    )
