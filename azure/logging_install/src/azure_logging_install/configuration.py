@@ -56,7 +56,7 @@ class Configuration:
     resource_tag_filters: str = ""
     pii_scrubber_rules: str = ""
     datadog_telemetry: bool = False
-    log_level: str = "INFO"
+    log_level: str = "INFO" # TODO remove from Configuration, this should be a global var
 
     def __post_init__(self):
         """Calculates derived values from user-specified params."""
