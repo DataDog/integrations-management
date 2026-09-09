@@ -275,7 +275,7 @@ class TestResourceSetup(TestCase):
         with mock_patch(
             "azure_logging_install.resource_setup._create_control_plane_task_container_app_job"
         ) as mock_create:
-            resource_setup._create_resources_task_container_app_job(caj_config)
+            resource_setup.create_resources_task_container_app_job(caj_config)
 
         extra_vars = mock_create.call_args.args[3]
         monitored_subs = json.dumps(caj_config.monitored_subscriptions)
