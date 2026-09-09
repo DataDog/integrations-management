@@ -17,10 +17,11 @@ from .prompts import confirm_yes
 from .steps import run_steps, Step
 
 
+
 def run_migration(optional_control_plane_ids: set[str], skip_confirmation: bool, log_level: str) -> None:
     control_planes: list[ControlPlane] = find_existing_lfo_control_planes(subscriptions=None, control_plane_type=ControlPlaneType.FunctionApps)
     if len(optional_control_plane_ids) > 0:
-        control_plane = [c for c in control_planes if c.id in optional_control_plane_ids]
+        control_planes = [c for c in control_planes if c.id in optional_control_plane_ids]
 
     if len(control_planes) == 0:
         log.info("No eligible Function App LFO installations found to migrate")
