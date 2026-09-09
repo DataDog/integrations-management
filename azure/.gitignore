@@ -33,3 +33,6 @@ build/
 
 # Allow logging install executable
 !logging_install/dist/*.pyz
+
+# Allow CAJ migration script executable
+!lfo_container_app_migration/dist/*.pyz
