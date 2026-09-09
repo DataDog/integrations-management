@@ -25,5 +25,14 @@ __pycache__/
 # Build artifacts
 build/
 
-# Executables
-!*/dist/*.pyz
+# Allow quickstart executables
+!integration_quickstart/dist/*.pyz
+
+# Allow agentless setup executables
+!agentless/dist/*.pyz
+
+# Allow logging install executable
+!logging_install/dist/*.pyz
+
+# Allow CAJ migration script executable
+!lfo_container_app_migration/dist/*.pyz
