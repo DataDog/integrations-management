@@ -40,6 +40,7 @@ class TestExistingLfo(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures"""
         self.execute_mock = self.patch("azure_logging_install.existing_lfo.execute")
+        self.log_mock = self.patch("azure_logging_install.existing_lfo.log")
 
         # Create test configuration
         self.config = Configuration(
@@ -145,6 +146,71 @@ class TestExistingLfo(TestCase):
         self.assertEqual(sorted(configuration.monitored_subscriptions), sorted([SUB_1_ID, SUB_2_ID, SUB_3_ID]))
         self.assertEqual(configuration.resource_tag_filters, RESOURCE_TAG_FILTERS)
         self.assertEqual(configuration.pii_scrubber_rules, PII_SCRUBBER_RULES)
+
+    def test_check_existing_lfo_accepts_legacy_csv_monitored_subscriptions(self):
+        mock_container_app_jobs = {
+            "data": [
+                {
+                    "resourceGroup": CONTROL_PLANE_RESOURCE_GROUP,
+                    "name": RESOURCE_TASK_NAME,
+                    "location": CONTROL_PLANE_REGION,
+                    "subscriptionId": SUB_1_ID,
+                },
+            ]
+        }
+        legacy_monitored_subs = ",".join([SUB_1_ID, SUB_2_ID, SUB_3_ID])
+
+        self.execute_mock.side_effect = self.make_execute_router(
+            json.dumps({"data": []}),
+            caj_json=json.dumps(mock_container_app_jobs),
+            caj_settings={
+                RESOURCE_TASK_NAME: {
+                    MONITORED_SUBSCRIPTIONS_KEY: legacy_monitored_subs,
+                    RESOURCE_TAG_FILTERS_KEY: RESOURCE_TAG_FILTERS,
+                },
+                SCALING_TASK_NAME: {
+                    PII_SCRUBBER_RULES_KEY: PII_SCRUBBER_RULES,
+                },
+            },
+        )
+
+        result = check_existing_lfo(self.config.all_subscriptions)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(
+            sorted(result[0].monitored_subscriptions),
+            sorted([SUB_1_ID, SUB_2_ID, SUB_3_ID]),
+        )
+
+    def test_check_existing_lfo_rejects_malformed_monitored_subscriptions(self):
+        malformed_monitored_subscriptions = '["malformed-json",]'
+        mock_container_app_jobs = {
+            "data": [
+                {
+                    "resourceGroup": CONTROL_PLANE_RESOURCE_GROUP,
+                    "name": RESOURCE_TASK_NAME,
+                    "location": CONTROL_PLANE_REGION,
+                    "subscriptionId": SUB_1_ID,
+                },
+            ]
+        }
+
+        self.execute_mock.side_effect = self.make_execute_router(
+            json.dumps({"data": []}),
+            caj_json=json.dumps(mock_container_app_jobs),
+            caj_settings={
+                RESOURCE_TASK_NAME: {
+                    MONITORED_SUBSCRIPTIONS_KEY: malformed_monitored_subscriptions,
+                },
+                SCALING_TASK_NAME: {},
+            },
+        )
+
+        with self.assertRaises(json.JSONDecodeError) as error_context:
+            check_existing_lfo(self.config.all_subscriptions)
+
+        self.log_mock.error.assert_any_call(f"Invalid JSON: {malformed_monitored_subscriptions}")
+        self.log_mock.error.assert_any_call(f"Error: {error_context.exception}")
 
     def test_check_existing_lfo_multiple_installations(self):
         """Test with multiple existing LFO installations"""
