@@ -221,7 +221,7 @@ class TestMain(TestCase):
         # Mock represents the new incoming config with an additional subscription (sub 3) and new tag filters
         mock_config = MagicMock()
         mock_config.monitored_subscriptions = [SUB_1_ID, SUB_2_ID, SUB_3_ID]
-        mock_config.control_plane_task_names = [
+        mock_config.control_plane.task_names = [
             RESOURCE_TASK_NAME,
             SCALING_TASK_NAME,
             DIAGNOSTIC_SETTINGS_TASK_NAME,

@@ -16,6 +16,7 @@ from logging_install.tests.test_data import (
     CONTROL_PLANE_ID,
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_RESOURCE_GROUP,
+    CONTROL_PLANE_SUBSCRIPTION_ID,
     get_test_config,
 )
 
@@ -141,7 +142,7 @@ class TestResourceSetup(TestCase):
         ]
 
         resource_setup.create_container_app_environment(
-            CONTAINER_APP_ENV_NAME, CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_REGION
+            CONTAINER_APP_ENV_NAME, CONTROL_PLANE_RESOURCE_GROUP, CONTROL_PLANE_SUBSCRIPTION_ID, CONTROL_PLANE_REGION
         )
 
         # Should have been called twice: once for show, once for create
@@ -231,11 +232,11 @@ class TestResourceSetup(TestCase):
     def test_create_control_plane_container_app_jobs_success(self):
         """Test that all three control plane Container App Jobs are created"""
         with (
-            mock_patch("azure_logging_install.resource_setup._create_resources_task_container_app_job") as mock_resources,
+            mock_patch("azure_logging_install.resource_setup.create_resources_task_container_app_job") as mock_resources,
             mock_patch(
-                "azure_logging_install.resource_setup._create_diagnostic_settings_task_container_app_job"
+                "azure_logging_install.resource_setup.create_diagnostic_settings_task_container_app_job"
             ) as mock_diagnostic,
-            mock_patch("azure_logging_install.resource_setup._create_scaling_task_container_app_job") as mock_scaling,
+            mock_patch("azure_logging_install.resource_setup.create_scaling_task_container_app_job") as mock_scaling,
         ):
             caj_config = get_test_config()
             resource_setup.create_control_plane_container_app_jobs(caj_config)
@@ -253,15 +254,15 @@ class TestResourceSetup(TestCase):
         ]
 
         with mock_patch.object(caj_config, "get_control_plane_cache_key", return_value="test-key"):
-            resource_setup._create_resources_task_container_app_job(caj_config)
+            resource_setup.create_resources_task_container_app_job(caj_config)
 
         self.assertEqual(self.execute_mock.call_count, 2)
 
         create_cmd = str(self.execute_mock.call_args_list[1][0][0])
         self.assertIn("containerapp", create_cmd)
         self.assertIn("job create", create_cmd)
-        self.assertIn(caj_config.resources_task_name, create_cmd)
-        self.assertIn(caj_config.resources_task_image, create_cmd)
+        self.assertIn(caj_config.control_plane.resources_task_name, create_cmd)
+        self.assertIn(caj_config.control_plane.resources_task_image, create_cmd)
         self.assertIn(caj_config.control_plane_env_name, create_cmd)
         self.assertIn("300", create_cmd)
         self.assertIn("*/5 * * * *", create_cmd)
@@ -274,7 +275,7 @@ class TestResourceSetup(TestCase):
         with mock_patch(
             "azure_logging_install.resource_setup._create_control_plane_task_container_app_job"
         ) as mock_create:
-            resource_setup._create_resources_task_container_app_job(caj_config)
+            resource_setup.create_resources_task_container_app_job(caj_config)
 
         extra_vars = mock_create.call_args.args[3]
         monitored_subs = json.dumps(caj_config.monitored_subscriptions)
@@ -285,7 +286,7 @@ class TestResourceSetup(TestCase):
         caj_config = get_test_config()
         self.execute_mock.return_value = None  # job show succeeds
 
-        resource_setup._create_resources_task_container_app_job(caj_config)
+        resource_setup.create_resources_task_container_app_job(caj_config)
 
         self.execute_mock.assert_called_once()
         create_cmd = str(self.execute_mock.call_args[0][0])
@@ -300,14 +301,14 @@ class TestResourceSetup(TestCase):
         ]
 
         with mock_patch.object(caj_config, "get_control_plane_cache_key", return_value="test-key"):
-            resource_setup._create_diagnostic_settings_task_container_app_job(caj_config)
+            resource_setup.create_diagnostic_settings_task_container_app_job(caj_config)
 
         self.assertEqual(self.execute_mock.call_count, 2)
 
         create_cmd = str(self.execute_mock.call_args_list[1][0][0])
         self.assertIn("job create", create_cmd)
-        self.assertIn(caj_config.diagnostic_settings_task_name, create_cmd)
-        self.assertIn(caj_config.diagnostic_settings_task_image, create_cmd)
+        self.assertIn(caj_config.control_plane.diagnostic_settings_task_name, create_cmd)
+        self.assertIn(caj_config.control_plane.diagnostic_settings_task_image, create_cmd)
         self.assertIn("300", create_cmd)
         self.assertIn("*/5 * * * *", create_cmd)
         self.assertIn("RESOURCE_GROUP", create_cmd)
@@ -321,14 +322,14 @@ class TestResourceSetup(TestCase):
         ]
 
         with mock_patch.object(caj_config, "get_control_plane_cache_key", return_value="test-key"):
-            resource_setup._create_scaling_task_container_app_job(caj_config)
+            resource_setup.create_scaling_task_container_app_job(caj_config)
 
         self.assertEqual(self.execute_mock.call_count, 2)
 
         create_cmd = str(self.execute_mock.call_args_list[1][0][0])
         self.assertIn("job create", create_cmd)
-        self.assertIn(caj_config.scaling_task_name, create_cmd)
-        self.assertIn(caj_config.scaling_task_image, create_cmd)
+        self.assertIn(caj_config.control_plane.scaling_task_name, create_cmd)
+        self.assertIn(caj_config.control_plane.scaling_task_image, create_cmd)
         self.assertIn("500", create_cmd)
         self.assertIn("3/5 * * * *", create_cmd)
         self.assertIn("RESOURCE_GROUP", create_cmd)
@@ -341,7 +342,7 @@ class TestResourceSetup(TestCase):
         self.execute_mock.side_effect = FatalError("Unexpected failure")
 
         with self.assertRaises(FatalError):
-            resource_setup._create_resources_task_container_app_job(caj_config)
+            resource_setup.create_resources_task_container_app_job(caj_config)
 
         self.execute_mock.assert_called_once()
 
@@ -369,7 +370,7 @@ class TestResourceSetup(TestCase):
                 None,  # Third call (configure runtime)
             ]
 
-            resource_setup.create_function_app(self.config, self.config.resources_task_name)
+            resource_setup.create_function_app(self.config, self.config.control_plane.resources_task_name)
 
             # Should call execute 3 times: check existence, create app, configure runtime
             self.assertEqual(self.execute_mock.call_count, 3)
