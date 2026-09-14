@@ -15,7 +15,12 @@ from azure_integration_quickstart.app_registration_quickstart import (
 
 from integration_quickstart.tests.dd_test_case import DDTestCase
 
-_APP_REG = AppRegistration(tenant_id="tenant-1", client_id="client-1", client_secret="secret-1")
+_APP_REG = AppRegistration(
+    tenant_id="tenant-1",
+    client_id="client-1",
+    client_secret="secret-1",
+    display_name="datadog-azure-integration-test",
+)
 _SCOPE = MagicMock(scope="/subscriptions/sub-1")
 
 
@@ -26,7 +31,7 @@ class TestCreateAppRegistrationWithPermissions(DDTestCase):
             return_value={"appId": "app-1", "tenant": "tenant-1", "password": "pw"},
         )
         self.execute = self.patch("azure_integration_quickstart.app_registration_quickstart.execute")
-        self.patch(
+        self.get_app_registration_name = self.patch(
             "azure_integration_quickstart.app_registration_quickstart.get_app_registration_name",
             return_value="datadog-azure-integration-test",
         )
@@ -40,18 +45,28 @@ class TestCreateAppRegistrationWithPermissions(DDTestCase):
             create_app_registration_with_permissions([_SCOPE], use_secretless_auth=True, external_id="")
 
     def test_secretless_auth_embeds_external_id_in_subject(self):
-        create_app_registration_with_permissions([_SCOPE], use_secretless_auth=True, external_id="ext-abc")
+        app_registration = create_app_registration_with_permissions(
+            [_SCOPE], use_secretless_auth=True, external_id="ext-abc"
+        )
 
         cmd_args = " ".join(self.execute.call_args[0][0])
         self.assertIn(f"{FEDERATED_AUTH_SUBJECT_PREFIX}ext-abc", cmd_args)
+        self.assertEqual(app_registration.display_name, "datadog-azure-integration-test")
+        self.assertIn("--name datadog-azure-integration-test", " ".join(self.run_cmd.call_args[0][0]))
+        self.get_app_registration_name.assert_called_once_with()
 
     def test_non_secretless_auth_does_not_call_federated_credential(self):
-        self.patch(
+        execute_json = self.patch(
             "azure_integration_quickstart.app_registration_quickstart.execute_json",
             return_value={"appId": "app-1", "tenant": "tenant-1", "password": "pw"},
         )
-        create_app_registration_with_permissions([_SCOPE], use_secretless_auth=False, external_id=None)
+        app_registration = create_app_registration_with_permissions(
+            [_SCOPE], use_secretless_auth=False, external_id=None
+        )
         self.execute.assert_not_called()
+        self.assertEqual(app_registration.display_name, "datadog-azure-integration-test")
+        self.assertIn("--name datadog-azure-integration-test", " ".join(execute_json.call_args[0][0]))
+        self.get_app_registration_name.assert_called_once_with()
 
 
 class TestSubmitIntegrationConfig(DDTestCase):
@@ -75,3 +90,4 @@ class TestSubmitIntegrationConfig(DDTestCase):
         self.assertEqual(posted["client_id"], _APP_REG.client_id)
         self.assertEqual(posted["client_secret"], _APP_REG.client_secret)
         self.assertEqual(posted["tenant_name"], _APP_REG.tenant_id)
+        self.assertEqual(posted["display_name"], _APP_REG.display_name)
