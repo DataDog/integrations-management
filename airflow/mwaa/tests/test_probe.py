@@ -70,6 +70,17 @@ def test_build_context_tolerates_missing_constraints_object():
     assert ctx.constraints_text is None
 
 
+def test_build_context_tolerates_environment_with_no_requirements_configured():
+    client = make_client()
+    environment_without_requirements = {k: v for k, v in ENVIRONMENT.items() if k != "RequirementsS3Path"}
+    client.get_environment.return_value = environment_without_requirements
+
+    ctx = build_context(client, "my-env")
+
+    assert ctx.requirements_text == ""
+    assert ctx.constraints_text is None
+
+
 def test_run_probe_returns_a_finding_per_check():
     config = Config(environment_name="my-env", region="us-east-1")
     reporter = Reporter(workflow_type="mwaa-setup")

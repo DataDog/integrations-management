@@ -11,5 +11,16 @@ from .probe import build_context
 
 
 def discover_environments(client: MwaaClient) -> list[ProbeContext]:
-    """Fetch a ProbeContext (environment + its config files) for every environment in the region."""
-    return [build_context(client, name) for name in client.list_environment_names()]
+    """Fetch a ProbeContext (environment + its config files) for every environment in the region.
+
+    One environment failing to read (permissions, an unexpected state, a
+    malformed config) shouldn't abort the scan for every other environment in
+    the account -- it's skipped, with a warning printed, instead.
+    """
+    contexts = []
+    for name in client.list_environment_names():
+        try:
+            contexts.append(build_context(client, name))
+        except Exception as e:  # noqa: BLE001 - any failure here is a per-environment skip, not a scan failure
+            print(f"  ! skipping {name}: {e}")
+    return contexts

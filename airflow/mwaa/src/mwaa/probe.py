@@ -18,11 +18,15 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
     environment = client.get_environment(environment_name)
     bucket = environment["SourceBucketArn"].rsplit(":", 1)[-1]
 
-    requirements_text = client.get_object_text(
-        bucket,
-        environment["RequirementsS3Path"],
-        environment.get("RequirementsS3ObjectVersion"),
-    )
+    # RequirementsS3Path is optional in the MWAA API -- an environment that has
+    # never had a requirements.txt configured simply won't have it set.
+    requirements_path = environment.get("RequirementsS3Path")
+    if requirements_path:
+        requirements_text = client.get_object_text(
+            bucket, requirements_path, environment.get("RequirementsS3ObjectVersion")
+        )
+    else:
+        requirements_text = ""
 
     constraints_text = None
     constraints_key = resolve_constraint_key(requirements_text, environment.get("DagS3Path", "dags"))
