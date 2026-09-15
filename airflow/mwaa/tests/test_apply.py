@@ -105,7 +105,7 @@ def test_apply_to_environment_skips_update_call_when_only_constraints_change():
     client.put_object_text.return_value = "v1"
     from mwaa.apply import FileUpload
 
-    uploads = [FileUpload(path="dags/constraints.txt", content="pandas==2.1.4\n", action="update")]
+    uploads = [FileUpload(path="dags/constraints.txt", old_content="", content="pandas==2.1.4\n", action="update")]
 
     result = apply_to_environment(client, ENVIRONMENT, uploads)
 

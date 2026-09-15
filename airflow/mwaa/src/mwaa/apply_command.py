@@ -15,6 +15,7 @@ from airflow_shared.reporter import Reporter
 
 from .apply import apply_to_environment, compute_apply_actions
 from .apply_config import ApplyConfig
+from .diff_preview import render_unified_diff
 from .plan import compute_plan
 from .probe import build_context
 
@@ -44,9 +45,13 @@ def run_apply(config: ApplyConfig, reporter: Reporter) -> dict[str, Any]:
     uploads = compute_apply_actions(ctx, plan)
 
     print()
+    print(f"Rationale: {plan.rationale}")
+    print()
     print("Planned changes:")
     for upload in uploads:
-        print(f"  {upload.action}: {upload.path}")
+        diff = render_unified_diff(upload.path, upload.old_content, upload.content)
+        print(f"\n--- {upload.action}: {upload.path} ---")
+        print(diff if diff else "(no textual change)")
 
     if not config.confirmed:
         print()

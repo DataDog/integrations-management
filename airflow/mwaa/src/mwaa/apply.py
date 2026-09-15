@@ -24,9 +24,10 @@ from .plan import CONSTRAINTS_PATH, EXPECTED_CONSTRAINT_LINE_TARGET, REQUIREMENT
 
 @dataclass(frozen=True)
 class FileUpload:
-    """One file's final content, ready to write to S3."""
+    """One file's final content, ready to write to S3, alongside what it's replacing."""
 
     path: str
+    old_content: str
     content: str
     action: str  # "create" | "update"
 
@@ -35,22 +36,32 @@ def _adds_constraint_line(file_change: FileChange) -> bool:
     return any("constraint" in note for note in file_change.notes)
 
 
+def current_text_for_path(ctx: ProbeContext, path: str) -> str:
+    """The real current content for one of the three paths a plan ever touches."""
+    if path == CONSTRAINTS_PATH:
+        return ctx.constraints_text or ""
+    if path == REQUIREMENTS_PATH:
+        return ctx.requirements_text
+    if path == STARTUP_SCRIPT_PATH:
+        return ctx.startup_script_text or ""
+    raise ValueError(f"don't know how to apply a change to {path!r}")
+
+
 def compute_apply_actions(ctx: ProbeContext, plan: Plan) -> list[FileUpload]:
     """Compute the exact file content to write for every change in a plan."""
     uploads = []
     for change in plan.file_changes:
+        old_content = current_text_for_path(ctx, change.path)
         if change.path == CONSTRAINTS_PATH:
-            content = patch_pins(ctx.constraints_text or "", change.pin_diff)
+            content = patch_pins(old_content, change.pin_diff)
         elif change.path == REQUIREMENTS_PATH:
-            content = patch_pins(ctx.requirements_text, change.pin_diff)
+            content = patch_pins(old_content, change.pin_diff)
             if _adds_constraint_line(change):
                 content = ensure_constraint_line(content, EXPECTED_CONSTRAINT_LINE_TARGET)
-        elif change.path == STARTUP_SCRIPT_PATH:
+        else:  # STARTUP_SCRIPT_PATH -- current_text_for_path already validated the path
             assert change.content is not None, "startup.sh file changes always carry pre-rendered content"
             content = change.content
-        else:
-            raise ValueError(f"don't know how to apply a change to {change.path!r}")
-        uploads.append(FileUpload(path=change.path, content=content, action=change.action))
+        uploads.append(FileUpload(path=change.path, old_content=old_content, content=content, action=change.action))
     return uploads
 
 
