@@ -90,6 +90,21 @@ def test_unflagged_version_with_provider_already_pinned_needs_no_upgrade():
     assert plan.file_changes == []
 
 
+def test_unflagged_version_recognizes_a_previously_added_bare_package_line():
+    """apply's own output for this exact path (see patch.py's "unpinned" branch) is a bare
+    `apache-airflow-providers-openlineage` line, no `==version` -- parse_pins alone can't see
+    it, so without parse_bare_packages this would propose adding a duplicate on every re-scan."""
+    plan = compute_plan(
+        airflow_version="2.10.1",
+        requirements_text="pandas==2.1.4\napache-airflow-providers-openlineage\n",
+        constraints_text=None,
+        startup_script_text="export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n",
+        dd_site="datadoghq.com",
+    )
+    assert plan.upgrade_needed is False
+    assert plan.file_changes == []
+
+
 def test_requirements_txt_notes_missing_constraint_line():
     plan = compute_plan(
         airflow_version="2.8.1",

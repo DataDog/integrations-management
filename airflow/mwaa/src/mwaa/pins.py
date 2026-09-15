@@ -21,11 +21,26 @@ COMMON_COMPAT_PACKAGE = "apache-airflow-providers-common-compat"
 
 CONSTRAINT_LINE = re.compile(r'^\s*--constraint\s+"?([^"\s]+)"?', re.MULTILINE)
 _PIN_LINE = re.compile(r"^\s*([A-Za-z0-9_.\-]+)\s*==\s*([A-Za-z0-9_.\-]+)", re.MULTILINE)
+# patch_pins' "unpinned" append format (see patch.py) -- a package name alone on its
+# line, no version. Anchored at both ends so a `package==version` line's package name
+# (which has trailing content after it) never double-matches here too.
+_BARE_PACKAGE_LINE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9_.\-]*)\s*$", re.MULTILINE)
 
 
 def parse_pins(text: str) -> dict[str, str]:
     """Parse `package==version` lines into a lowercase-keyed dict. Ignores comments and flags."""
     return {name.lower(): version for name, version in _PIN_LINE.findall(text)}
+
+
+def parse_bare_packages(text: str) -> set[str]:
+    """Package names mentioned on their own line with no version pin -- lowercase, like parse_pins.
+
+    Needed alongside parse_pins wherever "is this package already present"
+    matters: once patch_pins appends a package unpinned (the unflagged-version
+    plan path's target), a plain parse_pins lookup would never find it again,
+    and would propose adding it a second time on every subsequent scan.
+    """
+    return {name.lower() for name in _BARE_PACKAGE_LINE.findall(text)}
 
 
 def resolve_constraint_s3_key(constraint_path: str, dag_s3_path: str) -> "str | None":

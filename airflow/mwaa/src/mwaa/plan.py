@@ -16,7 +16,7 @@ table as it existed at the time.
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .pins import OPENLINEAGE_PACKAGES, find_constraint_path, parse_pins, resolve_constraint_s3_key
+from .pins import OPENLINEAGE_PACKAGES, find_constraint_path, parse_bare_packages, parse_pins, resolve_constraint_s3_key
 from .startup_script import render_startup_script, startup_script_looks_configured
 from .version_table import FLAGGED_VERSION_TABLE, SOURCE_DOC, FlaggedVersionEntry
 
@@ -101,8 +101,8 @@ def _plan_flagged_version(entry: FlaggedVersionEntry, current_req_pins: dict, cu
     return bool(pin_diffs), rationale, pin_diffs
 
 
-def _plan_unflagged_version(airflow_version: str, current_req_pins: dict) -> tuple[bool, str, list[PinDiff]]:
-    if any(pkg in current_req_pins for pkg in OPENLINEAGE_PACKAGES):
+def _plan_unflagged_version(airflow_version: str, mentioned_packages: set) -> tuple[bool, str, list[PinDiff]]:
+    if any(pkg in mentioned_packages for pkg in OPENLINEAGE_PACKAGES):
         return (
             False,
             f"Airflow {airflow_version} is not one of the flagged versions (2.7.2/2.8.1/2.9.2), "
@@ -134,7 +134,8 @@ def compute_plan(
         upgrade_needed, rationale, pin_diffs = _plan_flagged_version(flagged_entry, current_req_pins, current_con_pins)
         source = "flagged_version_table"
     else:
-        upgrade_needed, rationale, pin_diffs = _plan_unflagged_version(airflow_version, current_req_pins)
+        mentioned_packages = set(current_req_pins) | parse_bare_packages(requirements_text)
+        upgrade_needed, rationale, pin_diffs = _plan_unflagged_version(airflow_version, mentioned_packages)
         flagged_entry = None
         source = "unflagged_version"
 
