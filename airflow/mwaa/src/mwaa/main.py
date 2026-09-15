@@ -12,10 +12,15 @@
   python mwaa.pyz interactive --region <region>               # walk the whole flow (select, review, apply) at the terminal
   python mwaa.pyz interactive --region <region> --dry-run     # same, but never applies -- skips the confirmation prompt too
 
+  PLAN_OVERRIDE_PATH=<path> python mwaa.pyz apply             # local/dev only: apply a hand-authored PlanBundle from
+                                                                # disk instead of --name/--region and a computed plan --
+                                                                # see plan_override.py
+
 `scan` is the default if no subcommand is given.
 """
 
 import json
+import os
 import sys
 
 from airflow_shared.reporter import FindingStatus, Reporter
@@ -24,6 +29,7 @@ from .apply_command import run_apply
 from .apply_config import parse_apply_config
 from .config import ConfigError, parse_config
 from .interactive import run_interactive
+from .plan_override import PLAN_OVERRIDE_ENV_VAR
 from .probe import WORKFLOW_TYPE, run_probe
 from .scan import run_scan
 from .scan_config import parse_scan_config
@@ -79,7 +85,10 @@ def _run_apply(argv: list[str]) -> None:
         print(f"Invalid configuration:\n{e}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Computing the onboarding plan for '{config.environment_name}' in {config.region}...")
+    # When PLAN_OVERRIDE_PATH is set, config carries neither -- run_apply prints
+    # its own message once it's loaded the bundle instead. See plan_override.py.
+    if not os.environ.get(PLAN_OVERRIDE_ENV_VAR):
+        print(f"Computing the onboarding plan for '{config.environment_name}' in {config.region}...")
     reporter = Reporter(workflow_type=WORKFLOW_TYPE)
 
     try:
