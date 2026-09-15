@@ -13,9 +13,9 @@ from .config import Config
 WORKFLOW_TYPE = "mwaa-setup"
 
 
-def build_context(config: Config, client: MwaaClient) -> ProbeContext:
-    """Fetch everything the checks need from AWS, once, up front."""
-    environment = client.get_environment(config.environment_name)
+def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
+    """Fetch everything the checks (and plan computation) need from AWS, once, up front."""
+    environment = client.get_environment(environment_name)
     bucket = environment["SourceBucketArn"].rsplit(":", 1)[-1]
 
     requirements_text = client.get_object_text(
@@ -57,7 +57,7 @@ def run_probe(config: Config, reporter: Reporter) -> list[Finding]:
 
     findings: list[Finding] = []
     with reporter.report_step("fetch_environment"):
-        ctx = build_context(config, client)
+        ctx = build_context(client, config.environment_name)
 
     with reporter.report_step("run_checks"):
         for check in ALL_CHECKS:

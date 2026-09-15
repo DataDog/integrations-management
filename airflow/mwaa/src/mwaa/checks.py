@@ -27,29 +27,24 @@ from typing import Optional
 from airflow_shared.mwaa_client import MwaaClient
 from airflow_shared.reporter import Finding, FindingStatus
 
-# MWAA mounts the DAGs folder at this path inside the container regardless of
-# the S3 prefix (dag_s3_path) the environment is configured with.
-DAGS_MOUNT_PREFIX = "/usr/local/airflow/dags/"
+from .pins import (
+    COMMON_COMPAT_PACKAGE,
+    CONSTRAINT_LINE,
+    DAGS_MOUNT_PREFIX,
+    OPENLINEAGE_PACKAGES,
+    parse_pins,
+    resolve_constraint_s3_key,
+)
 
 # Airflow versions whose MWAA-default constraints pin an OpenLineage provider
 # with known issues, per Datadog's onboarding docs.
 FLAGGED_AIRFLOW_VERSIONS = {"2.7.2", "2.8.1", "2.9.2"}
 
-OPENLINEAGE_PACKAGES = (
-    "apache-airflow-providers-openlineage",
-    "openlineage-python",
-    "openlineage-integration-common",
-    "openlineage-sql",
-    "apache-airflow-providers-common-sql",
-)
-COMMON_COMPAT_PACKAGE = "apache-airflow-providers-common-compat"
-
-_CONSTRAINT_LINE = re.compile(r'^\s*--constraint\s+"?([^"\s]+)"?', re.MULTILINE)
-_PIN_LINE = re.compile(r"^\s*([A-Za-z0-9_.\-]+)\s*==\s*([A-Za-z0-9_.\-]+)", re.MULTILINE)
 _EXPORT_LINE = re.compile(
     r"^\s*export\s+(AIRFLOW__OPENLINEAGE__\w+|OPENLINEAGE_\w+)=(.*)$",
     re.MULTILINE,
 )
+_DEPENDENCY_ERROR_PATTERNS = ("ResolutionImpossible", "ERROR: Cannot install", "ERROR: No matching distribution")
 
 
 def _strip_matching_quotes(value: str) -> str:
@@ -57,7 +52,6 @@ def _strip_matching_quotes(value: str) -> str:
     if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
         return value[1:-1]
     return value
-_DEPENDENCY_ERROR_PATTERNS = ("ResolutionImpossible", "ERROR: Cannot install", "ERROR: No matching distribution")
 
 
 @dataclass
@@ -71,22 +65,6 @@ class ProbeContext:
     client: MwaaClient
 
 
-def _parse_pins(text: str) -> dict[str, str]:
-    return {name.lower(): version for name, version in _PIN_LINE.findall(text)}
-
-
-def _resolve_constraint_s3_key(constraint_path: str, dag_s3_path: str) -> Optional[str]:
-    """Resolve a `--constraint /usr/local/airflow/dags/...` path to an S3 key.
-
-    Returns None if the path isn't under the DAGs mount, which this check
-    can't resolve back to an S3 object.
-    """
-    if not constraint_path.startswith(DAGS_MOUNT_PREFIX):
-        return None
-    relative = constraint_path[len(DAGS_MOUNT_PREFIX) :]
-    return f"{dag_s3_path.rstrip('/')}/{relative}"
-
-
 def resolve_constraint_key(requirements_text: str, dag_s3_path: str) -> Optional[str]:
     """Find the --constraint line in requirements.txt and resolve it to an S3 key.
 
@@ -94,15 +72,15 @@ def resolve_constraint_key(requirements_text: str, dag_s3_path: str) -> Optional
     resolution to fetch constraints.txt for check_requirements_constraints_match.
     Returns None if there's no --constraint line, or it isn't under the DAGs mount.
     """
-    match = _CONSTRAINT_LINE.search(requirements_text)
+    match = CONSTRAINT_LINE.search(requirements_text)
     if not match:
         return None
-    return _resolve_constraint_s3_key(match.group(1), dag_s3_path)
+    return resolve_constraint_s3_key(match.group(1), dag_s3_path)
 
 
 def check_constraint_path(ctx: ProbeContext) -> Finding:
     """The --constraint line in requirements.txt must resolve to a real S3 object."""
-    match = _CONSTRAINT_LINE.search(ctx.requirements_text)
+    match = CONSTRAINT_LINE.search(ctx.requirements_text)
     if not match:
         return Finding(
             "constraint_path",
@@ -114,7 +92,7 @@ def check_constraint_path(ctx: ProbeContext) -> Finding:
 
     constraint_path = match.group(1)
     dag_s3_path = ctx.environment.get("DagS3Path", "dags")
-    resolved_key = _resolve_constraint_s3_key(constraint_path, dag_s3_path)
+    resolved_key = resolve_constraint_s3_key(constraint_path, dag_s3_path)
     if resolved_key is None:
         return Finding(
             "constraint_path",
@@ -137,7 +115,7 @@ def check_constraint_path(ctx: ProbeContext) -> Finding:
 def check_openlineage_pins(ctx: ProbeContext) -> Finding:
     """OpenLineage-family packages should be explicitly pinned on flagged Airflow versions."""
     airflow_version = ctx.environment.get("AirflowVersion", "")
-    pins = _parse_pins(ctx.requirements_text)
+    pins = parse_pins(ctx.requirements_text)
     pinned_ol_packages = [pkg for pkg in OPENLINEAGE_PACKAGES if pkg in pins]
 
     if not pinned_ol_packages:
@@ -179,8 +157,8 @@ def check_requirements_constraints_match(ctx: ProbeContext) -> Finding:
             "constraints.txt could not be fetched, skipping version cross-check",
         )
 
-    req_pins = _parse_pins(ctx.requirements_text)
-    con_pins = _parse_pins(ctx.constraints_text)
+    req_pins = parse_pins(ctx.requirements_text)
+    con_pins = parse_pins(ctx.constraints_text)
 
     mismatches = [
         f"{pkg}: requirements.txt has {req_pins[pkg]}, constraints.txt has {con_pins[pkg]}"

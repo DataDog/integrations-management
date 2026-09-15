@@ -43,6 +43,14 @@ class MwaaClient:
         self._iam = boto3.client("iam", region_name=region)
         self._ec2 = boto3.client("ec2", region_name=region)
 
+    def list_environment_names(self) -> list[str]:
+        """Return the names of every MWAA environment in this region, paginating as needed."""
+        names: list[str] = []
+        paginator = self._mwaa.get_paginator("list_environments")
+        for page in paginator.paginate():
+            names.extend(page.get("Environments", []))
+        return names
+
     def get_environment(self, name: str) -> dict[str, Any]:
         """Return the raw GetEnvironment response body for an MWAA environment."""
         return self._mwaa.get_environment(Name=name)["Environment"]

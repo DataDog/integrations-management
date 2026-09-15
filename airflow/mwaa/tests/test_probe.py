@@ -44,9 +44,8 @@ def make_client() -> MagicMock:
 
 def test_build_context_fetches_requirements_and_constraints():
     client = make_client()
-    config = Config(environment_name="my-env", region="us-east-1")
 
-    ctx = build_context(config, client)
+    ctx = build_context(client, "my-env")
 
     assert ctx.environment == ENVIRONMENT
     assert "openlineage" in ctx.requirements_text
@@ -65,9 +64,8 @@ def test_build_context_tolerates_missing_constraints_object():
         }[key]
 
     client.get_object_text.side_effect = get_object_text
-    config = Config(environment_name="my-env", region="us-east-1")
 
-    ctx = build_context(config, client)
+    ctx = build_context(client, "my-env")
 
     assert ctx.constraints_text is None
 
