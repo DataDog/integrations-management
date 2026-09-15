@@ -35,10 +35,22 @@ def render_startup_script(airflow_version: str, dd_site: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+# Either mechanism routes lineage events somewhere: OPENLINEAGE_URL is what
+# Datadog's current onboarding doc recommends (read directly by the
+# OpenLineage client); AIRFLOW__OPENLINEAGE__TRANSPORT is an older/alternate
+# JSON-config mechanism some existing environments (e.g. do-test-env's) still
+# use. Treating only the former as "configured" produced a false positive
+# against a real environment using the latter -- proposing to overwrite a
+# transport it already had, just via the other mechanism.
+_TRANSPORT_MARKERS = ("OPENLINEAGE_URL=", "AIRFLOW__OPENLINEAGE__TRANSPORT=")
+
+
 def startup_script_looks_configured(startup_script_text: "str | None") -> bool:
     """Heuristic for the UI's "Configured on Data Observability" column.
 
-    True if the startup script already exports the one variable that actually
-    routes lineage events to Datadog.
+    True if the startup script already exports a variable that routes
+    lineage events to Datadog, via either supported mechanism.
     """
-    return startup_script_text is not None and "OPENLINEAGE_URL=" in startup_script_text
+    if startup_script_text is None:
+        return False
+    return any(marker in startup_script_text for marker in _TRANSPORT_MARKERS)

@@ -25,3 +25,8 @@ def test_startup_script_looks_configured_true_when_url_present():
 def test_startup_script_looks_configured_false_when_missing():
     assert startup_script_looks_configured("echo hello\n") is False
     assert startup_script_looks_configured(None) is False
+
+
+def test_startup_script_looks_configured_recognizes_transport_json_mechanism():
+    script = "export AIRFLOW__OPENLINEAGE__TRANSPORT='{\"type\": \"http\", \"url\": \"https://x.invalid\"}'\n"
+    assert startup_script_looks_configured(script) is True

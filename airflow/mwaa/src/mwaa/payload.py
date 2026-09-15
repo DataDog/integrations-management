@@ -15,11 +15,16 @@ from typing import Any
 
 from .checks import ProbeContext
 from .plan import compute_plan
+from .redact import redact_secrets
 from .startup_script import startup_script_looks_configured
 
 
 def _environment_entry(ctx: ProbeContext, dd_site: str) -> dict[str, Any]:
     airflow_version = ctx.environment.get("AirflowVersion", "")
+    # Plan computation runs on the real, unredacted text -- redaction only
+    # touches lines that look like secrets (API_KEY/TOKEN/SECRET/PASSWORD),
+    # which never overlaps with the package pins or OpenLineage config markers
+    # the plan actually reads.
     plan = compute_plan(
         airflow_version=airflow_version,
         requirements_text=ctx.requirements_text,
@@ -32,9 +37,9 @@ def _environment_entry(ctx: ProbeContext, dd_site: str) -> dict[str, Any]:
         "airflow_version": airflow_version,
         "already_configured": startup_script_looks_configured(ctx.startup_script_text),
         "current_state": {
-            "requirements_text": ctx.requirements_text,
-            "constraints_text": ctx.constraints_text,
-            "startup_script_text": ctx.startup_script_text,
+            "requirements_text": redact_secrets(ctx.requirements_text),
+            "constraints_text": redact_secrets(ctx.constraints_text),
+            "startup_script_text": redact_secrets(ctx.startup_script_text),
         },
         "plan": asdict(plan),
     }

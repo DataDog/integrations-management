@@ -40,6 +40,38 @@ def test_build_payload_environment_entry_includes_plan_and_current_state():
     assert entry["plan"]["source"] == "flagged_version_table"
 
 
+def test_build_payload_redacts_secrets_in_startup_script():
+    ctx = ProbeContext(
+        environment=ENVIRONMENT,
+        requirements_text="",
+        constraints_text=None,
+        startup_script_text="export OPENLINEAGE_API_KEY=00000000000000000000000000000000\n",
+        client=None,
+    )
+    payload = build_payload("session-1", "us-east-1", "datadoghq.com", [ctx])
+    entry = payload["environments"][0]
+
+    assert "00000000000000000000000000000000" not in entry["current_state"]["startup_script_text"]
+    assert "redacted" in entry["current_state"]["startup_script_text"]
+
+
+def test_build_payload_plan_computed_against_real_secret_bearing_text():
+    # Regression: plan computation must still see the real OpenLineage transport
+    # markers even though the rendered current_state has them redacted where relevant.
+    ctx = ProbeContext(
+        environment={"Name": "env", "AirflowVersion": "3.0.6"},
+        requirements_text="apache-airflow-providers-openlineage==2.18.0\n",
+        constraints_text=None,
+        startup_script_text="export OPENLINEAGE_API_KEY=secretvalue\nexport OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n",
+        client=None,
+    )
+    payload = build_payload("session-1", "us-east-1", "datadoghq.com", [ctx])
+    entry = payload["environments"][0]
+
+    assert entry["already_configured"] is True
+    assert entry["plan"]["upgrade_needed"] is False
+
+
 def test_build_payload_is_json_serializable():
     payload = build_payload("session-1", "us-east-1", "datadoghq.com", [make_context()])
     # Should not raise -- this is what main.py actually does with it.
