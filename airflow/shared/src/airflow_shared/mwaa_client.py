@@ -2,13 +2,16 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-"""Thin boto3 wrappers for inspecting a live MWAA environment.
+"""Thin boto3 wrappers for inspecting and updating a live MWAA environment.
 
 Plays the role gcp_shared/gcloud.py and az_shared/execute_cmd.py play for
 their clouds: MWAA has no CLI to shell out to, so this wraps the relevant
-boto3 clients (mwaa, s3, logs, iam, ec2) directly instead. Every method here
-is read-only -- nothing in this module ever creates, updates, or deletes an
-AWS resource.
+boto3 clients (mwaa, s3, logs, iam, ec2) directly instead.
+
+Most methods here are read-only. Two are not -- `put_object_text` and
+`update_environment`, used by the `apply` command -- and both are called out
+individually in their own docstrings, since an `update_environment` call
+restarts the environment's workers.
 """
 
 from dataclasses import dataclass
@@ -70,6 +73,23 @@ class MwaaClient:
                 raise ObjectNotFoundError(f"s3://{bucket}/{key}") from e
             raise
         return response["Body"].read().decode("utf-8")
+
+    def put_object_text(self, bucket: str, key: str, content: str) -> Optional[str]:
+        """Write text content to an S3 object. Mutating -- used only by `apply`.
+
+        Returns the new object's S3 VersionId (None if the bucket isn't versioned).
+        """
+        response = self._s3.put_object(Bucket=bucket, Key=key, Body=content.encode("utf-8"))
+        return response.get("VersionId")
+
+    def update_environment(self, name: str, **kwargs: Any) -> None:
+        """Call MWAA UpdateEnvironment. Mutating -- restarts the environment's workers.
+
+        `kwargs` are passed straight through as UpdateEnvironment parameters,
+        e.g. RequirementsS3Path/RequirementsS3ObjectVersion,
+        StartupScriptS3Path/StartupScriptS3ObjectVersion.
+        """
+        self._mwaa.update_environment(Name=name, **kwargs)
 
     def object_exists(self, bucket: str, key: str) -> bool:
         """Return whether an S3 object exists, without fetching its content."""

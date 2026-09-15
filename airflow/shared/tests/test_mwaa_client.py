@@ -49,6 +49,29 @@ def test_get_object_text_raises_on_missing_object(client: MwaaClient):
         client.get_object_text("my-bucket", "missing.txt")
 
 
+def test_put_object_text_returns_version_id(client: MwaaClient):
+    stubber = Stubber(client._s3)
+    stubber.add_response(
+        "put_object",
+        {"VersionId": "v2"},
+        {"Bucket": "my-bucket", "Key": "requirements.txt", "Body": ANY},
+    )
+    with stubber:
+        version_id = client.put_object_text("my-bucket", "requirements.txt", "pandas==2.1.4\n")
+    assert version_id == "v2"
+
+
+def test_update_environment_passes_kwargs_through(client: MwaaClient):
+    stubber = Stubber(client._mwaa)
+    stubber.add_response(
+        "update_environment",
+        {},
+        {"Name": "my-env", "RequirementsS3Path": "requirements.txt", "RequirementsS3ObjectVersion": "v2"},
+    )
+    with stubber:
+        client.update_environment("my-env", RequirementsS3Path="requirements.txt", RequirementsS3ObjectVersion="v2")
+
+
 def test_object_exists_true(client: MwaaClient):
     stubber = Stubber(client._s3)
     stubber.add_response("head_object", {}, {"Bucket": "my-bucket", "Key": "dags/constraints.txt"})

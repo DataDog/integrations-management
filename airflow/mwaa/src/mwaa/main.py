@@ -4,9 +4,11 @@
 
 """Entry point.
 
-  python mwaa.pyz scan --region <region>              # discover every MWAA environment, print the
-                                                        # scan payload (dry run -- nothing is sent yet)
-  python mwaa.pyz probe --name <env> --region <region> # read-only diagnostics against one environment
+  python mwaa.pyz scan --region <region>                    # discover every MWAA environment, print the
+                                                              # scan payload (dry run -- nothing is sent yet)
+  python mwaa.pyz probe --name <env> --region <region>       # read-only diagnostics against one environment
+  python mwaa.pyz apply --name <env> --region <region>       # preview the onboarding plan's file changes
+  python mwaa.pyz apply --name <env> --region <region> --yes # actually upload them and update the environment
 
 `scan` is the default if no subcommand is given.
 """
@@ -16,12 +18,14 @@ import sys
 
 from airflow_shared.reporter import FindingStatus, Reporter
 
+from .apply_command import run_apply
+from .apply_config import parse_apply_config
 from .config import ConfigError, parse_config
 from .probe import WORKFLOW_TYPE, run_probe
 from .scan import run_scan
 from .scan_config import parse_scan_config
 
-COMMANDS = ("scan", "probe")
+COMMANDS = ("scan", "probe", "apply")
 
 
 def _run_scan(argv: list[str]) -> None:
@@ -65,6 +69,23 @@ def _run_probe(argv: list[str]) -> None:
         sys.exit(1)
 
 
+def _run_apply(argv: list[str]) -> None:
+    try:
+        config = parse_apply_config(argv)
+    except ConfigError as e:
+        print(f"Invalid configuration:\n{e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Computing the onboarding plan for '{config.environment_name}' in {config.region}...")
+    reporter = Reporter(workflow_type=WORKFLOW_TYPE)
+
+    try:
+        run_apply(config, reporter)
+    except Exception as e:
+        print(f"\nApply failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
 def main() -> None:
     argv = sys.argv[1:]
     command = "scan"
@@ -73,6 +94,8 @@ def main() -> None:
 
     if command == "probe":
         _run_probe(argv)
+    elif command == "apply":
+        _run_apply(argv)
     else:
         _run_scan(argv)
 
