@@ -138,7 +138,7 @@ def _run_interactive(
         return {"applied": False, "session": session, "environment": entry.name, "uploads": uploads}
 
     with reporter.report_step("apply_changes"):
-        result = apply_to_environment(client, ctx.environment, uploads)
+        result = apply_to_environment(client, ctx, uploads)
 
     print(f"\nUploaded {len(result['uploaded'])} file(s).")
     if result["update_environment_called"]:

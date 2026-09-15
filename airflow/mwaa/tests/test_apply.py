@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from mwaa.apply import compute_apply_actions, apply_to_environment
+from mwaa.apply import compute_apply_actions, apply_to_environment, real_key_for_path
 from mwaa.checks import ProbeContext
 from mwaa.plan import compute_plan
 
@@ -115,7 +115,7 @@ def test_apply_to_environment_uploads_and_calls_update():
     plan = compute_plan("2.8.1", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com")
     uploads = compute_apply_actions(ctx, plan)
 
-    result = apply_to_environment(client, ENVIRONMENT, uploads)
+    result = apply_to_environment(client, ctx, uploads)
 
     assert client.put_object_text.call_count == len(uploads)
     client.update_environment.assert_called_once()
@@ -131,9 +131,78 @@ def test_apply_to_environment_skips_update_call_when_only_constraints_change():
     client.put_object_text.return_value = "v1"
     from mwaa.apply import FileUpload
 
+    ctx = make_context()
     uploads = [FileUpload(path="dags/constraints.txt", old_content="", content="pandas==2.1.4\n", action="update")]
 
-    result = apply_to_environment(client, ENVIRONMENT, uploads)
+    result = apply_to_environment(client, ctx, uploads)
 
     client.update_environment.assert_not_called()
     assert result["update_environment_called"] is False
+
+
+def test_apply_to_environment_writes_to_the_environments_real_prefixed_keys():
+    """Reproduces a real incident: an environment sharing a bucket with another one
+    under a setup-probe/<name>/ prefix got its upload written to the literal key
+    "requirements.txt" -- which happened to be that OTHER environment's real file.
+    """
+    client = MagicMock()
+    client.put_object_text.side_effect = ["v-con", "v-req", "v-startup"]
+    ctx = make_context(
+        environment={
+            "Name": "probe-env",
+            "AirflowVersion": "2.8.1",
+            "SourceBucketArn": "arn:aws:s3:::shared-bucket",
+            "DagS3Path": "setup-probe/probe-env/dags",
+            "RequirementsS3Path": "setup-probe/probe-env/requirements.txt",
+            "StartupScriptS3Path": "setup-probe/probe-env/startup/startup.sh",
+        },
+    )
+    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com")
+    uploads = compute_apply_actions(ctx, plan)
+
+    result = apply_to_environment(client, ctx, uploads)
+
+    written_keys = {call.args[1] for call in client.put_object_text.call_args_list}
+    assert written_keys == {
+        "setup-probe/probe-env/requirements.txt",
+        "setup-probe/probe-env/dags/constraints.txt",
+        "setup-probe/probe-env/startup/startup.sh",
+    }
+    assert "requirements.txt" not in written_keys  # the OTHER environment's real key
+
+    call_kwargs = client.update_environment.call_args.kwargs
+    assert call_kwargs["RequirementsS3Path"] == "setup-probe/probe-env/requirements.txt"
+    assert call_kwargs["StartupScriptS3Path"] == "setup-probe/probe-env/startup/startup.sh"
+    assert {u["path"] for u in result["uploaded"]} == written_keys
+
+
+def test_real_key_for_path_resolves_constraints_under_the_dags_prefix_when_none_exists_yet():
+    ctx = make_context(
+        environment={
+            "Name": "probe-env",
+            "AirflowVersion": "2.8.1",
+            "SourceBucketArn": "arn:aws:s3:::shared-bucket",
+            "DagS3Path": "setup-probe/probe-env/dags",
+        },
+        requirements_text="pandas==2.1.4\n",  # no --constraint line yet
+    )
+
+    from mwaa.plan import CONSTRAINTS_PATH
+
+    assert real_key_for_path(ctx, CONSTRAINTS_PATH) == "setup-probe/probe-env/dags/constraints.txt"
+
+
+def test_real_key_for_path_falls_back_for_never_configured_requirements():
+    ctx = make_context(
+        environment={
+            "Name": "probe-env",
+            "AirflowVersion": "2.8.1",
+            "SourceBucketArn": "arn:aws:s3:::shared-bucket",
+            "DagS3Path": "setup-probe/probe-env/dags",
+            # RequirementsS3Path deliberately absent
+        },
+    )
+
+    from mwaa.plan import REQUIREMENTS_PATH
+
+    assert real_key_for_path(ctx, REQUIREMENTS_PATH) == "setup-probe/probe-env/requirements.txt"

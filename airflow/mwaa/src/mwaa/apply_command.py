@@ -71,7 +71,7 @@ def run_apply(config: ApplyConfig, reporter: Reporter) -> dict[str, Any]:
         return {"applied": False, "plan": plan, "uploads": uploads}
 
     with reporter.report_step("apply_changes"):
-        result = apply_to_environment(client, ctx.environment, uploads)
+        result = apply_to_environment(client, ctx, uploads)
 
     print()
     print(f"Uploaded {len(result['uploaded'])} file(s).")
