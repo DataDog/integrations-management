@@ -36,3 +36,37 @@ def test_parse_apply_config_skips_name_and_region_check_when_plan_override_set(m
     assert config.environment_name is None
     assert config.region is None
     assert config.confirmed is True
+
+
+def test_parse_apply_config_interactive_flag(monkeypatch):
+    monkeypatch.delenv("MWAA_ENVIRONMENT_NAME", raising=False)
+
+    config = parse_apply_config(["--region", "us-east-1", "--interactive"])
+
+    assert config.interactive is True
+    assert config.dry_run is False
+
+
+def test_parse_apply_config_interactive_dry_run_flag():
+    config = parse_apply_config(["--region", "us-east-1", "--interactive", "--dry-run"])
+
+    assert config.interactive is True
+    assert config.dry_run is True
+
+
+def test_parse_apply_config_does_not_require_name_when_interactive(monkeypatch):
+    monkeypatch.delenv("MWAA_ENVIRONMENT_NAME", raising=False)
+    monkeypatch.delenv("PLAN_OVERRIDE_PATH", raising=False)
+
+    config = parse_apply_config(["--region", "us-east-1", "--interactive"])
+
+    assert config.environment_name is None
+
+
+def test_parse_apply_config_still_requires_region_when_interactive(monkeypatch):
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    monkeypatch.delenv("PLAN_OVERRIDE_PATH", raising=False)
+
+    with pytest.raises(ConfigError, match="Region is required"):
+        parse_apply_config(["--interactive"])

@@ -6,6 +6,9 @@
 
 Always fetches fresh and always previews before doing anything mutating --
 without --yes (see apply_config.py), this only prints what it would do.
+
+--interactive delegates to interactive.py's discovery-driven, multi-environment
+walkthrough instead of targeting the one environment named by --name.
 """
 
 import os
@@ -17,9 +20,11 @@ from airflow_shared.reporter import Reporter
 from .apply import apply_to_environment, compute_apply_actions
 from .apply_config import ApplyConfig
 from .diff_preview import render_unified_diff
+from .interactive import run_interactive
 from .plan import Plan, compute_plan
 from .plan_override import PLAN_OVERRIDE_ENV_VAR, load_plan_override
 from .probe import build_context
+from .scan_config import ScanConfig
 
 WORKFLOW_TYPE = "mwaa-setup"
 
@@ -29,9 +34,15 @@ def run_apply(config: ApplyConfig, reporter: Reporter) -> dict[str, Any]:
 
     PLAN_OVERRIDE_PATH (see plan_override.py) is a local/dev escape hatch, not
     part of the documented customer-facing CLI surface: when set, it supplies
-    the environment name, region, and plan itself, overriding config entirely.
+    the environment name, region, and plan itself, overriding config entirely
+    -- takes precedence even over --interactive.
     """
     override_path = os.environ.get(PLAN_OVERRIDE_ENV_VAR)
+
+    if config.interactive and not override_path:
+        scan_config = ScanConfig(region=config.region, dd_site=config.dd_site, dry_run=config.dry_run)
+        return run_interactive(scan_config, reporter)
+
     plan: Plan
     if override_path:
         override = load_plan_override(override_path)

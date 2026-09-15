@@ -138,3 +138,38 @@ def test_run_apply_uses_plan_override_when_env_var_set(capsys, tmp_path, monkeyp
     out = capsys.readouterr().out
     assert f"{PLAN_OVERRIDE_ENV_VAR} is set" in out
     assert "hand-authored for testing" in out
+
+
+def test_run_apply_interactive_delegates_to_run_interactive(monkeypatch):
+    monkeypatch.delenv(PLAN_OVERRIDE_ENV_VAR, raising=False)
+    config = ApplyConfig(region="us-east-1", dd_site="datad0g.com", interactive=True, dry_run=True)
+    reporter = Reporter(workflow_type="mwaa-setup")
+
+    with patch("mwaa.apply_command.run_interactive", return_value={"applied": False}) as mock_run_interactive:
+        result = run_apply(config, reporter)
+
+    assert result == {"applied": False}
+    scan_config = mock_run_interactive.call_args.args[0]
+    assert scan_config.region == "us-east-1"
+    assert scan_config.dd_site == "datad0g.com"
+    assert scan_config.dry_run is True
+
+
+def test_run_apply_plan_override_wins_over_interactive(tmp_path, monkeypatch):
+    plan = Plan(upgrade_needed=False, rationale="", source="unflagged_version", matched_table_entry=None, source_doc="", file_changes=[])
+    override_path = tmp_path / "override.json"
+    override_path.write_text(json.dumps({"environment_name": "my-env", "region": "us-east-1", "plan": asdict(plan)}))
+    monkeypatch.setenv(PLAN_OVERRIDE_ENV_VAR, str(override_path))
+
+    config = ApplyConfig(interactive=True, confirmed=True)
+    reporter = Reporter(workflow_type="mwaa-setup")
+    client = make_client()
+
+    with (
+        patch("mwaa.apply_command.MwaaClient", return_value=client),
+        patch("mwaa.apply_command.run_interactive") as mock_run_interactive,
+    ):
+        result = run_apply(config, reporter)
+
+    mock_run_interactive.assert_not_called()
+    assert result["applied"] is False  # plan.upgrade_needed is False, no file_changes

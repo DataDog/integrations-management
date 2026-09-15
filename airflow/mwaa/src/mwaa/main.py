@@ -4,13 +4,15 @@
 
 """Entry point.
 
-  python mwaa.pyz scan --region <region>                    # discover every MWAA environment, print the
-                                                              # scan payload (dry run -- nothing is sent yet)
-  python mwaa.pyz probe --name <env> --region <region>       # read-only diagnostics against one environment
-  python mwaa.pyz apply --name <env> --region <region>       # preview the onboarding plan's file changes
-  python mwaa.pyz apply --name <env> --region <region> --yes # actually upload them and update the environment
-  python mwaa.pyz interactive --region <region>               # walk the whole flow (select, review, apply) at the terminal
-  python mwaa.pyz interactive --region <region> --dry-run     # same, but never applies -- skips the confirmation prompt too
+  python mwaa.pyz scan --region <region>                        # discover every MWAA environment, print the
+                                                                   # scan payload (dry run -- nothing is sent yet)
+  python mwaa.pyz probe --name <env> --region <region>           # read-only diagnostics against one environment
+  python mwaa.pyz apply --name <env> --region <region>           # just prints the onboarding plan's file changes
+  python mwaa.pyz apply --name <env> --region <region> --yes     # actually uploads them and updates the environment
+  python mwaa.pyz apply --region <region> --interactive          # walk the whole flow (select, review, apply) at the
+                                                                   # terminal instead of targeting one --name
+  python mwaa.pyz apply --region <region> --interactive --dry-run  # same, but never applies -- skips the
+                                                                     # confirmation prompt too
 
   PLAN_OVERRIDE_PATH=<path> python mwaa.pyz apply             # local/dev only: apply a hand-authored PlanBundle from
                                                                 # disk instead of --name/--region and a computed plan --
@@ -28,13 +30,12 @@ from airflow_shared.reporter import FindingStatus, Reporter
 from .apply_command import run_apply
 from .apply_config import parse_apply_config
 from .config import ConfigError, parse_config
-from .interactive import run_interactive
 from .plan_override import PLAN_OVERRIDE_ENV_VAR
 from .probe import WORKFLOW_TYPE, run_probe
 from .scan import run_scan
 from .scan_config import parse_scan_config
 
-COMMANDS = ("scan", "probe", "apply", "interactive")
+COMMANDS = ("scan", "probe", "apply")
 
 
 def _run_scan(argv: list[str]) -> None:
@@ -85,9 +86,9 @@ def _run_apply(argv: list[str]) -> None:
         print(f"Invalid configuration:\n{e}", file=sys.stderr)
         sys.exit(1)
 
-    # When PLAN_OVERRIDE_PATH is set, config carries neither -- run_apply prints
-    # its own message once it's loaded the bundle instead. See plan_override.py.
-    if not os.environ.get(PLAN_OVERRIDE_ENV_VAR):
+    # Under PLAN_OVERRIDE_PATH or --interactive, run_apply prints its own
+    # opening message once it knows which environment(s) it's working with.
+    if not os.environ.get(PLAN_OVERRIDE_ENV_VAR) and not config.interactive:
         print(f"Computing the onboarding plan for '{config.environment_name}' in {config.region}...")
     reporter = Reporter(workflow_type=WORKFLOW_TYPE)
 
@@ -95,22 +96,6 @@ def _run_apply(argv: list[str]) -> None:
         run_apply(config, reporter)
     except Exception as e:
         print(f"\nApply failed: {e}", file=sys.stderr)
-        sys.exit(1)
-
-
-def _run_interactive(argv: list[str]) -> None:
-    try:
-        config = parse_scan_config(argv, prog="mwaa interactive")
-    except ConfigError as e:
-        print(f"Invalid configuration:\n{e}", file=sys.stderr)
-        sys.exit(1)
-
-    reporter = Reporter(workflow_type=WORKFLOW_TYPE)
-
-    try:
-        run_interactive(config, reporter)
-    except Exception as e:
-        print(f"\nInteractive session failed: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -124,8 +109,6 @@ def main() -> None:
         _run_probe(argv)
     elif command == "apply":
         _run_apply(argv)
-    elif command == "interactive":
-        _run_interactive(argv)
     else:
         _run_scan(argv)
 

@@ -14,24 +14,27 @@ from .config import ConfigError
 
 @dataclass(frozen=True)
 class ScanConfig:
-    """Configuration for one scan (or interactive) run."""
+    """Configuration for one scan run.
+
+    Also reused, constructed directly rather than via parse_scan_config, by
+    `apply --interactive` (see apply_command.py) to drive interactive.py's
+    discovery-based walkthrough -- dry_run there means "skip the apply
+    confirmation prompt entirely and never make changes."
+    """
 
     region: str
     dd_site: str
     dry_run: bool = False
 
 
-def parse_scan_config(argv: Optional[Sequence[str]] = None, prog: str = "mwaa scan") -> ScanConfig:
+def parse_scan_config(argv: Optional[Sequence[str]] = None) -> ScanConfig:
     """Parse configuration from CLI args, falling back to environment variables.
-
-    Shared by `scan` and `interactive` -- pass `prog` so --help reflects
-    whichever one actually invoked this.
 
     Raises:
         ConfigError: If the region is missing.
     """
     parser = argparse.ArgumentParser(
-        prog=prog,
+        prog="mwaa scan",
         description="Discover every MWAA environment in a region and compute an OpenLineage onboarding plan for each.",
     )
     parser.add_argument(
@@ -44,17 +47,9 @@ def parse_scan_config(argv: Optional[Sequence[str]] = None, prog: str = "mwaa sc
         default=os.environ.get("DD_SITE", "datadoghq.com"),
         help="Datadog site, used to render the OpenLineage transport URL (default: $DD_SITE or datadoghq.com)",
     )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help=(
-            "For `interactive`: skip the apply confirmation prompt entirely and never make changes, "
-            "no matter what you'd answer. Ignored by `scan`, which never applies changes anyway."
-        ),
-    )
     args = parser.parse_args(argv)
 
     if not args.region:
         raise ConfigError("  - Region is required: pass --region or set AWS_REGION")
 
-    return ScanConfig(region=args.region, dd_site=args.dd_site, dry_run=args.dry_run)
+    return ScanConfig(region=args.region, dd_site=args.dd_site)

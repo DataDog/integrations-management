@@ -17,22 +17,29 @@ from .plan_override import PLAN_OVERRIDE_ENV_VAR
 class ApplyConfig:
     """Configuration for one apply run.
 
-    environment_name/region are only Optional to accommodate PLAN_OVERRIDE_PATH,
-    which carries both itself (see plan_override.py) -- run_apply always has one
-    or the other by the time it needs them.
+    environment_name is only Optional because it isn't needed at all in two
+    cases: PLAN_OVERRIDE_PATH carries its own (see plan_override.py), and
+    --interactive discovers every environment in the region instead of
+    targeting one. region is only Optional for the PLAN_OVERRIDE_PATH case.
+    run_apply always has a concrete environment_name/region by the time it
+    needs one.
     """
 
     environment_name: Optional[str] = None
     region: Optional[str] = None
     dd_site: str = "datadoghq.com"
     confirmed: bool = False
+    interactive: bool = False
+    dry_run: bool = False
 
 
 def parse_apply_config(argv: Optional[Sequence[str]] = None) -> ApplyConfig:
     """Parse configuration from CLI args, falling back to environment variables.
 
     Raises:
-        ConfigError: If the environment name or region is missing.
+        ConfigError: If the region is missing, or the environment name is
+            missing and neither --interactive nor PLAN_OVERRIDE_PATH supplies
+            one another way.
     """
     parser = argparse.ArgumentParser(
         prog="mwaa apply",
@@ -41,7 +48,7 @@ def parse_apply_config(argv: Optional[Sequence[str]] = None) -> ApplyConfig:
     parser.add_argument(
         "--name",
         default=os.environ.get("MWAA_ENVIRONMENT_NAME"),
-        help="MWAA environment name (default: $MWAA_ENVIRONMENT_NAME)",
+        help="MWAA environment name (default: $MWAA_ENVIRONMENT_NAME). Not needed with --interactive.",
     )
     parser.add_argument(
         "--region",
@@ -58,18 +65,39 @@ def parse_apply_config(argv: Optional[Sequence[str]] = None) -> ApplyConfig:
         action="store_true",
         help="Actually upload files and update the environment. Without this, only prints a preview.",
     )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help=(
+            "Discover every environment in the region and walk through selecting one, "
+            "reviewing its plan, and confirming apply at the terminal, instead of targeting "
+            "one environment with --name. Omitting this just prints the plan for --name."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="With --interactive: skip the apply confirmation prompt entirely and never make changes. Ignored otherwise.",
+    )
     args = parser.parse_args(argv)
 
     # PLAN_OVERRIDE_PATH carries its own environment_name/region (see
     # plan_override.py), so --name/--region become optional once it's set.
     if not os.environ.get(PLAN_OVERRIDE_ENV_VAR):
         errors = []
-        if not args.name:
-            errors.append("Environment name is required: pass --name or set MWAA_ENVIRONMENT_NAME")
+        if not args.name and not args.interactive:
+            errors.append("Environment name is required: pass --name, use --interactive, or set MWAA_ENVIRONMENT_NAME")
         if not args.region:
             errors.append("Region is required: pass --region or set AWS_REGION")
 
         if errors:
             raise ConfigError("\n".join(f"  - {e}" for e in errors))
 
-    return ApplyConfig(environment_name=args.name, region=args.region, dd_site=args.dd_site, confirmed=args.yes)
+    return ApplyConfig(
+        environment_name=args.name,
+        region=args.region,
+        dd_site=args.dd_site,
+        confirmed=args.yes,
+        interactive=args.interactive,
+        dry_run=args.dry_run,
+    )

@@ -4,9 +4,11 @@
 
 """Approximates the Configure Airflow UI's flow entirely from the CLI.
 
-Mirrors the screenshots this was built from: select an environment from a
-discovered list, review the proposed changes, confirm, apply. Useful for
-testing the whole thing end to end before there's a real UI or backend to
+Invoked via `apply --interactive` (see apply_command.py) rather than as its
+own subcommand -- interactive-ness is a mode of applying, not a separate
+action. Mirrors the screenshots this was built from: select an environment
+from a discovered list, review the proposed changes, confirm, apply. Useful
+for testing the whole thing end to end before there's a real UI or backend to
 drive it -- everything here is the same code the eventual UI-driven `scan`/
 `apply` split would call, just wired together with terminal prompts instead
 of an HTTP round trip.

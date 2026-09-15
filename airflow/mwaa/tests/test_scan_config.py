@@ -27,16 +27,6 @@ def test_parse_scan_config_falls_back_to_env_vars(monkeypatch):
     assert config.dd_site == "datad0g.com"
 
 
-def test_parse_scan_config_dry_run_defaults_false():
-    config = parse_scan_config(["--region", "us-east-1"])
-    assert config.dry_run is False
-
-
-def test_parse_scan_config_dry_run_flag():
-    config = parse_scan_config(["--region", "us-east-1", "--dry-run"])
-    assert config.dry_run is True
-
-
 def test_parse_scan_config_raises_when_region_missing(monkeypatch):
     monkeypatch.delenv("AWS_REGION", raising=False)
     monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
