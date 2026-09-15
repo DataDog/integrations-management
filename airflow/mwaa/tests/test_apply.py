@@ -82,6 +82,32 @@ def test_compute_apply_actions_rejects_unknown_path():
         compute_apply_actions(make_context(), plan)
 
 
+def test_compute_apply_actions_handles_unflagged_version_missing_provider():
+    """Mirrors do-test-env's gus-sandbox resting state: Airflow 3.0.6 (not in the
+    flagged-version table), no OpenLineage provider in requirements.txt, startup
+    script already configured. `apply` has to handle this shape too, not just the
+    flagged-version table's constraints.txt + requirements.txt + startup.sh case.
+    """
+    ctx = make_context(
+        environment={"Name": "my-env", "AirflowVersion": "3.0.6", "SourceBucketArn": "arn:aws:s3:::my-bucket"},
+        requirements_text="pandas==2.1.4\n",
+        constraints_text=None,
+        startup_script_text="export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n",
+    )
+    plan = compute_plan("3.0.6", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com")
+    assert plan.upgrade_needed is True
+    assert plan.source == "unflagged_version"
+
+    uploads = compute_apply_actions(ctx, plan)
+
+    assert len(uploads) == 1
+    upload = uploads[0]
+    assert upload.path == "requirements.txt"
+    assert upload.content == "pandas==2.1.4\napache-airflow-providers-openlineage\n"
+    assert "apache-airflow-providers-openlineage==" not in upload.content
+    assert "--constraint" not in upload.content
+
+
 def test_apply_to_environment_uploads_and_calls_update():
     client = MagicMock()
     client.put_object_text.side_effect = ["v-con", "v-req", "v-startup"]
