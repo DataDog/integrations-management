@@ -10,13 +10,16 @@ from mwaa.plan_override import load_plan_override
 from mwaa.version_table import FLAGGED_VERSION_TABLE
 
 
-def _write(tmp_path, plan: Plan):
+def _write(tmp_path, environment_name: str, region: str, plan: Plan, dd_site: "str | None" = None):
+    data = {"environment_name": environment_name, "region": region, "plan": asdict(plan)}
+    if dd_site is not None:
+        data["dd_site"] = dd_site
     path = tmp_path / "override.json"
-    path.write_text(json.dumps(asdict(plan)))
+    path.write_text(json.dumps(data))
     return str(path)
 
 
-def test_round_trips_a_plan_with_no_matched_table_entry(tmp_path):
+def test_round_trips_environment_name_region_and_plan(tmp_path):
     plan = Plan(
         upgrade_needed=True,
         rationale="needs the provider added",
@@ -32,9 +35,27 @@ def test_round_trips_a_plan_with_no_matched_table_entry(tmp_path):
         ],
     )
 
-    loaded = load_plan_override(_write(tmp_path, plan))
+    override = load_plan_override(_write(tmp_path, "my-mwaa-environment", "us-east-1", plan, dd_site="datad0g.com"))
 
-    assert loaded == plan
+    assert override.environment_name == "my-mwaa-environment"
+    assert override.region == "us-east-1"
+    assert override.dd_site == "datad0g.com"
+    assert override.plan == plan
+
+
+def test_dd_site_defaults_when_omitted(tmp_path):
+    plan = Plan(
+        upgrade_needed=False,
+        rationale="already configured",
+        source="unflagged_version",
+        matched_table_entry=None,
+        source_doc="",
+        file_changes=[],
+    )
+
+    override = load_plan_override(_write(tmp_path, "my-env", "us-east-1", plan))
+
+    assert override.dd_site == "datadoghq.com"
 
 
 def test_round_trips_a_plan_with_a_matched_table_entry(tmp_path):
@@ -60,9 +81,9 @@ def test_round_trips_a_plan_with_a_matched_table_entry(tmp_path):
         ],
     )
 
-    loaded = load_plan_override(_write(tmp_path, plan))
+    override = load_plan_override(_write(tmp_path, "my-env", "us-east-1", plan))
 
-    assert loaded.matched_table_entry.airflow_version == entry.airflow_version
-    assert loaded.matched_table_entry.target_versions == entry.target_versions
-    assert loaded.file_changes[1].content == plan.file_changes[1].content
-    assert loaded.file_changes[0].pin_diff == plan.file_changes[0].pin_diff
+    assert override.plan.matched_table_entry.airflow_version == entry.airflow_version
+    assert override.plan.matched_table_entry.target_versions == entry.target_versions
+    assert override.plan.file_changes[1].content == plan.file_changes[1].content
+    assert override.plan.file_changes[0].pin_diff == plan.file_changes[0].pin_diff

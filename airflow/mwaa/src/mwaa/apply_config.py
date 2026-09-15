@@ -10,16 +10,22 @@ from dataclasses import dataclass
 from typing import Optional, Sequence
 
 from .config import ConfigError
+from .plan_override import PLAN_OVERRIDE_ENV_VAR
 
 
 @dataclass(frozen=True)
 class ApplyConfig:
-    """Configuration for one apply run."""
+    """Configuration for one apply run.
 
-    environment_name: str
-    region: str
-    dd_site: str
-    confirmed: bool
+    environment_name/region are only Optional to accommodate PLAN_OVERRIDE_PATH,
+    which carries both itself (see plan_override.py) -- run_apply always has one
+    or the other by the time it needs them.
+    """
+
+    environment_name: Optional[str] = None
+    region: Optional[str] = None
+    dd_site: str = "datadoghq.com"
+    confirmed: bool = False
 
 
 def parse_apply_config(argv: Optional[Sequence[str]] = None) -> ApplyConfig:
@@ -54,13 +60,16 @@ def parse_apply_config(argv: Optional[Sequence[str]] = None) -> ApplyConfig:
     )
     args = parser.parse_args(argv)
 
-    errors = []
-    if not args.name:
-        errors.append("Environment name is required: pass --name or set MWAA_ENVIRONMENT_NAME")
-    if not args.region:
-        errors.append("Region is required: pass --region or set AWS_REGION")
+    # PLAN_OVERRIDE_PATH carries its own environment_name/region (see
+    # plan_override.py), so --name/--region become optional once it's set.
+    if not os.environ.get(PLAN_OVERRIDE_ENV_VAR):
+        errors = []
+        if not args.name:
+            errors.append("Environment name is required: pass --name or set MWAA_ENVIRONMENT_NAME")
+        if not args.region:
+            errors.append("Region is required: pass --region or set AWS_REGION")
 
-    if errors:
-        raise ConfigError("\n".join(f"  - {e}" for e in errors))
+        if errors:
+            raise ConfigError("\n".join(f"  - {e}" for e in errors))
 
     return ApplyConfig(environment_name=args.name, region=args.region, dd_site=args.dd_site, confirmed=args.yes)

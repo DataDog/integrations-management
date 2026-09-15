@@ -17,37 +17,42 @@ from airflow_shared.reporter import Reporter
 from .apply import apply_to_environment, compute_apply_actions
 from .apply_config import ApplyConfig
 from .diff_preview import render_unified_diff
-from .plan import compute_plan
-from .plan_override import load_plan_override
+from .plan import Plan, compute_plan
+from .plan_override import PLAN_OVERRIDE_ENV_VAR, load_plan_override
 from .probe import build_context
 
 WORKFLOW_TYPE = "mwaa-setup"
 
-# Local/dev escape hatch -- see plan_override.py's module docstring. Not part
-# of the documented CLI surface: it's for driving a real environment into an
-# arbitrary state while testing, not for customer use.
-PLAN_OVERRIDE_ENV_VAR = "PLAN_OVERRIDE_PATH"
-
 
 def run_apply(config: ApplyConfig, reporter: Reporter) -> dict[str, Any]:
-    """Fetch the environment fresh, compute its plan, and preview or apply the changes."""
-    client = MwaaClient(region=config.region)
+    """Fetch the environment fresh, compute its plan, and preview or apply the changes.
+
+    PLAN_OVERRIDE_PATH (see plan_override.py) is a local/dev escape hatch, not
+    part of the documented customer-facing CLI surface: when set, it supplies
+    the environment name, region, and plan itself, overriding config entirely.
+    """
+    override_path = os.environ.get(PLAN_OVERRIDE_ENV_VAR)
+    plan: Plan
+    if override_path:
+        override = load_plan_override(override_path)
+        print(f"{PLAN_OVERRIDE_ENV_VAR} is set -- applying the plan from {override_path} instead of computing one.")
+        environment_name, region, dd_site, plan = override.environment_name, override.region, override.dd_site, override.plan
+    else:
+        environment_name, region, dd_site = config.environment_name, config.region, config.dd_site
+
+    client = MwaaClient(region=region)
 
     with reporter.report_step("fetch_environment"):
-        ctx = build_context(client, config.environment_name)
+        ctx = build_context(client, environment_name)
 
-    override_path = os.environ.get(PLAN_OVERRIDE_ENV_VAR)
-    if override_path:
-        print(f"{PLAN_OVERRIDE_ENV_VAR} is set -- applying the plan from {override_path} instead of computing one.")
-        plan = load_plan_override(override_path)
-    else:
+    if not override_path:
         with reporter.report_step("compute_plan"):
             plan = compute_plan(
                 airflow_version=ctx.environment.get("AirflowVersion", ""),
                 requirements_text=ctx.requirements_text,
                 constraints_text=ctx.constraints_text,
                 startup_script_text=ctx.startup_script_text,
-                dd_site=config.dd_site,
+                dd_site=dd_site,
             )
 
     if not plan.file_changes:

@@ -8,8 +8,9 @@ from unittest.mock import MagicMock, patch
 
 from airflow_shared.reporter import Reporter
 from mwaa.apply_config import ApplyConfig
-from mwaa.apply_command import PLAN_OVERRIDE_ENV_VAR, run_apply
+from mwaa.apply_command import run_apply
 from mwaa.plan import FileChange, Plan, PinDiff
+from mwaa.plan_override import PLAN_OVERRIDE_ENV_VAR
 
 ENVIRONMENT = {
     "Name": "my-env",
@@ -109,10 +110,21 @@ def test_run_apply_uses_plan_override_when_env_var_set(capsys, tmp_path, monkeyp
         ],
     )
     override_path = tmp_path / "override.json"
-    override_path.write_text(json.dumps(asdict(override_plan)))
+    override_path.write_text(
+        json.dumps(
+            {
+                "environment_name": "my-env",
+                "region": "us-east-1",
+                "dd_site": "datadoghq.com",
+                "plan": asdict(override_plan),
+            }
+        )
+    )
     monkeypatch.setenv(PLAN_OVERRIDE_ENV_VAR, str(override_path))
 
-    config = ApplyConfig(environment_name="my-env", region="us-east-1", dd_site="datadoghq.com", confirmed=True)
+    # Deliberately NOT passed on config -- the whole point is the override file
+    # is self-contained and needs neither --name nor --region.
+    config = ApplyConfig(confirmed=True)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
     client.get_object_text.return_value = "pandas==2.1.4\n"
@@ -120,6 +132,7 @@ def test_run_apply_uses_plan_override_when_env_var_set(capsys, tmp_path, monkeyp
     with patch("mwaa.apply_command.MwaaClient", return_value=client):
         result = run_apply(config, reporter)
 
+    client.get_environment.assert_called_once_with("my-env")
     assert result["plan"] == override_plan
     assert result["uploads"][0].content == "pandas==2.1.4\napache-airflow-providers-openlineage\n"
     out = capsys.readouterr().out

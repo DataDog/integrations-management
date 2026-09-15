@@ -58,6 +58,26 @@ class Plan:
     file_changes: list[FileChange]
 
 
+@dataclass(frozen=True)
+class PlanBundle:
+    """Everything one `apply` run needs: which environment, which region, and the plan.
+
+    This is the general "ready to apply" shape, not something specific to
+    plan_override.py's local-file loading. `apply` normally builds one itself
+    by computing a Plan and pairing it with the config it was already given.
+    plan_override.py is just today's one OTHER way to obtain a PlanBundle --
+    reading one whole, already-computed, from local disk instead of computing
+    it from a freshly-fetched environment. A future backend that hands back a
+    plan for a given session id would produce this exact same shape, over a
+    different transport -- not a special case of its own.
+    """
+
+    environment_name: str
+    region: str
+    dd_site: str
+    plan: Plan
+
+
 def _plan_flagged_version(entry: FlaggedVersionEntry, current_req_pins: dict, current_con_pins: dict) -> tuple[bool, str, list[PinDiff]]:
     pin_diffs = [
         PinDiff(package, current_con_pins.get(package) or current_req_pins.get(package), target)

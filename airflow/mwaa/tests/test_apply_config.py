@@ -20,5 +20,19 @@ def test_parse_apply_config_yes_flag_sets_confirmed():
 
 def test_parse_apply_config_raises_when_name_missing(monkeypatch):
     monkeypatch.delenv("MWAA_ENVIRONMENT_NAME", raising=False)
+    monkeypatch.delenv("PLAN_OVERRIDE_PATH", raising=False)
     with pytest.raises(ConfigError, match="Environment name is required"):
         parse_apply_config(["--region", "us-east-1"])
+
+
+def test_parse_apply_config_skips_name_and_region_check_when_plan_override_set(monkeypatch):
+    monkeypatch.delenv("MWAA_ENVIRONMENT_NAME", raising=False)
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    monkeypatch.setenv("PLAN_OVERRIDE_PATH", "/tmp/does-not-need-to-exist.json")
+
+    config = parse_apply_config(["--yes"])
+
+    assert config.environment_name is None
+    assert config.region is None
+    assert config.confirmed is True
