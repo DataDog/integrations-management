@@ -40,12 +40,11 @@ def test_patch_pins_appends_packages_with_no_existing_line():
 
     patched = patch_pins(text, diffs)
 
-    assert "apache-airflow-providers-openlineage==1.14.0" in patched
-    assert "apache-airflow-providers-common-compat==1.2.1" in patched
-    # The rewritten line comes first, the new addition after the marker comment.
-    assert patched.index("apache-airflow-providers-openlineage==1.14.0") < patched.index(
-        "apache-airflow-providers-common-compat==1.2.1"
+    assert patched == (
+        "apache-airflow-providers-openlineage==1.14.0\n"
+        "apache-airflow-providers-common-compat==1.2.1\n"
     )
+    assert "#" not in patched  # no marker/explanatory comment added
 
 
 def test_patch_pins_adds_bare_package_name_for_unpinned_target():

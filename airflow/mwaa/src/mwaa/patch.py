@@ -16,7 +16,6 @@ import re
 from .plan import PinDiff
 
 _UNPINNED_PREFIX = "unpinned"
-_ADDED_PINS_MARKER = "# Added by Datadog Data Observability onboarding"
 
 
 def _pin_line_pattern(package: str) -> "re.Pattern[str]":
@@ -47,9 +46,6 @@ def patch_pins(text: str, pin_diffs: list[PinDiff]) -> str:
             break
 
     if remaining:
-        if lines and lines[-1].strip():
-            lines.append("")
-        lines.append(_ADDED_PINS_MARKER)
         for package, diff in remaining.items():
             if diff.to_version.startswith(_UNPINNED_PREFIX):
                 lines.append(package)
