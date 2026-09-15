@@ -2,11 +2,14 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
+import json
+from dataclasses import asdict
 from unittest.mock import MagicMock, patch
 
 from airflow_shared.reporter import Reporter
 from mwaa.apply_config import ApplyConfig
-from mwaa.apply_command import run_apply
+from mwaa.apply_command import PLAN_OVERRIDE_ENV_VAR, run_apply
+from mwaa.plan import FileChange, Plan, PinDiff
 
 ENVIRONMENT = {
     "Name": "my-env",
@@ -88,3 +91,37 @@ def test_run_apply_reports_nothing_to_do_when_already_configured(capsys):
     assert result["uploads"] == []
     client.put_object_text.assert_not_called()
     assert "already fully configured" in capsys.readouterr().out
+
+
+def test_run_apply_uses_plan_override_when_env_var_set(capsys, tmp_path, monkeypatch):
+    override_plan = Plan(
+        upgrade_needed=True,
+        rationale="hand-authored for testing",
+        source="unflagged_version",
+        matched_table_entry=None,
+        source_doc="",
+        file_changes=[
+            FileChange(
+                path="requirements.txt",
+                action="update",
+                pin_diff=[PinDiff("apache-airflow-providers-openlineage", None, "unpinned (resolved by MWAA's current default constraints)")],
+            )
+        ],
+    )
+    override_path = tmp_path / "override.json"
+    override_path.write_text(json.dumps(asdict(override_plan)))
+    monkeypatch.setenv(PLAN_OVERRIDE_ENV_VAR, str(override_path))
+
+    config = ApplyConfig(environment_name="my-env", region="us-east-1", dd_site="datadoghq.com", confirmed=True)
+    reporter = Reporter(workflow_type="mwaa-setup")
+    client = make_client()
+    client.get_object_text.return_value = "pandas==2.1.4\n"
+
+    with patch("mwaa.apply_command.MwaaClient", return_value=client):
+        result = run_apply(config, reporter)
+
+    assert result["plan"] == override_plan
+    assert result["uploads"][0].content == "pandas==2.1.4\napache-airflow-providers-openlineage\n"
+    out = capsys.readouterr().out
+    assert f"{PLAN_OVERRIDE_ENV_VAR} is set" in out
+    assert "hand-authored for testing" in out

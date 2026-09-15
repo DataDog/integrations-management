@@ -54,6 +54,22 @@ cd airflow
 python -m pytest mwaa/tests
 ```
 
+### Testing `apply` against an arbitrary plan
+
+`apply` normally always fetches an environment's real files and computes its own plan
+from them (see `apply.py`'s module docstring for why). For local/dev testing, setting
+`PLAN_OVERRIDE_PATH` to a JSON file skips that and applies whatever `Plan` is in the file
+instead -- useful for driving a real environment into a specific state without first
+getting its actual files into that shape. The expected shape is exactly what `scan`
+prints per environment (`dataclasses.asdict(plan)`): copy one out, edit it, feed it back
+in.
+
+```bash
+PLAN_OVERRIDE_PATH=./my-plan.json python mwaa.pyz apply --name my-mwaa-environment --region us-east-1 --yes
+```
+
+Not part of the documented CLI surface for customers -- it's a testing escape hatch.
+
 ### Build
 
 From the `airflow/` folder:
