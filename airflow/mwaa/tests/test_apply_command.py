@@ -3,14 +3,18 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 import json
+import uuid
 from dataclasses import asdict
 from unittest.mock import MagicMock, patch
 
 from airflow_shared.reporter import Reporter
-from mwaa.apply_config import ApplyConfig
 from mwaa.apply_command import run_apply
+from mwaa.apply_config import ApplyConfig
 from mwaa.plan import FileChange, Plan, PinDiff
-from mwaa.plan_override import PLAN_OVERRIDE_ENV_VAR
+from mwaa.session import EnvironmentEntry, Session
+from mwaa.session_override import SESSION_OVERRIDE_ENV_VAR
+
+SESSION_ID = str(uuid.uuid4())
 
 ENVIRONMENT = {
     "Name": "my-env",
@@ -21,6 +25,25 @@ ENVIRONMENT = {
     "StartupScriptS3Path": None,
 }
 
+NEEDS_UPGRADE_PLAN = Plan(
+    upgrade_needed=True,
+    rationale="Airflow 2.8.1 is flagged",
+    source="flagged_version_table",
+    matched_table_entry=None,
+    source_doc="",
+    file_changes=[
+        FileChange(
+            path="requirements.txt",
+            action="update",
+            pin_diff=[PinDiff("apache-airflow-providers-openlineage", "1.4.0", "1.14.0")],
+        )
+    ],
+)
+
+ALREADY_CONFIGURED_PLAN = Plan(
+    upgrade_needed=False, rationale="already configured", source="flagged_version_table", matched_table_entry=None, source_doc="", file_changes=[]
+)
+
 
 def make_client() -> MagicMock:
     client = MagicMock()
@@ -30,12 +53,23 @@ def make_client() -> MagicMock:
     return client
 
 
+def make_session(plan: Plan = NEEDS_UPGRADE_PLAN) -> Session:
+    return Session(
+        session_id=SESSION_ID,
+        region="us-east-1",
+        environments=[EnvironmentEntry(name="my-env", airflow_version="2.8.1", already_configured=False, plan=plan)],
+    )
+
+
 def test_run_apply_without_yes_does_not_call_put_object(capsys):
-    config = ApplyConfig(environment_name="my-env", region="us-east-1", dd_site="datadoghq.com", confirmed=False)
+    config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", confirmed=False)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
 
-    with patch("mwaa.apply_command.MwaaClient", return_value=client):
+    with (
+        patch("mwaa.apply_command.MwaaClient", return_value=client),
+        patch("mwaa.apply_command.load_session", return_value=make_session()),
+    ):
         result = run_apply(config, reporter)
 
     client.put_object_text.assert_not_called()
@@ -45,11 +79,14 @@ def test_run_apply_without_yes_does_not_call_put_object(capsys):
 
 
 def test_run_apply_with_yes_uploads_files(capsys):
-    config = ApplyConfig(environment_name="my-env", region="us-east-1", dd_site="datadoghq.com", confirmed=True)
+    config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", confirmed=True)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
 
-    with patch("mwaa.apply_command.MwaaClient", return_value=client):
+    with (
+        patch("mwaa.apply_command.MwaaClient", return_value=client),
+        patch("mwaa.apply_command.load_session", return_value=make_session()),
+    ):
         result = run_apply(config, reporter)
 
     assert client.put_object_text.call_count == len(result["uploads"])
@@ -59,33 +96,14 @@ def test_run_apply_with_yes_uploads_files(capsys):
 
 
 def test_run_apply_reports_nothing_to_do_when_already_configured(capsys):
-    config = ApplyConfig(environment_name="my-env", region="us-east-1", dd_site="datadoghq.com", confirmed=True)
+    config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", confirmed=True)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
-    already_configured_env = {**ENVIRONMENT, "StartupScriptS3Path": "dags/startup.sh"}
-    client.get_environment.return_value = already_configured_env
-    client.get_object_text.side_effect = lambda bucket, key, version_id=None: {
-        "requirements.txt": (
-            '--constraint "/usr/local/airflow/dags/constraints.txt"\n'
-            "apache-airflow-providers-openlineage==1.14.0\n"
-            "apache-airflow-providers-common-sql==1.20.0\n"
-            "apache-airflow-providers-common-compat==1.2.1\n"
-            "openlineage-integration-common==1.24.2\n"
-            "openlineage-python==1.24.2\n"
-            "openlineage-sql==1.24.2\n"
-        ),
-        "dags/constraints.txt": (
-            "apache-airflow-providers-openlineage==1.14.0\n"
-            "apache-airflow-providers-common-sql==1.20.0\n"
-            "apache-airflow-providers-common-compat==1.2.1\n"
-            "openlineage-integration-common==1.24.2\n"
-            "openlineage-python==1.24.2\n"
-            "openlineage-sql==1.24.2\n"
-        ),
-        "dags/startup.sh": "export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n",
-    }[key]
 
-    with patch("mwaa.apply_command.MwaaClient", return_value=client):
+    with (
+        patch("mwaa.apply_command.MwaaClient", return_value=client),
+        patch("mwaa.apply_command.load_session", return_value=make_session(ALREADY_CONFIGURED_PLAN)),
+    ):
         result = run_apply(config, reporter)
 
     assert result["applied"] is False
@@ -94,82 +112,34 @@ def test_run_apply_reports_nothing_to_do_when_already_configured(capsys):
     assert "already fully configured" in capsys.readouterr().out
 
 
-def test_run_apply_uses_plan_override_when_env_var_set(capsys, tmp_path, monkeypatch):
-    override_plan = Plan(
-        upgrade_needed=True,
-        rationale="hand-authored for testing",
-        source="unflagged_version",
-        matched_table_entry=None,
-        source_doc="",
-        file_changes=[
-            FileChange(
-                path="requirements.txt",
-                action="update",
-                pin_diff=[PinDiff("apache-airflow-providers-openlineage", None, "unpinned (resolved by MWAA's current default constraints)")],
-            )
-        ],
-    )
-    override_path = tmp_path / "override.json"
-    override_path.write_text(
-        json.dumps(
-            {
-                "environment_name": "my-env",
-                "region": "us-east-1",
-                "dd_site": "datadoghq.com",
-                "plan": asdict(override_plan),
-            }
-        )
-    )
-    monkeypatch.setenv(PLAN_OVERRIDE_ENV_VAR, str(override_path))
-
-    # Deliberately NOT passed on config -- the whole point is the override file
-    # is self-contained and needs neither --name nor --region.
-    config = ApplyConfig(confirmed=True)
-    reporter = Reporter(workflow_type="mwaa-setup")
-    client = make_client()
-    client.get_object_text.return_value = "pandas==2.1.4\n"
-
-    with patch("mwaa.apply_command.MwaaClient", return_value=client):
-        result = run_apply(config, reporter)
-
-    client.get_environment.assert_called_once_with("my-env")
-    assert result["plan"] == override_plan
-    assert result["uploads"][0].content == "pandas==2.1.4\napache-airflow-providers-openlineage\n"
-    out = capsys.readouterr().out
-    assert f"{PLAN_OVERRIDE_ENV_VAR} is set" in out
-    assert "hand-authored for testing" in out
-
-
-def test_run_apply_interactive_delegates_to_run_interactive(monkeypatch):
-    monkeypatch.delenv(PLAN_OVERRIDE_ENV_VAR, raising=False)
-    config = ApplyConfig(region="us-east-1", dd_site="datad0g.com", interactive=True, dry_run=True)
+def test_run_apply_reports_when_name_not_in_session(capsys):
+    config = ApplyConfig(session_id=SESSION_ID, environment_name="not-in-session", region="us-east-1", confirmed=True)
     reporter = Reporter(workflow_type="mwaa-setup")
 
-    with patch("mwaa.apply_command.run_interactive", return_value={"applied": False}) as mock_run_interactive:
+    with patch("mwaa.apply_command.load_session", return_value=make_session()):
         result = run_apply(config, reporter)
 
-    assert result == {"applied": False}
-    scan_config = mock_run_interactive.call_args.args[0]
-    assert scan_config.region == "us-east-1"
-    assert scan_config.dd_site == "datad0g.com"
-    assert scan_config.dry_run is True
+    assert result["applied"] is False
+    assert "No plan for 'not-in-session'" in capsys.readouterr().out
 
 
-def test_run_apply_plan_override_wins_over_interactive(tmp_path, monkeypatch):
-    plan = Plan(upgrade_needed=False, rationale="", source="unflagged_version", matched_table_entry=None, source_doc="", file_changes=[])
+def test_run_apply_uses_session_override_when_env_var_set(capsys, tmp_path, monkeypatch):
+    override_session = make_session()
     override_path = tmp_path / "override.json"
-    override_path.write_text(json.dumps({"environment_name": "my-env", "region": "us-east-1", "plan": asdict(plan)}))
-    monkeypatch.setenv(PLAN_OVERRIDE_ENV_VAR, str(override_path))
+    override_path.write_text(json.dumps(asdict(override_session)))
+    monkeypatch.setenv(SESSION_OVERRIDE_ENV_VAR, str(override_path))
 
-    config = ApplyConfig(interactive=True, confirmed=True)
+    config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", confirmed=True)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
 
     with (
         patch("mwaa.apply_command.MwaaClient", return_value=client),
-        patch("mwaa.apply_command.run_interactive") as mock_run_interactive,
+        patch("mwaa.apply_command.load_session") as mock_load_session,
     ):
         result = run_apply(config, reporter)
 
-    mock_run_interactive.assert_not_called()
-    assert result["applied"] is False  # plan.upgrade_needed is False, no file_changes
+    mock_load_session.assert_not_called()
+    assert result["applied"] is True
+    out = capsys.readouterr().out
+    assert f"{SESSION_OVERRIDE_ENV_VAR} is set" in out

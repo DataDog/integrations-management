@@ -8,9 +8,9 @@ This is the client-side equivalent of the "Review proposed changes" screen in
 the Configure Airflow UI: given an environment's real current requirements.txt/
 constraints.txt/startup script, decide what needs to change and why. The
 "why" (rationale, source, matched_table_entry) is carried alongside the diff
-itself so a persisted payload is enough to reconstruct the reasoning later,
-without needing to re-run this code against the version table as it existed
-at the time.
+itself so a persisted session (see session.py) is enough to reconstruct the
+reasoning later, without needing to re-run this code against the version
+table as it existed at the time.
 """
 
 from dataclasses import dataclass, field
@@ -58,24 +58,32 @@ class Plan:
     file_changes: list[FileChange]
 
 
-@dataclass(frozen=True)
-class PlanBundle:
-    """Everything one `apply` run needs: which environment, which region, and the plan.
+def plan_from_dict(data: dict) -> Plan:
+    """The reverse of dataclasses.asdict(plan) -- reconstructs real Plan/FileChange/PinDiff/
+    FlaggedVersionEntry instances from their plain-dict JSON form.
 
-    This is the general "ready to apply" shape, not something specific to
-    plan_override.py's local-file loading. `apply` normally builds one itself
-    by computing a Plan and pairing it with the config it was already given.
-    plan_override.py is just today's one OTHER way to obtain a PlanBundle --
-    reading one whole, already-computed, from local disk instead of computing
-    it from a freshly-fetched environment. A future backend that hands back a
-    plan for a given session id would produce this exact same shape, over a
-    different transport -- not a special case of its own.
+    Shared by session.py (loading a persisted or overridden Session's per-
+    environment plans) -- asdict() alone only serializes, dataclasses don't
+    reconstruct themselves from a plain dict.
     """
-
-    environment_name: str
-    region: str
-    dd_site: str
-    plan: Plan
+    matched_table_entry = data.get("matched_table_entry")
+    return Plan(
+        upgrade_needed=data["upgrade_needed"],
+        rationale=data["rationale"],
+        source=data["source"],
+        matched_table_entry=FlaggedVersionEntry(**matched_table_entry) if matched_table_entry else None,
+        source_doc=data["source_doc"],
+        file_changes=[
+            FileChange(
+                path=fc["path"],
+                action=fc["action"],
+                pin_diff=[PinDiff(**pd) for pd in fc.get("pin_diff", [])],
+                content=fc.get("content"),
+                notes=fc.get("notes", []),
+            )
+            for fc in data["file_changes"]
+        ],
+    )
 
 
 def _plan_flagged_version(entry: FlaggedVersionEntry, current_req_pins: dict, current_con_pins: dict) -> tuple[bool, str, list[PinDiff]]:

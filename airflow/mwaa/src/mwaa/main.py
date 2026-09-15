@@ -4,25 +4,24 @@
 
 """Entry point.
 
-  python mwaa.pyz scan --region <region>                        # discover every MWAA environment, print the
-                                                                   # scan payload (dry run -- nothing is sent yet)
-  python mwaa.pyz probe --name <env> --region <region>           # read-only diagnostics against one environment
-  python mwaa.pyz apply --name <env> --region <region>           # just prints the onboarding plan's file changes
-  python mwaa.pyz apply --name <env> --region <region> --yes     # actually uploads them and updates the environment
-  python mwaa.pyz apply --region <region> --interactive          # walk the whole flow (select, review, apply) at the
-                                                                   # terminal instead of targeting one --name
-  python mwaa.pyz apply --region <region> --interactive --dry-run  # same, but never applies -- skips the
-                                                                     # confirmation prompt too
+  python mwaa.pyz scan --session-id <uuid> --region <region>              # survey every MWAA environment, persist
+                                                                            # the session, point back to the UI
+  python mwaa.pyz scan --session-id <uuid> --region <region> --interactive # same, but walk the whole flow (select,
+                                                                            # review, apply) at the terminal instead
+  python mwaa.pyz scan ... --interactive --dry-run                        # same, but never applies -- skips the
+                                                                            # confirmation prompt too
+  python mwaa.pyz probe --name <env> --region <region>                    # read-only diagnostics against one environment
+  python mwaa.pyz apply --session-id <uuid> --name <env> --region <region>        # just prints the plan's file changes
+  python mwaa.pyz apply --session-id <uuid> --name <env> --region <region> --yes  # actually applies them
 
-  PLAN_OVERRIDE_PATH=<path> python mwaa.pyz apply             # local/dev only: apply a hand-authored PlanBundle from
-                                                                # disk instead of --name/--region and a computed plan --
-                                                                # see plan_override.py
+  SESSION_OVERRIDE_PATH=<path> python mwaa.pyz apply --session-id <uuid> --name <env> --region <region>
+      # local/dev only: apply a hand-authored Session from disk instead of one `scan` persisted --
+      # --session-id is still required for a consistent signature, its value is just unused here --
+      # see session_override.py
 
 `scan` is the default if no subcommand is given.
 """
 
-import json
-import os
 import sys
 
 from airflow_shared.reporter import FindingStatus, Reporter
@@ -30,7 +29,6 @@ from airflow_shared.reporter import FindingStatus, Reporter
 from .apply_command import run_apply
 from .apply_config import parse_apply_config
 from .config import ConfigError, parse_config
-from .plan_override import PLAN_OVERRIDE_ENV_VAR
 from .probe import WORKFLOW_TYPE, run_probe
 from .scan import run_scan
 from .scan_config import parse_scan_config
@@ -45,18 +43,14 @@ def _run_scan(argv: list[str]) -> None:
         print(f"Invalid configuration:\n{e}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Scanning MWAA environments in {config.region}...")
+    print(f"Scanning MWAA environments in {config.region}... (session {config.session_id})")
     reporter = Reporter(workflow_type=WORKFLOW_TYPE)
 
     try:
-        payload = run_scan(config, reporter)
+        run_scan(config, reporter)
     except Exception as e:
         print(f"\nScan failed: {e}", file=sys.stderr)
         sys.exit(1)
-
-    print()
-    print("--- dry run: no phone-home endpoint exists yet, printing the payload instead ---")
-    print(json.dumps(payload, indent=2))
 
 
 def _run_probe(argv: list[str]) -> None:
@@ -86,10 +80,7 @@ def _run_apply(argv: list[str]) -> None:
         print(f"Invalid configuration:\n{e}", file=sys.stderr)
         sys.exit(1)
 
-    # Under PLAN_OVERRIDE_PATH or --interactive, run_apply prints its own
-    # opening message once it knows which environment(s) it's working with.
-    if not os.environ.get(PLAN_OVERRIDE_ENV_VAR) and not config.interactive:
-        print(f"Computing the onboarding plan for '{config.environment_name}' in {config.region}...")
+    print(f"Applying the onboarding plan for '{config.environment_name}' in {config.region} (session {config.session_id})...")
     reporter = Reporter(workflow_type=WORKFLOW_TYPE)
 
     try:

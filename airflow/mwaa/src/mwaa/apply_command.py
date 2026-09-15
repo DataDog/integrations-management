@@ -4,11 +4,11 @@
 
 """Orchestrates a full apply run against one MWAA environment.
 
-Always fetches fresh and always previews before doing anything mutating --
-without --yes (see apply_config.py), this only prints what it would do.
-
---interactive delegates to interactive.py's discovery-driven, multi-environment
-walkthrough instead of targeting the one environment named by --name.
+Loads the Session a prior `scan --session-id` persisted (or, under
+SESSION_OVERRIDE_PATH, a hand-authored one -- see session_override.py),
+pulls out the plan for --name, then always fetches that environment fresh
+and previews before doing anything mutating -- without --yes (see
+apply_config.py), this only prints what it would do.
 """
 
 import os
@@ -20,51 +20,35 @@ from airflow_shared.reporter import Reporter
 from .apply import apply_to_environment, compute_apply_actions
 from .apply_config import ApplyConfig
 from .diff_preview import render_unified_diff
-from .interactive import run_interactive
-from .plan import Plan, compute_plan
-from .plan_override import PLAN_OVERRIDE_ENV_VAR, load_plan_override
 from .probe import build_context
-from .scan_config import ScanConfig
+from .session_override import SESSION_OVERRIDE_ENV_VAR, load_session_override
+from .session_store import load_session
 
 WORKFLOW_TYPE = "mwaa-setup"
 
 
 def run_apply(config: ApplyConfig, reporter: Reporter) -> dict[str, Any]:
-    """Fetch the environment fresh, compute its plan, and preview or apply the changes.
-
-    PLAN_OVERRIDE_PATH (see plan_override.py) is a local/dev escape hatch, not
-    part of the documented customer-facing CLI surface: when set, it supplies
-    the environment name, region, and plan itself, overriding config entirely
-    -- takes precedence even over --interactive.
-    """
-    override_path = os.environ.get(PLAN_OVERRIDE_ENV_VAR)
-
-    if config.interactive and not override_path:
-        scan_config = ScanConfig(region=config.region, dd_site=config.dd_site, dry_run=config.dry_run)
-        return run_interactive(scan_config, reporter)
-
-    plan: Plan
+    """Load the session, find --name's plan in it, and preview or apply it."""
+    override_path = os.environ.get(SESSION_OVERRIDE_ENV_VAR)
     if override_path:
-        override = load_plan_override(override_path)
-        print(f"{PLAN_OVERRIDE_ENV_VAR} is set -- applying the plan from {override_path} instead of computing one.")
-        environment_name, region, dd_site, plan = override.environment_name, override.region, override.dd_site, override.plan
+        print(f"{SESSION_OVERRIDE_ENV_VAR} is set -- loading the session from {override_path} instead of session {config.session_id}.")
+        session = load_session_override(override_path)
     else:
-        environment_name, region, dd_site = config.environment_name, config.region, config.dd_site
+        with reporter.report_step("load_session"):
+            session = load_session(config.session_id)
 
-    client = MwaaClient(region=region)
+    entry = session.find(config.environment_name)
+    if entry is None:
+        known = ", ".join(e.name for e in session.environments) or "(none)"
+        print(f"No plan for '{config.environment_name}' in this session. Environments in this session: {known}")
+        return {"applied": False, "plan": None, "uploads": []}
+
+    plan = entry.plan
+
+    client = MwaaClient(region=config.region)
 
     with reporter.report_step("fetch_environment"):
-        ctx = build_context(client, environment_name)
-
-    if not override_path:
-        with reporter.report_step("compute_plan"):
-            plan = compute_plan(
-                airflow_version=ctx.environment.get("AirflowVersion", ""),
-                requirements_text=ctx.requirements_text,
-                constraints_text=ctx.constraints_text,
-                startup_script_text=ctx.startup_script_text,
-                dd_site=dd_site,
-            )
+        ctx = build_context(client, config.environment_name)
 
     if not plan.file_changes:
         print("Nothing to apply -- this environment is already fully configured.")

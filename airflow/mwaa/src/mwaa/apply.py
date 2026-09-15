@@ -6,7 +6,7 @@
 
 Deliberately re-fetches the environment's current files itself (via
 ProbeContext, built fresh by discovery/probe) rather than trusting anything
-carried in a previously-computed Plan or a persisted scan payload -- content
+carried in a previously-computed Plan or a persisted scan session -- content
 captured during a scan may be stale by the time a plan is reviewed and
 applied, and patching against stale content risks clobbering a concurrent
 edit. Nothing here is ever printed or persisted outside this process.

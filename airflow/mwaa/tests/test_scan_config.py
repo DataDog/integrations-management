@@ -2,33 +2,60 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
+import uuid
+
 import pytest
 
 from mwaa.config import ConfigError
 from mwaa.scan_config import parse_scan_config
 
+SESSION_ID = str(uuid.uuid4())
+
 
 def test_parse_scan_config_from_args():
-    config = parse_scan_config(["--region", "us-east-1", "--dd-site", "datad0g.com"])
+    config = parse_scan_config(["--session-id", SESSION_ID, "--region", "us-east-1", "--dd-site", "datad0g.com"])
+    assert config.session_id == SESSION_ID
     assert config.region == "us-east-1"
     assert config.dd_site == "datad0g.com"
 
 
 def test_parse_scan_config_defaults_dd_site():
-    config = parse_scan_config(["--region", "us-east-1"])
+    config = parse_scan_config(["--session-id", SESSION_ID, "--region", "us-east-1"])
     assert config.dd_site == "datadoghq.com"
 
 
-def test_parse_scan_config_falls_back_to_env_vars(monkeypatch):
+def test_parse_scan_config_falls_back_to_region_env_var(monkeypatch):
     monkeypatch.setenv("AWS_REGION", "eu-west-1")
     monkeypatch.setenv("DD_SITE", "datad0g.com")
-    config = parse_scan_config([])
+    config = parse_scan_config(["--session-id", SESSION_ID])
     assert config.region == "eu-west-1"
     assert config.dd_site == "datad0g.com"
+
+
+def test_parse_scan_config_interactive_and_dry_run_flags():
+    config = parse_scan_config(["--session-id", SESSION_ID, "--region", "us-east-1", "--interactive", "--dry-run"])
+    assert config.interactive is True
+    assert config.dry_run is True
+
+
+def test_parse_scan_config_interactive_defaults_false():
+    config = parse_scan_config(["--session-id", SESSION_ID, "--region", "us-east-1"])
+    assert config.interactive is False
+    assert config.dry_run is False
 
 
 def test_parse_scan_config_raises_when_region_missing(monkeypatch):
     monkeypatch.delenv("AWS_REGION", raising=False)
     monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
     with pytest.raises(ConfigError, match="Region is required"):
-        parse_scan_config([])
+        parse_scan_config(["--session-id", SESSION_ID])
+
+
+def test_parse_scan_config_raises_when_session_id_missing():
+    with pytest.raises(ConfigError, match="--session-id is required"):
+        parse_scan_config(["--region", "us-east-1"])
+
+
+def test_parse_scan_config_raises_when_session_id_not_a_uuid():
+    with pytest.raises(ConfigError, match="must be a valid UUID"):
+        parse_scan_config(["--session-id", "not-a-uuid", "--region", "us-east-1"])

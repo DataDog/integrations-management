@@ -6,49 +6,51 @@
 
 import argparse
 import os
+import uuid
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
 from .config import ConfigError
-from .plan_override import PLAN_OVERRIDE_ENV_VAR
 
 
 @dataclass(frozen=True)
 class ApplyConfig:
     """Configuration for one apply run.
 
-    environment_name is only Optional because it isn't needed at all in two
-    cases: PLAN_OVERRIDE_PATH carries its own (see plan_override.py), and
-    --interactive discovers every environment in the region instead of
-    targeting one. region is only Optional for the PLAN_OVERRIDE_PATH case.
-    run_apply always has a concrete environment_name/region by the time it
-    needs one.
+    session_id says which Session (see session.py) to pull a plan out of --
+    that survey covers every environment `scan` found, not a decision, so
+    name/region are still required to say which one to actually act on.
     """
 
-    environment_name: Optional[str] = None
-    region: Optional[str] = None
-    dd_site: str = "datadoghq.com"
+    session_id: str
+    environment_name: str
+    region: str
     confirmed: bool = False
-    interactive: bool = False
-    dry_run: bool = False
 
 
 def parse_apply_config(argv: Optional[Sequence[str]] = None) -> ApplyConfig:
     """Parse configuration from CLI args, falling back to environment variables.
 
     Raises:
-        ConfigError: If the region is missing, or the environment name is
-            missing and neither --interactive nor PLAN_OVERRIDE_PATH supplies
-            one another way.
+        ConfigError: If --session-id (or a valid UUID for it), the environment
+            name, or the region is missing.
     """
     parser = argparse.ArgumentParser(
         prog="mwaa apply",
-        description="Apply the OpenLineage onboarding plan to one MWAA environment.",
+        description="Apply one environment's OpenLineage onboarding plan from a scan session.",
+    )
+    parser.add_argument(
+        "--session-id",
+        help=(
+            "UUID of the session a prior `scan --session-id` persisted. Required even when "
+            "SESSION_OVERRIDE_PATH is set, for a consistent command signature -- its value is "
+            "just unused in that case."
+        ),
     )
     parser.add_argument(
         "--name",
         default=os.environ.get("MWAA_ENVIRONMENT_NAME"),
-        help="MWAA environment name (default: $MWAA_ENVIRONMENT_NAME). Not needed with --interactive.",
+        help="MWAA environment name to apply the plan to (default: $MWAA_ENVIRONMENT_NAME)",
     )
     parser.add_argument(
         "--region",
@@ -56,48 +58,26 @@ def parse_apply_config(argv: Optional[Sequence[str]] = None) -> ApplyConfig:
         help="AWS region (default: $AWS_REGION or $AWS_DEFAULT_REGION)",
     )
     parser.add_argument(
-        "--dd-site",
-        default=os.environ.get("DD_SITE", "datadoghq.com"),
-        help="Datadog site, used to render the OpenLineage transport URL (default: $DD_SITE or datadoghq.com)",
-    )
-    parser.add_argument(
         "--yes",
         action="store_true",
         help="Actually upload files and update the environment. Without this, only prints a preview.",
     )
-    parser.add_argument(
-        "--interactive",
-        action="store_true",
-        help=(
-            "Discover every environment in the region and walk through selecting one, "
-            "reviewing its plan, and confirming apply at the terminal, instead of targeting "
-            "one environment with --name. Omitting this just prints the plan for --name."
-        ),
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="With --interactive: skip the apply confirmation prompt entirely and never make changes. Ignored otherwise.",
-    )
     args = parser.parse_args(argv)
 
-    # PLAN_OVERRIDE_PATH carries its own environment_name/region (see
-    # plan_override.py), so --name/--region become optional once it's set.
-    if not os.environ.get(PLAN_OVERRIDE_ENV_VAR):
-        errors = []
-        if not args.name and not args.interactive:
-            errors.append("Environment name is required: pass --name, use --interactive, or set MWAA_ENVIRONMENT_NAME")
-        if not args.region:
-            errors.append("Region is required: pass --region or set AWS_REGION")
+    errors = []
+    if not args.session_id:
+        errors.append("--session-id is required")
+    else:
+        try:
+            uuid.UUID(args.session_id)
+        except ValueError:
+            errors.append(f"--session-id must be a valid UUID, got '{args.session_id}'")
+    if not args.name:
+        errors.append("Environment name is required: pass --name or set MWAA_ENVIRONMENT_NAME")
+    if not args.region:
+        errors.append("Region is required: pass --region or set AWS_REGION")
 
-        if errors:
-            raise ConfigError("\n".join(f"  - {e}" for e in errors))
+    if errors:
+        raise ConfigError("\n".join(f"  - {e}" for e in errors))
 
-    return ApplyConfig(
-        environment_name=args.name,
-        region=args.region,
-        dd_site=args.dd_site,
-        confirmed=args.yes,
-        interactive=args.interactive,
-        dry_run=args.dry_run,
-    )
+    return ApplyConfig(session_id=args.session_id, environment_name=args.name, region=args.region, confirmed=args.yes)

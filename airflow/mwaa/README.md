@@ -21,17 +21,28 @@ you have read access to.
 # Usage
 
 ```bash
-python mwaa.pyz --name my-mwaa-environment --region us-east-1
+# Read-only diagnostics against one environment
+python mwaa.pyz probe --name my-mwaa-environment --region us-east-1
+
+# Survey every environment in a region, persist the session, point back to the UI
+python mwaa.pyz scan --session-id <uuid> --region us-east-1
+
+# Same, but walk the whole select/review/apply flow at the terminal instead
+python mwaa.pyz scan --session-id <uuid> --region us-east-1 --interactive
+
+# Apply one environment's plan from a session a prior `scan` persisted
+python mwaa.pyz apply --session-id <uuid> --name my-mwaa-environment --region us-east-1 --yes
 ```
 
-Both flags fall back to environment variables if omitted: `MWAA_ENVIRONMENT_NAME` and
-`AWS_REGION` (or `AWS_DEFAULT_REGION`).
+`--name`/`--region` fall back to `MWAA_ENVIRONMENT_NAME`/`AWS_REGION` (or
+`AWS_DEFAULT_REGION`) if omitted. `--session-id` must be a UUID -- the eventual UI
+generates one and embeds it in the command it hands you.
 
 AWS credentials are picked up the normal boto3 way (CloudShell's assumed role, an
 environment profile, `~/.aws/credentials`, etc.) -- this tool does not manage credentials
 itself.
 
-Exit code is non-zero if any check fails.
+`probe`'s exit code is non-zero if any check fails.
 
 ---
 
@@ -54,18 +65,20 @@ cd airflow
 python -m pytest mwaa/tests
 ```
 
-### Testing `apply` against an arbitrary plan
+### Testing `apply` against an arbitrary session
 
-`apply` normally always fetches an environment's real files and computes its own plan
-from them (see `apply.py`'s module docstring for why). For local/dev testing, setting
-`PLAN_OVERRIDE_PATH` to a JSON file skips that and applies whatever `Plan` is in the file
-instead -- useful for driving a real environment into a specific state without first
-getting its actual files into that shape. The expected shape is exactly what `scan`
-prints per environment (`dataclasses.asdict(plan)`): copy one out, edit it, feed it back
-in.
+`apply --session-id <id>` normally loads the Session a prior `scan --session-id <id>`
+persisted (see `session_store.py`) and pulls out the plan for `--name` from it. For
+local/dev testing, setting `SESSION_OVERRIDE_PATH` to a JSON file skips that lookup and
+uses the Session in the file instead -- useful for driving a real environment into a
+specific state without running `scan` first. `--session-id`/`--name`/`--region` are all
+still required flags either way; the override only swaps out where the Session's *content*
+comes from. The expected shape is exactly what `scan` persists
+(`dataclasses.asdict(session)`): copy one out of `/tmp/mwaa-session-<id>.json`, edit it,
+feed it back in.
 
 ```bash
-PLAN_OVERRIDE_PATH=./my-plan.json python mwaa.pyz apply --name my-mwaa-environment --region us-east-1 --yes
+SESSION_OVERRIDE_PATH=./my-session.json python mwaa.pyz apply --session-id <uuid> --name my-mwaa-environment --region us-east-1 --yes
 ```
 
 Not part of the documented CLI surface for customers -- it's a testing escape hatch.
