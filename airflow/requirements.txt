@@ -1,0 +1,5 @@
+# Runtime dependency for the airflow/ packages. AWS CloudShell has boto3
+# preinstalled, so the built .pyz does not bundle it (same reason gcp/azure
+# shell out to gcloud/az instead of vendoring their SDKs). Needed locally
+# only for development and tests.
+boto3==1.35.99
