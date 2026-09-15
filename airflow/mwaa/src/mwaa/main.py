@@ -10,6 +10,7 @@
   python mwaa.pyz apply --name <env> --region <region>       # preview the onboarding plan's file changes
   python mwaa.pyz apply --name <env> --region <region> --yes # actually upload them and update the environment
   python mwaa.pyz interactive --region <region>               # walk the whole flow (select, review, apply) at the terminal
+  python mwaa.pyz interactive --region <region> --dry-run     # same, but never applies -- skips the confirmation prompt too
 
 `scan` is the default if no subcommand is given.
 """
@@ -90,7 +91,7 @@ def _run_apply(argv: list[str]) -> None:
 
 def _run_interactive(argv: list[str]) -> None:
     try:
-        config = parse_scan_config(argv)
+        config = parse_scan_config(argv, prog="mwaa interactive")
     except ConfigError as e:
         print(f"Invalid configuration:\n{e}", file=sys.stderr)
         sys.exit(1)

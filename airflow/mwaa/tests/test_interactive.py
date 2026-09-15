@@ -99,6 +99,22 @@ def test_run_interactive_declining_apply_makes_no_changes():
     assert result["applied"] is False
 
 
+def test_run_interactive_dry_run_never_prompts_to_apply_or_uploads(capsys):
+    config = ScanConfig(region="us-east-1", dd_site="datadoghq.com", dry_run=True)
+    reporter = Reporter(workflow_type="mwaa-setup")
+    client = make_client()
+
+    # Only "1" (environment selection) is provided -- if the code tried to
+    # prompt for apply confirmation too, this would raise StopIteration.
+    with patch("mwaa.interactive.MwaaClient", return_value=client):
+        result = run_interactive(config, reporter, input_func=fake_input("1"))
+
+    client.put_object_text.assert_not_called()
+    client.update_environment.assert_not_called()
+    assert result["applied"] is False
+    assert "Dry run (--dry-run)" in capsys.readouterr().out
+
+
 def test_run_interactive_confirming_apply_uploads_and_updates(capsys):
     config = ScanConfig(region="us-east-1", dd_site="datadoghq.com")
     reporter = Reporter(workflow_type="mwaa-setup")

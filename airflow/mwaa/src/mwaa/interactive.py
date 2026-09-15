@@ -15,6 +15,10 @@ Step 5 of the UI flow ("Run a DAG") is deliberately just guidance printed at
 the end, not an automated DAG trigger -- there's no canonical DAG to run
 against an arbitrary customer environment, and triggering one via the MWAA
 REST API is a separate scope decision.
+
+`config.dry_run` (the --dry-run flag) skips the "Apply these changes?" prompt
+entirely rather than relying on the user answering it correctly -- so nothing
+ever gets applied, no matter what.
 """
 
 from typing import Any, Callable
@@ -119,6 +123,10 @@ def run_interactive(config: ScanConfig, reporter: Reporter, input_func: InputFun
         diff = render_unified_diff(upload.path, upload.old_content, upload.content)
         print(f"\n--- {upload.action}: {upload.path} ---")
         print(diff if diff else "(no textual change)")
+
+    if config.dry_run:
+        print("\nDry run (--dry-run) -- not applying. No changes made.")
+        return {"applied": False, "environment": name, "plan": plan, "uploads": uploads}
 
     if not _prompt_yes_no("\nApply these changes?", input_func):
         print("\nAborted -- no changes made.")
