@@ -7,6 +7,16 @@
 For now this is only ever printed (--dry-run is implicit, there is no
 phone-home endpoint yet) -- see main.py. The shape here is a first draft,
 expected to change as the Configure Airflow UI's actual needs get nailed down.
+
+Deliberately does NOT include raw requirements.txt/constraints.txt/startup
+script content. Startup scripts routinely export live credentials, and a
+real scan against the do-test-env account proved it: one environment's
+startup script had a live Datadog API key in it, captured verbatim. Rather
+than maintain a secret-redaction pass over arbitrary free-form shell script
+content, the payload only ever carries the *computed plan* -- pin diffs,
+rationale, the matched version-table entry -- which is exactly what's needed
+to understand why a diff was proposed, and structurally can't contain a
+credential, since none of it is copied from the environment's actual files.
 """
 
 from dataclasses import asdict
@@ -15,16 +25,11 @@ from typing import Any
 
 from .checks import ProbeContext
 from .plan import compute_plan
-from .redact import redact_secrets
 from .startup_script import startup_script_looks_configured
 
 
 def _environment_entry(ctx: ProbeContext, dd_site: str) -> dict[str, Any]:
     airflow_version = ctx.environment.get("AirflowVersion", "")
-    # Plan computation runs on the real, unredacted text -- redaction only
-    # touches lines that look like secrets (API_KEY/TOKEN/SECRET/PASSWORD),
-    # which never overlaps with the package pins or OpenLineage config markers
-    # the plan actually reads.
     plan = compute_plan(
         airflow_version=airflow_version,
         requirements_text=ctx.requirements_text,
@@ -36,11 +41,6 @@ def _environment_entry(ctx: ProbeContext, dd_site: str) -> dict[str, Any]:
         "name": ctx.environment.get("Name"),
         "airflow_version": airflow_version,
         "already_configured": startup_script_looks_configured(ctx.startup_script_text),
-        "current_state": {
-            "requirements_text": redact_secrets(ctx.requirements_text),
-            "constraints_text": redact_secrets(ctx.constraints_text),
-            "startup_script_text": redact_secrets(ctx.startup_script_text),
-        },
         "plan": asdict(plan),
     }
 
