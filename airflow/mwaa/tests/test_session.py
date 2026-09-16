@@ -23,7 +23,7 @@ def make_context(**overrides) -> ProbeContext:
 
 
 def test_build_session_computes_a_plan_per_environment():
-    session = build_session("session-1", "us-east-1", "datadoghq.com", [make_context()])
+    session = build_session("session-1", "us-east-1", "datadoghq.com", "fake-dd-api-key", [make_context()])
 
     assert session.session_id == "session-1"
     assert session.region == "us-east-1"
@@ -35,7 +35,7 @@ def test_build_session_computes_a_plan_per_environment():
 
 
 def test_session_find_returns_matching_entry():
-    session = build_session("session-1", "us-east-1", "datadoghq.com", [make_context()])
+    session = build_session("session-1", "us-east-1", "datadoghq.com", "fake-dd-api-key", [make_context()])
 
     assert session.find("my-mwaa-prod") is not None
     assert session.find("does-not-exist") is None
@@ -43,7 +43,7 @@ def test_session_find_returns_matching_entry():
 
 def test_session_never_carries_raw_startup_script_content():
     ctx = make_context(startup_script_text="export OPENLINEAGE_API_KEY=00000000000000000000000000000000\n")
-    session = build_session("session-1", "us-east-1", "datadoghq.com", [ctx])
+    session = build_session("session-1", "us-east-1", "datadoghq.com", "fake-dd-api-key", [ctx])
 
     serialized = str(asdict(session))
     assert "00000000000000000000000000000000" not in serialized
@@ -55,7 +55,7 @@ def test_session_round_trips_through_asdict_and_session_from_dict():
     # (asdict turns the tuple into one), which would fail a strict == here
     # even though the content is identical. See test_plan.py for that shape.
     ctx = make_context(environment={**ENVIRONMENT, "AirflowVersion": "3.0.6"})
-    session = build_session("session-1", "us-east-1", "datadoghq.com", [ctx])
+    session = build_session("session-1", "us-east-1", "datadoghq.com", "fake-dd-api-key", [ctx])
 
     loaded = session_from_dict(asdict(session))
 

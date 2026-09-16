@@ -6,9 +6,10 @@
 
 Source: https://docs.datadoghq.com/data_observability/jobs_monitoring/airflow.md
 
-The real Datadog API key is never known to this tool -- it's selected in the
-Datadog UI at apply time, not by this script -- so `<DD_API_KEY>` is a literal
-placeholder in the rendered content, matching the UI mockup exactly.
+The real Datadog API key is required at scan time (see scan_config.py's
+--dd-api-key) and interpolated directly into the rendered content -- both
+because the startup script needs the real value to actually work, and
+because the eventual backend API call to persist a session will need it too.
 """
 
 # Airflow versions that need the OpenLineage config-path workaround, per the
@@ -16,15 +17,13 @@ placeholder in the rendered content, matching the UI mockup exactly.
 # but MWAA's default constraints for these two versions pin older than that.
 VERSIONS_NEEDING_CONFIG_PATH_WORKAROUND = {"2.7.2", "2.8.1"}
 
-DD_API_KEY_PLACEHOLDER = "<DD_API_KEY>"
 
-
-def render_startup_script(airflow_version: str, dd_site: str) -> str:
+def render_startup_script(airflow_version: str, dd_site: str, dd_api_key: str) -> str:
     """Render the startup.sh content for one environment's Airflow version."""
     lines = [
         "#!/bin/sh",
         f"export OPENLINEAGE_URL=https://data-obs-intake.{dd_site}",
-        f"export OPENLINEAGE_API_KEY={DD_API_KEY_PLACEHOLDER}",
+        f"export OPENLINEAGE_API_KEY={dd_api_key}",
         "export AIRFLOW__OPENLINEAGE__NAMESPACE=${AIRFLOW_ENV_NAME}",
     ]
     if airflow_version in VERSIONS_NEEDING_CONFIG_PATH_WORKAROUND:

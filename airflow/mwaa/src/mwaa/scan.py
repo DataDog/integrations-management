@@ -133,7 +133,7 @@ def _run_interactive(
         return {"applied": False, "session": session, "environment": entry.name, "uploads": uploads}
 
     if not _prompt_yes_no("\nRun apply now?", input_func):
-        cmd = f"python mwaa.pyz apply --session-id {session.session_id} --name {entry.name} --region {config.region} --yes"
+        cmd = f"python mwaa.pyz apply --session-id {session.session_id} --name {entry.name} --region {config.region}"
         print(f"\nNo changes made. To apply later, run:\n  {cmd}")
         return {"applied": False, "session": session, "environment": entry.name, "uploads": uploads}
 
@@ -159,7 +159,7 @@ def run_scan(config: ScanConfig, reporter: Reporter, input_func: InputFunc = inp
         contexts = discover_environments(client)
 
     with reporter.report_step("build_session"):
-        session = build_session(config.session_id, config.region, config.dd_site, contexts)
+        session = build_session(config.session_id, config.region, config.dd_site, config.dd_api_key, contexts)
 
     with reporter.report_step("persist_session"):
         save_session(session)

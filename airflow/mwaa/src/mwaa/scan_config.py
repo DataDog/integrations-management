@@ -20,6 +20,7 @@ class ScanConfig:
     session_id: str
     region: str
     dd_site: str
+    dd_api_key: str
     interactive: bool = False
     dry_run: bool = False
 
@@ -28,8 +29,8 @@ def parse_scan_config(argv: Optional[Sequence[str]] = None) -> ScanConfig:
     """Parse configuration from CLI args, falling back to environment variables.
 
     Raises:
-        ConfigError: If --session-id is missing or not a valid UUID, or the
-            region is missing.
+        ConfigError: If --session-id is missing or not a valid UUID, the region
+            is missing, or --dd-api-key is missing.
     """
     parser = argparse.ArgumentParser(
         prog="mwaa scan",
@@ -48,6 +49,14 @@ def parse_scan_config(argv: Optional[Sequence[str]] = None) -> ScanConfig:
         "--dd-site",
         default=os.environ.get("DD_SITE", "datadoghq.com"),
         help="Datadog site, used to render the OpenLineage transport URL (default: $DD_SITE or datadoghq.com)",
+    )
+    parser.add_argument(
+        "--dd-api-key",
+        default=os.environ.get("DD_API_KEY"),
+        help=(
+            "Datadog API key, interpolated directly into the proposed startup.sh (default: $DD_API_KEY). "
+            "Required -- the startup script needs the real value to work."
+        ),
     )
     parser.add_argument(
         "--interactive",
@@ -74,6 +83,8 @@ def parse_scan_config(argv: Optional[Sequence[str]] = None) -> ScanConfig:
             errors.append(f"--session-id must be a valid UUID, got '{args.session_id}'")
     if not args.region:
         errors.append("Region is required: pass --region or set AWS_REGION")
+    if not args.dd_api_key:
+        errors.append("Datadog API key is required: pass --dd-api-key or set DD_API_KEY")
 
     if errors:
         raise ConfigError("\n".join(f"  - {e}" for e in errors))
@@ -82,6 +93,7 @@ def parse_scan_config(argv: Optional[Sequence[str]] = None) -> ScanConfig:
         session_id=args.session_id,
         region=args.region,
         dd_site=args.dd_site,
+        dd_api_key=args.dd_api_key,
         interactive=args.interactive,
         dry_run=args.dry_run,
     )

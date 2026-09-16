@@ -51,7 +51,7 @@ class Session:
         return next((e for e in self.environments if e.name == name), None)
 
 
-def _environment_entry(ctx: ProbeContext, dd_site: str) -> EnvironmentEntry:
+def _environment_entry(ctx: ProbeContext, dd_site: str, dd_api_key: str) -> EnvironmentEntry:
     airflow_version = ctx.environment.get("AirflowVersion", "")
     plan = compute_plan(
         airflow_version=airflow_version,
@@ -59,6 +59,7 @@ def _environment_entry(ctx: ProbeContext, dd_site: str) -> EnvironmentEntry:
         constraints_text=ctx.constraints_text,
         startup_script_text=ctx.startup_script_text,
         dd_site=dd_site,
+        dd_api_key=dd_api_key,
     )
     return EnvironmentEntry(
         name=ctx.environment.get("Name"),
@@ -68,12 +69,12 @@ def _environment_entry(ctx: ProbeContext, dd_site: str) -> EnvironmentEntry:
     )
 
 
-def build_session(session_id: str, region: str, dd_site: str, contexts: list[ProbeContext]) -> Session:
+def build_session(session_id: str, region: str, dd_site: str, dd_api_key: str, contexts: list[ProbeContext]) -> Session:
     """Assemble the full session for every environment discovered in one scan run."""
     return Session(
         session_id=session_id,
         region=region,
-        environments=[_environment_entry(ctx, dd_site) for ctx in contexts],
+        environments=[_environment_entry(ctx, dd_site, dd_api_key) for ctx in contexts],
     )
 
 

@@ -25,18 +25,21 @@ you have read access to.
 python mwaa.pyz probe --name my-mwaa-environment --region us-east-1
 
 # Survey every environment in a region, persist the session, point back to the UI
-python mwaa.pyz scan --session-id <uuid> --region us-east-1
+python mwaa.pyz scan --session-id <uuid> --region us-east-1 --dd-api-key <key>
 
 # Same, but walk the whole select/review/apply flow at the terminal instead
-python mwaa.pyz scan --session-id <uuid> --region us-east-1 --interactive
+python mwaa.pyz scan --session-id <uuid> --region us-east-1 --dd-api-key <key> --interactive
 
-# Apply one environment's plan from a session a prior `scan` persisted
-python mwaa.pyz apply --session-id <uuid> --name my-mwaa-environment --region us-east-1 --yes
+# Preview one environment's plan from a session a prior `scan` persisted
+python mwaa.pyz apply --session-id <uuid> --name my-mwaa-environment --region us-east-1
+# ...then add --yes once the diff looks right, to actually apply it
 ```
 
 `--name`/`--region` fall back to `MWAA_ENVIRONMENT_NAME`/`AWS_REGION` (or
-`AWS_DEFAULT_REGION`) if omitted. `--session-id` must be a UUID -- the eventual UI
-generates one and embeds it in the command it hands you.
+`AWS_DEFAULT_REGION`) if omitted, and `--dd-api-key` falls back to `DD_API_KEY`.
+`--session-id` must be a UUID -- the eventual UI generates one and embeds it in
+the command it hands you. `--dd-api-key` is interpolated directly into the
+proposed startup.sh, since the script needs the real value to actually work.
 
 AWS credentials are picked up the normal boto3 way (CloudShell's assumed role, an
 environment profile, `~/.aws/credentials`, etc.) -- this tool does not manage credentials

@@ -53,7 +53,7 @@ def fake_input(*responses: str):
 
 
 def test_run_scan_persists_a_session_with_one_entry_per_environment():
-    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com")
+    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key")
     reporter = Reporter(workflow_type="mwaa-setup")
 
     with patch("mwaa.scan.MwaaClient", return_value=make_client()):
@@ -73,7 +73,7 @@ def test_run_scan_persists_a_session_with_one_entry_per_environment():
 
 
 def test_run_scan_without_interactive_prints_ui_link_and_does_not_prompt(capsys):
-    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com")
+    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key")
     reporter = Reporter(workflow_type="mwaa-setup")
 
     with patch("mwaa.scan.MwaaClient", return_value=make_client()):
@@ -86,7 +86,7 @@ def test_run_scan_without_interactive_prints_ui_link_and_does_not_prompt(capsys)
 
 
 def test_run_scan_interactive_lists_environments_with_status(capsys):
-    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", interactive=True)
+    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key", interactive=True)
     reporter = Reporter(workflow_type="mwaa-setup")
 
     with patch("mwaa.scan.MwaaClient", return_value=make_client()):
@@ -100,7 +100,7 @@ def test_run_scan_interactive_lists_environments_with_status(capsys):
 
 
 def test_run_scan_interactive_quit_makes_no_changes():
-    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", interactive=True)
+    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key", interactive=True)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
 
@@ -112,7 +112,7 @@ def test_run_scan_interactive_quit_makes_no_changes():
 
 
 def test_run_scan_interactive_selects_already_configured_environment_and_stops(capsys):
-    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", interactive=True)
+    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key", interactive=True)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
 
@@ -125,7 +125,7 @@ def test_run_scan_interactive_selects_already_configured_environment_and_stops(c
 
 
 def test_run_scan_interactive_declining_apply_prints_apply_command(capsys):
-    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", interactive=True)
+    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key", interactive=True)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
 
@@ -135,11 +135,12 @@ def test_run_scan_interactive_declining_apply_prints_apply_command(capsys):
     client.put_object_text.assert_not_called()
     assert result["applied"] is False
     out = capsys.readouterr().out
-    assert f"apply --session-id {SESSION_ID} --name my-mwaa-prod --region us-east-1 --yes" in out
+    assert f"apply --session-id {SESSION_ID} --name my-mwaa-prod --region us-east-1" in out
+    assert "--yes" not in out
 
 
 def test_run_scan_interactive_dry_run_never_prompts_to_apply_or_uploads(capsys):
-    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", interactive=True, dry_run=True)
+    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key", interactive=True, dry_run=True)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
 
@@ -155,7 +156,7 @@ def test_run_scan_interactive_dry_run_never_prompts_to_apply_or_uploads(capsys):
 
 
 def test_run_scan_interactive_confirming_apply_uploads_and_updates(capsys):
-    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", interactive=True)
+    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key", interactive=True)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
 
@@ -170,7 +171,7 @@ def test_run_scan_interactive_confirming_apply_uploads_and_updates(capsys):
 
 
 def test_run_scan_interactive_no_environments_found(capsys):
-    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", interactive=True)
+    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key", interactive=True)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
     client.list_environment_names.return_value = []

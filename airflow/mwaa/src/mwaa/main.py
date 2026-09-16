@@ -4,10 +4,12 @@
 
 """Entry point.
 
-  python mwaa.pyz scan --session-id <uuid> --region <region>              # survey every MWAA environment, persist
-                                                                            # the session, point back to the UI
-  python mwaa.pyz scan --session-id <uuid> --region <region> --interactive # same, but walk the whole flow (select,
-                                                                            # review, apply) at the terminal instead
+  python mwaa.pyz scan --session-id <uuid> --region <region> --dd-api-key <key>              # survey every MWAA
+                                                                            # environment, persist the session, point
+                                                                            # back to the UI
+  python mwaa.pyz scan --session-id <uuid> --region <region> --dd-api-key <key> --interactive # same, but walk the
+                                                                            # whole flow (select, review, apply) at
+                                                                            # the terminal instead
   python mwaa.pyz scan ... --interactive --dry-run                        # same, but never applies -- skips the
                                                                             # confirmation prompt too
   python mwaa.pyz probe --name <env> --region <region>                    # read-only diagnostics against one environment

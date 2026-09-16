@@ -6,14 +6,14 @@ from mwaa.startup_script import render_startup_script, startup_script_looks_conf
 
 
 def test_render_startup_script_includes_config_path_workaround_for_2_8_1():
-    script = render_startup_script("2.8.1", "datadoghq.com")
+    script = render_startup_script("2.8.1", "datadoghq.com", "fake-dd-api-key")
     assert 'export AIRFLOW__OPENLINEAGE__CONFIG_PATH=""' in script
     assert "export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com" in script
-    assert "export OPENLINEAGE_API_KEY=<DD_API_KEY>" in script
+    assert "export OPENLINEAGE_API_KEY=fake-dd-api-key" in script
 
 
 def test_render_startup_script_omits_workaround_for_newer_versions():
-    script = render_startup_script("2.10.1", "datadoghq.com")
+    script = render_startup_script("2.10.1", "datadoghq.com", "fake-dd-api-key")
     assert "CONFIG_PATH" not in script
     assert "DISABLED_FOR_OPERATORS" not in script
 
