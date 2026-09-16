@@ -13,6 +13,7 @@ def test_flagged_version_with_stale_pins_needs_upgrade():
         startup_script_text=None,
         dd_site="datadoghq.com",
         dd_api_key="fake-dd-api-key",
+        environment_name="my-env",
     )
     assert plan.upgrade_needed is True
     assert plan.source == "flagged_version_table"
@@ -57,6 +58,7 @@ def test_flagged_version_already_upgraded_needs_no_package_changes():
         startup_script_text="export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n",
         dd_site="datadoghq.com",
         dd_api_key="fake-dd-api-key",
+        environment_name="my-env",
     )
     assert plan.upgrade_needed is False
     assert plan.file_changes == []
@@ -70,6 +72,7 @@ def test_unflagged_version_without_provider_needs_addition_only():
         startup_script_text=None,
         dd_site="datadoghq.com",
         dd_api_key="fake-dd-api-key",
+        environment_name="my-env",
     )
     assert plan.upgrade_needed is True
     assert plan.source == "unflagged_version"
@@ -89,6 +92,7 @@ def test_unflagged_version_with_provider_already_pinned_needs_no_upgrade():
         startup_script_text="export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n",
         dd_site="datadoghq.com",
         dd_api_key="fake-dd-api-key",
+        environment_name="my-env",
     )
     assert plan.upgrade_needed is False
     assert plan.file_changes == []
@@ -105,6 +109,7 @@ def test_unflagged_version_recognizes_a_previously_added_bare_package_line():
         startup_script_text="export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n",
         dd_site="datadoghq.com",
         dd_api_key="fake-dd-api-key",
+        environment_name="my-env",
     )
     assert plan.upgrade_needed is False
     assert plan.file_changes == []
@@ -118,6 +123,7 @@ def test_requirements_txt_notes_missing_constraint_line():
         startup_script_text="export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n",
         dd_site="datadoghq.com",
         dd_api_key="fake-dd-api-key",
+        environment_name="my-env",
     )
     requirements_change = next(fc for fc in plan.file_changes if fc.path == "requirements.txt")
     assert any("constraint" in note for note in requirements_change.notes)
@@ -146,5 +152,6 @@ def test_startup_script_change_omitted_when_already_configured():
         startup_script_text="export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n",
         dd_site="datadoghq.com",
         dd_api_key="fake-dd-api-key",
+        environment_name="my-env",
     )
     assert plan.file_changes == []

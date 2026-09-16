@@ -125,6 +125,7 @@ def compute_plan(
     startup_script_text: Optional[str],
     dd_site: str,
     dd_api_key: str,
+    environment_name: str,
 ) -> Plan:
     """Compute the onboarding plan for one environment from its real current files."""
     current_req_pins = parse_pins(requirements_text)
@@ -170,7 +171,7 @@ def compute_plan(
             FileChange(
                 path=STARTUP_SCRIPT_PATH,
                 action="update" if startup_script_text else "create",
-                content=render_startup_script(airflow_version, dd_site, dd_api_key),
+                content=render_startup_script(airflow_version, dd_site, dd_api_key, environment_name),
                 notes=["sets the OpenLineage transport variables that point Airflow at Datadog"],
             )
         )

@@ -53,6 +53,7 @@ class Session:
 
 def _environment_entry(ctx: ProbeContext, dd_site: str, dd_api_key: str) -> EnvironmentEntry:
     airflow_version = ctx.environment.get("AirflowVersion", "")
+    environment_name = ctx.environment.get("Name")
     plan = compute_plan(
         airflow_version=airflow_version,
         requirements_text=ctx.requirements_text,
@@ -60,9 +61,10 @@ def _environment_entry(ctx: ProbeContext, dd_site: str, dd_api_key: str) -> Envi
         startup_script_text=ctx.startup_script_text,
         dd_site=dd_site,
         dd_api_key=dd_api_key,
+        environment_name=environment_name,
     )
     return EnvironmentEntry(
-        name=ctx.environment.get("Name"),
+        name=environment_name,
         airflow_version=airflow_version,
         already_configured=startup_script_looks_configured(ctx.startup_script_text),
         plan=plan,

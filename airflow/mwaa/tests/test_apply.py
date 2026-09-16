@@ -27,7 +27,7 @@ def make_context(**overrides) -> ProbeContext:
 
 def test_compute_apply_actions_patches_requirements_and_constraints():
     ctx = make_context()
-    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "fake-dd-api-key")
+    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "fake-dd-api-key", "my-env")
 
     uploads = compute_apply_actions(ctx, plan)
 
@@ -58,7 +58,7 @@ def test_compute_apply_actions_uses_prerendered_startup_script_content():
             "openlineage-sql==1.24.2\n"
         ),
     )
-    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "fake-dd-api-key")
+    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "fake-dd-api-key", "my-env")
 
     uploads = compute_apply_actions(ctx, plan)
 
@@ -94,7 +94,7 @@ def test_compute_apply_actions_handles_unflagged_version_missing_provider():
         constraints_text=None,
         startup_script_text="export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n",
     )
-    plan = compute_plan("3.0.6", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "fake-dd-api-key")
+    plan = compute_plan("3.0.6", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "fake-dd-api-key", "my-env")
     assert plan.upgrade_needed is True
     assert plan.source == "unflagged_version"
 
@@ -112,7 +112,7 @@ def test_apply_to_environment_uploads_and_calls_update():
     client = MagicMock()
     client.put_object_text.side_effect = ["v-con", "v-req", "v-startup"]
     ctx = make_context()
-    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "fake-dd-api-key")
+    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "fake-dd-api-key", "my-env")
     uploads = compute_apply_actions(ctx, plan)
 
     result = apply_to_environment(client, ctx, uploads)
@@ -157,7 +157,7 @@ def test_apply_to_environment_writes_to_the_environments_real_prefixed_keys():
             "StartupScriptS3Path": "setup-probe/probe-env/startup/startup.sh",
         },
     )
-    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "fake-dd-api-key")
+    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "fake-dd-api-key", "my-env")
     uploads = compute_apply_actions(ctx, plan)
 
     result = apply_to_environment(client, ctx, uploads)

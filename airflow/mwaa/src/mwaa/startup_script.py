@@ -10,6 +10,17 @@ The real Datadog API key is required at scan time (see scan_config.py's
 --dd-api-key) and interpolated directly into the rendered content -- both
 because the startup script needs the real value to actually work, and
 because the eventual backend API call to persist a session will need it too.
+
+The doc's own snippet uses `AIRFLOW__OPENLINEAGE__NAMESPACE=${AIRFLOW_ENV_NAME}`
+as if AIRFLOW_ENV_NAME is already set, but it isn't one of MWAA's reserved or
+commonly-set variables (see AWS's own startup-script docs) -- nothing defines
+it, so that line would silently resolve to an empty namespace. Since a real
+MWAA deployment is typically one of several (dev/staging/prod are usually
+separate environments, not one Airflow instance switching contexts), and each
+environment's own Name is already the natural, unique way to tell them apart,
+this renders an explicit `export AIRFLOW_ENV_NAME="<real environment name>"`
+right before that line -- keeping the doc's exact interpolation syntax, but
+making it actually resolve to something.
 """
 
 # Airflow versions that need the OpenLineage config-path workaround, per the
@@ -18,12 +29,13 @@ because the eventual backend API call to persist a session will need it too.
 VERSIONS_NEEDING_CONFIG_PATH_WORKAROUND = {"2.7.2", "2.8.1"}
 
 
-def render_startup_script(airflow_version: str, dd_site: str, dd_api_key: str) -> str:
+def render_startup_script(airflow_version: str, dd_site: str, dd_api_key: str, environment_name: str) -> str:
     """Render the startup.sh content for one environment's Airflow version."""
     lines = [
         "#!/bin/sh",
         f"export OPENLINEAGE_URL=https://data-obs-intake.{dd_site}",
         f"export OPENLINEAGE_API_KEY={dd_api_key}",
+        f'export AIRFLOW_ENV_NAME="{environment_name}"',
         "export AIRFLOW__OPENLINEAGE__NAMESPACE=${AIRFLOW_ENV_NAME}",
     ]
     if airflow_version in VERSIONS_NEEDING_CONFIG_PATH_WORKAROUND:
