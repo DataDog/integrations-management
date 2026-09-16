@@ -20,13 +20,8 @@ def test_render_startup_script_omits_workaround_for_newer_versions():
 
 def test_render_startup_script_interpolates_the_real_environment_name():
     script = render_startup_script("2.10.1", "datadoghq.com", "fake-dd-api-key", "my-mwaa-prod")
-    assert 'export AIRFLOW_ENV_NAME="my-mwaa-prod"' in script
-    # Kept, not hardcoded away -- see the module docstring for why.
-    assert "export AIRFLOW__OPENLINEAGE__NAMESPACE=${AIRFLOW_ENV_NAME}" in script
-    lines = script.splitlines()
-    assert lines.index('export AIRFLOW_ENV_NAME="my-mwaa-prod"') < lines.index(
-        "export AIRFLOW__OPENLINEAGE__NAMESPACE=${AIRFLOW_ENV_NAME}"
-    )
+    assert 'export AIRFLOW__OPENLINEAGE__NAMESPACE="my-mwaa-prod"' in script
+    assert "AIRFLOW_ENV_NAME" not in script
 
 
 def test_startup_script_looks_configured_true_when_url_present():
