@@ -6,10 +6,14 @@
 
 Source: https://docs.datadoghq.com/data_observability/jobs_monitoring/airflow.md
 
-The real Datadog API key is required at scan time (see scan_config.py's
---dd-api-key) and interpolated directly into the rendered content -- both
-because the startup script needs the real value to actually work, and
-because the eventual backend API call to persist a session will need it too.
+The rendered content NEVER carries the real Datadog API key -- only
+DD_API_KEY_PLACEHOLDER. A Plan (and by extension a persisted Session) is meant
+to be safe to ship to a backend and store; baking the real key into that would
+mean every place a Session gets persisted, logged, or displayed becomes a place
+a customer's real API key could leak. The real value is substituted in by
+interpolate_api_key, called by apply.py right before a file actually gets
+written to S3 (or previewed at the terminal) -- the only two places the real
+key is used, and neither of those persists anything.
 
 The doc's own snippet uses `AIRFLOW__OPENLINEAGE__NAMESPACE=${AIRFLOW_ENV_NAME}`
 as if AIRFLOW_ENV_NAME is already set, but it isn't one of MWAA's reserved or
@@ -27,13 +31,20 @@ instead -- no intermediate variable, no indirection.
 # but MWAA's default constraints for these two versions pin older than that.
 VERSIONS_NEEDING_CONFIG_PATH_WORKAROUND = {"2.7.2", "2.8.1"}
 
+#: Stands in for the real API key in any rendered/persisted startup.sh content.
+#: See the module docstring for why the real value never appears there.
+DD_API_KEY_PLACEHOLDER = "<DD_API_KEY>"
 
-def render_startup_script(airflow_version: str, dd_site: str, dd_api_key: str, environment_name: str) -> str:
-    """Render the startup.sh content for one environment's Airflow version."""
+
+def render_startup_script(airflow_version: str, dd_site: str, environment_name: str) -> str:
+    """Render the startup.sh content for one environment's Airflow version.
+
+    Carries DD_API_KEY_PLACEHOLDER, never a real key -- see interpolate_api_key.
+    """
     lines = [
         "#!/bin/sh",
         f"export OPENLINEAGE_URL=https://data-obs-intake.{dd_site}",
-        f"export OPENLINEAGE_API_KEY={dd_api_key}",
+        f"export OPENLINEAGE_API_KEY={DD_API_KEY_PLACEHOLDER}",
         f'export AIRFLOW__OPENLINEAGE__NAMESPACE="{environment_name}"',
     ]
     if airflow_version in VERSIONS_NEEDING_CONFIG_PATH_WORKAROUND:
@@ -42,6 +53,17 @@ def render_startup_script(airflow_version: str, dd_site: str, dd_api_key: str, e
             'export AIRFLOW__OPENLINEAGE__DISABLED_FOR_OPERATORS=""',
         ]
     return "\n".join(lines) + "\n"
+
+
+def interpolate_api_key(content: str, dd_api_key: str) -> str:
+    """Substitute the real Datadog API key into rendered startup.sh content.
+
+    Called by apply.py right before a file is written or previewed -- the only
+    two places the real key is ever used. Everything upstream of that (Plan,
+    Session, any persisted/logged/displayed form of either) only ever carries
+    DD_API_KEY_PLACEHOLDER.
+    """
+    return content.replace(DD_API_KEY_PLACEHOLDER, dd_api_key)
 
 
 # Either mechanism routes lineage events somewhere: OPENLINEAGE_URL is what

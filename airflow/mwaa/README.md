@@ -31,14 +31,20 @@ python mwaa.pyz scan --session-id <uuid> --region us-east-1 --dd-api-key <key>
 python mwaa.pyz scan --session-id <uuid> --region us-east-1 --dd-api-key <key> --interactive
 
 # Preview one environment's plan from a session a prior `scan` persisted
-python mwaa.pyz apply --session-id <uuid> --name my-mwaa-environment --region us-east-1
+python mwaa.pyz apply --session-id <uuid> --name my-mwaa-environment --region us-east-1 --dd-api-key <key>
 # ...then add --yes once the diff looks right, to actually apply it
 ```
 
 `--region` falls back to `AWS_REGION`/`AWS_DEFAULT_REGION` if omitted, and `--dd-api-key`
 falls back to `DD_API_KEY`. `--session-id` must be a UUID -- the eventual UI generates one
-and embeds it in the command it hands you. `--dd-api-key` is interpolated directly into
-the proposed startup.sh, since the script needs the real value to actually work.
+and embeds it in the command it hands you.
+
+A session's proposed startup.sh never carries a real Datadog API key -- only a
+placeholder (see `startup_script.py`). Both `scan` and `apply` require `--dd-api-key`,
+but only `apply` (or `scan --interactive`, right before it applies) ever substitutes the
+real value in, immediately before a file is previewed or written. Nothing persisted or
+displayed upstream of that point -- including anything that would eventually be sent to
+a backend -- ever contains the real key.
 
 AWS credentials are picked up the normal boto3 way (CloudShell's assumed role, an
 environment profile, `~/.aws/credentials`, etc.) -- this tool does not manage credentials
@@ -82,7 +88,7 @@ comes from. The expected shape is exactly what `scan` persists
 feed it back in.
 
 ```bash
-SESSION_OVERRIDE_PATH=./my-session.json python mwaa.pyz apply --session-id <uuid> --name my-mwaa-environment --region us-east-1 --yes
+SESSION_OVERRIDE_PATH=./my-session.json python mwaa.pyz apply --session-id <uuid> --name my-mwaa-environment --region us-east-1 --dd-api-key <key> --yes
 ```
 
 Not part of the documented CLI surface for customers -- it's a testing escape hatch.

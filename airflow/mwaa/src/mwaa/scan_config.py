@@ -54,8 +54,9 @@ def parse_scan_config(argv: Optional[Sequence[str]] = None) -> ScanConfig:
         "--dd-api-key",
         default=os.environ.get("DD_API_KEY"),
         help=(
-            "Datadog API key, interpolated directly into the proposed startup.sh (default: $DD_API_KEY). "
-            "Required -- the startup script needs the real value to work."
+            "Datadog API key (default: $DD_API_KEY). Required for --interactive's own apply step "
+            "(the substituted key never appears in the persisted session -- see startup_script.py) "
+            "and for the eventual API call that persists this session."
         ),
     )
     parser.add_argument(

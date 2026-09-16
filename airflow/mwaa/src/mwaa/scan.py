@@ -32,7 +32,7 @@ from typing import Any, Callable
 from airflow_shared.mwaa_client import MwaaClient
 from airflow_shared.reporter import Reporter
 
-from .apply import apply_to_environment, compute_apply_actions
+from .apply import apply_to_environment, compute_apply_actions, interpolate_api_key
 from .checks import ProbeContext
 from .diff_preview import render_unified_diff
 from .discovery import discover_environments
@@ -132,7 +132,7 @@ def _run_interactive(
 
     print(f"\nRationale: {entry.plan.rationale}")
 
-    uploads = compute_apply_actions(ctx, entry.plan)
+    uploads = interpolate_api_key(compute_apply_actions(ctx, entry.plan), config.dd_api_key)
     print("\nProposed changes:")
     for upload in uploads:
         diff = render_unified_diff(upload.path, upload.old_content, upload.content)
@@ -144,7 +144,10 @@ def _run_interactive(
         return {"applied": False, "session": session, "environment": entry.name, "uploads": uploads}
 
     if not _prompt_yes_no("\nRun apply now?", input_func):
-        cmd = f"python mwaa.pyz apply --session-id {session.session_id} --name {entry.name} --region {config.region}"
+        cmd = (
+            f"python mwaa.pyz apply --session-id {session.session_id} --name {entry.name} "
+            f"--region {config.region} --dd-api-key <DD_API_KEY>"
+        )
         print(f"\nNo changes made. To apply later, run:\n  {cmd}")
         return {"applied": False, "session": session, "environment": entry.name, "uploads": uploads}
 
@@ -174,7 +177,7 @@ def run_scan(config: ScanConfig, reporter: Reporter, input_func: InputFunc = inp
         contexts = discover_environments(client)
 
     with reporter.report_step("build_session"):
-        session = build_session(config.session_id, config.region, config.dd_site, config.dd_api_key, contexts)
+        session = build_session(config.session_id, config.region, config.dd_site, contexts)
 
     with reporter.report_step("persist_session"):
         save_session(session)

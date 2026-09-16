@@ -62,7 +62,7 @@ def make_session(plan: Plan = NEEDS_UPGRADE_PLAN) -> Session:
 
 
 def test_run_apply_without_yes_does_not_call_put_object(capsys):
-    config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", confirmed=False)
+    config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", dd_api_key="fake-dd-api-key", confirmed=False)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
 
@@ -79,7 +79,7 @@ def test_run_apply_without_yes_does_not_call_put_object(capsys):
 
 
 def test_run_apply_with_yes_uploads_files(capsys):
-    config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", confirmed=True)
+    config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", dd_api_key="fake-dd-api-key", confirmed=True)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
 
@@ -96,7 +96,7 @@ def test_run_apply_with_yes_uploads_files(capsys):
 
 
 def test_run_apply_reports_nothing_to_do_when_already_configured(capsys):
-    config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", confirmed=True)
+    config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", dd_api_key="fake-dd-api-key", confirmed=True)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
 
@@ -113,7 +113,7 @@ def test_run_apply_reports_nothing_to_do_when_already_configured(capsys):
 
 
 def test_run_apply_reports_when_name_not_in_session(capsys):
-    config = ApplyConfig(session_id=SESSION_ID, environment_name="not-in-session", region="us-east-1", confirmed=True)
+    config = ApplyConfig(session_id=SESSION_ID, environment_name="not-in-session", region="us-east-1", dd_api_key="fake-dd-api-key", confirmed=True)
     reporter = Reporter(workflow_type="mwaa-setup")
 
     with patch("mwaa.apply_command.load_session", return_value=make_session()):
@@ -129,7 +129,7 @@ def test_run_apply_uses_session_override_when_env_var_set(capsys, tmp_path, monk
     override_path.write_text(json.dumps(asdict(override_session)))
     monkeypatch.setenv(SESSION_OVERRIDE_ENV_VAR, str(override_path))
 
-    config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", confirmed=True)
+    config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", dd_api_key="fake-dd-api-key", confirmed=True)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
 

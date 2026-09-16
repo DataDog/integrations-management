@@ -6,9 +6,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from mwaa.apply import compute_apply_actions, apply_to_environment, real_key_for_path
+from mwaa.apply import compute_apply_actions, apply_to_environment, interpolate_api_key, real_key_for_path
 from mwaa.checks import ProbeContext
 from mwaa.plan import compute_plan
+from mwaa.startup_script import DD_API_KEY_PLACEHOLDER
 
 ENVIRONMENT = {"Name": "my-env", "AirflowVersion": "2.8.1", "SourceBucketArn": "arn:aws:s3:::my-bucket"}
 
@@ -27,7 +28,7 @@ def make_context(**overrides) -> ProbeContext:
 
 def test_compute_apply_actions_patches_requirements_and_constraints():
     ctx = make_context()
-    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "fake-dd-api-key", "my-env")
+    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "my-env")
 
     uploads = compute_apply_actions(ctx, plan)
 
@@ -58,13 +59,27 @@ def test_compute_apply_actions_uses_prerendered_startup_script_content():
             "openlineage-sql==1.24.2\n"
         ),
     )
-    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "fake-dd-api-key", "my-env")
+    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "my-env")
 
     uploads = compute_apply_actions(ctx, plan)
 
     assert len(uploads) == 1
     assert uploads[0].path == "dags/startup.sh"
-    assert "OPENLINEAGE_API_KEY=fake-dd-api-key" in uploads[0].content
+    assert f"OPENLINEAGE_API_KEY={DD_API_KEY_PLACEHOLDER}" in uploads[0].content
+
+
+def test_interpolate_api_key_substitutes_only_the_startup_script_upload():
+    ctx = make_context()
+    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "my-env")
+    uploads = compute_apply_actions(ctx, plan)
+
+    interpolated = interpolate_api_key(uploads, "real-dd-api-key")
+
+    by_path = {u.path: u for u in interpolated}
+    assert "OPENLINEAGE_API_KEY=real-dd-api-key" in by_path["dags/startup.sh"].content
+    assert DD_API_KEY_PLACEHOLDER not in by_path["dags/startup.sh"].content
+    # untouched -- the placeholder only ever appears in the startup.sh content
+    assert by_path["requirements.txt"].content == next(u for u in uploads if u.path == "requirements.txt").content
 
 
 def test_compute_apply_actions_rejects_unknown_path():
@@ -94,7 +109,7 @@ def test_compute_apply_actions_handles_unflagged_version_missing_provider():
         constraints_text=None,
         startup_script_text="export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n",
     )
-    plan = compute_plan("3.0.6", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "fake-dd-api-key", "my-env")
+    plan = compute_plan("3.0.6", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "my-env")
     assert plan.upgrade_needed is True
     assert plan.source == "unflagged_version"
 
@@ -112,7 +127,7 @@ def test_apply_to_environment_uploads_and_calls_update():
     client = MagicMock()
     client.put_object_text.side_effect = ["v-con", "v-req", "v-startup"]
     ctx = make_context()
-    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "fake-dd-api-key", "my-env")
+    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "my-env")
     uploads = compute_apply_actions(ctx, plan)
 
     result = apply_to_environment(client, ctx, uploads)
@@ -157,7 +172,7 @@ def test_apply_to_environment_writes_to_the_environments_real_prefixed_keys():
             "StartupScriptS3Path": "setup-probe/probe-env/startup/startup.sh",
         },
     )
-    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "fake-dd-api-key", "my-env")
+    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "my-env")
     uploads = compute_apply_actions(ctx, plan)
 
     result = apply_to_environment(client, ctx, uploads)

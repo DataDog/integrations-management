@@ -17,7 +17,7 @@ from typing import Any
 from airflow_shared.mwaa_client import MwaaClient
 from airflow_shared.reporter import Reporter
 
-from .apply import apply_to_environment, compute_apply_actions
+from .apply import apply_to_environment, compute_apply_actions, interpolate_api_key
 from .apply_config import ApplyConfig
 from .diff_preview import render_unified_diff
 from .probe import build_context
@@ -60,7 +60,7 @@ def run_apply(config: ApplyConfig, reporter: Reporter) -> dict[str, Any]:
         print("Nothing to apply -- this environment is already fully configured.")
         return {"applied": False, "plan": plan, "uploads": []}
 
-    uploads = compute_apply_actions(ctx, plan)
+    uploads = interpolate_api_key(compute_apply_actions(ctx, plan), config.dd_api_key)
 
     print()
     print(f"Rationale: {plan.rationale}")

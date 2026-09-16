@@ -19,7 +19,12 @@ content, a session only ever carries each environment's *computed plan* --
 pin diffs, rationale, the matched version-table entry -- which is exactly
 what's needed to understand why a diff was proposed, and structurally can't
 contain a credential, since none of it is copied from the environment's
-actual files.
+actual files. The one piece of *computed* (not copied) content a Plan does
+carry -- the proposed startup.sh -- still can't leak the customer's real
+Datadog API key either, because it's never in there in the first place: see
+startup_script.py's DD_API_KEY_PLACEHOLDER. apply.py is the only place the
+real key ever gets substituted in, right before a file is written or
+previewed.
 
 Each environment also carries `issues`: findings from the subset of probe
 checks.py checks that matter for whether it's *safe* to apply this plan --
@@ -103,7 +108,7 @@ def _compute_issues(ctx: ProbeContext) -> list[Finding]:
     return issues
 
 
-def _environment_entry(ctx: ProbeContext, dd_site: str, dd_api_key: str) -> EnvironmentEntry:
+def _environment_entry(ctx: ProbeContext, dd_site: str) -> EnvironmentEntry:
     airflow_version = ctx.environment.get("AirflowVersion", "")
     environment_name = ctx.environment.get("Name")
     plan = compute_plan(
@@ -112,7 +117,6 @@ def _environment_entry(ctx: ProbeContext, dd_site: str, dd_api_key: str) -> Envi
         constraints_text=ctx.constraints_text,
         startup_script_text=ctx.startup_script_text,
         dd_site=dd_site,
-        dd_api_key=dd_api_key,
         environment_name=environment_name,
     )
     return EnvironmentEntry(
@@ -124,12 +128,12 @@ def _environment_entry(ctx: ProbeContext, dd_site: str, dd_api_key: str) -> Envi
     )
 
 
-def build_session(session_id: str, region: str, dd_site: str, dd_api_key: str, contexts: list[ProbeContext]) -> Session:
+def build_session(session_id: str, region: str, dd_site: str, contexts: list[ProbeContext]) -> Session:
     """Assemble the full session for every environment discovered in one scan run."""
     return Session(
         session_id=session_id,
         region=region,
-        environments=[_environment_entry(ctx, dd_site, dd_api_key) for ctx in contexts],
+        environments=[_environment_entry(ctx, dd_site) for ctx in contexts],
     )
 
 

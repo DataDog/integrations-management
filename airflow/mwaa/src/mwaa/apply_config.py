@@ -25,6 +25,7 @@ class ApplyConfig:
     session_id: str
     environment_name: str
     region: str
+    dd_api_key: str
     confirmed: bool = False
 
 
@@ -58,6 +59,15 @@ def parse_apply_config(argv: Optional[Sequence[str]] = None) -> ApplyConfig:
         help="AWS region (default: $AWS_REGION or $AWS_DEFAULT_REGION)",
     )
     parser.add_argument(
+        "--dd-api-key",
+        default=os.environ.get("DD_API_KEY"),
+        help=(
+            "Datadog API key (default: $DD_API_KEY). A plan's startup.sh only ever carries a "
+            "placeholder -- see startup_script.py -- so this is what gets substituted in, right "
+            "before a file is previewed or actually written. Required."
+        ),
+    )
+    parser.add_argument(
         "--yes",
         action="store_true",
         help="Actually upload files and update the environment. Without this, only prints a preview.",
@@ -76,8 +86,16 @@ def parse_apply_config(argv: Optional[Sequence[str]] = None) -> ApplyConfig:
         errors.append("Environment name is required: pass --name or set MWAA_ENVIRONMENT_NAME")
     if not args.region:
         errors.append("Region is required: pass --region or set AWS_REGION")
+    if not args.dd_api_key:
+        errors.append("Datadog API key is required: pass --dd-api-key or set DD_API_KEY")
 
     if errors:
         raise ConfigError("\n".join(f"  - {e}" for e in errors))
 
-    return ApplyConfig(session_id=args.session_id, environment_name=args.name, region=args.region, confirmed=args.yes)
+    return ApplyConfig(
+        session_id=args.session_id,
+        environment_name=args.name,
+        region=args.region,
+        dd_api_key=args.dd_api_key,
+        confirmed=args.yes,
+    )

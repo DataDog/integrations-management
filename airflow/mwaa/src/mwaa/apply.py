@@ -32,6 +32,7 @@ from .checks import ProbeContext, resolve_constraint_key
 from .patch import ensure_constraint_line, patch_pins
 from .pins import resolve_constraint_s3_key
 from .plan import CONSTRAINTS_PATH, EXPECTED_CONSTRAINT_LINE_TARGET, REQUIREMENTS_PATH, STARTUP_SCRIPT_PATH, FileChange, Plan
+from .startup_script import interpolate_api_key as _substitute_api_key
 
 
 @dataclass(frozen=True)
@@ -109,6 +110,23 @@ def compute_apply_actions(ctx: ProbeContext, plan: Plan) -> list[FileUpload]:
             content = change.content
         uploads.append(FileUpload(path=change.path, old_content=old_content, content=content, action=change.action))
     return uploads
+
+
+def interpolate_api_key(uploads: list[FileUpload], dd_api_key: str) -> list[FileUpload]:
+    """Substitute the real Datadog API key into the startup.sh upload's content.
+
+    The only place this happens -- compute_apply_actions (and everything
+    upstream of it: Plan, Session) only ever carries DD_API_KEY_PLACEHOLDER.
+    Called right before a preview is printed or a file is actually written,
+    so the real key exists in memory as briefly as possible and is never
+    part of anything persisted or logged.
+    """
+    return [
+        FileUpload(path=u.path, old_content=u.old_content, content=_substitute_api_key(u.content, dd_api_key), action=u.action)
+        if u.path == STARTUP_SCRIPT_PATH
+        else u
+        for u in uploads
+    ]
 
 
 def apply_to_environment(client: MwaaClient, ctx: ProbeContext, uploads: list[FileUpload]) -> dict[str, Any]:

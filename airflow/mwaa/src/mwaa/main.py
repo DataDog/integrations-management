@@ -12,10 +12,16 @@
                                                                             # the terminal instead
   python mwaa.pyz scan ... --interactive --dry-run                        # same, but never applies -- skips the
                                                                             # confirmation prompt too
-  python mwaa.pyz apply --session-id <uuid> --name <env> --region <region>        # just prints the plan's file changes
-  python mwaa.pyz apply --session-id <uuid> --name <env> --region <region> --yes  # actually applies them
+  python mwaa.pyz apply --session-id <uuid> --name <env> --region <region> --dd-api-key <key>        # just prints
+                                                                            # the plan's file changes
+  python mwaa.pyz apply --session-id <uuid> --name <env> --region <region> --dd-api-key <key> --yes  # actually
+                                                                            # applies them
 
-  SESSION_OVERRIDE_PATH=<path> python mwaa.pyz apply --session-id <uuid> --name <env> --region <region>
+  A scanned session's startup.sh only ever carries a placeholder for the API key
+  (see startup_script.py) -- apply's --dd-api-key is what gets substituted in,
+  right before a file is previewed or written. Never persisted upstream of that.
+
+  SESSION_OVERRIDE_PATH=<path> python mwaa.pyz apply --session-id <uuid> --name <env> --region <region> --dd-api-key <key>
       # local/dev only: apply a hand-authored Session from disk instead of one `scan` persisted --
       # --session-id is still required for a consistent signature, its value is just unused here --
       # see session_override.py

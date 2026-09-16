@@ -11,6 +11,10 @@ constraints.txt/startup script, decide what needs to change and why. The
 itself so a persisted session (see session.py) is enough to reconstruct the
 reasoning later, without needing to re-run this code against the version
 table as it existed at the time.
+
+The startup.sh FileChange's content never carries a real Datadog API key --
+see startup_script.py's DD_API_KEY_PLACEHOLDER -- so a Plan is always safe to
+persist, log, or display as-is.
 """
 
 from dataclasses import dataclass, field
@@ -124,7 +128,6 @@ def compute_plan(
     constraints_text: Optional[str],
     startup_script_text: Optional[str],
     dd_site: str,
-    dd_api_key: str,
     environment_name: str,
 ) -> Plan:
     """Compute the onboarding plan for one environment from its real current files."""
@@ -171,7 +174,7 @@ def compute_plan(
             FileChange(
                 path=STARTUP_SCRIPT_PATH,
                 action="update" if startup_script_text else "create",
-                content=render_startup_script(airflow_version, dd_site, dd_api_key, environment_name),
+                content=render_startup_script(airflow_version, dd_site, environment_name),
                 notes=["sets the OpenLineage transport variables that point Airflow at Datadog"],
             )
         )
