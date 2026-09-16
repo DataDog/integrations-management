@@ -82,6 +82,13 @@
         "us5.datadoghq.com",
         "ddog-gov.com"
       ]
+    },
+    "datadogTags" : {
+      "type": "string",
+      "defaultValue": "",
+      "metadata" : {
+        "description": "Custom Datadog tags to add to all forwarded logs. Use space-seperated logs, for example env:test team :platform"
+      }
     }
   },
   "resources": [
@@ -194,6 +201,10 @@
                 {
                   "name": "DD_SITE",
                   "value": "[parameters('datadogSite')]"
+                },
+                {
+                  "name": "DD_TAGS",
+                  "value": "[paramaters('datadogTags')]"
                 },
                 {
                   "name": "CONTROL_PLANE_ID",
