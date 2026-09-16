@@ -7,7 +7,11 @@
 Each check is a pure function: (ProbeContext) -> Finding. None of them mutate
 AWS state; the ones that need more data than GetEnvironment already returned
 call back into the MwaaClient held on the context (S3 reads, IAM policy
-simulation, CloudWatch log reads, route table reads).
+simulation).
+
+The subset that matters for whether it's safe to apply a plan (see
+_ISSUE_CHECKS in session.py) is what `scan` records as each environment's
+`issues`; there is no longer a standalone command that runs all of these.
 
 Grounded in two sources:
   * Datadog's public MWAA/OpenLineage upgrade guide
@@ -24,6 +28,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
+from botocore.exceptions import ClientError
+
 from airflow_shared.mwaa_client import MwaaClient
 from airflow_shared.reporter import Finding, FindingStatus
 
@@ -32,6 +38,7 @@ from .pins import (
     CONSTRAINT_LINE,
     DAGS_MOUNT_PREFIX,
     OPENLINEAGE_PACKAGES,
+    find_wheel_references,
     parse_pins,
     resolve_constraint_s3_key,
 )
@@ -44,7 +51,6 @@ _EXPORT_LINE = re.compile(
     r"^\s*export\s+(AIRFLOW__OPENLINEAGE__\w+|OPENLINEAGE_\w+)=(.*)$",
     re.MULTILINE,
 )
-_DEPENDENCY_ERROR_PATTERNS = ("ResolutionImpossible", "ERROR: Cannot install", "ERROR: No matching distribution")
 
 
 def _strip_matching_quotes(value: str) -> str:
@@ -110,6 +116,49 @@ def check_constraint_path(ctx: ProbeContext) -> Finding:
         "requirements.txt references a constraints file that does not exist",
         f"expected s3://{bucket}/{resolved_key} (from --constraint {constraint_path})",
     )
+
+
+def check_wheel_references(ctx: ProbeContext) -> Finding:
+    """Every .whl file requirements.txt references must exist as an S3 object.
+
+    Airflow 2.7.2's documented upgrade path has customers upload
+    Datadog-patched wheels by hand. A missing or renamed wheel becomes a
+    "could not find a version that satisfies" pip failure 20-30 minutes into
+    an environment update; resolving the reference against S3 up front turns
+    that into an instant pre-flight finding instead.
+    """
+    wheel_refs = find_wheel_references(ctx.requirements_text)
+    if not wheel_refs:
+        return Finding("wheel_references", FindingStatus.PASS, "requirements.txt references no .whl files")
+
+    dag_s3_path = ctx.environment.get("DagS3Path", "dags")
+    bucket = ctx.environment["SourceBucketArn"].rsplit(":", 1)[-1]
+
+    missing = []
+    unresolvable = []
+    for ref in wheel_refs:
+        key = resolve_constraint_s3_key(ref, dag_s3_path)
+        if key is None:
+            unresolvable.append(ref)
+            continue
+        if not ctx.client.object_exists(bucket, key):
+            missing.append(f"{ref} -> s3://{bucket}/{key}")
+
+    if missing:
+        return Finding(
+            "wheel_references",
+            FindingStatus.FAIL,
+            "requirements.txt references .whl file(s) that do not exist in S3",
+            "\n".join(missing),
+        )
+    if unresolvable:
+        return Finding(
+            "wheel_references",
+            FindingStatus.WARN,
+            f"{len(unresolvable)} referenced wheel(s) are outside {DAGS_MOUNT_PREFIX}, cannot verify they exist",
+            "\n".join(unresolvable),
+        )
+    return Finding("wheel_references", FindingStatus.PASS, f"all {len(wheel_refs)} referenced wheel(s) exist in S3")
 
 
 def check_openlineage_pins(ctx: ProbeContext) -> Finding:
@@ -229,10 +278,31 @@ def check_openlineage_precedence(ctx: ProbeContext) -> Finding:
 
 
 def check_execution_role_s3_access(ctx: ProbeContext) -> Finding:
-    """The execution role must be able to read the source bucket, not just the caller's own credentials."""
+    """The execution role must be able to read the source bucket, not just the caller's own credentials.
+
+    MWAA is presumably running today with whatever access the execution role
+    already has -- the risk this catches is narrower: a plan that writes to a
+    *new* S3 key (e.g. a constraints.txt that didn't exist before) can land
+    outside a role policy scoped to a specific prefix, which only breaks once
+    the environment is asked to read that new key on its next update.
+
+    Simulating the role's own policy needs iam:SimulatePrincipalPolicy on the
+    *caller's* credentials, which a customer running this CLI may not have.
+    That's a permissions gap in this check, not in the execution role, so it
+    degrades to "not verified" rather than failing the whole check.
+    """
     role_arn = ctx.environment["ExecutionRoleArn"]
     bucket_arn = ctx.environment["SourceBucketArn"]
-    access = ctx.client.simulate_s3_read_access(role_arn, bucket_arn)
+    try:
+        access = ctx.client.simulate_s3_read_access(role_arn, bucket_arn)
+    except ClientError as exc:
+        return Finding(
+            "execution_role_s3_access",
+            FindingStatus.WARN,
+            "could not verify the execution role's S3 access",
+            f"{exc}\nThis means the check couldn't run, not that the execution role lacks access. "
+            "It usually means the caller's own credentials lack iam:SimulatePrincipalPolicy.",
+        )
     denied = [action for action, allowed in access.items() if not allowed]
     if denied:
         return Finding(
@@ -244,52 +314,3 @@ def check_execution_role_s3_access(ctx: ProbeContext) -> Finding:
     return Finding("execution_role_s3_access", FindingStatus.PASS, "execution role can read the source bucket")
 
 
-def check_install_log_errors(ctx: ProbeContext) -> Finding:
-    """Scan the DAGProcessing log group for pip dependency-resolution failures."""
-    name = ctx.environment["Name"]
-    log_group = f"airflow-{name}-DAGProcessing"
-    matches = []
-    for pattern in _DEPENDENCY_ERROR_PATTERNS:
-        matches.extend(ctx.client.filter_log_events(log_group, f'"{pattern}"', limit=5))
-
-    if matches:
-        return Finding(
-            "install_log_errors",
-            FindingStatus.FAIL,
-            "found dependency-resolution errors in the DAGProcessing log",
-            "\n".join(matches[:5]),
-        )
-    return Finding(
-        "install_log_errors",
-        FindingStatus.PASS,
-        "no dependency-resolution errors found in the DAGProcessing log",
-    )
-
-
-def check_network_egress(ctx: ProbeContext) -> Finding:
-    """Every MWAA subnet needs a route to the internet (NAT or IGW) for pip to install anything."""
-    subnet_ids = ctx.environment.get("NetworkConfiguration", {}).get("SubnetIds", [])
-    if not subnet_ids:
-        return Finding("network_egress", FindingStatus.WARN, "environment has no subnets in its NetworkConfiguration")
-
-    egress = ctx.client.describe_subnet_egress(subnet_ids)
-    no_egress = [e.subnet_id for e in egress if not (e.has_nat_route or e.has_internet_gateway_route)]
-    if no_egress:
-        return Finding(
-            "network_egress",
-            FindingStatus.FAIL,
-            "some subnets have no route to the internet",
-            f"subnets without a NAT/internet gateway route: {', '.join(no_egress)}",
-        )
-    return Finding("network_egress", FindingStatus.PASS, "all subnets have a route to the internet")
-
-
-ALL_CHECKS = (
-    check_constraint_path,
-    check_openlineage_pins,
-    check_requirements_constraints_match,
-    check_openlineage_precedence,
-    check_execution_role_s3_access,
-    check_install_log_errors,
-    check_network_egress,
-)

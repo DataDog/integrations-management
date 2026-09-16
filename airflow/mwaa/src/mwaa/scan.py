@@ -82,6 +82,9 @@ def _prompt_yes_no(prompt: str, input_func: InputFunc) -> bool:
 
 def _print_ui_handoff(session: Session) -> None:
     print(f"\nSession persisted: {session.session_id}")
+    flagged = [e for e in session.environments if e.issues]
+    if flagged:
+        print(f"{len(flagged)} of {len(session.environments)} environment(s) have issues recorded -- see them when you apply.")
     print("Continue in the Configure Airflow UI:")
     print(f"  https://app.datadoghq.com/data-observability/configure-airflow?session_id={session.session_id}")
 
@@ -105,7 +108,8 @@ def _run_interactive(
 
     print(f"\n{len(session.environments)} MWAA environment(s) found. Each was checked against its active configuration files.\n")
     for i, entry in enumerate(session.environments, start=1):
-        print(f"  [{i}] {entry.name}  (Airflow {entry.airflow_version}, {_status_label(entry.plan)})")
+        issue_note = f", {len(entry.issues)} issue(s) found" if entry.issues else ""
+        print(f"  [{i}] {entry.name}  (Airflow {entry.airflow_version}, {_status_label(entry.plan)}{issue_note})")
 
     choice = _prompt_choice(len(session.environments), input_func)
     if choice is None:
@@ -115,6 +119,13 @@ def _run_interactive(
     entry, ctx = session.environments[choice - 1], contexts[choice - 1]
 
     print(f"\nSelected: {entry.name}")
+
+    if entry.issues:
+        print(f"\n{len(entry.issues)} issue(s) were found when this session was scanned:")
+        for issue in entry.issues:
+            reporter.report_finding(issue)
+        print("\nThese don't block applying -- review them before continuing.")
+
     if not entry.plan.file_changes:
         print("This environment is already fully configured for Data Observability. Nothing to do.")
         return {"applied": False, "session": session, "environment": entry.name}
@@ -137,8 +148,12 @@ def _run_interactive(
         print(f"\nNo changes made. To apply later, run:\n  {cmd}")
         return {"applied": False, "session": session, "environment": entry.name, "uploads": uploads}
 
+    # The scan/discovery client above is read-only by construction (see
+    # MwaaClient's `read_only` guard); applying needs a separate, full-power
+    # client, created only once the user has explicitly confirmed.
+    apply_client = MwaaClient(region=config.region)
     with reporter.report_step("apply_changes"):
-        result = apply_to_environment(client, ctx, uploads)
+        result = apply_to_environment(apply_client, ctx, uploads)
 
     print(f"\nUploaded {len(result['uploaded'])} file(s).")
     if result["update_environment_called"]:
@@ -153,7 +168,7 @@ def _run_interactive(
 
 def run_scan(config: ScanConfig, reporter: Reporter, input_func: InputFunc = input) -> dict[str, Any]:
     """Discover every environment in the region, persist the session, and hand off."""
-    client = MwaaClient(region=config.region)
+    client = MwaaClient(region=config.region, read_only=True)
 
     with reporter.report_step("discover_environments"):
         contexts = discover_environments(client)

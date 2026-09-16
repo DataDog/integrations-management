@@ -5,7 +5,7 @@
 import pytest
 from botocore.stub import ANY, Stubber
 
-from airflow_shared.mwaa_client import MwaaClient, ObjectNotFoundError
+from airflow_shared.mwaa_client import MwaaClient, ObjectNotFoundError, ReadOnlyViolation
 
 
 @pytest.fixture
@@ -157,6 +157,38 @@ def test_describe_subnet_egress_detects_nat_route(client: MwaaClient):
         results = client.describe_subnet_egress(["subnet-1"])
     assert results[0].has_nat_route is True
     assert results[0].has_internet_gateway_route is False
+
+
+# --- read_only guard ----------------------------------------------------------
+
+
+@pytest.fixture
+def read_only_client() -> MwaaClient:
+    return MwaaClient(region="us-east-1", read_only=True)
+
+
+def test_read_only_client_blocks_put_object(read_only_client: MwaaClient):
+    with pytest.raises(ReadOnlyViolation):
+        read_only_client.put_object_text("my-bucket", "requirements.txt", "pandas==2.1.4\n")
+
+
+def test_read_only_client_blocks_update_environment(read_only_client: MwaaClient):
+    with pytest.raises(ReadOnlyViolation):
+        read_only_client.update_environment("my-env", RequirementsS3Path="requirements.txt")
+
+
+def test_read_only_client_allows_get_environment(read_only_client: MwaaClient):
+    stubber = Stubber(read_only_client._mwaa)
+    stubber.add_response("get_environment", {"Environment": {"Name": "my-env"}}, {"Name": "my-env"})
+    with stubber:
+        env = read_only_client.get_environment("my-env")
+    assert env["Name"] == "my-env"
+
+
+def test_default_client_is_not_read_only(client: MwaaClient):
+    # get_object is on the write client's happy path too -- this just confirms
+    # the default constructor doesn't attach the guard at all.
+    assert client.read_only is False
 
 
 class _StreamingBody:

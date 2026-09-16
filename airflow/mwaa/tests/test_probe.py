@@ -2,12 +2,10 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-from airflow_shared.mwaa_client import ObjectNotFoundError, RouteTableEgress
-from airflow_shared.reporter import FindingStatus, Reporter
-from mwaa.config import Config
-from mwaa.probe import build_context, run_probe
+from airflow_shared.mwaa_client import ObjectNotFoundError
+from mwaa.probe import build_context
 
 ENVIRONMENT = {
     "Name": "my-env",
@@ -37,8 +35,6 @@ def make_client() -> MagicMock:
     }[key]
     client.object_exists.return_value = True
     client.simulate_s3_read_access.return_value = {"s3:GetObject": True, "s3:ListBucket": True}
-    client.filter_log_events.return_value = []
-    client.describe_subnet_egress.return_value = [RouteTableEgress("subnet-1", "rtb-1", True, False)]
     return client
 
 
@@ -79,14 +75,3 @@ def test_build_context_tolerates_environment_with_no_requirements_configured():
 
     assert ctx.requirements_text == ""
     assert ctx.constraints_text is None
-
-
-def test_run_probe_returns_a_finding_per_check():
-    config = Config(environment_name="my-env", region="us-east-1")
-    reporter = Reporter(workflow_type="mwaa-setup")
-
-    with patch("mwaa.probe.MwaaClient", return_value=make_client()):
-        findings = run_probe(config, reporter)
-
-    assert len(findings) == 7
-    assert all(f.status in {FindingStatus.PASS, FindingStatus.WARN, FindingStatus.FAIL} for f in findings)

@@ -12,7 +12,6 @@
                                                                             # the terminal instead
   python mwaa.pyz scan ... --interactive --dry-run                        # same, but never applies -- skips the
                                                                             # confirmation prompt too
-  python mwaa.pyz probe --name <env> --region <region>                    # read-only diagnostics against one environment
   python mwaa.pyz apply --session-id <uuid> --name <env> --region <region>        # just prints the plan's file changes
   python mwaa.pyz apply --session-id <uuid> --name <env> --region <region> --yes  # actually applies them
 
@@ -22,20 +21,25 @@
       # see session_override.py
 
 `scan` is the default if no subcommand is given.
+
+There used to be a third command, `probe` -- read-only diagnostics against one
+already-named environment, with no session involved. Retired: every check it
+ran now feeds `scan`'s per-environment `issues` (see session.py), which is the
+one place onboarding problems should surface.
 """
 
 import sys
 
-from airflow_shared.reporter import FindingStatus, Reporter
+from airflow_shared.reporter import Reporter
 
 from .apply_command import run_apply
 from .apply_config import parse_apply_config
-from .config import ConfigError, parse_config
-from .probe import WORKFLOW_TYPE, run_probe
+from .config import ConfigError
 from .scan import run_scan
 from .scan_config import parse_scan_config
 
-COMMANDS = ("scan", "probe", "apply")
+WORKFLOW_TYPE = "mwaa-setup"
+COMMANDS = ("scan", "apply")
 
 
 def _run_scan(argv: list[str]) -> None:
@@ -52,26 +56,6 @@ def _run_scan(argv: list[str]) -> None:
         run_scan(config, reporter)
     except Exception as e:
         print(f"\nScan failed: {e}", file=sys.stderr)
-        sys.exit(1)
-
-
-def _run_probe(argv: list[str]) -> None:
-    try:
-        config = parse_config(argv)
-    except ConfigError as e:
-        print(f"Invalid configuration:\n{e}", file=sys.stderr)
-        sys.exit(1)
-
-    print(f"Probing MWAA environment '{config.environment_name}' in {config.region}...")
-    reporter = Reporter(workflow_type=WORKFLOW_TYPE)
-
-    try:
-        findings = run_probe(config, reporter)
-    except Exception as e:
-        print(f"\nProbe failed: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    if any(f.status == FindingStatus.FAIL for f in findings):
         sys.exit(1)
 
 
@@ -98,9 +82,7 @@ def main() -> None:
     if argv and argv[0] in COMMANDS:
         command, argv = argv[0], argv[1:]
 
-    if command == "probe":
-        _run_probe(argv)
-    elif command == "apply":
+    if command == "apply":
         _run_apply(argv)
     else:
         _run_scan(argv)

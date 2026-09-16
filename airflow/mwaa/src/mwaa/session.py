@@ -20,13 +20,41 @@ pin diffs, rationale, the matched version-table entry -- which is exactly
 what's needed to understand why a diff was proposed, and structurally can't
 contain a credential, since none of it is copied from the environment's
 actual files.
+
+Each environment also carries `issues`: findings from the subset of probe
+checks.py checks that matter for whether it's *safe* to apply this plan --
+a conflicting AirflowConfigurationOptions value, a referenced constraints/
+wheel file that doesn't exist, an execution role that can't read what the
+plan would write. Recorded at scan time so `apply` can surface them right
+before acting, without recomputing anything -- and without blocking apply
+outright, since the person running it may already know and want to proceed
+anyway.
 """
 
 from dataclasses import dataclass, field
 
-from .checks import ProbeContext
+from airflow_shared.reporter import Finding, FindingStatus
+
+from .checks import (
+    ProbeContext,
+    check_constraint_path,
+    check_execution_role_s3_access,
+    check_openlineage_precedence,
+    check_wheel_references,
+)
 from .plan import Plan, compute_plan, plan_from_dict
 from .startup_script import startup_script_looks_configured
+
+#: The subset of probe checks worth recording at scan time and re-surfacing
+#: at apply time -- each one is a way applying this environment's plan could
+#: go wrong or interact badly with something already there, not just a
+#: normal onboarding-status fact (that's already_configured/plan above).
+_ISSUE_CHECKS = (
+    check_openlineage_precedence,
+    check_constraint_path,
+    check_wheel_references,
+    check_execution_role_s3_access,
+)
 
 
 @dataclass(frozen=True)
@@ -37,6 +65,7 @@ class EnvironmentEntry:
     airflow_version: str
     already_configured: bool
     plan: Plan
+    issues: list[Finding] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -49,6 +78,29 @@ class Session:
 
     def find(self, name: str) -> "EnvironmentEntry | None":
         return next((e for e in self.environments if e.name == name), None)
+
+
+def _compute_issues(ctx: ProbeContext) -> list[Finding]:
+    """Run the issue-relevant checks and keep only what didn't pass.
+
+    Skips the checks that need a real AWS client when ctx.client is None --
+    true in tests today, and a real possibility later if scan ever grows a
+    structural-only mode. One check raising unexpectedly (e.g. an IAM
+    permission gap check.py itself doesn't already catch) is recorded as its
+    own issue rather than aborting the scan for this environment.
+    """
+    issues: list[Finding] = []
+    for check in _ISSUE_CHECKS:
+        if ctx.client is None and check is not check_openlineage_precedence:
+            continue
+        try:
+            finding = check(ctx)
+        except Exception as exc:  # noqa: BLE001 - one check's bug shouldn't sink the whole scan
+            issues.append(Finding(check.__name__, FindingStatus.WARN, f"could not run this check: {exc}"))
+            continue
+        if finding.status != FindingStatus.PASS:
+            issues.append(finding)
+    return issues
 
 
 def _environment_entry(ctx: ProbeContext, dd_site: str, dd_api_key: str) -> EnvironmentEntry:
@@ -68,6 +120,7 @@ def _environment_entry(ctx: ProbeContext, dd_site: str, dd_api_key: str) -> Envi
         airflow_version=airflow_version,
         already_configured=startup_script_looks_configured(ctx.startup_script_text),
         plan=plan,
+        issues=_compute_issues(ctx),
     )
 
 
@@ -92,6 +145,15 @@ def session_from_dict(data: dict) -> Session:
                 airflow_version=e["airflow_version"],
                 already_configured=e["already_configured"],
                 plan=plan_from_dict(e["plan"]),
+                issues=[
+                    Finding(
+                        check_id=i["check_id"],
+                        status=FindingStatus(i["status"]),
+                        message=i["message"],
+                        detail=i.get("detail"),
+                    )
+                    for i in e.get("issues", [])
+                ],
             )
             for e in data["environments"]
         ],

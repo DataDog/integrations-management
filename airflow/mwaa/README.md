@@ -1,16 +1,19 @@
 # MWAA Setup Diagnostics
 
-Read-only diagnostics for an Amazon MWAA environment's Data Observability / OpenLineage
-onboarding setup. Checks `requirements.txt`/`constraints.txt` resolution, package pins,
-the execution role's S3 access, install logs, and network egress -- the things Datadog's
+Surveys Amazon MWAA environments for a Data Observability / OpenLineage onboarding plan,
+and applies it. `scan` reads `requirements.txt`/`constraints.txt`/the startup script and
+`airflow_configuration_options`, computes a per-environment plan and a set of `issues` --
+package pins, `--constraint` path and referenced-wheel existence, the execution role's S3
+access, and whether OpenLineage is configured two different ways at once (the startup
+script and `airflow_configuration_options`, which Datadog's own
 [MWAA/OpenLineage upgrade guide](https://docs.datadoghq.com/data_observability/jobs_monitoring/airflow_mwaa_upgrade.md)
-calls out as common onboarding failure modes -- plus one thing that guide doesn't cover:
-whether OpenLineage settings from the startup script and from `airflow_configuration_options`
-agree, when both are set.
+doesn't cover) -- and persists both as a session. `apply` loads that session and applies
+one named environment's plan.
 
-It makes no changes to the environment. Every check is a read: `mwaa:GetEnvironment`,
-`s3:GetObject`/`HeadObject`, `logs:FilterLogEvents`, `iam:SimulatePrincipalPolicy`,
-`ec2:DescribeSubnets`/`DescribeRouteTables`.
+`scan` makes no changes to the environment: every call it makes is a read
+(`mwaa:GetEnvironment`, `s3:GetObject`/`HeadObject`, `iam:SimulatePrincipalPolicy`), and
+that's enforced mechanically, not just by review -- see `MwaaClient`'s `read_only` guard
+in `shared/src/airflow_shared/mwaa_client.py`.
 
 The produced executable is intended to run in [AWS CloudShell](https://aws.amazon.com/cloudshell/),
 which has `boto3` preinstalled. It can also be run locally against any MWAA environment
@@ -21,9 +24,6 @@ you have read access to.
 # Usage
 
 ```bash
-# Read-only diagnostics against one environment
-python mwaa.pyz probe --name my-mwaa-environment --region us-east-1
-
 # Survey every environment in a region, persist the session, point back to the UI
 python mwaa.pyz scan --session-id <uuid> --region us-east-1 --dd-api-key <key>
 
@@ -35,17 +35,18 @@ python mwaa.pyz apply --session-id <uuid> --name my-mwaa-environment --region us
 # ...then add --yes once the diff looks right, to actually apply it
 ```
 
-`--name`/`--region` fall back to `MWAA_ENVIRONMENT_NAME`/`AWS_REGION` (or
-`AWS_DEFAULT_REGION`) if omitted, and `--dd-api-key` falls back to `DD_API_KEY`.
-`--session-id` must be a UUID -- the eventual UI generates one and embeds it in
-the command it hands you. `--dd-api-key` is interpolated directly into the
-proposed startup.sh, since the script needs the real value to actually work.
+`--region` falls back to `AWS_REGION`/`AWS_DEFAULT_REGION` if omitted, and `--dd-api-key`
+falls back to `DD_API_KEY`. `--session-id` must be a UUID -- the eventual UI generates one
+and embeds it in the command it hands you. `--dd-api-key` is interpolated directly into
+the proposed startup.sh, since the script needs the real value to actually work.
 
 AWS credentials are picked up the normal boto3 way (CloudShell's assumed role, an
 environment profile, `~/.aws/credentials`, etc.) -- this tool does not manage credentials
 itself.
 
-`probe`'s exit code is non-zero if any check fails.
+If `scan` recorded any `issues` for the environment you `apply` (a conflicting OpenLineage
+config, a missing constraints/wheel file, an execution role that can't read what the plan
+would write), they're printed before the diff. They don't block applying.
 
 ---
 

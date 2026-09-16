@@ -4,17 +4,17 @@
 
 from unittest.mock import MagicMock
 
-from airflow_shared.mwaa_client import RouteTableEgress
+from botocore.exceptions import ClientError
+
 from airflow_shared.reporter import FindingStatus
 from mwaa.checks import (
     ProbeContext,
     check_constraint_path,
     check_execution_role_s3_access,
-    check_install_log_errors,
-    check_network_egress,
     check_openlineage_pins,
     check_openlineage_precedence,
     check_requirements_constraints_match,
+    check_wheel_references,
     resolve_constraint_key,
 )
 
@@ -184,47 +184,46 @@ def test_execution_role_s3_access_fails_when_denied():
     assert finding.status == FindingStatus.FAIL
 
 
-# --- check_install_log_errors -------------------------------------------------
-
-
-def test_install_log_errors_passes_when_no_matches():
+def test_execution_role_s3_access_warns_not_verified_when_caller_lacks_iam_permission():
     ctx = make_context()
-    ctx.client.filter_log_events.return_value = []
-    finding = check_install_log_errors(ctx)
+    ctx.client.simulate_s3_read_access.side_effect = ClientError(
+        {"Error": {"Code": "AccessDenied", "Message": "not authorized to perform: iam:SimulatePrincipalPolicy"}},
+        "SimulatePrincipalPolicy",
+    )
+    finding = check_execution_role_s3_access(ctx)
+    assert finding.status == FindingStatus.WARN
+    assert "couldn't run" in finding.detail.lower()
+
+
+# --- check_wheel_references ---------------------------------------------------
+
+
+def test_wheel_references_passes_when_none_referenced():
+    ctx = make_context(requirements_text="apache-airflow-providers-openlineage==2.18.0\n")
+    finding = check_wheel_references(ctx)
     assert finding.status == FindingStatus.PASS
 
 
-def test_install_log_errors_fails_when_matches_found():
-    ctx = make_context()
-    ctx.client.filter_log_events.side_effect = [["ResolutionImpossible: conflict"], [], []]
-    finding = check_install_log_errors(ctx)
-    assert finding.status == FindingStatus.FAIL
-
-
-# --- check_network_egress -----------------------------------------------------
-
-
-def test_network_egress_passes_when_all_subnets_have_route():
-    ctx = make_context()
-    ctx.client.describe_subnet_egress.return_value = [
-        RouteTableEgress("subnet-1", "rtb-1", True, False),
-        RouteTableEgress("subnet-2", "rtb-1", True, False),
-    ]
-    finding = check_network_egress(ctx)
+def test_wheel_references_passes_when_referenced_wheel_exists():
+    ctx = make_context(
+        requirements_text="/usr/local/airflow/dags/wheels/datadog_provider-1.0.0-py3-none-any.whl\n"
+    )
+    ctx.client.object_exists.return_value = True
+    finding = check_wheel_references(ctx)
     assert finding.status == FindingStatus.PASS
+    ctx.client.object_exists.assert_called_once_with("my-bucket", "dags/wheels/datadog_provider-1.0.0-py3-none-any.whl")
 
 
-def test_network_egress_fails_when_a_subnet_has_no_route():
-    ctx = make_context()
-    ctx.client.describe_subnet_egress.return_value = [
-        RouteTableEgress("subnet-1", "rtb-1", True, False),
-        RouteTableEgress("subnet-2", "rtb-2", False, False),
-    ]
-    finding = check_network_egress(ctx)
+def test_wheel_references_fails_when_referenced_wheel_missing():
+    ctx = make_context(
+        requirements_text="/usr/local/airflow/dags/wheels/datadog_provider-1.0.0-py3-none-any.whl\n"
+    )
+    ctx.client.object_exists.return_value = False
+    finding = check_wheel_references(ctx)
     assert finding.status == FindingStatus.FAIL
 
 
-def test_network_egress_warns_when_no_subnets_configured():
-    ctx = make_context(environment={"NetworkConfiguration": {}})
-    finding = check_network_egress(ctx)
+def test_wheel_references_warns_when_path_outside_dags_mount():
+    ctx = make_context(requirements_text="/opt/other/datadog_provider-1.0.0-py3-none-any.whl\n")
+    finding = check_wheel_references(ctx)
     assert finding.status == FindingStatus.WARN

@@ -45,6 +45,12 @@ def run_apply(config: ApplyConfig, reporter: Reporter) -> dict[str, Any]:
 
     plan = entry.plan
 
+    if entry.issues:
+        print(f"\n{len(entry.issues)} issue(s) were found when this session was scanned:")
+        for issue in entry.issues:
+            reporter.report_finding(issue)
+        print("\nThese don't block applying -- review them before continuing.")
+
     client = MwaaClient(region=config.region)
 
     with reporter.report_step("fetch_environment"):

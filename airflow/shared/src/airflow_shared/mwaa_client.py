@@ -25,6 +25,56 @@ class ObjectNotFoundError(Exception):
     """The requested S3 object does not exist."""
 
 
+class ReadOnlyViolation(RuntimeError):
+    """A read-only MwaaClient attempted an operation outside its allowlist.
+
+    `scan` promises never to write to a customer's account. Rather than rely
+    on every call site staying read-only by review discipline,
+    `read_only=True` makes that mechanically true: this is raised before the
+    call ever reaches AWS. It can only mean a bug in this codebase, never a
+    customer problem, so there is no override flag -- adding an operation
+    here means editing READ_ONLY_ALLOWED instead.
+    """
+
+
+#: Every (service, operation) pair `scan`'s read-only path is allowed to call.
+#: Deliberately exact, not permissive -- it should read as the list of calls
+#: this codebase's read-only paths actually make today.
+READ_ONLY_ALLOWED: dict[str, frozenset[str]] = {
+    "mwaa": frozenset({"ListEnvironments", "GetEnvironment"}),
+    "s3": frozenset({"GetObject", "HeadObject"}),
+    "iam": frozenset({"SimulatePrincipalPolicy"}),
+}
+
+
+def _read_only_hook(service_name: str) -> Any:
+    """Build a before-call hook bound to the service its client was created for.
+
+    Registered per-client (see `_apply_read_only_guard`), not on a shared
+    boto3 Session -- a session-wide hook would also intercept botocore's own
+    credential resolution (SSO token exchange, AssumeRole), which is how
+    botocore authenticates rather than something this code asked AWS to do.
+    """
+
+    def hook(model: Any = None, **_kwargs: Any) -> None:
+        operation = getattr(model, "name", None)
+        if operation in READ_ONLY_ALLOWED.get(service_name, frozenset()):
+            return
+        raise ReadOnlyViolation(
+            f"blocked a call outside the read-only allowlist: {service_name}:{operation}. "
+            "If this operation is genuinely needed here, add it to READ_ONLY_ALLOWED in mwaa_client.py."
+        )
+
+    return hook
+
+
+def _apply_read_only_guard(client: Any, service_name: str) -> Any:
+    client.meta.events.register(
+        "before-call", _read_only_hook(service_name), unique_id=f"mwaa-client-readonly-{service_name}"
+    )
+    return client
+
+
 @dataclass
 class RouteTableEgress:
     """Egress posture for one subnet's route table."""
@@ -36,15 +86,32 @@ class RouteTableEgress:
 
 
 class MwaaClient:
-    """Read-only boto3 client bundle for one AWS region."""
+    """boto3 client bundle for one AWS region.
 
-    def __init__(self, region: str):
+    `read_only=True` (used by `scan`'s discovery/issue-checking phase)
+    mechanically enforces that this instance never calls anything beyond
+    READ_ONLY_ALLOWED -- see ReadOnlyViolation. `apply`, and the one
+    deliberate write inside interactive `scan`, are the only callers that
+    need the default, full-power instance.
+    """
+
+    def __init__(self, region: str, read_only: bool = False):
         self.region = region
+        self.read_only = read_only
         self._mwaa = boto3.client("mwaa", region_name=region)
         self._s3 = boto3.client("s3", region_name=region)
         self._logs = boto3.client("logs", region_name=region)
         self._iam = boto3.client("iam", region_name=region)
         self._ec2 = boto3.client("ec2", region_name=region)
+        if read_only:
+            for service_name, client in (
+                ("mwaa", self._mwaa),
+                ("s3", self._s3),
+                ("logs", self._logs),
+                ("iam", self._iam),
+                ("ec2", self._ec2),
+            ):
+                _apply_read_only_guard(client, service_name)
 
     def list_environment_names(self) -> list[str]:
         """Return the names of every MWAA environment in this region, paginating as needed."""

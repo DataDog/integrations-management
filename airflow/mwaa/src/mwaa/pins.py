@@ -20,6 +20,7 @@ OPENLINEAGE_PACKAGES = (
 COMMON_COMPAT_PACKAGE = "apache-airflow-providers-common-compat"
 
 CONSTRAINT_LINE = re.compile(r'^\s*--constraint\s+"?([^"\s]+)"?', re.MULTILINE)
+WHEEL_REFERENCE = re.compile(r"(\S+\.whl)")
 _PIN_LINE = re.compile(r"^\s*([A-Za-z0-9_.\-]+)\s*==\s*([A-Za-z0-9_.\-]+)", re.MULTILINE)
 # patch_pins' "unpinned" append format (see patch.py) -- a package name alone on its
 # line, no version. Anchored at both ends so a `package==version` line's package name
@@ -59,3 +60,21 @@ def find_constraint_path(requirements_text: str) -> "str | None":
     """Return the raw --constraint path from requirements.txt, if present."""
     match = CONSTRAINT_LINE.search(requirements_text)
     return match.group(1) if match else None
+
+
+def find_wheel_references(requirements_text: str) -> list[str]:
+    """Return every .whl path referenced in requirements.txt, in order.
+
+    Airflow 2.7.2's documented upgrade path requires uploading Datadog-patched
+    wheels by hand; a customer who renames or forgets one produces a plain
+    S3 path reference here, not a package pin.
+    """
+    refs = []
+    for line in requirements_text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        match = WHEEL_REFERENCE.search(stripped)
+        if match:
+            refs.append(match.group(1))
+    return refs

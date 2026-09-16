@@ -2,15 +2,17 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-"""Orchestrates a full probe run against one MWAA environment."""
+"""Builds a ProbeContext: everything `scan` and `apply` need fetched from one MWAA environment.
+
+Named for the checks.py machinery it feeds -- there used to be a standalone
+`probe` command built around it (read-only diagnostics against one named
+environment, no session involved), retired once `scan` started recording the
+same checks as each environment's `issues` (see session.py).
+"""
 
 from airflow_shared.mwaa_client import MwaaClient, ObjectNotFoundError
-from airflow_shared.reporter import Finding, Reporter
 
-from .checks import ALL_CHECKS, ProbeContext, resolve_constraint_key
-from .config import Config
-
-WORKFLOW_TYPE = "mwaa-setup"
+from .checks import ProbeContext, resolve_constraint_key
 
 
 def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
@@ -53,21 +55,3 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
         startup_script_text=startup_script_text,
         client=client,
     )
-
-
-def run_probe(config: Config, reporter: Reporter) -> list[Finding]:
-    """Run every check against the configured environment, reporting as it goes."""
-    client = MwaaClient(region=config.region)
-
-    findings: list[Finding] = []
-    with reporter.report_step("fetch_environment"):
-        ctx = build_context(client, config.environment_name)
-
-    with reporter.report_step("run_checks"):
-        for check in ALL_CHECKS:
-            finding = check(ctx)
-            findings.append(finding)
-            reporter.report_finding(finding)
-
-    reporter.summary(findings)
-    return findings
