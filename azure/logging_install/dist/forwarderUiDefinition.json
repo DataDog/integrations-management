@@ -190,29 +190,29 @@
             }
           ]
         }
-      ],
-      "outputs": {
-        "parameters": {
-          "datadogApiKey":                        "[steps('forwarder').datadogApiKey.password]",
-          "datadogSite":                          "[steps('forwarder').datadogSite]",
-          "environmentName":                      "[steps('forwarder').environmentName]",
-          "jobName":                              "[steps('forwarder').jobName]",
-          "storageAccountSku":                    "[steps('forwarder').storageAccountSku]",
-          "storageAccountRetentionDays":          "[steps('forwarder').storageAccountRetentionDays]",
-          "enableVnetIntegration":                "[steps('networking').enableVnetIntegration]",
-          "createNewVnet":                        "[steps('networking').createNewVnet]",
-          "vnetName":                             "[steps('networking').vnetName]",
-          "vnetAddressPrefix":                    "[steps('networking').vnetAddressPrefix]",
-          "acaSubnetPrefix":                      "[steps('networking').acaSubnetPrefix]",
-          "peSubnetPrefix":                       "[steps('networking').peSubnetPrefix]",
-          "existingVnetId":                       "[steps('networking').existingVnetId]",
-          "existingInfrastructureSubnetId":       "[steps('networking').existingInfrastructureSubnetId]",
-          "existingStoragePrivateEndpointSubnetId":"[steps('networking').existingStoragePrivateEndpointSubnetId]"
-        },
-        "kind": "ResourceGroup",
-        "location": "[steps('basics').resourceScope.location.name]",
-        "resourceGroupId": "[steps('basics').resourceScope.resourceGroup.id]"
-      }
+      ]
+    },
+    "outputs": {
+      "parameters": {
+        "datadogApiKey":                         "[steps('forwarder').datadogApiKey.password]",
+        "datadogSite":                           "[steps('forwarder').datadogSite]",
+        "environmentName":                       "[steps('forwarder').environmentName]",
+        "jobName":                               "[steps('forwarder').jobName]",
+        "storageAccountSku":                     "[steps('forwarder').storageAccountSku]",
+        "storageAccountRetentionDays":           "[steps('forwarder').storageAccountRetentionDays]",
+        "enableVnetIntegration":                 "[steps('networking').enableVnetIntegration]",
+        "createNewVnet":                         "[steps('networking').createNewVnet]",
+        "vnetName":                              "[steps('networking').vnetName]",
+        "vnetAddressPrefix":                     "[steps('networking').vnetAddressPrefix]",
+        "acaSubnetPrefix":                       "[steps('networking').acaSubnetPrefix]",
+        "peSubnetPrefix":                        "[steps('networking').peSubnetPrefix]",
+        "existingVnetId":                        "[steps('networking').existingVnetId]",
+        "existingInfrastructureSubnetId":        "[steps('networking').existingInfrastructureSubnetId]",
+        "existingStoragePrivateEndpointSubnetId":"[steps('networking').existingStoragePrivateEndpointSubnetId]"
+      },
+      "kind": "ResourceGroup",
+      "location": "[steps('basics').resourceScope.location.name]",
+      "resourceGroupId": "[steps('basics').resourceScope.resourceGroup.id]"
     }
   }
 }
