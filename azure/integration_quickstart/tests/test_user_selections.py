@@ -2,6 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
+import json
 from unittest.mock import MagicMock
 
 from azure_integration_quickstart.user_selections import (
@@ -42,6 +43,27 @@ class TestReceiveAppRegistrationSelections(DDTestCase):
         self.assert_same_scopes(selections1.scopes, selections2.scopes)
         self.assertEqual(selections1.app_registration_config, selections2.app_registration_config)
         self.assertEqual(selections1.log_forwarding_config, selections2.log_forwarding_config)
+        self.assertEqual(selections1.display_name, selections2.display_name)
+
+    def test_receive_display_name(self):
+        response = json.loads(SUBSCRIPTION_SELECTION_RESPONSE)
+        response["data"]["attributes"]["metadata"]["selections"]["display_name"] = "  Production Azure  "
+        self.dd_request_mock.return_value = (json.dumps(response), 200)
+
+        selections = receive_app_registration_selections(EXAMPLE_WORKFLOW_ID)
+
+        self.assertEqual(selections.display_name, "  Production Azure  ")
+
+    def test_ignore_non_string_display_name(self):
+        for display_name in (None, 123, [], {}):
+            with self.subTest(display_name=display_name):
+                response = json.loads(SUBSCRIPTION_SELECTION_RESPONSE)
+                response["data"]["attributes"]["metadata"]["selections"]["display_name"] = display_name
+                self.dd_request_mock.return_value = (json.dumps(response), 200)
+
+                selections = receive_app_registration_selections(EXAMPLE_WORKFLOW_ID)
+
+                self.assertIsNone(selections.display_name)
 
     def test_receive_subscriptions(self):
         self.dd_request_mock.return_value = (SUBSCRIPTION_SELECTION_RESPONSE, 200)

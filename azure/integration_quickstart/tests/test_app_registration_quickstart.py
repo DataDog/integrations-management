@@ -2,6 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
+import shlex
 from unittest.mock import MagicMock
 
 from az_shared.errors import MissingExternalIdError
@@ -67,6 +68,64 @@ class TestCreateAppRegistrationWithPermissions(DDTestCase):
         self.assertIn("--name datadog-azure-integration-test", " ".join(self.run_cmd.call_args[0][0]))
         self.get_app_registration_name.assert_called_once_with()
 
+    def test_selected_display_name_is_trimmed_and_shell_quoted_for_both_auth_methods(self):
+        execute_json = self.patch(
+            "azure_integration_quickstart.app_registration_quickstart.execute_json",
+            return_value={"appId": "app-1", "tenant": "tenant-1", "password": "pw"},
+        )
+        names = [
+            "  Production Azure  ",
+            '""',
+            'Team\'s Azure \\"Production\\"',
+            "Azure $(echo example); `echo example` ${name} & 日本語",
+        ]
+        for use_secretless_auth in (False, True):
+            for display_name in names:
+                with self.subTest(secretless=use_secretless_auth, display_name=display_name):
+                    app_registration = create_app_registration_with_permissions(
+                        [_SCOPE],
+                        use_secretless_auth=use_secretless_auth,
+                        external_id="ext-abc",
+                        display_name=display_name,
+                    )
+
+                    called = self.run_cmd if use_secretless_auth else execute_json
+                    args = shlex.split(str(called.call_args[0][0]))
+                    expected_args = [
+                        "az",
+                        "ad",
+                        "sp",
+                        "create-for-rbac",
+                        "--name",
+                        display_name.strip(),
+                        "--role",
+                        "Monitoring Reader",
+                        "--scopes",
+                        _SCOPE.scope,
+                    ]
+                    if not use_secretless_auth:
+                        expected_args.extend(["--years", "2"])
+                    self.assertEqual(args, expected_args)
+                    self.assertEqual(app_registration.display_name, display_name.strip())
+        self.get_app_registration_name.assert_not_called()
+
+    def test_empty_display_name_preserves_generated_default_for_both_auth_methods(self):
+        self.patch(
+            "azure_integration_quickstart.app_registration_quickstart.execute_json",
+            return_value={"appId": "app-1", "tenant": "tenant-1", "password": "pw"},
+        )
+        for use_secretless_auth in (False, True):
+            for display_name in (None, "", " \t\n "):
+                with self.subTest(secretless=use_secretless_auth, display_name=display_name):
+                    app_registration = create_app_registration_with_permissions(
+                        [_SCOPE],
+                        use_secretless_auth=use_secretless_auth,
+                        external_id="ext-abc",
+                        display_name=display_name,
+                    )
+
+                    self.assertEqual(app_registration.display_name, "datadog-azure-integration-test")
+        self.assertEqual(self.get_app_registration_name.call_count, 6)
 
 class TestSubmitIntegrationConfig(DDTestCase):
     def setUp(self):
