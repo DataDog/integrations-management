@@ -29,9 +29,9 @@
               "name": "datadogApiKey",
               "type": "Microsoft.Common.PasswordBox",
               "label": {
-                "password": "Datadog API Key",
-                "confirmPassword": "Confirm Datadog API Key"
+                "password": "Datadog API Key"
               },
+              "options": { "hideConfirmation": true },
               "toolTip": "32-character Datadog API key.",
               "constraints": {
                 "required": true,
