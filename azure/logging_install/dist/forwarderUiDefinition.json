@@ -160,7 +160,7 @@
               "type": "Microsoft.Common.TextBox",
               "label": "Private Endpoint Subnet Prefix",
               "defaultValue": "10.0.2.0/28",
-              "toolTip": "Must be at least /28 (16 addresses).",
+              "toolTip": "A /28 is recommended to leave room for additional private endpoints in the future.",
               "visible": "[and(steps('networking').enableVnetIntegration, steps('networking').createNewVnet)]",
               "constraints": { "required": false }
             },
