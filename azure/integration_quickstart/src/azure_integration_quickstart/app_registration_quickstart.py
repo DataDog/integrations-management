@@ -81,10 +81,13 @@ def run_app_reg_create_cmd(cmd: Cmd):
 
 
 def create_app_registration_with_permissions(
-    scopes: Iterable[Scope], use_secretless_auth: bool, external_id: Optional[str]
+    scopes: Iterable[Scope],
+    use_secretless_auth: bool,
+    external_id: Optional[str],
+    display_name: Optional[str] = None,
 ) -> AppRegistration:
     """Create an app registration with the necessary permissions for Datadog to function over the given scopes."""
-    display_name = get_app_registration_name()
+    display_name = (display_name or "").strip() or get_app_registration_name()
     cmd = (
         Cmd(["az", "ad", "sp", "create-for-rbac"])
         .param("--name", display_name)
@@ -191,6 +194,7 @@ def main():
             selections.scopes,
             selections.app_registration_config.get("secretless_auth_enabled", False),
             selections.app_registration_config.get("external_id"),
+            display_name=selections.display_name,
         )
     with status.report_step("integration_config", "Submitting new configuration to Datadog"):
         submit_integration_config(app_registration, selections.app_registration_config)

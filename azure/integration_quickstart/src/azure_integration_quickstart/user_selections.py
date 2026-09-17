@@ -26,6 +26,7 @@ class AppRegistrationUserSelections:
     scopes: Sequence[Scope]
     app_registration_config: dict
     log_forwarding_config: Optional[dict] = None
+    display_name: Optional[str] = None
 
 
 @dataclass
@@ -85,12 +86,14 @@ def _poll_and_parse_selections(workflow_type: str, workflow_id: str) -> tuple[di
 def receive_app_registration_selections(workflow_id: str) -> AppRegistrationUserSelections:
     """Poll and wait for the user to submit their app registration user selections."""
     selections, scopes = _poll_and_parse_selections(APP_REGISTRATION_WORKFLOW_TYPE, workflow_id)
+    display_name = selections.get("display_name")
     return AppRegistrationUserSelections(
         scopes,
         json.loads(selections["config_options"]),
         json.loads(selections["log_forwarding_options"])
         if "log_forwarding_options" in selections and selections["log_forwarding_options"]
         else None,
+        display_name=display_name if isinstance(display_name, str) else None,
     )
 
 
