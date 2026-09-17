@@ -52,17 +52,71 @@ param datadogApiKey string
 ])
 param datadogSite string = 'datadoghq.com'
 
-@description('Resource ID of the subnet for the Container App Environment (e.g. /subscriptions/.../subnets/aca-subnet). Must be delegated to Microsoft.App/environments and be at least /23. Leave empty to skip VNet integration.')
-param infrastructureSubnetId string = ''
+@description('Enable VNet integration: deploys the Container App Environment into a VNet and disables public access on the storage account (using a private endpoint instead).')
+param enableVnetIntegration bool = false
 
-@description('Resource ID of the VNet containing the subnet above. Required when infrastructureSubnetId is provided. Used to link the private DNS zone.')
-param vnetId string = ''
+@description('Create a new VNet and subnets automatically. Set to false to use existing subnets. Only applies when enableVnetIntegration is true.')
+param createNewVnet bool = true
 
-@description('Resource ID of the subnet for the storage account private endpoint. Defaults to infrastructureSubnetId when left empty.')
-param storagePrivateEndpointSubnetId string = ''
+@description('Name for the new VNet. Only used when createNewVnet is true.')
+param vnetName string = 'datadog-log-forwarder-vnet'
 
-var enableVnet = infrastructureSubnetId != '' && vnetId != ''
-var peSubnetId = storagePrivateEndpointSubnetId != '' ? storagePrivateEndpointSubnetId : infrastructureSubnetId
+@description('Address space for the new VNet. Only used when createNewVnet is true.')
+param vnetAddressPrefix string = '10.0.0.0/16'
+
+@description('Address prefix for the Container App Environment subnet (minimum /23). Only used when createNewVnet is true.')
+param acaSubnetPrefix string = '10.0.0.0/23'
+
+@description('Address prefix for the storage private endpoint subnet (minimum /28). Only used when createNewVnet is true.')
+param peSubnetPrefix string = '10.0.2.0/28'
+
+@description('Resource ID of an existing VNet. Required when enableVnetIntegration is true and createNewVnet is false.')
+param existingVnetId string = ''
+
+@description('Resource ID of an existing subnet for the Container App Environment. Must be delegated to Microsoft.App/environments and at least /23. Required when enableVnetIntegration is true and createNewVnet is false.')
+param existingInfrastructureSubnetId string = ''
+
+@description('Resource ID of an existing subnet for the storage private endpoint. Leave empty to reuse existingInfrastructureSubnetId. Only used when createNewVnet is false.')
+param existingStoragePrivateEndpointSubnetId string = ''
+
+var enableVnet = enableVnetIntegration
+var resolvedVnetId = enableVnetIntegration
+  ? (createNewVnet ? resourceId('Microsoft.Network/virtualNetworks', vnetName) : existingVnetId)
+  : ''
+var resolvedAcaSubnetId = enableVnetIntegration
+  ? (createNewVnet ? resourceId('Microsoft.Network/virtualNetworks/subnets', vnetName, 'aca-subnet') : existingInfrastructureSubnetId)
+  : ''
+var resolvedPeSubnetId = enableVnetIntegration
+  ? (createNewVnet
+      ? resourceId('Microsoft.Network/virtualNetworks/subnets', vnetName, 'pe-subnet')
+      : (existingStoragePrivateEndpointSubnetId != '' ? existingStoragePrivateEndpointSubnetId : existingInfrastructureSubnetId))
+  : ''
+
+resource newVnet 'Microsoft.Network/virtualNetworks@2023-11-01' = if (enableVnetIntegration && createNewVnet) {
+  name: vnetName
+  location: resourceGroup().location
+  properties: {
+    addressSpace: { addressPrefixes: [vnetAddressPrefix] }
+    subnets: [
+      {
+        name: 'aca-subnet'
+        properties: {
+          addressPrefix: acaSubnetPrefix
+          delegations: [
+            {
+              name: 'Microsoft.App-environments'
+              properties: { serviceName: 'Microsoft.App/environments' }
+            }
+          ]
+        }
+      }
+      {
+        name: 'pe-subnet'
+        properties: { addressPrefix: peSubnetPrefix }
+      }
+    ]
+  }
+}
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: storageAccountName
@@ -124,7 +178,7 @@ resource forwarderEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = {
   location: resourceGroup().location
   properties: enableVnet ? {
     vnetConfiguration: {
-      infrastructureSubnetId: infrastructureSubnetId
+      infrastructureSubnetId: resolvedAcaSubnetId
     }
   } : {}
 }
@@ -177,7 +231,7 @@ resource storagePrivateEndpoint 'Microsoft.Network/privateEndpoints@2023-11-01' 
   name: '${storageAccountName}-blob-pe'
   location: resourceGroup().location
   properties: {
-    subnet: { id: peSubnetId }
+    subnet: { id: resolvedPeSubnetId }
     privateLinkServiceConnections: [
       {
         name: '${storageAccountName}-blob-connection'
@@ -200,7 +254,7 @@ resource storageBlobPrivateDnsZoneLink 'Microsoft.Network/privateDnsZones/virtua
   parent: storageBlobPrivateDnsZone
   location: 'global'
   properties: {
-    virtualNetwork: { id: vnetId }
+    virtualNetwork: { id: resolvedVnetId }
     registrationEnabled: false
   }
 }
