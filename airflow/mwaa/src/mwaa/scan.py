@@ -93,7 +93,7 @@ def _apply_hint(session: Session, environment_name: str, region: str, offline: b
     return f"{cmd} --offline" if offline else f"{cmd} --dd-site <DD_SITE>"
 
 
-def _print_ui_handoff(session: Session, region: str, offline: bool) -> None:
+def _print_ui_handoff(session: Session, region: str, dd_site: str, offline: bool) -> None:
     print(f"\nSession persisted: {session.session_id}")
     flagged = [e for e in session.environments if e.issues]
     if flagged:
@@ -105,7 +105,7 @@ def _print_ui_handoff(session: Session, region: str, offline: bool) -> None:
         print(f"  {_apply_hint(session, '<ENVIRONMENT_NAME>', region, offline)}")
     else:
         print("Continue in the Configure Airflow UI:")
-        print(f"  https://app.datadoghq.com/data-observability/configure-airflow?session_id={session.session_id}")
+        print(f"  https://app.{dd_site}/data-obs/configure/airflow?session_id={session.session_id}")
 
 
 def _run_interactive(
@@ -184,7 +184,7 @@ def _run_interactive(
         print("UpdateEnvironment called -- the environment will restart (usually 20-30 minutes).")
         print()
         print("Next: once it's back, trigger a DAG run in the Airflow UI, then check")
-        print("Data Observability: Jobs Monitoring in Datadog (https://app.datadoghq.com/data-jobs/)")
+        print(f"Data Observability: Jobs Monitoring in Datadog (https://app.{config.dd_site}/data-jobs/)")
         print("to confirm lineage events are arriving. This CLI does not trigger a DAG run for you.")
 
     return {"applied": True, "session": session, "environment": entry.name, "uploads": uploads, "result": result}
@@ -207,7 +207,7 @@ def run_scan(config: ScanConfig, reporter: Reporter, input_func: InputFunc = inp
         store.save(session)
 
     if not config.interactive:
-        _print_ui_handoff(session, config.region, offline)
+        _print_ui_handoff(session, config.region, config.dd_site, offline)
         return {"applied": False, "session": session}
 
     return _run_interactive(client, config, session, contexts, reporter, input_func, store, offline)
