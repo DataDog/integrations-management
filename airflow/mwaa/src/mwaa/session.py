@@ -34,9 +34,18 @@ plan would write. Recorded at scan time so `apply` can surface them right
 before acting, without recomputing anything -- and without blocking apply
 outright, since the person running it may already know and want to proceed
 anyway.
+
+Each environment also carries `status`: has THIS session's plan actually
+been applied to it yet? Deliberately just the current state, not a history
+of transitions -- ScannedStatus/AppliedStatus are the only two that exist
+today, and each is its own type so a later status (e.g. a "failed" one)
+can carry whatever fields it needs without touching these two. Sealing an
+environment to AppliedStatus is done by replacing its EnvironmentEntry
+(see apply_command.py/scan.py) -- Session and EnvironmentEntry stay frozen,
+consistent with everything else here.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from airflow_shared.reporter import Finding, FindingStatus
 
@@ -63,6 +72,20 @@ _ISSUE_CHECKS = (
 
 
 @dataclass(frozen=True)
+class ScannedStatus:
+    """Default status: `scan` found this environment and computed a plan for it. Nothing applied yet."""
+
+    type: str = "scanned"
+
+
+@dataclass(frozen=True)
+class AppliedStatus:
+    """`apply` (or `scan --interactive`) actually applied this environment's plan."""
+
+    type: str = "applied"
+
+
+@dataclass(frozen=True)
 class EnvironmentEntry:
     """One environment's onboarding status and plan, as surveyed by `scan`."""
 
@@ -71,6 +94,7 @@ class EnvironmentEntry:
     already_configured: bool
     plan: Plan
     issues: list[Finding] = field(default_factory=list)
+    status: "ScannedStatus | AppliedStatus" = field(default_factory=ScannedStatus)
 
 
 @dataclass(frozen=True)
@@ -83,6 +107,19 @@ class Session:
 
     def find(self, name: str) -> "EnvironmentEntry | None":
         return next((e for e in self.environments if e.name == name), None)
+
+
+def seal_applied(session: Session, environment_name: str) -> Session:
+    """Return a copy of `session` with one environment's status set to AppliedStatus.
+
+    Called by apply_command.py/scan.py once apply_to_environment has actually
+    succeeded for that environment. Session/EnvironmentEntry are frozen, so
+    sealing replaces the one entry rather than mutating anything in place.
+    """
+    return replace(
+        session,
+        environments=[replace(e, status=AppliedStatus()) if e.name == environment_name else e for e in session.environments],
+    )
 
 
 def _compute_issues(ctx: ProbeContext) -> list[Finding]:
@@ -137,6 +174,14 @@ def build_session(session_id: str, region: str, dd_site: str, contexts: list[Pro
     )
 
 
+def _status_from_dict(data: dict) -> "ScannedStatus | AppliedStatus":
+    if data["type"] == "scanned":
+        return ScannedStatus()
+    if data["type"] == "applied":
+        return AppliedStatus()
+    raise ValueError(f"unknown EnvironmentEntry status type {data['type']!r}")
+
+
 def session_from_dict(data: dict) -> Session:
     """The reverse of dataclasses.asdict(session) -- see plan_from_dict for why this can't
     just be Session(**data)."""
@@ -158,6 +203,7 @@ def session_from_dict(data: dict) -> Session:
                     )
                     for i in e.get("issues", [])
                 ],
+                status=_status_from_dict(e.get("status", {"type": "scanned"})),
             )
             for e in data["environments"]
         ],

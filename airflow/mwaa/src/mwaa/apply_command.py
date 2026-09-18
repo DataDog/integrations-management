@@ -9,6 +9,11 @@ SESSION_OVERRIDE_PATH, a hand-authored one -- see session_override.py),
 pulls out the plan for --name, then always fetches that environment fresh
 and previews before doing anything mutating -- without --yes (see
 apply_config.py), this only prints what it would do.
+
+Once a real apply succeeds, seal_applied (session.py) marks that one
+environment's entry AppliedStatus and this re-persists the session --
+scoped to just that environment, since a session covers every environment
+`scan` found and only --name's one is ever acted on here.
 """
 
 import os
@@ -21,8 +26,9 @@ from .apply import apply_to_environment, compute_apply_actions, interpolate_api_
 from .apply_config import ApplyConfig
 from .diff_preview import render_unified_diff
 from .probe import build_context
+from .session import seal_applied
 from .session_override import SESSION_OVERRIDE_ENV_VAR, load_session_override
-from .session_store import load_session
+from .session_store import load_session, save_session
 
 WORKFLOW_TYPE = "mwaa-setup"
 
@@ -78,6 +84,9 @@ def run_apply(config: ApplyConfig, reporter: Reporter) -> dict[str, Any]:
 
     with reporter.report_step("apply_changes"):
         result = apply_to_environment(client, ctx, uploads)
+
+    session = seal_applied(session, config.environment_name)
+    save_session(session)
 
     print()
     print(f"Uploaded {len(result['uploaded'])} file(s).")

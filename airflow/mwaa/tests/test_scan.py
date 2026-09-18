@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from airflow_shared.reporter import Reporter
 from mwaa.scan import run_scan
 from mwaa.scan_config import ScanConfig
+from mwaa.session import AppliedStatus, ScannedStatus
 from mwaa.session_store import load_session
 
 SESSION_ID = str(uuid.uuid4())
@@ -168,6 +169,11 @@ def test_run_scan_interactive_confirming_apply_uploads_and_updates(capsys):
     out = capsys.readouterr().out
     assert "UpdateEnvironment called" in out
     assert "This CLI does not trigger a DAG run for you" in out
+
+    session = result["session"]
+    assert session.find("my-mwaa-prod").status == AppliedStatus()
+    assert session.find("my-mwaa-staging").status == ScannedStatus()  # untouched -- only the applied one seals
+    assert load_session(SESSION_ID).find("my-mwaa-prod").status == AppliedStatus()
 
 
 def test_run_scan_interactive_no_environments_found(capsys):

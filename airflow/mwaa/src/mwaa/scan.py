@@ -38,7 +38,7 @@ from .diff_preview import render_unified_diff
 from .discovery import discover_environments
 from .plan import Plan
 from .scan_config import ScanConfig
-from .session import Session, build_session
+from .session import Session, build_session, seal_applied
 from .session_store import save_session
 
 WORKFLOW_TYPE = "mwaa-setup"
@@ -157,6 +157,9 @@ def _run_interactive(
     apply_client = MwaaClient(region=config.region)
     with reporter.report_step("apply_changes"):
         result = apply_to_environment(apply_client, ctx, uploads)
+
+    session = seal_applied(session, entry.name)
+    save_session(session)
 
     print(f"\nUploaded {len(result['uploaded'])} file(s).")
     if result["update_environment_called"]:

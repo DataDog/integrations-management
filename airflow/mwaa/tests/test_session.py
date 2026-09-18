@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 from airflow_shared.reporter import FindingStatus
 from mwaa.checks import ProbeContext
-from mwaa.session import build_session, session_from_dict
+from mwaa.session import AppliedStatus, ScannedStatus, build_session, seal_applied, session_from_dict
 
 ENVIRONMENT = {
     "Name": "my-mwaa-prod",
@@ -41,6 +41,31 @@ def test_build_session_computes_a_plan_per_environment():
     assert entry.name == "my-mwaa-prod"
     assert entry.airflow_version == "2.8.1"
     assert entry.plan.upgrade_needed is True
+
+
+def test_build_session_defaults_every_entry_to_scanned_status():
+    session = build_session("session-1", "us-east-1", "datadoghq.com", [make_context()])
+
+    assert session.environments[0].status == ScannedStatus()
+
+
+def test_seal_applied_sets_applied_status_for_just_that_environment():
+    ctx_a = make_context()
+    ctx_b = make_context(environment={**ENVIRONMENT, "Name": "other-env"})
+    session = build_session("session-1", "us-east-1", "datadoghq.com", [ctx_a, ctx_b])
+
+    sealed = seal_applied(session, "my-mwaa-prod")
+
+    assert sealed.find("my-mwaa-prod").status == AppliedStatus()
+    assert sealed.find("other-env").status == ScannedStatus()
+
+
+def test_seal_applied_does_not_mutate_the_original_session():
+    session = build_session("session-1", "us-east-1", "datadoghq.com", [make_context()])
+
+    seal_applied(session, "my-mwaa-prod")
+
+    assert session.find("my-mwaa-prod").status == ScannedStatus()
 
 
 def test_session_find_returns_matching_entry():
@@ -101,6 +126,22 @@ def test_session_round_trips_through_asdict_and_session_from_dict():
     loaded = session_from_dict(asdict(session))
 
     assert loaded == session
+
+
+def test_status_serializes_as_a_tagged_dict():
+    session = build_session("session-1", "us-east-1", "datadoghq.com", [make_context()])
+    assert asdict(session)["environments"][0]["status"] == {"type": "scanned"}
+
+
+def test_session_round_trips_applied_status():
+    session = build_session("session-1", "us-east-1", "datadoghq.com", [make_context()])
+    sealed = seal_applied(session, "my-mwaa-prod")
+    assert asdict(sealed)["environments"][0]["status"] == {"type": "applied"}
+
+    loaded = session_from_dict(asdict(sealed))
+
+    assert loaded == sealed
+    assert loaded.find("my-mwaa-prod").status == AppliedStatus()
 
 
 def test_session_round_trips_recorded_issues():
