@@ -25,6 +25,12 @@ REST API is a separate scope decision.
 `config.dry_run` (the --dry-run flag) skips the "Run apply now?" prompt
 entirely rather than relying on the user answering it correctly -- so nothing
 ever gets applied, no matter what. Only meaningful with --interactive.
+
+Where the session actually gets persisted (network intake API vs a local
+file) is select_session_store's call, not this module's -- see
+session_store_selection.py. Whatever it picks, the UI-handoff/apply-hint
+messages below have to agree with it, since a session saved locally isn't
+visible to the network API or the UI at all.
 """
 
 from typing import Any, Callable
@@ -39,7 +45,8 @@ from .discovery import discover_environments
 from .plan import Plan
 from .scan_config import ScanConfig
 from .session import Session, build_session, seal_applied
-from .session_store import save_session
+from .session_store import FilesystemSessionStore, SessionStore
+from .session_store_selection import select_session_store
 
 WORKFLOW_TYPE = "mwaa-setup"
 
@@ -80,13 +87,25 @@ def _prompt_yes_no(prompt: str, input_func: InputFunc) -> bool:
         print("Please answer y or n.")
 
 
-def _print_ui_handoff(session: Session) -> None:
+def _apply_hint(session: Session, environment_name: str, region: str, offline: bool) -> str:
+    """The apply command to suggest -- must use the same store mode this session was saved to."""
+    cmd = f"python mwaa.pyz apply --session-id {session.session_id} --name {environment_name} --region {region} --dd-api-key <DD_API_KEY>"
+    return f"{cmd} --offline" if offline else f"{cmd} --dd-site <DD_SITE>"
+
+
+def _print_ui_handoff(session: Session, region: str, offline: bool) -> None:
     print(f"\nSession persisted: {session.session_id}")
     flagged = [e for e in session.environments if e.issues]
     if flagged:
         print(f"{len(flagged)} of {len(session.environments)} environment(s) have issues recorded -- see them when you apply.")
-    print("Continue in the Configure Airflow UI:")
-    print(f"  https://app.datadoghq.com/data-observability/configure-airflow?session_id={session.session_id}")
+    if offline:
+        # Saved to a local file, not the network -- the Configure Airflow UI has
+        # no way to see this session, so pointing at it would be misleading.
+        print("Saved locally (offline) -- apply with, e.g.:")
+        print(f"  {_apply_hint(session, '<ENVIRONMENT_NAME>', region, offline)}")
+    else:
+        print("Continue in the Configure Airflow UI:")
+        print(f"  https://app.datadoghq.com/data-observability/configure-airflow?session_id={session.session_id}")
 
 
 def _run_interactive(
@@ -96,6 +115,8 @@ def _run_interactive(
     contexts: list[ProbeContext],
     reporter: Reporter,
     input_func: InputFunc,
+    store: SessionStore,
+    offline: bool,
 ) -> dict[str, Any]:
     print()
     print("=" * 60)
@@ -144,10 +165,7 @@ def _run_interactive(
         return {"applied": False, "session": session, "environment": entry.name, "uploads": uploads}
 
     if not _prompt_yes_no("\nRun apply now?", input_func):
-        cmd = (
-            f"python mwaa.pyz apply --session-id {session.session_id} --name {entry.name} "
-            f"--region {config.region} --dd-api-key <DD_API_KEY>"
-        )
+        cmd = _apply_hint(session, entry.name, config.region, offline)
         print(f"\nNo changes made. To apply later, run:\n  {cmd}")
         return {"applied": False, "session": session, "environment": entry.name, "uploads": uploads}
 
@@ -159,7 +177,7 @@ def _run_interactive(
         result = apply_to_environment(apply_client, ctx, uploads)
 
     session = seal_applied(session, entry.name)
-    save_session(session)
+    store.save(session)
 
     print(f"\nUploaded {len(result['uploaded'])} file(s).")
     if result["update_environment_called"]:
@@ -174,6 +192,9 @@ def _run_interactive(
 
 def run_scan(config: ScanConfig, reporter: Reporter, input_func: InputFunc = input) -> dict[str, Any]:
     """Discover every environment in the region, persist the session, and hand off."""
+    store = select_session_store(config.offline, config.dd_site, config.dd_api_key)
+    offline = isinstance(store, FilesystemSessionStore)
+
     client = MwaaClient(region=config.region, read_only=True)
 
     with reporter.report_step("discover_environments"):
@@ -183,10 +204,10 @@ def run_scan(config: ScanConfig, reporter: Reporter, input_func: InputFunc = inp
         session = build_session(config.session_id, config.region, config.dd_site, contexts)
 
     with reporter.report_step("persist_session"):
-        save_session(session)
+        store.save(session)
 
     if not config.interactive:
-        _print_ui_handoff(session)
+        _print_ui_handoff(session, config.region, offline)
         return {"applied": False, "session": session}
 
-    return _run_interactive(client, config, session, contexts, reporter, input_func)
+    return _run_interactive(client, config, session, contexts, reporter, input_func, store, offline)

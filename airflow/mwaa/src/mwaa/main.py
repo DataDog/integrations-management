@@ -4,24 +4,28 @@
 
 """Entry point.
 
-  python mwaa.pyz scan --session-id <uuid> --region <region> --dd-api-key <key>              # survey every MWAA
-                                                                            # environment, persist the session, point
-                                                                            # back to the UI
-  python mwaa.pyz scan --session-id <uuid> --region <region> --dd-api-key <key> --interactive # same, but walk the
-                                                                            # whole flow (select, review, apply) at
-                                                                            # the terminal instead
-  python mwaa.pyz scan ... --interactive --dry-run                        # same, but never applies -- skips the
-                                                                            # confirmation prompt too
-  python mwaa.pyz apply --session-id <uuid> --name <env> --region <region> --dd-api-key <key>        # just prints
-                                                                            # the plan's file changes
-  python mwaa.pyz apply --session-id <uuid> --name <env> --region <region> --dd-api-key <key> --yes  # actually
-                                                                            # applies them
+  python mwaa.pyz scan --session-id <uuid> --region <region> --dd-site <site> --dd-api-key <key>
+      # survey every MWAA environment, submit the session to Datadog, point back to the UI
+  python mwaa.pyz scan ... --interactive   # same, but walk the whole flow (select, review, apply)
+                                            # at the terminal instead
+  python mwaa.pyz scan ... --interactive --dry-run   # same, but never applies -- skips the
+                                                      # confirmation prompt too
+  python mwaa.pyz apply --session-id <uuid> --name <env> --region <region> --dd-site <site> --dd-api-key <key>
+      # just prints the plan's file changes
+  python mwaa.pyz apply ... --yes   # actually applies them
+
+  Both commands need --dd-site: the session gets submitted to and read back
+  from https://data-obs-intake.<site>, and there's no safe default to guess
+  which Datadog organization that should be. Not required with --offline,
+  which persists to a local file instead -- see session_store_selection.py.
+  Also the automatic fallback if the intake API isn't reachable at all.
 
   A scanned session's startup.sh only ever carries a placeholder for the API key
   (see startup_script.py) -- apply's --dd-api-key is what gets substituted in,
-  right before a file is previewed or written. Never persisted upstream of that.
+  right before a file is previewed or written. Never persisted upstream of that,
+  nor sent to the intake API -- DD-API-KEY there is just how it authenticates.
 
-  SESSION_OVERRIDE_PATH=<path> python mwaa.pyz apply --session-id <uuid> --name <env> --region <region> --dd-api-key <key>
+  SESSION_OVERRIDE_PATH=<path> python mwaa.pyz apply --session-id <uuid> --name <env> --region <region> --dd-site <site> --dd-api-key <key>
       # local/dev only: apply a hand-authored Session from disk instead of one `scan` persisted --
       # --session-id is still required for a consistent signature, its value is just unused here --
       # see session_override.py

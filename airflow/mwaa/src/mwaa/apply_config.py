@@ -26,7 +26,9 @@ class ApplyConfig:
     environment_name: str
     region: str
     dd_api_key: str
+    dd_site: Optional[str] = None
     confirmed: bool = False
+    offline: bool = False
 
 
 def parse_apply_config(argv: Optional[Sequence[str]] = None) -> ApplyConfig:
@@ -64,13 +66,31 @@ def parse_apply_config(argv: Optional[Sequence[str]] = None) -> ApplyConfig:
         help=(
             "Datadog API key (default: $DD_API_KEY). A plan's startup.sh only ever carries a "
             "placeholder -- see startup_script.py -- so this is what gets substituted in, right "
-            "before a file is previewed or actually written. Required."
+            "before a file is previewed or actually written. Also authenticates loading/sealing "
+            "the session over the network unless --offline. Required."
+        ),
+    )
+    parser.add_argument(
+        "--dd-site",
+        default=os.environ.get("DD_SITE"),
+        help=(
+            "Datadog site (default: $DD_SITE). Required unless --offline: the session this reads "
+            "and re-seals lives at https://data-obs-intake.<site>, and there's no safe default to "
+            "guess which organization that should be."
         ),
     )
     parser.add_argument(
         "--yes",
         action="store_true",
         help="Actually upload files and update the environment. Without this, only prints a preview.",
+    )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help=(
+            "Load and re-seal the session from a local file instead of the network intake API. Also "
+            "the automatic fallback when that API isn't reachable -- see session_store_selection.py."
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -88,6 +108,8 @@ def parse_apply_config(argv: Optional[Sequence[str]] = None) -> ApplyConfig:
         errors.append("Region is required: pass --region or set AWS_REGION")
     if not args.dd_api_key:
         errors.append("Datadog API key is required: pass --dd-api-key or set DD_API_KEY")
+    if not args.offline and not args.dd_site:
+        errors.append("Datadog site is required unless --offline is set: pass --dd-site or set DD_SITE")
 
     if errors:
         raise ConfigError("\n".join(f"  - {e}" for e in errors))
@@ -97,5 +119,7 @@ def parse_apply_config(argv: Optional[Sequence[str]] = None) -> ApplyConfig:
         environment_name=args.name,
         region=args.region,
         dd_api_key=args.dd_api_key,
+        dd_site=args.dd_site,
         confirmed=args.yes,
+        offline=args.offline,
     )

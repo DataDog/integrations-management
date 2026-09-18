@@ -9,7 +9,7 @@ from airflow_shared.reporter import Reporter
 from mwaa.scan import run_scan
 from mwaa.scan_config import ScanConfig
 from mwaa.session import AppliedStatus, ScannedStatus
-from mwaa.session_store import load_session
+from mwaa.session_store import SessionStore
 
 SESSION_ID = str(uuid.uuid4())
 
@@ -48,6 +48,12 @@ def make_client() -> MagicMock:
     return client
 
 
+def make_store() -> MagicMock:
+    """A store double that isn't a FilesystemSessionStore -- run_scan's UI-handoff/apply-hint
+    text branches on that via isinstance, so tests get the "network" (default) messaging."""
+    return MagicMock(spec=SessionStore)
+
+
 def fake_input(*responses: str):
     it = iter(responses)
     return lambda _prompt: next(it)
@@ -56,8 +62,12 @@ def fake_input(*responses: str):
 def test_run_scan_persists_a_session_with_one_entry_per_environment():
     config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key")
     reporter = Reporter(workflow_type="mwaa-setup")
+    store = make_store()
 
-    with patch("mwaa.scan.MwaaClient", return_value=make_client()):
+    with (
+        patch("mwaa.scan.MwaaClient", return_value=make_client()),
+        patch("mwaa.scan.select_session_store", return_value=store),
+    ):
         result = run_scan(config, reporter)
 
     session = result["session"]
@@ -65,19 +75,17 @@ def test_run_scan_persists_a_session_with_one_entry_per_environment():
     assert session.region == "us-east-1"
     assert {e.name for e in session.environments} == {"my-mwaa-prod", "my-mwaa-staging"}
 
-    persisted = load_session(SESSION_ID)
-    # Not a strict == : a flagged environment's FlaggedVersionEntry.wheel_only_packages
-    # round-trips as a list (asdict turns the tuple into one) -- see test_session.py.
-    assert persisted.session_id == session.session_id
-    assert persisted.region == session.region
-    assert [e.name for e in persisted.environments] == [e.name for e in session.environments]
+    store.save.assert_called_once_with(session)
 
 
 def test_run_scan_without_interactive_prints_ui_link_and_does_not_prompt(capsys):
     config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key")
     reporter = Reporter(workflow_type="mwaa-setup")
 
-    with patch("mwaa.scan.MwaaClient", return_value=make_client()):
+    with (
+        patch("mwaa.scan.MwaaClient", return_value=make_client()),
+        patch("mwaa.scan.select_session_store", return_value=make_store()),
+    ):
         result = run_scan(config, reporter, input_func=fake_input())  # would raise StopIteration if prompted
 
     assert result["applied"] is False
@@ -86,11 +94,28 @@ def test_run_scan_without_interactive_prints_ui_link_and_does_not_prompt(capsys)
     assert "Configure Airflow UI" in out
 
 
+def test_run_scan_without_interactive_offline_skips_ui_link(capsys):
+    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key", offline=True)
+    reporter = Reporter(workflow_type="mwaa-setup")
+
+    with patch("mwaa.scan.MwaaClient", return_value=make_client()):
+        result = run_scan(config, reporter, input_func=fake_input())
+
+    assert result["applied"] is False
+    out = capsys.readouterr().out
+    assert "Configure Airflow UI" not in out
+    assert "Saved locally (offline)" in out
+    assert "--offline" in out
+
+
 def test_run_scan_interactive_lists_environments_with_status(capsys):
     config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key", interactive=True)
     reporter = Reporter(workflow_type="mwaa-setup")
 
-    with patch("mwaa.scan.MwaaClient", return_value=make_client()):
+    with (
+        patch("mwaa.scan.MwaaClient", return_value=make_client()),
+        patch("mwaa.scan.select_session_store", return_value=make_store()),
+    ):
         run_scan(config, reporter, input_func=fake_input("q"))
 
     out = capsys.readouterr().out
@@ -105,7 +130,10 @@ def test_run_scan_interactive_quit_makes_no_changes():
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
 
-    with patch("mwaa.scan.MwaaClient", return_value=client):
+    with (
+        patch("mwaa.scan.MwaaClient", return_value=client),
+        patch("mwaa.scan.select_session_store", return_value=make_store()),
+    ):
         result = run_scan(config, reporter, input_func=fake_input("q"))
 
     client.put_object_text.assert_not_called()
@@ -117,7 +145,10 @@ def test_run_scan_interactive_selects_already_configured_environment_and_stops(c
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
 
-    with patch("mwaa.scan.MwaaClient", return_value=client):
+    with (
+        patch("mwaa.scan.MwaaClient", return_value=client),
+        patch("mwaa.scan.select_session_store", return_value=make_store()),
+    ):
         result = run_scan(config, reporter, input_func=fake_input("2"))
 
     client.put_object_text.assert_not_called()
@@ -130,13 +161,17 @@ def test_run_scan_interactive_declining_apply_prints_apply_command(capsys):
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
 
-    with patch("mwaa.scan.MwaaClient", return_value=client):
+    with (
+        patch("mwaa.scan.MwaaClient", return_value=client),
+        patch("mwaa.scan.select_session_store", return_value=make_store()),
+    ):
         result = run_scan(config, reporter, input_func=fake_input("1", "n"))
 
     client.put_object_text.assert_not_called()
     assert result["applied"] is False
     out = capsys.readouterr().out
     assert f"apply --session-id {SESSION_ID} --name my-mwaa-prod --region us-east-1" in out
+    assert "--dd-site" in out
     assert "--yes" not in out
 
 
@@ -147,7 +182,10 @@ def test_run_scan_interactive_dry_run_never_prompts_to_apply_or_uploads(capsys):
 
     # Only "1" (environment selection) is provided -- if the code tried to
     # prompt for apply confirmation too, this would raise StopIteration.
-    with patch("mwaa.scan.MwaaClient", return_value=client):
+    with (
+        patch("mwaa.scan.MwaaClient", return_value=client),
+        patch("mwaa.scan.select_session_store", return_value=make_store()),
+    ):
         result = run_scan(config, reporter, input_func=fake_input("1"))
 
     client.put_object_text.assert_not_called()
@@ -160,8 +198,12 @@ def test_run_scan_interactive_confirming_apply_uploads_and_updates(capsys):
     config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key", interactive=True)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
+    store = make_store()
 
-    with patch("mwaa.scan.MwaaClient", return_value=client):
+    with (
+        patch("mwaa.scan.MwaaClient", return_value=client),
+        patch("mwaa.scan.select_session_store", return_value=store),
+    ):
         result = run_scan(config, reporter, input_func=fake_input("1", "y"))
 
     assert result["applied"] is True
@@ -173,7 +215,10 @@ def test_run_scan_interactive_confirming_apply_uploads_and_updates(capsys):
     session = result["session"]
     assert session.find("my-mwaa-prod").status == AppliedStatus()
     assert session.find("my-mwaa-staging").status == ScannedStatus()  # untouched -- only the applied one seals
-    assert load_session(SESSION_ID).find("my-mwaa-prod").status == AppliedStatus()
+
+    # persist_session (initial) + the post-apply seal
+    assert store.save.call_count == 2
+    assert store.save.call_args.args[0] == session
 
 
 def test_run_scan_interactive_no_environments_found(capsys):
@@ -182,7 +227,10 @@ def test_run_scan_interactive_no_environments_found(capsys):
     client = make_client()
     client.list_environment_names.return_value = []
 
-    with patch("mwaa.scan.MwaaClient", return_value=client):
+    with (
+        patch("mwaa.scan.MwaaClient", return_value=client),
+        patch("mwaa.scan.select_session_store", return_value=make_store()),
+    ):
         result = run_scan(config, reporter, input_func=fake_input())
 
     assert result["applied"] is False

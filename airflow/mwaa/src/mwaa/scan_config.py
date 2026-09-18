@@ -23,6 +23,7 @@ class ScanConfig:
     dd_api_key: str
     interactive: bool = False
     dry_run: bool = False
+    offline: bool = False
 
 
 def parse_scan_config(argv: Optional[Sequence[str]] = None) -> ScanConfig:
@@ -30,7 +31,8 @@ def parse_scan_config(argv: Optional[Sequence[str]] = None) -> ScanConfig:
 
     Raises:
         ConfigError: If --session-id is missing or not a valid UUID, the region
-            is missing, or --dd-api-key is missing.
+            is missing, --dd-api-key is missing, or --dd-site is missing while
+            --offline isn't set.
     """
     parser = argparse.ArgumentParser(
         prog="mwaa scan",
@@ -47,8 +49,12 @@ def parse_scan_config(argv: Optional[Sequence[str]] = None) -> ScanConfig:
     )
     parser.add_argument(
         "--dd-site",
-        default=os.environ.get("DD_SITE", "datadoghq.com"),
-        help="Datadog site, used to render the OpenLineage transport URL (default: $DD_SITE or datadoghq.com)",
+        default=os.environ.get("DD_SITE"),
+        help=(
+            "Datadog site (default: $DD_SITE) -- also used to render the OpenLineage transport URL. "
+            "Required unless --offline: this session gets submitted to https://data-obs-intake.<site>, "
+            "and there's no safe default to guess which organization that should be."
+        ),
     )
     parser.add_argument(
         "--dd-api-key",
@@ -56,7 +62,7 @@ def parse_scan_config(argv: Optional[Sequence[str]] = None) -> ScanConfig:
         help=(
             "Datadog API key (default: $DD_API_KEY). Required for --interactive's own apply step "
             "(the substituted key never appears in the persisted session -- see startup_script.py) "
-            "and for the eventual API call that persists this session."
+            "and to authenticate the session submission unless --offline."
         ),
     )
     parser.add_argument(
@@ -71,6 +77,14 @@ def parse_scan_config(argv: Optional[Sequence[str]] = None) -> ScanConfig:
         "--dry-run",
         action="store_true",
         help="With --interactive: skip the apply confirmation prompt entirely and never make changes. Ignored otherwise.",
+    )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help=(
+            "Persist the session to a local file instead of submitting it to Datadog. Also the "
+            "automatic fallback when the intake API isn't reachable -- see session_store_selection.py."
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -87,14 +101,21 @@ def parse_scan_config(argv: Optional[Sequence[str]] = None) -> ScanConfig:
     if not args.dd_api_key:
         errors.append("Datadog API key is required: pass --dd-api-key or set DD_API_KEY")
 
+    dd_site = args.dd_site
+    if not args.offline and not dd_site:
+        errors.append("Datadog site is required unless --offline is set: pass --dd-site or set DD_SITE")
+    elif args.offline and not dd_site:
+        dd_site = "datadoghq.com"  # only rendered into a local startup.sh preview -- no network implication
+
     if errors:
         raise ConfigError("\n".join(f"  - {e}" for e in errors))
 
     return ScanConfig(
         session_id=args.session_id,
         region=args.region,
-        dd_site=args.dd_site,
+        dd_site=dd_site,
         dd_api_key=args.dd_api_key,
         interactive=args.interactive,
         dry_run=args.dry_run,
+        offline=args.offline,
     )

@@ -13,6 +13,7 @@ from mwaa.apply_config import ApplyConfig
 from mwaa.plan import FileChange, Plan, PinDiff
 from mwaa.session import AppliedStatus, EnvironmentEntry, ScannedStatus, Session
 from mwaa.session_override import SESSION_OVERRIDE_ENV_VAR
+from mwaa.session_store import SessionStore
 
 SESSION_ID = str(uuid.uuid4())
 
@@ -61,21 +62,28 @@ def make_session(plan: Plan = NEEDS_UPGRADE_PLAN) -> Session:
     )
 
 
+def make_store(session: Session = None) -> MagicMock:
+    store = MagicMock(spec=SessionStore)
+    if session is not None:
+        store.load.return_value = session
+    return store
+
+
 def test_run_apply_without_yes_does_not_call_put_object(capsys):
     config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", dd_api_key="fake-dd-api-key", confirmed=False)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
+    store = make_store(make_session())
 
     with (
         patch("mwaa.apply_command.MwaaClient", return_value=client),
-        patch("mwaa.apply_command.load_session", return_value=make_session()),
-        patch("mwaa.apply_command.save_session") as mock_save_session,
+        patch("mwaa.apply_command.select_session_store", return_value=store),
     ):
         result = run_apply(config, reporter)
 
     client.put_object_text.assert_not_called()
     client.update_environment.assert_not_called()
-    mock_save_session.assert_not_called()  # a dry run never seals anything
+    store.save.assert_not_called()  # a dry run never seals anything
     assert result["applied"] is False
     assert "Dry run only" in capsys.readouterr().out
 
@@ -84,11 +92,11 @@ def test_run_apply_with_yes_uploads_files(capsys):
     config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", dd_api_key="fake-dd-api-key", confirmed=True)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
+    store = make_store(make_session())
 
     with (
         patch("mwaa.apply_command.MwaaClient", return_value=client),
-        patch("mwaa.apply_command.load_session", return_value=make_session()),
-        patch("mwaa.apply_command.save_session") as mock_save_session,
+        patch("mwaa.apply_command.select_session_store", return_value=store),
     ):
         result = run_apply(config, reporter)
 
@@ -97,8 +105,8 @@ def test_run_apply_with_yes_uploads_files(capsys):
     assert result["applied"] is True
     assert "UpdateEnvironment called" in capsys.readouterr().out
 
-    mock_save_session.assert_called_once()
-    sealed_session = mock_save_session.call_args.args[0]
+    store.save.assert_called_once()
+    sealed_session = store.save.call_args.args[0]
     assert sealed_session.find("my-env").status == AppliedStatus()
 
 
@@ -115,15 +123,15 @@ def test_run_apply_seals_only_the_applied_environment(capsys):
     config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", dd_api_key="fake-dd-api-key", confirmed=True)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
+    store = make_store(session)
 
     with (
         patch("mwaa.apply_command.MwaaClient", return_value=client),
-        patch("mwaa.apply_command.load_session", return_value=session),
-        patch("mwaa.apply_command.save_session") as mock_save_session,
+        patch("mwaa.apply_command.select_session_store", return_value=store),
     ):
         run_apply(config, reporter)
 
-    sealed_session = mock_save_session.call_args.args[0]
+    sealed_session = store.save.call_args.args[0]
     assert sealed_session.find("my-env").status == AppliedStatus()
     assert sealed_session.find("other-env").status == ScannedStatus()
 
@@ -132,26 +140,27 @@ def test_run_apply_reports_nothing_to_do_when_already_configured(capsys):
     config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", dd_api_key="fake-dd-api-key", confirmed=True)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
+    store = make_store(make_session(ALREADY_CONFIGURED_PLAN))
 
     with (
         patch("mwaa.apply_command.MwaaClient", return_value=client),
-        patch("mwaa.apply_command.load_session", return_value=make_session(ALREADY_CONFIGURED_PLAN)),
-        patch("mwaa.apply_command.save_session") as mock_save_session,
+        patch("mwaa.apply_command.select_session_store", return_value=store),
     ):
         result = run_apply(config, reporter)
 
     assert result["applied"] is False
     assert result["uploads"] == []
     client.put_object_text.assert_not_called()
-    mock_save_session.assert_not_called()
+    store.save.assert_not_called()
     assert "already fully configured" in capsys.readouterr().out
 
 
 def test_run_apply_reports_when_name_not_in_session(capsys):
     config = ApplyConfig(session_id=SESSION_ID, environment_name="not-in-session", region="us-east-1", dd_api_key="fake-dd-api-key", confirmed=True)
     reporter = Reporter(workflow_type="mwaa-setup")
+    store = make_store(make_session())
 
-    with patch("mwaa.apply_command.load_session", return_value=make_session()):
+    with patch("mwaa.apply_command.select_session_store", return_value=store):
         result = run_apply(config, reporter)
 
     assert result["applied"] is False
@@ -167,16 +176,16 @@ def test_run_apply_uses_session_override_when_env_var_set(capsys, tmp_path, monk
     config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", dd_api_key="fake-dd-api-key", confirmed=True)
     reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
+    store = make_store()
 
     with (
         patch("mwaa.apply_command.MwaaClient", return_value=client),
-        patch("mwaa.apply_command.load_session") as mock_load_session,
-        patch("mwaa.apply_command.save_session") as mock_save_session,
+        patch("mwaa.apply_command.select_session_store", return_value=store),
     ):
         result = run_apply(config, reporter)
 
-    mock_load_session.assert_not_called()
+    store.load.assert_not_called()  # the override file is read instead
     assert result["applied"] is True
-    mock_save_session.assert_called_once()
+    store.save.assert_called_once()  # sealing still goes through the selected store
     out = capsys.readouterr().out
     assert f"{SESSION_OVERRIDE_ENV_VAR} is set" in out

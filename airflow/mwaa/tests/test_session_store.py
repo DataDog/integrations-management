@@ -5,7 +5,7 @@
 import pytest
 
 from mwaa.session import Session
-from mwaa.session_store import SessionNotFoundError, load_session, save_session
+from mwaa.session_store import FilesystemSessionStore, SessionNotFoundError
 
 
 def make_session(session_id: str = "session-1") -> Session:
@@ -13,14 +13,15 @@ def make_session(session_id: str = "session-1") -> Session:
 
 
 def test_save_then_load_round_trips():
+    store = FilesystemSessionStore()
     session = make_session()
 
-    path = save_session(session)
+    store.save(session)
 
-    assert load_session(session.session_id) == session
-    assert path.endswith(f"{session.session_id}.json")
+    assert store.load(session.session_id) == session
 
 
 def test_load_raises_when_session_not_found():
+    store = FilesystemSessionStore()
     with pytest.raises(SessionNotFoundError, match="no-such-session"):
-        load_session("no-such-session")
+        store.load("no-such-session")

@@ -15,6 +15,12 @@ one named environment's plan.
 that's enforced mechanically, not just by review -- see `MwaaClient`'s `read_only` guard
 in `shared/src/airflow_shared/mwaa_client.py`.
 
+A Session is submitted to (and later read back from) Datadog's config-sessions intake
+API by default -- see `SessionStore`/`NetworkSessionStore` (`session_store.py`/
+`network_session_store.py`), chosen by `session_store_selection.py`. `--offline` skips
+the network entirely and uses a local file instead, which is also the automatic fallback
+if the intake API isn't reachable.
+
 The produced executable is intended to run in [AWS CloudShell](https://aws.amazon.com/cloudshell/),
 which has `boto3` preinstalled. It can also be run locally against any MWAA environment
 you have read access to.
@@ -24,20 +30,29 @@ you have read access to.
 # Usage
 
 ```bash
-# Survey every environment in a region, persist the session, point back to the UI
-python mwaa.pyz scan --session-id <uuid> --region us-east-1 --dd-api-key <key>
+# Survey every environment in a region, submit the session to Datadog, point back to the UI
+python mwaa.pyz scan --session-id <uuid> --region us-east-1 --dd-site datadoghq.com --dd-api-key <key>
 
 # Same, but walk the whole select/review/apply flow at the terminal instead
-python mwaa.pyz scan --session-id <uuid> --region us-east-1 --dd-api-key <key> --interactive
+python mwaa.pyz scan --session-id <uuid> --region us-east-1 --dd-site datadoghq.com --dd-api-key <key> --interactive
 
 # Preview one environment's plan from a session a prior `scan` persisted
-python mwaa.pyz apply --session-id <uuid> --name my-mwaa-environment --region us-east-1 --dd-api-key <key>
+python mwaa.pyz apply --session-id <uuid> --name my-mwaa-environment --region us-east-1 --dd-site datadoghq.com --dd-api-key <key>
 # ...then add --yes once the diff looks right, to actually apply it
+
+# Local-only, no network at all (also the automatic fallback if the intake API is unreachable)
+python mwaa.pyz scan --session-id <uuid> --region us-east-1 --dd-api-key <key> --offline
 ```
 
-`--region` falls back to `AWS_REGION`/`AWS_DEFAULT_REGION` if omitted, and `--dd-api-key`
-falls back to `DD_API_KEY`. `--session-id` must be a UUID -- the eventual UI generates one
-and embeds it in the command it hands you.
+`--region` falls back to `AWS_REGION`/`AWS_DEFAULT_REGION` if omitted, `--dd-site` falls
+back to `DD_SITE`, and `--dd-api-key` falls back to `DD_API_KEY`. `--session-id` must be a
+UUID -- the eventual UI generates one and embeds it in the command it hands you.
+
+`--dd-site` is required on both commands unless `--offline` is set: the session gets
+submitted to and read back from `https://data-obs-intake.<site>` (`datadoghq.com`,
+`datad0g.com`, etc.), and there's no safe default to guess which organization that
+should be. `--offline` persists to a local file instead of the network, and needs
+neither `--dd-site` nor a reachable intake API.
 
 A session's proposed startup.sh never carries a real Datadog API key -- only a
 placeholder (see `startup_script.py`). Both `scan` and `apply` require `--dd-api-key`,
@@ -78,17 +93,18 @@ python -m pytest mwaa/tests
 ### Testing `apply` against an arbitrary session
 
 `apply --session-id <id>` normally loads the Session a prior `scan --session-id <id>`
-persisted (see `session_store.py`) and pulls out the plan for `--name` from it. For
-local/dev testing, setting `SESSION_OVERRIDE_PATH` to a JSON file skips that lookup and
+persisted, via whichever `SessionStore` this run selects (see `session_store_selection.py`).
+For local/dev testing, setting `SESSION_OVERRIDE_PATH` to a JSON file skips that lookup and
 uses the Session in the file instead -- useful for driving a real environment into a
 specific state without running `scan` first. `--session-id`/`--name`/`--region` are all
 still required flags either way; the override only swaps out where the Session's *content*
-comes from. The expected shape is exactly what `scan` persists
-(`dataclasses.asdict(session)`): copy one out of `/tmp/mwaa-session-<id>.json`, edit it,
-feed it back in.
+comes from -- sealing (see session.py's `seal_applied`) after a real apply still goes
+through the normal selected store. The expected shape is exactly what `scan` persists
+(`dataclasses.asdict(session)`): with `--offline`, copy one out of
+`/tmp/mwaa-session-<id>.json`, edit it, feed it back in.
 
 ```bash
-SESSION_OVERRIDE_PATH=./my-session.json python mwaa.pyz apply --session-id <uuid> --name my-mwaa-environment --region us-east-1 --dd-api-key <key> --yes
+SESSION_OVERRIDE_PATH=./my-session.json python mwaa.pyz apply --session-id <uuid> --name my-mwaa-environment --region us-east-1 --dd-api-key <key> --offline --yes
 ```
 
 Not part of the documented CLI surface for customers -- it's a testing escape hatch.

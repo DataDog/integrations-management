@@ -4,9 +4,11 @@
 
 """Orchestrates a full apply run against one MWAA environment.
 
-Loads the Session a prior `scan --session-id` persisted (or, under
-SESSION_OVERRIDE_PATH, a hand-authored one -- see session_override.py),
-pulls out the plan for --name, then always fetches that environment fresh
+Loads the Session a prior `scan --session-id` persisted -- via whichever
+SessionStore select_session_store picks for this run (network by default,
+local file under --offline or if the network's unreachable), or under
+SESSION_OVERRIDE_PATH, a hand-authored one instead -- see session_override.py.
+Pulls out the plan for --name, then always fetches that environment fresh
 and previews before doing anything mutating -- without --yes (see
 apply_config.py), this only prints what it would do.
 
@@ -28,20 +30,22 @@ from .diff_preview import render_unified_diff
 from .probe import build_context
 from .session import seal_applied
 from .session_override import SESSION_OVERRIDE_ENV_VAR, load_session_override
-from .session_store import load_session, save_session
+from .session_store_selection import select_session_store
 
 WORKFLOW_TYPE = "mwaa-setup"
 
 
 def run_apply(config: ApplyConfig, reporter: Reporter) -> dict[str, Any]:
     """Load the session, find --name's plan in it, and preview or apply it."""
+    store = select_session_store(config.offline, config.dd_site, config.dd_api_key)
+
     override_path = os.environ.get(SESSION_OVERRIDE_ENV_VAR)
     if override_path:
         print(f"{SESSION_OVERRIDE_ENV_VAR} is set -- loading the session from {override_path} instead of session {config.session_id}.")
         session = load_session_override(override_path)
     else:
         with reporter.report_step("load_session"):
-            session = load_session(config.session_id)
+            session = store.load(config.session_id)
 
     entry = session.find(config.environment_name)
     if entry is None:
@@ -86,7 +90,7 @@ def run_apply(config: ApplyConfig, reporter: Reporter) -> dict[str, Any]:
         result = apply_to_environment(client, ctx, uploads)
 
     session = seal_applied(session, config.environment_name)
-    save_session(session)
+    store.save(session)
 
     print()
     print(f"Uploaded {len(result['uploaded'])} file(s).")
