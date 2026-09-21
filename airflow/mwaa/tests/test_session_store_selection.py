@@ -11,20 +11,23 @@ from mwaa.session_store_selection import select_session_store
 
 
 def test_offline_always_returns_filesystem_store():
-    store = select_session_store(offline=True, dd_site=None, dd_api_key=None)
+    store, forced = select_session_store(offline=True, dd_site=None, dd_api_key=None)
     assert isinstance(store, FilesystemSessionStore)
+    assert forced is False  # explicit --offline is a choice, not a forced fallback
 
 
 def test_reachable_intake_returns_network_store():
     with patch("mwaa.session_store_selection._intake_reachable", return_value=True):
-        store = select_session_store(offline=False, dd_site="datadoghq.com", dd_api_key="fake-dd-api-key")
+        store, forced = select_session_store(offline=False, dd_site="datadoghq.com", dd_api_key="fake-dd-api-key")
     assert isinstance(store, NetworkSessionStore)
+    assert forced is False
 
 
 def test_unreachable_intake_falls_back_to_filesystem(capsys):
     with patch("mwaa.session_store_selection._intake_reachable", return_value=False):
-        store = select_session_store(offline=False, dd_site="datadoghq.com", dd_api_key="fake-dd-api-key")
+        store, forced = select_session_store(offline=False, dd_site="datadoghq.com", dd_api_key="fake-dd-api-key")
     assert isinstance(store, FilesystemSessionStore)
+    assert forced is True  # not chosen -- scan.py forces --interactive because of this
     assert "falling back to local filesystem storage" in capsys.readouterr().out
 
 

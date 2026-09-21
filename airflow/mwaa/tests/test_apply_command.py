@@ -73,7 +73,7 @@ def test_run_apply_without_yes_does_not_call_put_object(capsys):
 
     with (
         patch("mwaa.apply_command.MwaaClient", return_value=client),
-        patch("mwaa.apply_command.select_session_store", return_value=store),
+        patch("mwaa.apply_command.select_session_store", return_value=(store, False)),
     ):
         result = run_apply(config, reporter)
 
@@ -92,7 +92,7 @@ def test_run_apply_with_yes_uploads_files(capsys):
 
     with (
         patch("mwaa.apply_command.MwaaClient", return_value=client),
-        patch("mwaa.apply_command.select_session_store", return_value=store),
+        patch("mwaa.apply_command.select_session_store", return_value=(store, False)),
     ):
         result = run_apply(config, reporter)
 
@@ -123,7 +123,7 @@ def test_run_apply_seals_only_the_applied_environment(capsys):
 
     with (
         patch("mwaa.apply_command.MwaaClient", return_value=client),
-        patch("mwaa.apply_command.select_session_store", return_value=store),
+        patch("mwaa.apply_command.select_session_store", return_value=(store, False)),
     ):
         run_apply(config, reporter)
 
@@ -140,7 +140,7 @@ def test_run_apply_reports_nothing_to_do_when_already_configured(capsys):
 
     with (
         patch("mwaa.apply_command.MwaaClient", return_value=client),
-        patch("mwaa.apply_command.select_session_store", return_value=store),
+        patch("mwaa.apply_command.select_session_store", return_value=(store, False)),
     ):
         result = run_apply(config, reporter)
 
@@ -156,7 +156,7 @@ def test_run_apply_reports_when_name_not_in_session(capsys):
     reporter = Reporter(workflow_type="mwaa-setup")
     store = make_store(make_session())
 
-    with patch("mwaa.apply_command.select_session_store", return_value=store):
+    with patch("mwaa.apply_command.select_session_store", return_value=(store, False)):
         result = run_apply(config, reporter)
 
     assert result["applied"] is False
@@ -176,7 +176,7 @@ def test_run_apply_uses_session_override_when_env_var_set(capsys, tmp_path, monk
 
     with (
         patch("mwaa.apply_command.MwaaClient", return_value=client),
-        patch("mwaa.apply_command.select_session_store", return_value=store),
+        patch("mwaa.apply_command.select_session_store", return_value=(store, False)),
     ):
         result = run_apply(config, reporter)
 

@@ -19,7 +19,10 @@ A Session is submitted to (and later read back from) Datadog's config-sessions i
 API by default -- see `SessionStore`/`NetworkSessionStore` (`session_store.py`/
 `network_session_store.py`), chosen by `session_store_selection.py`. `--offline` skips
 the network entirely and uses a local file instead, which is also the automatic fallback
-if the intake API isn't reachable.
+if the intake API isn't reachable. That automatic fallback (not explicit `--offline`)
+also forces `scan` into `--interactive`, even if you didn't pass it: non-interactive
+`scan`'s whole design is to hand off to a UI, and there's no UI that can ever see a
+session that only exists in a local file it never chose to be in.
 
 The produced executable is intended to run in [AWS CloudShell](https://aws.amazon.com/cloudshell/),
 which has `boto3` preinstalled. It can also be run locally against any MWAA environment

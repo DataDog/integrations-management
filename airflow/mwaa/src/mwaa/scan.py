@@ -192,7 +192,7 @@ def _run_interactive(
 
 def run_scan(config: ScanConfig, reporter: Reporter, input_func: InputFunc = input) -> dict[str, Any]:
     """Discover every environment in the region, persist the session, and hand off."""
-    store = select_session_store(config.offline, config.dd_site, config.dd_api_key)
+    store, forced_by_unreachable_network = select_session_store(config.offline, config.dd_site, config.dd_api_key)
     offline = isinstance(store, FilesystemSessionStore)
 
     client = MwaaClient(region=config.region, read_only=True)
@@ -206,7 +206,15 @@ def run_scan(config: ScanConfig, reporter: Reporter, input_func: InputFunc = inp
     with reporter.report_step("persist_session"):
         store.save(session)
 
-    if not config.interactive:
+    # Explicit --offline still leaves a plain scan-then-apply flow fully
+    # workable; an unreachable network wasn't a choice, and non-interactive
+    # scan's whole design is to hand off to a UI that will never see a
+    # locally-saved session. Interactive is the only way left to review and
+    # apply anything in that case, so force it rather than stranding the
+    # customer with just a print-out.
+    if not config.interactive and forced_by_unreachable_network:
+        print("\nContinuing interactively instead, since there's no UI that can see a session saved locally.")
+    if not config.interactive and not forced_by_unreachable_network:
         _print_ui_handoff(session, config.region, config.dd_site, offline)
         return {"applied": False, "session": session}
 

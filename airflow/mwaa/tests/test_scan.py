@@ -70,7 +70,7 @@ def test_run_scan_persists_a_session_with_one_entry_per_environment():
 
     with (
         patch("mwaa.scan.MwaaClient", return_value=make_client()),
-        patch("mwaa.scan.select_session_store", return_value=store),
+        patch("mwaa.scan.select_session_store", return_value=(store, False)),
     ):
         result = run_scan(config, reporter)
 
@@ -88,7 +88,7 @@ def test_run_scan_without_interactive_prints_ui_link_and_does_not_prompt(capsys)
 
     with (
         patch("mwaa.scan.MwaaClient", return_value=make_client()),
-        patch("mwaa.scan.select_session_store", return_value=make_store()),
+        patch("mwaa.scan.select_session_store", return_value=(make_store(), False)),
     ):
         result = run_scan(config, reporter, input_func=fake_input())  # would raise StopIteration if prompted
 
@@ -112,13 +112,34 @@ def test_run_scan_without_interactive_offline_skips_ui_link(capsys):
     assert "--offline" in out
 
 
+def test_run_scan_forces_interactive_when_network_is_unreachable(capsys):
+    """--interactive wasn't passed, but the network fell back to local storage --
+    there's no UI that could ever see this session, so interactive is forced."""
+    from mwaa.session_store import FilesystemSessionStore
+
+    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key")
+    reporter = Reporter(workflow_type="mwaa-setup")
+
+    with (
+        patch("mwaa.scan.MwaaClient", return_value=make_client()),
+        patch("mwaa.scan.select_session_store", return_value=(FilesystemSessionStore(), True)),
+    ):
+        result = run_scan(config, reporter, input_func=fake_input("q"))
+
+    out = capsys.readouterr().out
+    assert "Configure Airflow UI" not in out
+    assert "Continuing interactively instead" in out
+    assert "interactive CLI" in out  # actually entered _run_interactive
+    assert result["applied"] is False
+
+
 def test_run_scan_interactive_lists_environments_with_status(capsys):
     config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key", interactive=True)
     reporter = Reporter(workflow_type="mwaa-setup")
 
     with (
         patch("mwaa.scan.MwaaClient", return_value=make_client()),
-        patch("mwaa.scan.select_session_store", return_value=make_store()),
+        patch("mwaa.scan.select_session_store", return_value=(make_store(), False)),
     ):
         run_scan(config, reporter, input_func=fake_input("q"))
 
@@ -136,7 +157,7 @@ def test_run_scan_interactive_quit_makes_no_changes():
 
     with (
         patch("mwaa.scan.MwaaClient", return_value=client),
-        patch("mwaa.scan.select_session_store", return_value=make_store()),
+        patch("mwaa.scan.select_session_store", return_value=(make_store(), False)),
     ):
         result = run_scan(config, reporter, input_func=fake_input("q"))
 
@@ -151,7 +172,7 @@ def test_run_scan_interactive_selects_already_configured_environment_and_stops(c
 
     with (
         patch("mwaa.scan.MwaaClient", return_value=client),
-        patch("mwaa.scan.select_session_store", return_value=make_store()),
+        patch("mwaa.scan.select_session_store", return_value=(make_store(), False)),
     ):
         result = run_scan(config, reporter, input_func=fake_input("2"))
 
@@ -167,7 +188,7 @@ def test_run_scan_interactive_declining_apply_prints_apply_command(capsys):
 
     with (
         patch("mwaa.scan.MwaaClient", return_value=client),
-        patch("mwaa.scan.select_session_store", return_value=make_store()),
+        patch("mwaa.scan.select_session_store", return_value=(make_store(), False)),
     ):
         result = run_scan(config, reporter, input_func=fake_input("1", "n"))
 
@@ -188,7 +209,7 @@ def test_run_scan_interactive_dry_run_never_prompts_to_apply_or_uploads(capsys):
     # prompt for apply confirmation too, this would raise StopIteration.
     with (
         patch("mwaa.scan.MwaaClient", return_value=client),
-        patch("mwaa.scan.select_session_store", return_value=make_store()),
+        patch("mwaa.scan.select_session_store", return_value=(make_store(), False)),
     ):
         result = run_scan(config, reporter, input_func=fake_input("1"))
 
@@ -206,7 +227,7 @@ def test_run_scan_interactive_confirming_apply_uploads_and_updates(capsys):
 
     with (
         patch("mwaa.scan.MwaaClient", return_value=client),
-        patch("mwaa.scan.select_session_store", return_value=store),
+        patch("mwaa.scan.select_session_store", return_value=(store, False)),
     ):
         result = run_scan(config, reporter, input_func=fake_input("1", "y"))
 
@@ -233,7 +254,7 @@ def test_run_scan_interactive_no_environments_found(capsys):
 
     with (
         patch("mwaa.scan.MwaaClient", return_value=client),
-        patch("mwaa.scan.select_session_store", return_value=make_store()),
+        patch("mwaa.scan.select_session_store", return_value=(make_store(), False)),
     ):
         result = run_scan(config, reporter, input_func=fake_input())
 

@@ -37,7 +37,7 @@ WORKFLOW_TYPE = "mwaa-setup"
 
 def run_apply(config: ApplyConfig, reporter: Reporter) -> dict[str, Any]:
     """Load the session, find --name's plan in it, and preview or apply it."""
-    store = select_session_store(config.offline, config.dd_site, config.dd_api_key)
+    store, _ = select_session_store(config.offline, config.dd_site, config.dd_api_key)
 
     override_path = os.environ.get(SESSION_OVERRIDE_ENV_VAR)
     if override_path:

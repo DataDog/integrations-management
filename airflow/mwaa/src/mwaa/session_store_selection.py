@@ -15,14 +15,28 @@ store instead:
     before committing to it -- so a customer whose CloudShell/network
     genuinely can't reach Datadog gets one clear line and a working local
     fallback instead of a request that hangs or a bare traceback.
+
+These two cases aren't equivalent, which is why the result distinguishes
+them (see StoreSelection.forced_by_unreachable_network): explicit --offline
+is a deliberate choice that a plain `scan` + a later `apply` still fully
+supports. An unreachable network wasn't chosen -- and non-interactive scan's
+whole design is to hand off to a UI that will never see a locally-saved
+session, so continuing non-interactively there would just strand the
+customer with a print-out. scan.py forces --interactive in that case, since
+it's the only way left to actually review and apply anything.
 """
 
 import urllib.error
 import urllib.request
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from .network_session_store import NetworkSessionStore
 from .session_store import FilesystemSessionStore, SessionStore
+
+
+class StoreSelection(NamedTuple):
+    store: SessionStore
+    forced_by_unreachable_network: bool  # True only for the unreachable-network fallback, never for explicit --offline
 
 
 def _intake_reachable(dd_site: str, timeout: float = 5.0) -> bool:
@@ -36,10 +50,10 @@ def _intake_reachable(dd_site: str, timeout: float = 5.0) -> bool:
         return False
 
 
-def select_session_store(offline: bool, dd_site: Optional[str], dd_api_key: Optional[str]) -> SessionStore:
+def select_session_store(offline: bool, dd_site: Optional[str], dd_api_key: Optional[str]) -> StoreSelection:
     """Pick a SessionStore for this run, printing why if it's not the network one."""
     if offline:
-        return FilesystemSessionStore()
+        return StoreSelection(FilesystemSessionStore(), forced_by_unreachable_network=False)
 
     # Config parsing requires dd_site/dd_api_key whenever offline isn't set --
     # see scan_config.py/apply_config.py -- so reaching here without them is a
@@ -48,6 +62,6 @@ def select_session_store(offline: bool, dd_site: Optional[str], dd_api_key: Opti
 
     if not _intake_reachable(dd_site):
         print(f"Could not reach the Datadog intake API at data-obs-intake.{dd_site} -- falling back to local filesystem storage.")
-        return FilesystemSessionStore()
+        return StoreSelection(FilesystemSessionStore(), forced_by_unreachable_network=True)
 
-    return NetworkSessionStore(dd_site=dd_site, dd_api_key=dd_api_key)
+    return StoreSelection(NetworkSessionStore(dd_site=dd_site, dd_api_key=dd_api_key), forced_by_unreachable_network=False)
