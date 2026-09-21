@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 from airflow_shared.reporter import Reporter
 from mwaa.apply_command import run_apply
 from mwaa.apply_config import ApplyConfig
-from mwaa.plan import FileChange, Plan, PinDiff
+from mwaa.plan import PinChange, Plan
 from mwaa.session import AppliedStatus, EnvironmentEntry, ScannedStatus, Session
 from mwaa.session_override import SESSION_OVERRIDE_ENV_VAR
 from mwaa.session_store import SessionStore
@@ -33,11 +33,7 @@ NEEDS_UPGRADE_PLAN = Plan(
     matched_table_entry=None,
     source_doc="",
     file_changes=[
-        FileChange(
-            path="requirements.txt",
-            action="update",
-            pin_diff=[PinDiff("apache-airflow-providers-openlineage", "1.4.0", "1.14.0")],
-        )
+        PinChange(path="requirements.txt", package="apache-airflow-providers-openlineage", from_version="1.4.0", to_version="1.14.0"),
     ],
 )
 

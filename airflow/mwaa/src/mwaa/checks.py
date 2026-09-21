@@ -24,7 +24,6 @@ Grounded in two sources:
     MWAA startup script and airflow_configuration_options, which one wins.
 """
 
-import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -42,22 +41,11 @@ from .pins import (
     parse_pins,
     resolve_constraint_s3_key,
 )
+from .startup_script import parse_exports
 
 # Airflow versions whose MWAA-default constraints pin an OpenLineage provider
 # with known issues, per Datadog's onboarding docs.
 FLAGGED_AIRFLOW_VERSIONS = {"2.7.2", "2.8.1", "2.9.2"}
-
-_EXPORT_LINE = re.compile(
-    r"^\s*export\s+(AIRFLOW__OPENLINEAGE__\w+|OPENLINEAGE_\w+)=(.*)$",
-    re.MULTILINE,
-)
-
-
-def _strip_matching_quotes(value: str) -> str:
-    value = value.strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
-        return value[1:-1]
-    return value
 
 
 @dataclass
@@ -251,10 +239,7 @@ def check_openlineage_precedence(ctx: ProbeContext) -> Finding:
         if env_var:
             from_config[env_var] = str(value)
 
-    from_startup: dict[str, str] = {}
-    if ctx.startup_script_text:
-        for name, value in _EXPORT_LINE.findall(ctx.startup_script_text):
-            from_startup[name] = _strip_matching_quotes(value)
+    from_startup = parse_exports(ctx.startup_script_text or "")
 
     conflicts = [
         f"{name}: startup script sets {from_startup[name]!r}, airflow_configuration_options sets {from_config[name]!r}"

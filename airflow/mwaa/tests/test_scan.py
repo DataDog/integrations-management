@@ -42,7 +42,11 @@ def make_client() -> MagicMock:
     client.get_object_text.side_effect = lambda bucket, key, version_id=None: {
         ("my-bucket", "requirements.txt"): "apache-airflow-providers-openlineage==1.4.0\n",
         ("my-bucket-2", "requirements.txt"): "apache-airflow-providers-openlineage==2.18.0\n",
-        ("my-bucket-2", "dags/startup.sh"): "export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n",
+        ("my-bucket-2", "dags/startup.sh"): (
+            "export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n"
+            "export OPENLINEAGE_API_KEY=some-real-key\n"
+            'export AIRFLOW__OPENLINEAGE__NAMESPACE="my-mwaa-staging"\n'
+        ),
     }[(bucket, key)]
     client.put_object_text.return_value = "v2"
     return client

@@ -29,9 +29,9 @@ from typing import Any
 from airflow_shared.mwaa_client import MwaaClient
 
 from .checks import ProbeContext, resolve_constraint_key
-from .patch import ensure_constraint_line, patch_pins
+from .patch import ensure_constraint_line, patch_env_vars, patch_pins
 from .pins import resolve_constraint_s3_key
-from .plan import CONSTRAINTS_PATH, EXPECTED_CONSTRAINT_LINE_TARGET, REQUIREMENTS_PATH, STARTUP_SCRIPT_PATH, FileChange, Plan
+from .plan import CONSTRAINTS_PATH, EXPECTED_CONSTRAINT_LINE_TARGET, REQUIREMENTS_PATH, STARTUP_SCRIPT_PATH, ConstraintDirectiveAdded, EnvVarChange, Plan, PinChange
 from .startup_script import interpolate_api_key as _substitute_api_key
 
 
@@ -48,10 +48,6 @@ class FileUpload:
     old_content: str
     content: str
     action: str  # "create" | "update"
-
-
-def _adds_constraint_line(file_change: FileChange) -> bool:
-    return any("constraint" in note for note in file_change.notes)
 
 
 def current_text_for_path(ctx: ProbeContext, path: str) -> str:
@@ -95,20 +91,31 @@ def real_key_for_path(ctx: ProbeContext, path: str) -> str:
 
 
 def compute_apply_actions(ctx: ProbeContext, plan: Plan) -> list[FileUpload]:
-    """Compute the exact file content to write for every change in a plan."""
-    uploads = []
+    """Compute the exact file content to write for every change in a plan.
+
+    plan.file_changes is a flat list of per-package/per-directive/per-variable
+    changes, possibly several sharing the same path (e.g. six PinChanges all
+    for dags/constraints.txt) -- group by path first, then patch once per file.
+    """
+    by_path: dict[str, list] = {}
     for change in plan.file_changes:
-        old_content = current_text_for_path(ctx, change.path)
-        if change.path == CONSTRAINTS_PATH:
-            content = patch_pins(old_content, change.pin_diff)
-        elif change.path == REQUIREMENTS_PATH:
-            content = patch_pins(old_content, change.pin_diff)
-            if _adds_constraint_line(change):
+        by_path.setdefault(change.path, []).append(change)
+
+    uploads = []
+    for path, changes in by_path.items():
+        old_content = current_text_for_path(ctx, path)
+        if path == CONSTRAINTS_PATH:
+            content = patch_pins(old_content, [c for c in changes if isinstance(c, PinChange)])
+            action = "update" if ctx.constraints_text else "create"
+        elif path == REQUIREMENTS_PATH:
+            content = patch_pins(old_content, [c for c in changes if isinstance(c, PinChange)])
+            if any(isinstance(c, ConstraintDirectiveAdded) for c in changes):
                 content = ensure_constraint_line(content, EXPECTED_CONSTRAINT_LINE_TARGET)
+            action = "update"
         else:  # STARTUP_SCRIPT_PATH -- current_text_for_path already validated the path
-            assert change.content is not None, "startup.sh file changes always carry pre-rendered content"
-            content = change.content
-        uploads.append(FileUpload(path=change.path, old_content=old_content, content=content, action=change.action))
+            content = patch_env_vars(old_content, [c for c in changes if isinstance(c, EnvVarChange)])
+            action = "update" if ctx.startup_script_text else "create"
+        uploads.append(FileUpload(path=path, old_content=old_content, content=content, action=action))
     return uploads
 
 

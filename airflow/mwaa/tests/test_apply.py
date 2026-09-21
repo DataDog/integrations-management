@@ -83,7 +83,7 @@ def test_interpolate_api_key_substitutes_only_the_startup_script_upload():
 
 
 def test_compute_apply_actions_rejects_unknown_path():
-    from mwaa.plan import FileChange, Plan
+    from mwaa.plan import PinChange, Plan
 
     plan = Plan(
         upgrade_needed=True,
@@ -91,7 +91,7 @@ def test_compute_apply_actions_rejects_unknown_path():
         source="flagged_version_table",
         matched_table_entry=None,
         source_doc="",
-        file_changes=[FileChange(path="somewhere/else.txt", action="update")],
+        file_changes=[PinChange(path="somewhere/else.txt", package="pandas", from_version=None, to_version="2.1.4")],
     )
     with pytest.raises(ValueError, match="somewhere/else.txt"):
         compute_apply_actions(make_context(), plan)
@@ -107,7 +107,11 @@ def test_compute_apply_actions_handles_unflagged_version_missing_provider():
         environment={"Name": "my-env", "AirflowVersion": "3.0.6", "SourceBucketArn": "arn:aws:s3:::my-bucket"},
         requirements_text="pandas==2.1.4\n",
         constraints_text=None,
-        startup_script_text="export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n",
+        startup_script_text=(
+            "export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n"
+            "export OPENLINEAGE_API_KEY=some-real-key\n"
+            'export AIRFLOW__OPENLINEAGE__NAMESPACE="my-env"\n'
+        ),
     )
     plan = compute_plan("3.0.6", ctx.requirements_text, ctx.constraints_text, ctx.startup_script_text, "datadoghq.com", "my-env")
     assert plan.upgrade_needed is True

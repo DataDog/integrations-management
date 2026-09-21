@@ -12,16 +12,32 @@ itself so a persisted session (see session.py) is enough to reconstruct the
 reasoning later, without needing to re-run this code against the version
 table as it existed at the time.
 
-The startup.sh FileChange's content never carries a real Datadog API key --
-see startup_script.py's DD_API_KEY_PLACEHOLDER -- so a Plan is always safe to
-persist, log, or display as-is.
+Plan.file_changes is a discriminated union (tagged by `type`) rather than one
+generic shape, because "a package version changed" and "a startup.sh
+variable changed" are genuinely different things with different fields, and
+forcing them into one generic before/after-line shape would either lose the
+structure (package name, variable name) a UI wants to key off of, or invite
+smuggling human-readable description text into the same field as literal
+diff content -- which is exactly the ambiguity that motivated this shape:
+
+  PinChange                a package's version, in constraints.txt or requirements.txt
+  ConstraintDirectiveAdded requirements.txt's one non-package line: --constraint "..."
+  EnvVarChange             one startup.sh variable being added or corrected
+
+No "removed" variant exists because nothing in this plan ever removes a line
+-- only adds or corrects one. If that changes, add the variant that case
+actually needs then, rather than guessing its shape now.
+
+EnvVarChange.to_value is never a real secret -- see startup_script.py's
+DD_API_KEY_PLACEHOLDER -- so a Plan is always safe to persist, log, or
+display as-is.
 """
 
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
+from typing import Optional, Union
 
 from .pins import OPENLINEAGE_PACKAGES, find_constraint_path, parse_bare_packages, parse_pins, resolve_constraint_s3_key
-from .startup_script import render_startup_script, startup_script_looks_configured
+from .startup_script import SECRET_VAR_NAMES, parse_exports, target_values
 from .version_table import FLAGGED_VERSION_TABLE, SOURCE_DOC, FlaggedVersionEntry
 
 REQUIREMENTS_PATH = "requirements.txt"
@@ -31,23 +47,49 @@ EXPECTED_CONSTRAINT_LINE_TARGET = "/usr/local/airflow/dags/constraints.txt"
 
 
 @dataclass(frozen=True)
-class PinDiff:
-    """One package's version change (or unpinned addition)."""
+class PinChange:
+    """One package's version being added or bumped, in constraints.txt or requirements.txt."""
 
+    path: str
     package: str
-    from_version: Optional[str]
+    from_version: Optional[str]  # None means the package wasn't pinned before
     to_version: str
+    type: str = "pin_change"
 
 
 @dataclass(frozen=True)
-class FileChange:
-    """One file this plan proposes creating or updating."""
+class ConstraintDirectiveAdded:
+    """requirements.txt's `--constraint "..."` line, when it doesn't have one yet.
+
+    Its own variant because it's neither a package pin nor a startup.sh
+    variable -- it's a pip requirements-file directive.
+    """
 
     path: str
-    action: str  # "create" | "update"
-    pin_diff: list[PinDiff] = field(default_factory=list)
-    content: Optional[str] = None  # full new content, for startup.sh
-    notes: list[str] = field(default_factory=list)
+    line: str
+    type: str = "constraint_directive_added"
+
+
+@dataclass(frozen=True)
+class EnvVarChange:
+    """One startup.sh variable being added or corrected.
+
+    from_value is None either because the variable is missing entirely, or
+    (see plan.py's _plan_env_var_changes) because it's a secret variable that
+    already has *some* value -- we have no real value to compare against, so
+    we never propose "correcting" one, only adding it when it's missing.
+    to_value is a placeholder, never the real value, when secret is True.
+    """
+
+    path: str
+    name: str
+    from_value: Optional[str]
+    to_value: str
+    secret: bool
+    type: str = "env_var_change"
+
+
+FileChange = Union[PinChange, ConstraintDirectiveAdded, EnvVarChange]
 
 
 @dataclass(frozen=True)
@@ -62,8 +104,21 @@ class Plan:
     file_changes: list[FileChange]
 
 
+def _file_change_from_dict(data: dict) -> FileChange:
+    change_type = data["type"]
+    if change_type == "pin_change":
+        return PinChange(path=data["path"], package=data["package"], from_version=data.get("from_version"), to_version=data["to_version"])
+    if change_type == "constraint_directive_added":
+        return ConstraintDirectiveAdded(path=data["path"], line=data["line"])
+    if change_type == "env_var_change":
+        return EnvVarChange(
+            path=data["path"], name=data["name"], from_value=data.get("from_value"), to_value=data["to_value"], secret=data["secret"]
+        )
+    raise ValueError(f"unknown FileChange type {change_type!r}")
+
+
 def plan_from_dict(data: dict) -> Plan:
-    """The reverse of dataclasses.asdict(plan) -- reconstructs real Plan/FileChange/PinDiff/
+    """The reverse of dataclasses.asdict(plan) -- reconstructs real Plan/FileChange variant/
     FlaggedVersionEntry instances from their plain-dict JSON form.
 
     Shared by session.py (loading a persisted or overridden Session's per-
@@ -77,22 +132,13 @@ def plan_from_dict(data: dict) -> Plan:
         source=data["source"],
         matched_table_entry=FlaggedVersionEntry(**matched_table_entry) if matched_table_entry else None,
         source_doc=data["source_doc"],
-        file_changes=[
-            FileChange(
-                path=fc["path"],
-                action=fc["action"],
-                pin_diff=[PinDiff(**pd) for pd in fc.get("pin_diff", [])],
-                content=fc.get("content"),
-                notes=fc.get("notes", []),
-            )
-            for fc in data["file_changes"]
-        ],
+        file_changes=[_file_change_from_dict(fc) for fc in data["file_changes"]],
     )
 
 
-def _plan_flagged_version(entry: FlaggedVersionEntry, current_req_pins: dict, current_con_pins: dict) -> tuple[bool, str, list[PinDiff]]:
-    pin_diffs = [
-        PinDiff(package, current_con_pins.get(package) or current_req_pins.get(package), target)
+def _plan_flagged_version(entry: FlaggedVersionEntry, current_req_pins: dict, current_con_pins: dict) -> tuple[bool, str, list[tuple]]:
+    diffs = [
+        (package, current_con_pins.get(package) or current_req_pins.get(package), target)
         for package, target in entry.target_versions.items()
         if (current_con_pins.get(package) or current_req_pins.get(package)) != target
     ]
@@ -102,10 +148,10 @@ def _plan_flagged_version(entry: FlaggedVersionEntry, current_req_pins: dict, cu
         f"constraints pin apache-airflow-providers-openlineage {default_ol_version}, which has known "
         "reliability/compatibility issues."
     )
-    return bool(pin_diffs), rationale, pin_diffs
+    return bool(diffs), rationale, diffs
 
 
-def _plan_unflagged_version(airflow_version: str, mentioned_packages: set) -> tuple[bool, str, list[PinDiff]]:
+def _plan_unflagged_version(airflow_version: str, mentioned_packages: set) -> tuple[bool, str, list[tuple]]:
     if any(pkg in mentioned_packages for pkg in OPENLINEAGE_PACKAGES):
         return (
             False,
@@ -118,8 +164,29 @@ def _plan_unflagged_version(airflow_version: str, mentioned_packages: set) -> tu
         f"Airflow {airflow_version} is not one of the flagged versions, so MWAA's own default constraints "
         "should already resolve a healthy OpenLineage provider version -- only the package itself needs to "
         "be added, with no constraints.txt change.",
-        [PinDiff("apache-airflow-providers-openlineage", None, "unpinned (resolved by MWAA's current default constraints)")],
+        [("apache-airflow-providers-openlineage", None, "unpinned (resolved by MWAA's current default constraints)")],
     )
+
+
+def _plan_env_var_changes(airflow_version: str, dd_site: str, environment_name: str, startup_script_text: Optional[str]) -> list[EnvVarChange]:
+    """Diff startup.sh variable-by-variable instead of treating the whole file as one blob.
+
+    A secret variable that already has *some* value is left alone even if we
+    can't verify it's the right one -- we have nothing real to compare it
+    against, and proposing to overwrite a customer's working key on every
+    scan would be worse than occasionally missing a wrong one.
+    """
+    existing = parse_exports(startup_script_text or "")
+    changes = []
+    for name, to_value in target_values(airflow_version, dd_site, environment_name):
+        from_value = existing.get(name)
+        secret = name in SECRET_VAR_NAMES
+        if secret and from_value is not None:
+            continue
+        if not secret and from_value == to_value:
+            continue
+        changes.append(EnvVarChange(path=STARTUP_SCRIPT_PATH, name=name, from_value=from_value, to_value=to_value, secret=secret))
+    return changes
 
 
 def compute_plan(
@@ -136,48 +203,26 @@ def compute_plan(
 
     flagged_entry = FLAGGED_VERSION_TABLE.get(airflow_version)
     if flagged_entry:
-        upgrade_needed, rationale, pin_diffs = _plan_flagged_version(flagged_entry, current_req_pins, current_con_pins)
+        upgrade_needed, rationale, diffs = _plan_flagged_version(flagged_entry, current_req_pins, current_con_pins)
         source = "flagged_version_table"
     else:
         mentioned_packages = set(current_req_pins) | parse_bare_packages(requirements_text)
-        upgrade_needed, rationale, pin_diffs = _plan_unflagged_version(airflow_version, mentioned_packages)
+        upgrade_needed, rationale, diffs = _plan_unflagged_version(airflow_version, mentioned_packages)
         flagged_entry = None
         source = "unflagged_version"
 
     file_changes: list[FileChange] = []
 
-    if pin_diffs:
+    if diffs:
         if flagged_entry:
-            file_changes.append(
-                FileChange(
-                    path=CONSTRAINTS_PATH,
-                    action="update" if constraints_text else "create",
-                    pin_diff=pin_diffs,
-                )
-            )
+            file_changes += [PinChange(path=CONSTRAINTS_PATH, package=p, from_version=f, to_version=t) for p, f, t in diffs]
 
-        req_notes = []
         existing_constraint_path = find_constraint_path(requirements_text)
         if flagged_entry and resolve_constraint_s3_key(existing_constraint_path or "", "dags") != CONSTRAINTS_PATH:
-            req_notes.append(f'adds `--constraint "{EXPECTED_CONSTRAINT_LINE_TARGET}"`')
-        file_changes.append(
-            FileChange(
-                path=REQUIREMENTS_PATH,
-                action="update",
-                pin_diff=pin_diffs,
-                notes=req_notes,
-            )
-        )
+            file_changes.append(ConstraintDirectiveAdded(path=REQUIREMENTS_PATH, line=f'--constraint "{EXPECTED_CONSTRAINT_LINE_TARGET}"'))
+        file_changes += [PinChange(path=REQUIREMENTS_PATH, package=p, from_version=f, to_version=t) for p, f, t in diffs]
 
-    if not startup_script_looks_configured(startup_script_text):
-        file_changes.append(
-            FileChange(
-                path=STARTUP_SCRIPT_PATH,
-                action="update" if startup_script_text else "create",
-                content=render_startup_script(airflow_version, dd_site, environment_name),
-                notes=["sets the OpenLineage transport variables that point Airflow at Datadog"],
-            )
-        )
+    file_changes += _plan_env_var_changes(airflow_version, dd_site, environment_name, startup_script_text)
 
     return Plan(
         upgrade_needed=upgrade_needed,

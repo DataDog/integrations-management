@@ -19,10 +19,9 @@ content, a session only ever carries each environment's *computed plan* --
 pin diffs, rationale, the matched version-table entry -- which is exactly
 what's needed to understand why a diff was proposed, and structurally can't
 contain a credential, since none of it is copied from the environment's
-actual files. The one piece of *computed* (not copied) content a Plan does
-carry -- the proposed startup.sh -- still can't leak the customer's real
-Datadog API key either, because it's never in there in the first place: see
-startup_script.py's DD_API_KEY_PLACEHOLDER. apply.py is the only place the
+actual files. The one exception carries no risk either: an EnvVarChange
+proposing to add OPENLINEAGE_API_KEY never carries the real key, only
+DD_API_KEY_PLACEHOLDER (startup_script.py) -- apply.py is the only place the
 real key ever gets substituted in, right before a file is written or
 previewed.
 
@@ -56,8 +55,7 @@ from .checks import (
     check_openlineage_precedence,
     check_wheel_references,
 )
-from .plan import Plan, compute_plan, plan_from_dict
-from .startup_script import startup_script_looks_configured
+from .plan import EnvVarChange, Plan, compute_plan, plan_from_dict
 
 #: The subset of probe checks worth recording at scan time and re-surfacing
 #: at apply time -- each one is a way applying this environment's plan could
@@ -159,7 +157,7 @@ def _environment_entry(ctx: ProbeContext, dd_site: str) -> EnvironmentEntry:
     return EnvironmentEntry(
         name=environment_name,
         airflow_version=airflow_version,
-        already_configured=startup_script_looks_configured(ctx.startup_script_text),
+        already_configured=not any(isinstance(fc, EnvVarChange) for fc in plan.file_changes),
         plan=plan,
         issues=_compute_issues(ctx),
     )

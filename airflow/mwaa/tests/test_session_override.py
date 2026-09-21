@@ -5,9 +5,10 @@
 import json
 from dataclasses import asdict
 
-from mwaa.plan import FileChange, Plan, PinDiff
+from mwaa.plan import EnvVarChange, PinChange, Plan
 from mwaa.session import EnvironmentEntry, Session
 from mwaa.session_override import load_session_override
+from mwaa.startup_script import DD_API_KEY_PLACEHOLDER
 from mwaa.version_table import FLAGGED_VERSION_TABLE
 
 
@@ -33,16 +34,11 @@ def test_round_trips_a_session_with_no_matched_table_entry(tmp_path):
                     matched_table_entry=None,
                     source_doc="",
                     file_changes=[
-                        FileChange(
+                        PinChange(
                             path="requirements.txt",
-                            action="update",
-                            pin_diff=[
-                                PinDiff(
-                                    "apache-airflow-providers-openlineage",
-                                    None,
-                                    "unpinned (resolved by MWAA's current default constraints)",
-                                )
-                            ],
+                            package="apache-airflow-providers-openlineage",
+                            from_version=None,
+                            to_version="unpinned (resolved by MWAA's current default constraints)",
                         )
                     ],
                 ),
@@ -72,17 +68,9 @@ def test_round_trips_a_session_with_a_matched_table_entry(tmp_path):
                     matched_table_entry=entry,
                     source_doc="https://example.invalid",
                     file_changes=[
-                        FileChange(
-                            path="dags/constraints.txt",
-                            action="update",
-                            pin_diff=[PinDiff("apache-airflow-providers-openlineage", "1.4.0", "1.14.0")],
-                        ),
-                        FileChange(
-                            path="dags/startup.sh",
-                            action="create",
-                            content="#!/bin/sh\nexport OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n",
-                            notes=["sets the OpenLineage transport variables"],
-                        ),
+                        PinChange(path="dags/constraints.txt", package="apache-airflow-providers-openlineage", from_version="1.4.0", to_version="1.14.0"),
+                        EnvVarChange(path="dags/startup.sh", name="OPENLINEAGE_URL", from_value=None, to_value="https://data-obs-intake.datadoghq.com", secret=False),
+                        EnvVarChange(path="dags/startup.sh", name="OPENLINEAGE_API_KEY", from_value=None, to_value=DD_API_KEY_PLACEHOLDER, secret=True),
                     ],
                 ),
             )
@@ -95,5 +83,5 @@ def test_round_trips_a_session_with_a_matched_table_entry(tmp_path):
     original_plan = session.environments[0].plan
     assert loaded_plan.matched_table_entry.airflow_version == entry.airflow_version
     assert loaded_plan.matched_table_entry.target_versions == entry.target_versions
-    assert loaded_plan.file_changes[1].content == original_plan.file_changes[1].content
-    assert loaded_plan.file_changes[0].pin_diff == original_plan.file_changes[0].pin_diff
+    assert loaded_plan.file_changes[1].to_value == original_plan.file_changes[1].to_value
+    assert loaded_plan.file_changes[0].from_version == original_plan.file_changes[0].from_version
