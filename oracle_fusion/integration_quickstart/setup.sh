@@ -655,9 +655,17 @@ except Exception:
 " 2>/dev/null) || true
 
     # Detect legacy / unexpected Fusion scopes. Modern Fusion apps expose an
-    # audience of the form urn:opc:resource:faaas:fa:<SYSTEM_NAME>, which yields a
-    # working OAuth scope. Legacy instances expose other audiences, and the
-    # remediation depends on the shape of the derived scope:
+    # audience of the form urn:opc:resource:faaas:fa:<SYSTEM_NAME>, which yields
+    # a working OAuth scope. Identity domains contain 100+ similarly named
+    # Fusion apps (FUSION_APPS_* internal service identities, per-pillar custom
+    # apps, legacy WLS monitoring, and fusion:<pod>:<service> sub-service
+    # apps), and the audience prefix is the only reliable discriminator —
+    # display names are actively misleading. So when the derived scope is not
+    # modern, first check whether the customer simply selected the wrong app:
+    # if the domain has a modern Fusion app, deriving a scope from any other
+    # app registers nothing useful (the confidential-app patch fails with
+    # error.application.app.allowedScopeMismatch). Only when no modern app
+    # exists do we fall back to shape-specific legacy remediation:
     #   - urn:opc:resource:fa:instanceid=... (older instance-ID form): the
     #     derived scope can be rejected by OCI with
     #     error.application.app.allowedScopeMismatch when added to the
@@ -673,6 +681,53 @@ except Exception:
     if [[ "$FUSION_SCOPE" != urn:opc:resource:faaas:fa:* ]]; then
         FUSION_LEGACY_AUDIENCE=true
         FUSION_DERIVED_SCOPE="$FUSION_SCOPE"
+
+        # Wrong-app detection: look for the domain's modern Fusion application
+        # (audience starting with urn:opc:resource:faaas:fa: — exactly one per
+        # identity domain). Filtered client-side rather than via a SCIM filter
+        # so this does not depend on operator support; a failed lookup simply
+        # degrades to the legacy remediation below.
+        _modern_apps=$(oci identity-domains apps list \
+            --endpoint "$IDENTITY_DOMAIN_URL" \
+            --attributes "id,displayName,audience" \
+            --all \
+            --output json 2>/dev/null) || true
+        _modern_apps_summary=$(echo "$_modern_apps" | python3 -c "
+import sys,json
+try:
+    apps=json.load(sys.stdin).get('data',{}).get('resources',[])
+    modern=[a for a in apps if (a.get('audience') or '').startswith('urn:opc:resource:faaas:fa:')]
+    lines=[str(len(modern))]
+    for a in modern:
+        lines.append('|'.join([a.get('id',''),a.get('display-name',''),a.get('audience','')]))
+    print('\\n'.join(lines))
+except Exception:
+    print('0')
+" 2>/dev/null) || true
+        _modern_app_count=$(echo "$_modern_apps_summary" | head -n1)
+        [[ "$_modern_app_count" =~ ^[0-9]+$ ]] || _modern_app_count=0
+        _modern_app_id=""
+        _modern_app_name=""
+        _modern_app_audience=""
+        if [[ "$_modern_app_count" -ge 1 ]]; then
+            _modern_app_fields=$(echo "$_modern_apps_summary" | sed -n '2p')
+            _modern_app_id=$(echo "$_modern_app_fields"       | cut -d'|' -f1)
+            _modern_app_name=$(echo "$_modern_app_fields"     | cut -d'|' -f2)
+            _modern_app_audience=$(echo "$_modern_app_fields" | cut -d'|' -f3)
+        fi
+        if [[ "$_modern_app_count" -eq 1 && -n "$_modern_app_id" && "$_modern_app_id" != "$FUSION_APP_ID" ]]; then
+            fatal "Fusion app ID '${FUSION_APP_ID}' ('${fusion_app_name}') does not appear to be your identity domain's Fusion application" \
+                "Its derived OAuth scope '${FUSION_SCOPE}' is not in the modern urn:opc:resource:faaas:fa: form." \
+                "Your identity domain's Fusion application is '${_modern_app_name}' (Application ID: ${_modern_app_id}, audience: ${_modern_app_audience})." \
+                "Re-run with --fusion-app-id ${_modern_app_id}"
+        fi
+        if [[ "$_modern_app_count" -gt 1 ]]; then
+            warn "Multiple modern Fusion applications found in this identity domain — verify --fusion-app-id points at the one for your Fusion instance:"
+            _mod_list=$(echo "$_modern_apps_summary" | sed -n '2,$p')
+            while IFS= read -r _mod; do
+                echo -e "  ${YELLOW}  $(echo "$_mod" | cut -d'|' -f2) (id: $(echo "$_mod" | cut -d'|' -f1), audience: $(echo "$_mod" | cut -d'|' -f3))${NC}"
+            done <<<"$_mod_list"
+        fi
 
         if [[ "$FUSION_SCOPE" == urn:opc:resource:fa:instanceid=* ]]; then
             FUSION_LEGACY_HINT="Copy the full OAuth scope string from OCI Console → Domains → Oracle Cloud Services → your Fusion app → Application Information (the IDCS_CONNECTOR_CLIENT_SCOPE value, e.g. urn:opc:resource:fa:instanceid=630113349urn:opc:resource:consumer::all) and re-run, providing that scope when prompted."
