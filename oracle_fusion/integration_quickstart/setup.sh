@@ -46,6 +46,8 @@ FUSION_SCOPE=""
 EPM_SCOPE=""
 FUSION_LEGACY_AUDIENCE=false
 FUSION_DERIVED_SCOPE=""
+FUSION_LEGACY_HINT=""
+FUSION_EXPOSED_SCOPES=""
 FUSION_ADMIN_USERNAME=""
 FUSION_ADMIN_PASSWORD=""
 ACCOUNT_NAME=""
@@ -617,6 +619,7 @@ if [[ -n "$FUSION_APP_ID" ]]; then
     fusion_app_resp=$(oci identity-domains apps list \
         --endpoint "$IDENTITY_DOMAIN_URL" \
         --filter "id eq \"${FUSION_APP_ID}\"" \
+        --attributes "id,displayName,audience,scopes" \
         --output json 2>/dev/null) || true
     fusion_app_name=$(echo "$fusion_app_resp" | python3 -c "
 import sys,json
@@ -636,70 +639,182 @@ except Exception:
         "Failed to derive OAuth scope from Fusion app '${FUSION_APP_ID}'" \
         "Verify the app exists and your OCI credentials have permission to read it."
 
-    # Detect legacy / unexpected Fusion audiences. Modern Fusion apps expose an
-    # audience of the form urn:opc:resource:faaas:fa:<SYSTEM_NAME>, which yields a
-    # working OAuth scope. Older ("legacy") instances may expose a different
-    # audience (e.g. urn:opc:resource:fusion:wls:monitoring, or the legacy
-    # instance-ID form urn:opc:resource:fa:instanceid=...), whose derived scope
-    # typically fails to authenticate against the Fusion REST API. When we detect
-    # that, warn the user and offer to rebuild the scope from the instance's
-    # System Name. We check the derived scope directly (it starts with
+    # Scopes exposed by the Fusion resource app. OCI validates the confidential
+    # app's allowedScopes against this list (anything not exposed by a resource
+    # app in the domain is rejected with error.application.app.allowedScopeMismatch),
+    # so it is the authoritative source for a working Fusion scope. May be empty
+    # if the scopes attribute is unavailable in the apps-list response.
+    FUSION_EXPOSED_SCOPES=$(echo "$fusion_app_resp" | python3 -c "
+import sys,json
+try:
+    apps=json.load(sys.stdin).get('data',{}).get('resources',[])
+    scopes=[s.get('fqs','') for s in (apps[0].get('scopes',[]) if apps else []) if s.get('fqs','')]
+    print('\\n'.join(scopes))
+except Exception:
+    print('')
+" 2>/dev/null) || true
+
+    # Detect legacy / unexpected Fusion scopes. Modern Fusion apps expose an
+    # audience of the form urn:opc:resource:faaas:fa:<SYSTEM_NAME>, which yields
+    # a working OAuth scope. Identity domains contain 100+ similarly named
+    # Fusion apps (FUSION_APPS_* internal service identities, per-pillar custom
+    # apps, legacy WLS monitoring, and fusion:<pod>:<service> sub-service
+    # apps), and the audience prefix is the only reliable discriminator —
+    # display names are actively misleading. So when the derived scope is not
+    # modern, first check whether the customer simply selected the wrong app:
+    # if the domain has a modern Fusion app, deriving a scope from any other
+    # app registers nothing useful (the confidential-app patch fails with
+    # error.application.app.allowedScopeMismatch). Only when no modern app
+    # exists do we fall back to shape-specific legacy remediation:
+    #   - urn:opc:resource:fa:instanceid=... (older instance-ID form): the
+    #     derived scope can be rejected by OCI with
+    #     error.application.app.allowedScopeMismatch when added to the
+    #     confidential app, because it must match a scope the Fusion app
+    #     actually exposes. Validate it against the app's exposed scopes and
+    #     use an exposed value instead of guessing.
+    #   - anything else (e.g. urn:opc:resource:fusion:wls:monitoring): the
+    #     derived scope registers on the confidential app but typically fails
+    #     to authenticate against the Fusion REST API. Warn the user and offer
+    #     to rebuild the scope from the instance's System Name.
+    # We check the derived scope directly (it starts with
     # urn:opc:resource:faaas:fa: for modern apps), so no extra parse is needed.
     if [[ "$FUSION_SCOPE" != urn:opc:resource:faaas:fa:* ]]; then
         FUSION_LEGACY_AUDIENCE=true
         FUSION_DERIVED_SCOPE="$FUSION_SCOPE"
 
-        # Legacy instance-ID form: the audience is
-        # urn:opc:resource:fa:instanceid=<INSTANCE_ID> and the derived scope
-        # (audience + consumer::all) is typically rejected by OCI with
-        # error.application.app.allowedScopeMismatch when added to the
-        # confidential app, because it must match a scope the app actually
-        # exposes. The instance-ID value alone cannot be used to reconstruct
-        # the correct scope, so ask the customer for the documented full scope
-        # string (Oracle: Fusion Application Information →
-        # IDCS_CONNECTOR_CLIENT_SCOPE).
+        # Wrong-app detection: look for the domain's modern Fusion application
+        # (audience starting with urn:opc:resource:faaas:fa: — exactly one per
+        # identity domain). Filtered client-side rather than via a SCIM filter
+        # so this does not depend on operator support; a failed lookup simply
+        # degrades to the legacy remediation below.
+        _modern_apps=$(oci identity-domains apps list \
+            --endpoint "$IDENTITY_DOMAIN_URL" \
+            --attributes "id,displayName,audience" \
+            --all \
+            --output json 2>/dev/null) || true
+        _modern_apps_summary=$(echo "$_modern_apps" | python3 -c "
+import sys,json
+try:
+    apps=json.load(sys.stdin).get('data',{}).get('resources',[])
+    modern=[a for a in apps if (a.get('audience') or '').startswith('urn:opc:resource:faaas:fa:')]
+    lines=[str(len(modern))]
+    for a in modern:
+        lines.append('|'.join([a.get('id',''),a.get('display-name',''),a.get('audience','')]))
+    print('\\n'.join(lines))
+except Exception:
+    print('0')
+" 2>/dev/null) || true
+        _modern_app_count=$(echo "$_modern_apps_summary" | head -n1)
+        [[ "$_modern_app_count" =~ ^[0-9]+$ ]] || _modern_app_count=0
+        _modern_app_id=""
+        _modern_app_name=""
+        _modern_app_audience=""
+        if [[ "$_modern_app_count" -ge 1 ]]; then
+            _modern_app_fields=$(echo "$_modern_apps_summary" | sed -n '2p')
+            _modern_app_id=$(echo "$_modern_app_fields"       | cut -d'|' -f1)
+            _modern_app_name=$(echo "$_modern_app_fields"     | cut -d'|' -f2)
+            _modern_app_audience=$(echo "$_modern_app_fields" | cut -d'|' -f3)
+        fi
+        if [[ "$_modern_app_count" -eq 1 && -n "$_modern_app_id" && "$_modern_app_id" != "$FUSION_APP_ID" ]]; then
+            fatal "Fusion app ID '${FUSION_APP_ID}' ('${fusion_app_name}') does not appear to be your identity domain's Fusion application" \
+                "Its derived OAuth scope '${FUSION_SCOPE}' is not in the modern urn:opc:resource:faaas:fa: form." \
+                "Your identity domain's Fusion application is '${_modern_app_name}' (Application ID: ${_modern_app_id}, audience: ${_modern_app_audience})." \
+                "Re-run with --fusion-app-id ${_modern_app_id}"
+        fi
+        if [[ "$_modern_app_count" -gt 1 ]]; then
+            warn "Multiple modern Fusion applications found in this identity domain — verify --fusion-app-id points at the one for your Fusion instance:"
+            _mod_list=$(echo "$_modern_apps_summary" | sed -n '2,$p')
+            while IFS= read -r _mod; do
+                echo -e "  ${YELLOW}  $(echo "$_mod" | cut -d'|' -f2) (id: $(echo "$_mod" | cut -d'|' -f1), audience: $(echo "$_mod" | cut -d'|' -f3))${NC}"
+            done <<<"$_mod_list"
+        fi
+
         if [[ "$FUSION_SCOPE" == urn:opc:resource:fa:instanceid=* ]]; then
-            warn "Legacy instance-ID OAuth scope '${FUSION_SCOPE}'."
-            echo ""
-            echo -e "  ${YELLOW}${BOLD}Provide the full OAuth scope for this Fusion instance.${NC}"
-            echo -e "  ${YELLOW}  Find it at: OCI Console → Domains → Oracle Cloud Services → your Fusion app →${NC}"
-            echo -e "  ${YELLOW}  Application Information → copy the IDCS_CONNECTOR_CLIENT_SCOPE value${NC}"
-            echo -e "  ${YELLOW}  (e.g. urn:opc:resource:fa:instanceid=630113349urn:opc:resource:consumer::all).${NC}"
-            echo -e "  ${YELLOW}  Press Enter to continue with the derived scope '${FUSION_SCOPE}'.${NC}"
-            echo ""
-            read -r -p "  Full OAuth scope: " _pasted_scope || _pasted_scope=""
-            if [[ -n "$_pasted_scope" ]]; then
-                FUSION_SCOPE="$_pasted_scope"
-                success "Using provided OAuth scope"
+            FUSION_LEGACY_HINT="Copy the full OAuth scope string from OCI Console → Domains → Oracle Cloud Services → your Fusion app → Application Information (the IDCS_CONNECTOR_CLIENT_SCOPE value, e.g. urn:opc:resource:fa:instanceid=630113349urn:opc:resource:consumer::all) and re-run, providing that scope when prompted."
+            if [[ -n "$FUSION_EXPOSED_SCOPES" ]] && printf '%s\n' "$FUSION_EXPOSED_SCOPES" | grep -qxF "$FUSION_SCOPE"; then
+                success "Legacy instance-ID OAuth scope verified against the app's exposed scopes"
             else
-                warn "Continuing with derived scope '${FUSION_SCOPE}' — onboarding may fail."
+                if [[ -z "$FUSION_EXPOSED_SCOPES" ]]; then
+                    warn "Legacy instance-ID OAuth scope '${FUSION_SCOPE}' — could not read the app's exposed scopes to verify it."
+                else
+                    warn "Legacy instance-ID OAuth scope '${FUSION_SCOPE}' is not among the scopes this app exposes."
+                fi
+                _candidates=""
+                if [[ -n "$FUSION_EXPOSED_SCOPES" ]]; then
+                    _candidates=$(printf '%s\n' "$FUSION_EXPOSED_SCOPES" | grep '^urn:opc:resource:fa:instanceid=' | grep 'urn:opc:resource:consumer::all$') || true
+                fi
+                _n=$(printf '%s' "$_candidates" | grep -c '^') || _n=0
+                if [[ "$_n" -eq 1 ]]; then
+                    FUSION_SCOPE="$_candidates"
+                    success "Using the instance-ID OAuth scope exposed by the app: ${FUSION_SCOPE}"
+                elif [[ "$_n" -gt 1 ]]; then
+                    echo ""
+                    info "This app exposes multiple instance-ID scopes. Choose one:"
+                    _i=0
+                    while IFS= read -r _cand; do
+                        _i=$((_i+1))
+                        echo -e "  ${YELLOW}  ${_i}) ${_cand}${NC}"
+                    done <<<"$_candidates"
+                    echo ""
+                    read -r -p "  Choose [1-${_n}]: " _pick || _pick=""
+                    if [[ "$_pick" =~ ^[0-9]+$ ]] && [[ "$_pick" -ge 1 && "$_pick" -le "$_n" ]]; then
+                        _i=0
+                        while IFS= read -r _cand; do
+                            _i=$((_i+1))
+                            if [[ "$_i" == "$_pick" ]]; then FUSION_SCOPE="$_cand"; break; fi
+                        done <<<"$_candidates"
+                        success "Using selected OAuth scope"
+                    else
+                        warn "No valid selection — keeping derived scope '${FUSION_SCOPE}'"
+                    fi
+                else
+                    # Either the app's exposed scopes could not be read, or none
+                    # of them look like instance-ID scopes. Ask for the full
+                    # documented scope string; the confidential-app patch will
+                    # validate it if we could not.
+                    echo ""
+                    echo -e "  ${YELLOW}${BOLD}Provide the full OAuth scope for this Fusion instance.${NC}"
+                    echo -e "  ${YELLOW}  Find it at: OCI Console → Domains → Oracle Cloud Services → your Fusion app →${NC}"
+                    echo -e "  ${YELLOW}  Application Information → copy the IDCS_CONNECTOR_CLIENT_SCOPE value${NC}"
+                    echo -e "  ${YELLOW}  (e.g. urn:opc:resource:fa:instanceid=630113349urn:opc:resource:consumer::all).${NC}"
+                    echo -e "  ${YELLOW}  Press Enter to continue with the derived scope '${FUSION_SCOPE}'.${NC}"
+                    echo ""
+                    read -r -p "  Full OAuth scope: " _pasted_scope || _pasted_scope=""
+                    if [[ -n "$_pasted_scope" ]]; then
+                        FUSION_SCOPE="$_pasted_scope"
+                        success "Using provided OAuth scope"
+                    else
+                        warn "Continuing with derived scope '${FUSION_SCOPE}' — onboarding may fail."
+                    fi
+                fi
             fi
         else
-        warn "Unexpected OAuth scope '${FUSION_SCOPE}', likely due to an older Fusion instance."
-        echo ""
-        echo -e "  ${YELLOW}${BOLD}You can:${NC}"
-        echo -e "  ${YELLOW}  1) Continue with the derived scope and see if the script succeeds.${NC}"
-        echo -e "  ${YELLOW}  2) Provide your Fusion instance's System Name to generate the correct OAuth scope.${NC}"
-        echo -e "  ${YELLOW}     Find it at: OCI Console → My Applications → Fusion Applications → Environments →${NC}"
-        echo -e "  ${YELLOW}     <select the current instance> → examine the 'System Name' field.${NC}"
-        echo -e "  ${YELLOW}     e.g. base URL https://test-instance.fa.ocs.oraclecloud.com → system name 'TEST-INSTANCE'.${NC}"
-        echo -e "  ${YELLOW}     Casing matters — copy the exact value from the System Name field.${NC}"
-        echo ""
-        read -r -p "  Choose [1/2]: " _scope_choice || _scope_choice=""
-        case "$_scope_choice" in
-            2)
-                read -r -p "  Fusion instance System Name: " _sys_name || _sys_name=""
-                if [[ -z "$_sys_name" ]]; then
-                    warn "No System Name provided — keeping derived scope '${FUSION_SCOPE}'"
-                else
-                    FUSION_SCOPE="urn:opc:resource:faaas:fa:${_sys_name}urn:opc:resource:consumer::all"
-                    success "Rebuilt Fusion scope from System Name '${_sys_name}'"
-                fi
-                ;;
-            *)
-                warn "Continuing with derived scope '${FUSION_SCOPE}' — onboarding may fail."
-                ;;
-        esac
+            FUSION_LEGACY_HINT="Re-run and choose option 2 at the prompt to provide the Fusion instance's System Name and rebuild the OAuth scope. Verify the casing matches the System Name field exactly (e.g. https://test-instance.fa.ocs.oraclecloud.com → 'TEST-INSTANCE')."
+            warn "Unexpected OAuth scope '${FUSION_SCOPE}', likely due to an older Fusion instance."
+            echo ""
+            echo -e "  ${YELLOW}${BOLD}You can:${NC}"
+            echo -e "  ${YELLOW}  1) Continue with the derived scope and see if the script succeeds.${NC}"
+            echo -e "  ${YELLOW}  2) Provide your Fusion instance's System Name to generate the correct OAuth scope.${NC}"
+            echo -e "  ${YELLOW}     Find it at: OCI Console → My Applications → Fusion Applications → Environments →${NC}"
+            echo -e "  ${YELLOW}     <select the current instance> → examine the 'System Name' field.${NC}"
+            echo -e "  ${YELLOW}     e.g. base URL https://test-instance.fa.ocs.oraclecloud.com → system name 'TEST-INSTANCE'.${NC}"
+            echo -e "  ${YELLOW}     Casing matters — copy the exact value from the System Name field.${NC}"
+            echo ""
+            read -r -p "  Choose [1/2]: " _scope_choice || _scope_choice=""
+            case "$_scope_choice" in
+                2)
+                    read -r -p "  Fusion instance System Name: " _sys_name || _sys_name=""
+                    if [[ -z "$_sys_name" ]]; then
+                        warn "No System Name provided — keeping derived scope '${FUSION_SCOPE}'"
+                    else
+                        FUSION_SCOPE="urn:opc:resource:faaas:fa:${_sys_name}urn:opc:resource:consumer::all"
+                        success "Rebuilt Fusion scope from System Name '${_sys_name}'"
+                    fi
+                    ;;
+                *)
+                    warn "Continuing with derived scope '${FUSION_SCOPE}' — onboarding may fail."
+                    ;;
+            esac
         fi
     fi
     success "Fusion app found: '${fusion_app_name}' — scope: ${FUSION_SCOPE}"
@@ -963,7 +1078,7 @@ except Exception:
                     fatal "Failed to update existing confidential app" \
                         "Ensure your OCI credentials have 'Identity Domain Administrator' permissions." \
                         "The derived OAuth scope '${FUSION_DERIVED_SCOPE}' is not in the expected urn:opc:resource:faaas:fa: form — this is likely a legacy Fusion instance." \
-                        "Re-run and choose option 2 at the prompt to provide the Fusion instance's System Name and rebuild the OAuth scope. Verify the casing matches the System Name field exactly (e.g. https://test-instance.fa.ocs.oraclecloud.com → 'TEST-INSTANCE')."
+                        "$FUSION_LEGACY_HINT"
                 else
                     fatal "Failed to update existing confidential app" \
                         "Ensure your OCI credentials have 'Identity Domain Administrator' permissions."
@@ -1000,7 +1115,7 @@ except Exception:
                     fatal "Failed to update existing confidential app" \
                         "Ensure your OCI credentials have 'Identity Domain Administrator' permissions." \
                         "The derived OAuth scope '${FUSION_DERIVED_SCOPE}' is not in the expected urn:opc:resource:faaas:fa: form — this is likely a legacy Fusion instance." \
-                        "Re-run and choose option 2 at the prompt to provide the Fusion instance's System Name and rebuild the OAuth scope. Verify the casing matches the System Name field exactly (e.g. https://test-instance.fa.ocs.oraclecloud.com → 'TEST-INSTANCE')."
+                        "$FUSION_LEGACY_HINT"
                 else
                     fatal "Failed to update existing confidential app" \
                         "Ensure your OCI credentials have 'Identity Domain Administrator' permissions."
@@ -1033,7 +1148,7 @@ else
                 "Ensure your OCI credentials have 'Identity Domain Administrator' permissions." \
                 "Check: OCI Console → Identity & Security → Domains → your domain → Administrators" \
                 "The derived OAuth scope '${FUSION_DERIVED_SCOPE}' is not in the expected urn:opc:resource:faaas:fa: form — this is likely a legacy Fusion instance." \
-                "Re-run and choose option 2 at the prompt to provide the Fusion instance's System Name and rebuild the OAuth scope. Verify the casing matches the System Name field exactly (e.g. https://test-instance.fa.ocs.oraclecloud.com → 'TEST-INSTANCE')."
+                "$FUSION_LEGACY_HINT"
         else
             fatal "Failed to create confidential application in OCI IAM" \
                 "Ensure your OCI credentials have 'Identity Domain Administrator' permissions." \
