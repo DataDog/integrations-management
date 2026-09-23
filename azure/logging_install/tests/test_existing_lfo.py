@@ -40,6 +40,7 @@ class TestExistingLfo(TestCase):
     def setUp(self) -> None:
         """Set up test fixtures"""
         self.execute_mock = self.patch("azure_logging_install.existing_lfo.execute")
+        self.log_mock = self.patch("azure_logging_install.existing_lfo.log")
 
         # Create test configuration
         self.config = Configuration(

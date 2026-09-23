@@ -400,7 +400,7 @@ def update_container_app_job_image(job_name: str, resource_group: str, subscript
 
 
 def create_resources_task_container_app_job(config: Configuration, cron: Optional[str] = None):
-    monitored_subs = ','.join(config.monitored_subscriptions)
+    monitored_subs = json.dumps(config.monitored_subscriptions)
     extra_vars = [
         f"{MONITORED_SUBSCRIPTIONS_KEY}={shlex.quote(monitored_subs)}",
         f"{RESOURCE_TAG_FILTERS_KEY}={shlex.quote(config.resource_tag_filters)}"
