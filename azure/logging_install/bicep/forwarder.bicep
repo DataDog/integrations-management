@@ -52,16 +52,16 @@ param datadogApiKey string
 ])
 param datadogSite string = 'datadoghq.com'
 
-@description('Enable VNet integration: deploys the Container App Environment into a VNet and disables public access on the storage account (using a private endpoint instead).')
+@description('Enable Virtual Network integration: deploys the Container App Environment into a virtual network and disables public access on the storage account (using a private endpoint instead).')
 param enableVnetIntegration bool = false
 
-@description('Create a new VNet and subnets automatically. Set to false to use existing subnets. Only applies when enableVnetIntegration is true.')
+@description('Create a new virtual network and subnets automatically. Set to false to use existing subnets. Only applies when enableVnetIntegration is true.')
 param createNewVnet bool = true
 
-@description('Name for the new VNet. Only used when createNewVnet is true.')
+@description('Name for the new virtual network. Only used when createNewVnet is true.')
 param vnetName string = 'datadog-log-forwarder-vnet'
 
-@description('Address space for the new VNet. Only used when createNewVnet is true.')
+@description('Address space for the new virtual network. Only used when createNewVnet is true.')
 param vnetAddressPrefix string = '10.0.0.0/16'
 
 @description('Address prefix for the Container App Environment subnet (minimum /23). Only used when createNewVnet is true.')
@@ -70,7 +70,7 @@ param acaSubnetPrefix string = '10.0.0.0/23'
 @description('Address prefix for the storage private endpoint subnet (minimum /28). Only used when createNewVnet is true.')
 param peSubnetPrefix string = '10.0.2.0/28'
 
-@description('Resource ID of an existing VNet. Required when enableVnetIntegration is true and createNewVnet is false.')
+@description('Resource ID of an existing virtual network. Required when enableVnetIntegration is true and createNewVnet is false.')
 param existingVnetId string = ''
 
 @description('Resource ID of an existing subnet for the Container App Environment. Must be delegated to Microsoft.App/environments and at least /23. Required when enableVnetIntegration is true and createNewVnet is false.')

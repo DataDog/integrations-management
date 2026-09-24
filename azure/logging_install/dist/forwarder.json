@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.40.2.10011",
-      "templateHash": "1740602636653115602"
+      "templateHash": "1617713956054121889"
     }
   },
   "parameters": {
@@ -87,28 +87,28 @@
       "type": "bool",
       "defaultValue": false,
       "metadata": {
-        "description": "Enable VNet integration: deploys the Container App Environment into a VNet and disables public access on the storage account (using a private endpoint instead)."
+        "description": "Enable Virtual Network integration: deploys the Container App Environment into a virtual network and disables public access on the storage account (using a private endpoint instead)."
       }
     },
     "createNewVnet": {
       "type": "bool",
       "defaultValue": true,
       "metadata": {
-        "description": "Create a new VNet and subnets automatically. Set to false to use existing subnets. Only applies when enableVnetIntegration is true."
+        "description": "Create a new virtual network and subnets automatically. Set to false to use existing subnets. Only applies when enableVnetIntegration is true."
       }
     },
     "vnetName": {
       "type": "string",
       "defaultValue": "datadog-log-forwarder-vnet",
       "metadata": {
-        "description": "Name for the new VNet. Only used when createNewVnet is true."
+        "description": "Name for the new virtual network. Only used when createNewVnet is true."
       }
     },
     "vnetAddressPrefix": {
       "type": "string",
       "defaultValue": "10.0.0.0/16",
       "metadata": {
-        "description": "Address space for the new VNet. Only used when createNewVnet is true."
+        "description": "Address space for the new virtual network. Only used when createNewVnet is true."
       }
     },
     "acaSubnetPrefix": {
@@ -129,7 +129,7 @@
       "type": "string",
       "defaultValue": "",
       "metadata": {
-        "description": "Resource ID of an existing VNet. Required when enableVnetIntegration is true and createNewVnet is false."
+        "description": "Resource ID of an existing virtual network. Required when enableVnetIntegration is true and createNewVnet is false."
       }
     },
     "existingInfrastructureSubnetId": {

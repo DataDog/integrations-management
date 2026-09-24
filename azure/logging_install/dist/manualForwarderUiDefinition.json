@@ -117,22 +117,22 @@
             {
               "name": "enableVnetIntegration",
               "type": "Microsoft.Common.CheckBox",
-              "label": "Enable VNet Integration",
-              "toolTip": "Deploy the Container App Environment into a VNet and disable public access on the storage account (accessed via private endpoint).",
+              "label": "Enable Virtual Network Integration",
+              "toolTip": "Deploy the Container App Environment into a virtual network and disable public access on the storage account (accessed via private endpoint).",
               "defaultValue": false
             },
             {
               "name": "createNewVnet",
               "type": "Microsoft.Common.CheckBox",
-              "label": "Create a new VNet",
-              "toolTip": "Automatically create a new VNet and subnets. Uncheck to supply existing subnet resource IDs.",
+              "label": "Create a new virtual network",
+              "toolTip": "Automatically create a new virtual network and subnets. Uncheck to use your own virtual network.",
               "defaultValue": true,
               "visible": "[steps('networking').enableVnetIntegration]"
             },
             {
               "name": "vnetName",
               "type": "Microsoft.Common.TextBox",
-              "label": "New VNet Name",
+              "label": "New Virtual Network Name",
               "defaultValue": "datadog-log-forwarder-vnet",
               "visible": "[and(steps('networking').enableVnetIntegration, steps('networking').createNewVnet)]",
               "constraints": { "required": false }
@@ -140,9 +140,9 @@
             {
               "name": "vnetAddressPrefix",
               "type": "Microsoft.Common.TextBox",
-              "label": "VNet Address Space",
+              "label": "Virtual Network Address Space",
               "defaultValue": "10.0.0.0/16",
-              "toolTip": "CIDR address space for the new VNet.",
+              "toolTip": "CIDR address space for the new virtual network.",
               "visible": "[and(steps('networking').enableVnetIntegration, steps('networking').createNewVnet)]",
               "constraints": { "required": false }
             },
@@ -165,10 +165,19 @@
               "constraints": { "required": false }
             },
             {
+              "name": "useExistingVnetLabel",
+              "type": "Microsoft.Common.TextBlock",
+              "visible": "[and(steps('networking').enableVnetIntegration, not(steps('networking').createNewVnet))]",
+              "options": {
+                "text": "Use your own virtual network",
+                "style": "Heading"
+              }
+            },
+            {
               "name": "existingVnetId",
               "type": "Microsoft.Common.TextBox",
-              "label": "Existing VNet Resource ID",
-              "toolTip": "Full resource ID of the existing VNet, e.g. /subscriptions/.../virtualNetworks/my-vnet",
+              "label": "Existing Virtual Network Resource ID",
+              "toolTip": "Full resource ID of the existing virtual network, e.g. /subscriptions/.../virtualNetworks/my-vnet",
               "visible": "[and(steps('networking').enableVnetIntegration, not(steps('networking').createNewVnet))]",
               "constraints": { "required": false }
             },
