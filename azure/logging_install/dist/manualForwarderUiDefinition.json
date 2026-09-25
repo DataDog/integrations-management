@@ -203,16 +203,11 @@
             },
             {
               "name": "existingInfrastructureSubnetId",
-              "type": "Microsoft.Solutions.ResourceSelector",
-              "label": "Container App Environment Subnet",
-              "toolTip": "Select the subnet for the Container App Environment. Must be delegated to Microsoft.App/environments with a prefix of /23 or smaller.",
-              "resourceType": "Microsoft.Network/virtualNetworks/subnets",
-              "options": {
-                "filter": {
-                  "subscription": "onBasics"
-                }
-              },
-              "visible": "[and(steps('networking').enableVnetIntegration, not(steps('networking').createNewVnet))]"
+              "type": "Microsoft.Common.TextBox",
+              "label": "Container App Environment Subnet Resource ID",
+              "toolTip": "Resource ID of the subnet for the Container App Environment. Must be delegated to Microsoft.App/environments with a prefix of /23 or smaller. Example: /subscriptions/.../virtualNetworks/my-vnet/subnets/aca-subnet",
+              "visible": "[and(steps('networking').enableVnetIntegration, not(steps('networking').createNewVnet))]",
+              "constraints": { "required": false }
             },
             {
               "name": "existingStoragePrivateEndpointSubnetId",
@@ -249,7 +244,7 @@
         "acaSubnetPrefix":                       "[steps('networking').acaSubnetPrefix]",
         "peSubnetPrefix":                        "[steps('networking').peSubnetPrefix]",
         "existingVnetId":                        "[steps('networking').existingVnetId.id]",
-        "existingInfrastructureSubnetId":        "[steps('networking').existingInfrastructureSubnetId.id]",
+        "existingInfrastructureSubnetId":        "[steps('networking').existingInfrastructureSubnetId]",
         "existingStoragePrivateEndpointSubnetId":"[steps('networking').existingStoragePrivateEndpointSubnetId]",
         "existingPrivateDnsZoneId":              "[steps('networking').existingPrivateDnsZoneId]"
       },
