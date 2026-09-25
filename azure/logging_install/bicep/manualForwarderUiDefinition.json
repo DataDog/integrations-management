@@ -122,107 +122,58 @@
               "defaultValue": false
             },
             {
-              "name": "createNewVnet",
-              "type": "Microsoft.Common.CheckBox",
-              "label": "Create a new virtual network",
-              "toolTip": "Automatically create a new virtual network and subnets. Uncheck to use your own virtual network.",
-              "defaultValue": true,
-              "visible": "[steps('networking').enableVnetIntegration]"
-            },
-            {
-              "name": "vnetName",
-              "type": "Microsoft.Common.TextBox",
-              "label": "New Virtual Network Name",
-              "defaultValue": "datadog-log-forwarder-vnet",
-              "visible": "[and(steps('networking').enableVnetIntegration, steps('networking').createNewVnet)]",
+              "name": "vnetConfig",
+              "type": "Microsoft.Network.VirtualNetworkCombo",
+              "label": {
+                "virtualNetwork": "Virtual Network",
+                "subnets": "Subnets"
+              },
+              "toolTip": {
+                "virtualNetwork": "Select an existing virtual network or create a new one for the Container App Environment.",
+                "subnets": "Container App Environment subnet must be /23 or smaller (at least 512 addresses) and will be delegated to Microsoft.App/environments automatically."
+              },
+              "defaultValue": {
+                "name": "datadog-log-forwarder-vnet",
+                "addressPrefixSize": "/16"
+              },
               "constraints": {
-                "required": true,
-                "validationMessage": "Name must not be empty."
-              }
-            },
-            {
-              "name": "vnetAddressPrefix",
-              "type": "Microsoft.Common.TextBox",
-              "label": "Virtual Network Address Space",
-              "defaultValue": "10.0.0.0/16",
-              "toolTip": "CIDR address space for the new virtual network. Must be large enough to contain both subnets below. The default /16 can be reduced; minimum is /22 to fit a /23 ACA subnet and a /28 PE subnet without overlap.",
-              "visible": "[and(steps('networking').enableVnetIntegration, steps('networking').createNewVnet)]",
-              "constraints": {
-                "required": true,
-                "regex": "^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\\/([0-9]|[1-2][0-9]|3[0-2]))$",
-                "validationMessage": "Must be a valid IPv4 CIDR block (e.g. 10.0.0.0/16)."
-              }
-            },
-            {
-              "name": "acaSubnetPrefix",
-              "type": "Microsoft.Common.TextBox",
-              "label": "Container App Environment Subnet Prefix",
-              "defaultValue": "10.0.0.0/23",
-              "toolTip": "Container App Environments require a subnet with a prefix of /23 or smaller (e.g. /22, /23), providing at least 512 addresses. The delegation to Microsoft.App/environments is created automatically.",
-              "visible": "[and(steps('networking').enableVnetIntegration, steps('networking').createNewVnet)]",
-              "constraints": {
-                "required": true,
-                "regex": "^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\\/([0-9]|[1-2][0-9]|3[0-2]))$",
-                "validationMessage": "Must be a valid IPv4 CIDR block (e.g. 10.0.0.0/23)."
-              }
-            },
-            {
-              "name": "peSubnetPrefix",
-              "type": "Microsoft.Common.TextBox",
-              "label": "Private Endpoint Subnet Prefix",
-              "defaultValue": "10.0.2.0/28",
-              "toolTip": "The default 10.0.2.0/28 avoids overlap with the Container App Environment subnet (10.0.0.0/23, which covers 10.0.0.0–10.0.1.255). A /28 leaves room for additional private endpoints in the future.",
-              "visible": "[and(steps('networking').enableVnetIntegration, steps('networking').createNewVnet)]",
-              "constraints": {
-                "required": true,
-                "regex": "^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\\/([0-9]|[1-2][0-9]|3[0-2]))$",
-                "validationMessage": "Must be a valid IPv4 CIDR block (e.g. 10.0.2.0/28)."
-              }
-            },
-            {
-              "name": "useExistingVnetLabel",
-              "type": "Microsoft.Common.TextBlock",
-              "visible": "[and(steps('networking').enableVnetIntegration, not(steps('networking').createNewVnet))]",
+                "minAddressPrefixSize": "/22"
+              },
               "options": {
-                "text": "Use your own virtual network",
-                "style": "Heading"
-              }
-            },
-            {
-              "name": "existingVnetId",
-              "type": "Microsoft.Solutions.ResourceSelector",
-              "label": "Existing Virtual Network",
-              "resourceType": "Microsoft.Network/virtualNetworks",
-              "options": {
-                "filter": {
-                  "subscription": "onBasics",
-                  "location": "onBasics"
+                "hideExisting": false
+              },
+              "subnets": {
+                "acaSubnet": {
+                  "label": "Container App Environment Subnet",
+                  "defaultValue": {
+                    "name": "aca-subnet",
+                    "addressPrefixSize": "/23"
+                  },
+                  "constraints": {
+                    "minAddressPrefixSize": "/23",
+                    "minAddressCount": 512,
+                    "requireContiguousAddresses": true
+                  }
+                },
+                "peSubnet": {
+                  "label": "Private Endpoint Subnet",
+                  "defaultValue": {
+                    "name": "pe-subnet",
+                    "addressPrefixSize": "/28"
+                  },
+                  "constraints": {
+                    "minAddressPrefixSize": "/28"
+                  }
                 }
               },
-              "visible": "[and(steps('networking').enableVnetIntegration, not(steps('networking').createNewVnet))]"
-            },
-            {
-              "name": "existingInfrastructureSubnetId",
-              "type": "Microsoft.Common.TextBox",
-              "label": "Container App Environment Subnet Resource ID",
-              "toolTip": "Resource ID of the subnet for the Container App Environment. Must be delegated to Microsoft.App/environments with a prefix of /23 or smaller. Example: /subscriptions/.../resourceGroups/.../providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/aca-subnet",
-              "visible": "[and(steps('networking').enableVnetIntegration, not(steps('networking').createNewVnet))]",
-              "constraints": { "required": false }
-            },
-            {
-              "name": "existingStoragePrivateEndpointSubnetId",
-              "type": "Microsoft.Common.TextBox",
-              "label": "Private Endpoint Subnet Resource ID (optional)",
-              "toolTip": "Leave empty to reuse the Container App Environment subnet for the storage private endpoint. Example: /subscriptions/.../resourceGroups/.../providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/pe-subnet",
-              "visible": "[and(steps('networking').enableVnetIntegration, not(steps('networking').createNewVnet))]",
-              "constraints": { "required": false }
+              "visible": "[steps('networking').enableVnetIntegration]"
             },
             {
               "name": "existingPrivateDnsZoneId",
               "type": "Microsoft.Common.TextBox",
               "label": "Existing Private DNS Zone Resource ID (optional)",
               "toolTip": "Resource ID of an existing privatelink.blob.* Private DNS Zone already linked to your virtual network. Leave empty to create one automatically. Example: /subscriptions/.../privateDnsZones/privatelink.blob.core.windows.net",
-              "visible": "[and(steps('networking').enableVnetIntegration, not(steps('networking').createNewVnet))]",
+              "visible": "[and(steps('networking').enableVnetIntegration, equals(steps('networking').vnetConfig.newOrExisting, 'existing'))]",
               "constraints": { "required": false }
             }
           ]
@@ -238,14 +189,14 @@
         "storageAccountSku":                     "[steps('forwarder').storageAccountSku]",
         "storageAccountRetentionDays":           "[steps('forwarder').storageAccountRetentionDays]",
         "enableVnetIntegration":                 "[steps('networking').enableVnetIntegration]",
-        "createNewVnet":                         "[steps('networking').createNewVnet]",
-        "vnetName":                              "[steps('networking').vnetName]",
-        "vnetAddressPrefix":                     "[steps('networking').vnetAddressPrefix]",
-        "acaSubnetPrefix":                       "[steps('networking').acaSubnetPrefix]",
-        "peSubnetPrefix":                        "[steps('networking').peSubnetPrefix]",
-        "existingVnetId":                        "[steps('networking').existingVnetId.id]",
-        "existingInfrastructureSubnetId":        "[steps('networking').existingInfrastructureSubnetId]",
-        "existingStoragePrivateEndpointSubnetId":"[steps('networking').existingStoragePrivateEndpointSubnetId]",
+        "createNewVnet":                         "[equals(steps('networking').vnetConfig.newOrExisting, 'new')]",
+        "vnetName":                              "[steps('networking').vnetConfig.name]",
+        "vnetAddressPrefix":                     "[if(equals(steps('networking').vnetConfig.newOrExisting, 'new'), first(steps('networking').vnetConfig.addressPrefixes), '10.0.0.0/16')]",
+        "acaSubnetPrefix":                       "[if(equals(steps('networking').vnetConfig.newOrExisting, 'new'), steps('networking').vnetConfig.subnets.acaSubnet.addressPrefix, '10.0.0.0/23')]",
+        "peSubnetPrefix":                        "[if(equals(steps('networking').vnetConfig.newOrExisting, 'new'), steps('networking').vnetConfig.subnets.peSubnet.addressPrefix, '10.0.2.0/28')]",
+        "existingVnetId":                        "[if(equals(steps('networking').vnetConfig.newOrExisting, 'existing'), concat('/subscriptions/', subscription().subscriptionId, '/resourceGroups/', steps('networking').vnetConfig.resourceGroup, '/providers/Microsoft.Network/virtualNetworks/', steps('networking').vnetConfig.name), '')]",
+        "existingInfrastructureSubnetId":        "[if(equals(steps('networking').vnetConfig.newOrExisting, 'existing'), concat('/subscriptions/', subscription().subscriptionId, '/resourceGroups/', steps('networking').vnetConfig.resourceGroup, '/providers/Microsoft.Network/virtualNetworks/', steps('networking').vnetConfig.name, '/subnets/', steps('networking').vnetConfig.subnets.acaSubnet.name), '')]",
+        "existingStoragePrivateEndpointSubnetId":"[if(equals(steps('networking').vnetConfig.newOrExisting, 'existing'), concat('/subscriptions/', subscription().subscriptionId, '/resourceGroups/', steps('networking').vnetConfig.resourceGroup, '/providers/Microsoft.Network/virtualNetworks/', steps('networking').vnetConfig.name, '/subnets/', steps('networking').vnetConfig.subnets.peSubnet.name), '')]",
         "existingPrivateDnsZoneId":              "[steps('networking').existingPrivateDnsZoneId]"
       },
       "kind": "ResourceGroup",
