@@ -170,11 +170,16 @@
             },
             {
               "name": "existingPrivateDnsZoneId",
-              "type": "Microsoft.Common.TextBox",
-              "label": "Existing Private DNS Zone Resource ID (optional)",
-              "toolTip": "Resource ID of an existing privatelink.blob.* Private DNS Zone already linked to your virtual network. Leave empty to create one automatically. Example: /subscriptions/.../privateDnsZones/privatelink.blob.core.windows.net",
-              "visible": "[and(steps('networking').enableVnetIntegration, equals(steps('networking').vnetConfig.newOrExisting, 'existing'))]",
-              "constraints": { "required": false }
+              "type": "Microsoft.Solutions.ResourceSelector",
+              "label": "Existing Private DNS Zone (optional)",
+              "toolTip": "Select an existing privatelink.blob.* Private DNS Zone already linked to your virtual network. Leave empty to create one automatically.",
+              "resourceType": "Microsoft.Network/privateDnsZones",
+              "options": {
+                "filter": {
+                  "subscription": "onBasics"
+                }
+              },
+              "visible": "[and(steps('networking').enableVnetIntegration, equals(steps('networking').vnetConfig.newOrExisting, 'existing'))]"
             }
           ]
         }
@@ -197,7 +202,7 @@
         "existingVnetId":                        "[if(equals(steps('networking').vnetConfig.newOrExisting, 'existing'), concat('/subscriptions/', steps('basics').resourceScope.subscription.subscriptionId, '/resourceGroups/', steps('networking').vnetConfig.resourceGroup, '/providers/Microsoft.Network/virtualNetworks/', steps('networking').vnetConfig.name), '')]",
         "existingInfrastructureSubnetId":        "[if(equals(steps('networking').vnetConfig.newOrExisting, 'existing'), concat('/subscriptions/', steps('basics').resourceScope.subscription.subscriptionId, '/resourceGroups/', steps('networking').vnetConfig.resourceGroup, '/providers/Microsoft.Network/virtualNetworks/', steps('networking').vnetConfig.name, '/subnets/', steps('networking').vnetConfig.subnets.acaSubnet.name), '')]",
         "existingStoragePrivateEndpointSubnetId":"[if(equals(steps('networking').vnetConfig.newOrExisting, 'existing'), concat('/subscriptions/', steps('basics').resourceScope.subscription.subscriptionId, '/resourceGroups/', steps('networking').vnetConfig.resourceGroup, '/providers/Microsoft.Network/virtualNetworks/', steps('networking').vnetConfig.name, '/subnets/', steps('networking').vnetConfig.subnets.peSubnet.name), '')]",
-        "existingPrivateDnsZoneId":              "[steps('networking').existingPrivateDnsZoneId]"
+        "existingPrivateDnsZoneId":              "[steps('networking').existingPrivateDnsZoneId.id]"
       },
       "kind": "ResourceGroup",
       "location": "[steps('basics').resourceScope.location.name]",
