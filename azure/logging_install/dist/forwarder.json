@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.40.2.10011",
-      "templateHash": "1617713956054121889"
+      "templateHash": "12652139719204831429"
     }
   },
   "parameters": {
@@ -100,6 +100,7 @@
     "vnetName": {
       "type": "string",
       "defaultValue": "datadog-log-forwarder-vnet",
+      "minLength": 1,
       "metadata": {
         "description": "Name for the new virtual network. Only used when createNewVnet is true."
       }
@@ -145,13 +146,21 @@
       "metadata": {
         "description": "Resource ID of an existing subnet for the storage private endpoint. Leave empty to reuse existingInfrastructureSubnetId. Only used when createNewVnet is false."
       }
+    },
+    "existingPrivateDnsZoneId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Resource ID of an existing Private DNS Zone for blob storage (privatelink.blob.*). Leave empty to create one automatically. Only used when enableVnetIntegration is true and createNewVnet is false."
+      }
     }
   },
   "variables": {
     "enableVnet": "[parameters('enableVnetIntegration')]",
     "resolvedVnetId": "[if(parameters('enableVnetIntegration'), if(parameters('createNewVnet'), resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName')), parameters('existingVnetId')), '')]",
     "resolvedAcaSubnetId": "[if(parameters('enableVnetIntegration'), if(parameters('createNewVnet'), resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), 'aca-subnet'), parameters('existingInfrastructureSubnetId')), '')]",
-    "resolvedPeSubnetId": "[if(parameters('enableVnetIntegration'), if(parameters('createNewVnet'), resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), 'pe-subnet'), if(not(equals(parameters('existingStoragePrivateEndpointSubnetId'), '')), parameters('existingStoragePrivateEndpointSubnetId'), parameters('existingInfrastructureSubnetId'))), '')]"
+    "resolvedPeSubnetId": "[if(parameters('enableVnetIntegration'), if(parameters('createNewVnet'), resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), 'pe-subnet'), if(not(equals(parameters('existingStoragePrivateEndpointSubnetId'), '')), parameters('existingStoragePrivateEndpointSubnetId'), parameters('existingInfrastructureSubnetId'))), '')]",
+    "resolvedPrivateDnsZoneId": "[if(parameters('enableVnetIntegration'), if(empty(parameters('existingPrivateDnsZoneId')), resourceId('Microsoft.Network/privateDnsZones', format('privatelink.blob.{0}', environment().suffixes.storage)), parameters('existingPrivateDnsZoneId')), '')]"
   },
   "resources": [
     {
@@ -347,14 +356,14 @@
       ]
     },
     {
-      "condition": "[variables('enableVnet')]",
+      "condition": "[and(variables('enableVnet'), empty(parameters('existingPrivateDnsZoneId')))]",
       "type": "Microsoft.Network/privateDnsZones",
       "apiVersion": "2020-06-01",
       "name": "[format('privatelink.blob.{0}', environment().suffixes.storage)]",
       "location": "global"
     },
     {
-      "condition": "[variables('enableVnet')]",
+      "condition": "[and(variables('enableVnet'), empty(parameters('existingPrivateDnsZoneId')))]",
       "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
       "apiVersion": "2020-06-01",
       "name": "[format('{0}/{1}', format('privatelink.blob.{0}', environment().suffixes.storage), 'blob-dns-zone-vnet-link')]",
@@ -379,7 +388,7 @@
           {
             "name": "config",
             "properties": {
-              "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', format('privatelink.blob.{0}', environment().suffixes.storage))]"
+              "privateDnsZoneId": "[variables('resolvedPrivateDnsZoneId')]"
             }
           }
         ]
