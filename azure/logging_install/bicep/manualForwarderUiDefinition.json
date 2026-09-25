@@ -1,0 +1,212 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2021-09-09/uiFormDefinition.schema.json",
+  "view": {
+    "kind": "Form",
+    "properties": {
+      "title": "Deploy Datadog Log Forwarder",
+      "steps": [
+        {
+          "name": "basics",
+          "label": "Basics",
+          "elements": [
+            {
+              "name": "resourceScope",
+              "type": "Microsoft.Common.ResourceScope",
+              "location": {
+                "resourceTypes": [
+                  "Microsoft.App/managedEnvironments",
+                  "Microsoft.Storage/storageAccounts"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "forwarder",
+          "label": "Forwarder",
+          "elements": [
+            {
+              "name": "datadogApiKey",
+              "type": "Microsoft.Common.PasswordBox",
+              "label": {
+                "password": "Datadog API Key"
+              },
+              "options": { "hideConfirmation": true },
+              "toolTip": "32-character Datadog API key.",
+              "constraints": {
+                "required": true,
+                "regex": "^[a-zA-Z0-9]{32}$",
+                "validationMessage": "Must be exactly 32 alphanumeric characters."
+              }
+            },
+            {
+              "name": "datadogSite",
+              "type": "Microsoft.Common.DropDown",
+              "label": "Datadog Site",
+              "defaultValue": "US1 (datadoghq.com)",
+              "toolTip": "Select the Datadog site that matches your account region.",
+              "constraints": {
+                "required": true,
+                "allowedValues": [
+                  { "label": "US1 (datadoghq.com)",     "value": "datadoghq.com" },
+                  { "label": "EU1 (datadoghq.eu)",       "value": "datadoghq.eu" },
+                  { "label": "US3 (us3.datadoghq.com)",  "value": "us3.datadoghq.com" },
+                  { "label": "US5 (us5.datadoghq.com)",  "value": "us5.datadoghq.com" },
+                  { "label": "AP1 (ap1.datadoghq.com)",  "value": "ap1.datadoghq.com" },
+                  { "label": "AP2 (ap2.datadoghq.com)",  "value": "ap2.datadoghq.com" },
+                  { "label": "UK1 (uk1.datadoghq.com)",  "value": "uk1.datadoghq.com" },
+                  { "label": "FED (ddog-gov.com)",        "value": "ddog-gov.com" }
+                ]
+              }
+            },
+            {
+              "name": "environmentName",
+              "type": "Microsoft.Common.TextBox",
+              "label": "Container App Environment Name",
+              "defaultValue": "datadog-log-forwarder-env",
+              "constraints": {
+                "required": true,
+                "regex": "^[a-zA-Z0-9][a-zA-Z0-9-]{0,58}[a-zA-Z0-9]$",
+                "validationMessage": "2–60 characters, alphanumeric and hyphens."
+              }
+            },
+            {
+              "name": "jobName",
+              "type": "Microsoft.Common.TextBox",
+              "label": "Forwarder Job Name",
+              "defaultValue": "datadog-log-forwarder",
+              "constraints": {
+                "required": true
+              }
+            },
+            {
+              "name": "storageAccountSku",
+              "type": "Microsoft.Common.DropDown",
+              "label": "Storage Account SKU",
+              "defaultValue": "Standard_LRS",
+              "constraints": {
+                "required": true,
+                "allowedValues": [
+                  { "label": "Standard_LRS",   "value": "Standard_LRS" },
+                  { "label": "Standard_ZRS",   "value": "Standard_ZRS" },
+                  { "label": "Standard_GRS",   "value": "Standard_GRS" },
+                  { "label": "Standard_GZRS",  "value": "Standard_GZRS" },
+                  { "label": "Standard_RAGRS", "value": "Standard_RAGRS" },
+                  { "label": "Standard_RAGZRS","value": "Standard_RAGZRS" },
+                  { "label": "Premium_LRS",    "value": "Premium_LRS" },
+                  { "label": "Premium_ZRS",    "value": "Premium_ZRS" }
+                ]
+              }
+            },
+            {
+              "name": "storageAccountRetentionDays",
+              "type": "Microsoft.Common.Slider",
+              "label": "Log Retention (days)",
+              "toolTip": "Number of days to keep logs in the storage account before automatic deletion.",
+              "min": 1,
+              "max": 30,
+              "defaultValue": 1,
+              "showStepMarkers": false
+            }
+          ]
+        },
+        {
+          "name": "networking",
+          "label": "Networking",
+          "elements": [
+            {
+              "name": "enableVnetIntegration",
+              "type": "Microsoft.Common.CheckBox",
+              "label": "Deploy to your own virtual network",
+              "toolTip": "Deploy the Container App Environment into a virtual network and disable public access on the storage account (accessed via private endpoint).",
+              "defaultValue": false
+            },
+            {
+              "name": "vnetConfig",
+              "type": "Microsoft.Network.VirtualNetworkCombo",
+              "label": {
+                "virtualNetwork": "Virtual Network",
+                "subnets": "Subnets"
+              },
+              "toolTip": {
+                "virtualNetwork": "Select an existing virtual network or create a new one for the Container App Environment.",
+                "subnets": "Container App Environment subnet must be /23 or smaller (at least 512 addresses) and will be delegated to Microsoft.App/environments automatically."
+              },
+              "defaultValue": {
+                "name": "datadog-log-forwarder-vnet",
+                "addressPrefixSize": "/16"
+              },
+              "constraints": {
+                "minAddressPrefixSize": "/22"
+              },
+              "options": {
+                "hideExisting": false
+              },
+              "subnets": {
+                "acaSubnet": {
+                  "label": "Container App Environment Subnet",
+                  "defaultValue": {
+                    "name": "aca-subnet",
+                    "addressPrefixSize": "/23"
+                  },
+                  "constraints": {
+                    "minAddressPrefixSize": "/23",
+                    "minAddressCount": 512,
+                    "requireContiguousAddresses": true
+                  }
+                },
+                "peSubnet": {
+                  "label": "Private Endpoint Subnet",
+                  "defaultValue": {
+                    "name": "pe-subnet",
+                    "addressPrefixSize": "/28"
+                  },
+                  "constraints": {
+                    "minAddressPrefixSize": "/28"
+                  }
+                }
+              },
+              "visible": "[steps('networking').enableVnetIntegration]"
+            },
+            {
+              "name": "existingPrivateDnsZoneId",
+              "type": "Microsoft.Solutions.ResourceSelector",
+              "label": "Existing Private DNS Zone (optional)",
+              "toolTip": "Select an existing privatelink.blob.* Private DNS Zone already linked to your virtual network. Leave empty to create one automatically.",
+              "resourceType": "Microsoft.Network/privateDnsZones",
+              "options": {
+                "filter": {
+                  "subscription": "onBasics"
+                }
+              },
+              "visible": "[and(steps('networking').enableVnetIntegration, equals(steps('networking').vnetConfig.newOrExisting, 'existing'))]"
+            }
+          ]
+        }
+      ]
+    },
+    "outputs": {
+      "parameters": {
+        "datadogApiKey":                         "[steps('forwarder').datadogApiKey.password]",
+        "datadogSite":                           "[steps('forwarder').datadogSite]",
+        "environmentName":                       "[steps('forwarder').environmentName]",
+        "jobName":                               "[steps('forwarder').jobName]",
+        "storageAccountSku":                     "[steps('forwarder').storageAccountSku]",
+        "storageAccountRetentionDays":           "[steps('forwarder').storageAccountRetentionDays]",
+        "enableVnetIntegration":                 "[steps('networking').enableVnetIntegration]",
+        "createNewVnet":                         "[equals(steps('networking').vnetConfig.newOrExisting, 'new')]",
+        "vnetName":                              "[steps('networking').vnetConfig.name]",
+        "vnetAddressPrefix":                     "[if(equals(steps('networking').vnetConfig.newOrExisting, 'new'), first(steps('networking').vnetConfig.addressPrefixes), '10.0.0.0/16')]",
+        "acaSubnetPrefix":                       "[if(equals(steps('networking').vnetConfig.newOrExisting, 'new'), steps('networking').vnetConfig.subnets.acaSubnet.addressPrefix, '10.0.0.0/23')]",
+        "peSubnetPrefix":                        "[if(equals(steps('networking').vnetConfig.newOrExisting, 'new'), steps('networking').vnetConfig.subnets.peSubnet.addressPrefix, '10.0.2.0/28')]",
+        "existingVnetId":                        "[if(equals(steps('networking').vnetConfig.newOrExisting, 'existing'), concat('/subscriptions/', steps('basics').resourceScope.subscription.subscriptionId, '/resourceGroups/', steps('networking').vnetConfig.resourceGroup, '/providers/Microsoft.Network/virtualNetworks/', steps('networking').vnetConfig.name), '')]",
+        "existingInfrastructureSubnetId":        "[if(equals(steps('networking').vnetConfig.newOrExisting, 'existing'), concat('/subscriptions/', steps('basics').resourceScope.subscription.subscriptionId, '/resourceGroups/', steps('networking').vnetConfig.resourceGroup, '/providers/Microsoft.Network/virtualNetworks/', steps('networking').vnetConfig.name, '/subnets/', steps('networking').vnetConfig.subnets.acaSubnet.name), '')]",
+        "existingStoragePrivateEndpointSubnetId":"[if(equals(steps('networking').vnetConfig.newOrExisting, 'existing'), concat('/subscriptions/', steps('basics').resourceScope.subscription.subscriptionId, '/resourceGroups/', steps('networking').vnetConfig.resourceGroup, '/providers/Microsoft.Network/virtualNetworks/', steps('networking').vnetConfig.name, '/subnets/', steps('networking').vnetConfig.subnets.peSubnet.name), '')]",
+        "existingPrivateDnsZoneId":              "[steps('networking').existingPrivateDnsZoneId.id]"
+      },
+      "kind": "ResourceGroup",
+      "location": "[steps('basics').resourceScope.location.name]",
+      "resourceGroupId": "[steps('basics').resourceScope.resourceGroup.id]"
+    }
+  }
+}

@@ -26,3 +26,4 @@ fi
 az bicep build --file logging_install/bicep/azuredeploy.bicep --outfile logging_install/dist/azuredeploy.json
 az bicep build --file logging_install/bicep/forwarder.bicep --outfile logging_install/dist/forwarder.json
 cp logging_install/bicep/createUiDefinition.json logging_install/dist/createUiDefinition.json
+cp logging_install/bicep/manualForwarderUiDefinition.json logging_install/dist/manualForwarderUiDefinition.json
