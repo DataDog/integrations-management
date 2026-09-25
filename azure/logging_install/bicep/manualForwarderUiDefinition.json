@@ -117,7 +117,7 @@
             {
               "name": "enableVnetIntegration",
               "type": "Microsoft.Common.CheckBox",
-              "label": "Enable Virtual Network Integration",
+              "label": "Deploy to your own virtual network",
               "toolTip": "Deploy the Container App Environment into a virtual network and disable public access on the storage account (accessed via private endpoint).",
               "defaultValue": false
             },
