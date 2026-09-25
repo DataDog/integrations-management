@@ -59,6 +59,7 @@ param enableVnetIntegration bool = false
 param createNewVnet bool = true
 
 @description('Name for the new virtual network. Only used when createNewVnet is true.')
+@minLength(1)
 param vnetName string = 'datadog-log-forwarder-vnet'
 
 @description('Address space for the new virtual network. Only used when createNewVnet is true.')
@@ -79,6 +80,9 @@ param existingInfrastructureSubnetId string = ''
 @description('Resource ID of an existing subnet for the storage private endpoint. Leave empty to reuse existingInfrastructureSubnetId. Only used when createNewVnet is false.')
 param existingStoragePrivateEndpointSubnetId string = ''
 
+@description('Resource ID of an existing Private DNS Zone for blob storage (privatelink.blob.*). Leave empty to create one automatically. Only used when enableVnetIntegration is true and createNewVnet is false.')
+param existingPrivateDnsZoneId string = ''
+
 var enableVnet = enableVnetIntegration
 var resolvedVnetId = enableVnetIntegration
   ? (createNewVnet ? resourceId('Microsoft.Network/virtualNetworks', vnetName) : existingVnetId)
@@ -90,6 +94,11 @@ var resolvedPeSubnetId = enableVnetIntegration
   ? (createNewVnet
       ? resourceId('Microsoft.Network/virtualNetworks/subnets', vnetName, 'pe-subnet')
       : (existingStoragePrivateEndpointSubnetId != '' ? existingStoragePrivateEndpointSubnetId : existingInfrastructureSubnetId))
+  : ''
+var resolvedPrivateDnsZoneId = enableVnetIntegration
+  ? (empty(existingPrivateDnsZoneId)
+      ? resourceId('Microsoft.Network/privateDnsZones', 'privatelink.blob.${environment().suffixes.storage}')
+      : existingPrivateDnsZoneId)
   : ''
 
 resource newVnet 'Microsoft.Network/virtualNetworks@2023-11-01' = if (enableVnetIntegration && createNewVnet) {
@@ -244,12 +253,12 @@ resource storagePrivateEndpoint 'Microsoft.Network/privateEndpoints@2023-11-01' 
   }
 }
 
-resource storageBlobPrivateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = if (enableVnet) {
+resource storageBlobPrivateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = if (enableVnet && empty(existingPrivateDnsZoneId)) {
   name: 'privatelink.blob.${environment().suffixes.storage}'
   location: 'global'
 }
 
-resource storageBlobPrivateDnsZoneLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01' = if (enableVnet) {
+resource storageBlobPrivateDnsZoneLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01' = if (enableVnet && empty(existingPrivateDnsZoneId)) {
   name: 'blob-dns-zone-vnet-link'
   parent: storageBlobPrivateDnsZone
   location: 'global'
@@ -267,9 +276,10 @@ resource storageBlobDnsZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZ
       {
         name: 'config'
         properties: {
-          privateDnsZoneId: storageBlobPrivateDnsZone.id
+          privateDnsZoneId: resolvedPrivateDnsZoneId
         }
       }
     ]
   }
+  dependsOn: [storageBlobPrivateDnsZone]
 }
