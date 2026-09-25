@@ -202,34 +202,20 @@
               "visible": "[and(steps('networking').enableVnetIntegration, not(steps('networking').createNewVnet))]"
             },
             {
-              "name": "vnetSubnets",
-              "type": "Microsoft.Solutions.ArmApiControl",
-              "request": {
-                "method": "GET",
-                "path": "[if(empty(steps('networking').existingVnetId.id), '/subscriptions?api-version=2022-12-01', concat(steps('networking').existingVnetId.id, '/subnets?api-version=2023-11-01'))]"
-              }
-            },
-            {
               "name": "existingInfrastructureSubnetId",
-              "type": "Microsoft.Common.DropDown",
-              "label": "Container App Environment Subnet",
-              "toolTip": "Must be delegated to Microsoft.App/environments with a prefix of /23 or smaller.",
-              "constraints": {
-                "required": true,
-                "allowedValues": "[map(steps('networking').vnetSubnets.value, (item) => createObject('label', item.name, 'value', item.id))]"
-              },
-              "visible": "[and(steps('networking').enableVnetIntegration, not(steps('networking').createNewVnet))]"
+              "type": "Microsoft.Common.TextBox",
+              "label": "Container App Environment Subnet Resource ID",
+              "toolTip": "Resource ID of the subnet for the Container App Environment. Must be delegated to Microsoft.App/environments with a prefix of /23 or smaller. Example: /subscriptions/.../resourceGroups/.../providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/aca-subnet",
+              "visible": "[and(steps('networking').enableVnetIntegration, not(steps('networking').createNewVnet))]",
+              "constraints": { "required": false }
             },
             {
               "name": "existingStoragePrivateEndpointSubnetId",
-              "type": "Microsoft.Common.DropDown",
-              "label": "Private Endpoint Subnet (optional)",
-              "toolTip": "Leave empty to reuse the Container App Environment subnet for the storage private endpoint.",
-              "constraints": {
-                "required": false,
-                "allowedValues": "[map(steps('networking').vnetSubnets.value, (item) => createObject('label', item.name, 'value', item.id))]"
-              },
-              "visible": "[and(steps('networking').enableVnetIntegration, not(steps('networking').createNewVnet))]"
+              "type": "Microsoft.Common.TextBox",
+              "label": "Private Endpoint Subnet Resource ID (optional)",
+              "toolTip": "Leave empty to reuse the Container App Environment subnet for the storage private endpoint. Example: /subscriptions/.../resourceGroups/.../providers/Microsoft.Network/virtualNetworks/my-vnet/subnets/pe-subnet",
+              "visible": "[and(steps('networking').enableVnetIntegration, not(steps('networking').createNewVnet))]",
+              "constraints": { "required": false }
             },
             {
               "name": "existingPrivateDnsZoneId",
