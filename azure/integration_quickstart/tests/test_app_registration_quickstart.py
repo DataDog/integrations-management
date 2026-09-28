@@ -22,6 +22,7 @@ _APP_REG = AppRegistration(
     display_name="datadog-azure-integration-test",
 )
 _SCOPE = MagicMock(scope="/subscriptions/sub-1")
+_DISPLAY_NAME = "datadog-azure-integration-test"
 
 
 class TestCreateAppRegistrationWithPermissions(DDTestCase):
@@ -31,21 +32,22 @@ class TestCreateAppRegistrationWithPermissions(DDTestCase):
             return_value={"appId": "app-1", "tenant": "tenant-1", "password": "pw"},
         )
         self.execute = self.patch("azure_integration_quickstart.app_registration_quickstart.execute")
-        self.get_app_registration_name = self.patch(
-            "azure_integration_quickstart.app_registration_quickstart.get_app_registration_name",
-            return_value="datadog-azure-integration-test",
-        )
-
     def test_secretless_auth_missing_external_id_raises(self):
         with self.assertRaises(MissingExternalIdError):
-            create_app_registration_with_permissions([_SCOPE], use_secretless_auth=True, external_id=None)
+            create_app_registration_with_permissions(
+                [_SCOPE], _DISPLAY_NAME, use_secretless_auth=True, external_id=None
+            )
 
     def test_secretless_auth_empty_external_id_raises(self):
         with self.assertRaises(MissingExternalIdError):
-            create_app_registration_with_permissions([_SCOPE], use_secretless_auth=True, external_id="")
+            create_app_registration_with_permissions(
+                [_SCOPE], _DISPLAY_NAME, use_secretless_auth=True, external_id=""
+            )
 
     def test_secretless_auth_embeds_external_id_in_subject(self):
-        create_app_registration_with_permissions([_SCOPE], use_secretless_auth=True, external_id="ext-abc")
+        create_app_registration_with_permissions(
+            [_SCOPE], _DISPLAY_NAME, use_secretless_auth=True, external_id="ext-abc"
+        )
 
         cmd_args = " ".join(self.execute.call_args[0][0])
         self.assertIn(f"{FEDERATED_AUTH_SUBJECT_PREFIX}ext-abc", cmd_args)
@@ -55,17 +57,18 @@ class TestCreateAppRegistrationWithPermissions(DDTestCase):
             "azure_integration_quickstart.app_registration_quickstart.execute_json",
             return_value={"appId": "app-1", "tenant": "tenant-1", "password": "pw"},
         )
-        create_app_registration_with_permissions([_SCOPE], use_secretless_auth=False, external_id=None)
+        create_app_registration_with_permissions(
+            [_SCOPE], _DISPLAY_NAME, use_secretless_auth=False, external_id=None
+        )
         self.execute.assert_not_called()
 
-    def test_generated_display_name_is_used_for_azure_and_returned(self):
+    def test_selected_display_name_is_used_for_azure_and_returned(self):
         app_registration = create_app_registration_with_permissions(
-            [_SCOPE], use_secretless_auth=True, external_id="ext-abc"
+            [_SCOPE], _DISPLAY_NAME, use_secretless_auth=True, external_id="ext-abc"
         )
 
-        self.assertEqual(app_registration.display_name, "datadog-azure-integration-test")
-        self.assertIn("--name datadog-azure-integration-test", " ".join(self.run_cmd.call_args[0][0]))
-        self.get_app_registration_name.assert_called_once_with()
+        self.assertEqual(app_registration.display_name, _DISPLAY_NAME)
+        self.assertIn(f"--name {_DISPLAY_NAME}", " ".join(self.run_cmd.call_args[0][0]))
 
 
 class TestSubmitIntegrationConfig(DDTestCase):

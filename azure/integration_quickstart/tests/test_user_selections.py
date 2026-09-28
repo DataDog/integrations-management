@@ -40,6 +40,7 @@ class TestReceiveAppRegistrationSelections(DDTestCase):
     ):
         """Assert that two AppRegistrationUserSelections objects are equal."""
         self.assert_same_scopes(selections1.scopes, selections2.scopes)
+        self.assertEqual(selections1.display_name, selections2.display_name)
         self.assertEqual(selections1.app_registration_config, selections2.app_registration_config)
         self.assertEqual(selections1.log_forwarding_config, selections2.log_forwarding_config)
 

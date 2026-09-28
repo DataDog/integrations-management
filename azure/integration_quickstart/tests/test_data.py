@@ -18,6 +18,7 @@ ERROR_403 = HTTPError(url="", code=403, msg="you don't have permission", hdrs=Me
 
 EXAMPLE_WORKFLOW_ID = "Example quickstart workflow"
 EXAMPLE_STEP_ID = "example_workflow_step"
+EXAMPLE_APP_REGISTRATION_DISPLAY_NAME = "datadog-azure-integration-test"
 
 EXAMPLE_SUBSCRIPTIONS = [{"id": f"example-subscription-id-{i}", "name": f"Example Subscription {i}"} for i in range(4)]
 EXAMPLE_MANAGEMENT_GROUP = {
@@ -76,6 +77,7 @@ def make_selections_response(
             "attributes": {
                 "metadata": {
                     "selections": {
+                        "display_name": EXAMPLE_APP_REGISTRATION_DISPLAY_NAME,
                         "config_options": config_options,
                         "management_groups": management_groups,
                         "subscriptions": subscriptions,
@@ -127,14 +129,17 @@ OVERLAPPING_SELECTIONS_RESPONSE = make_selections_response(
 SELECTIONS_WITH_LOG_FORWARDING_RESPONSE = make_selections_response(log_forwarding_options=EXAMPLE_LOG_FORWARDER_JSON)
 
 SUBSCRIPTION_SELECTION = AppRegistrationUserSelections(
+    display_name=EXAMPLE_APP_REGISTRATION_DISPLAY_NAME,
     app_registration_config=DEFAULT_CONFIG_OPTIONS,
     scopes=[EXAMPLE_SUBSCRIPTION_SCOPES[0], EXAMPLE_SUBSCRIPTION_SCOPES[1], EXAMPLE_SUBSCRIPTION_SCOPES[2]],
 )
 MGROUP_SELECTIONS = AppRegistrationUserSelections(
+    display_name=EXAMPLE_APP_REGISTRATION_DISPLAY_NAME,
     app_registration_config=DEFAULT_CONFIG_OPTIONS,
     scopes=[EXAMPLE_MANAGEMENT_GROUP_SCOPE],
 )
 OVERLAPPING_SELECTIONS = AppRegistrationUserSelections(
+    display_name=EXAMPLE_APP_REGISTRATION_DISPLAY_NAME,
     app_registration_config=DEFAULT_CONFIG_OPTIONS,
     scopes=[
         EXAMPLE_SUBSCRIPTION_SCOPES[0],
@@ -144,11 +149,15 @@ OVERLAPPING_SELECTIONS = AppRegistrationUserSelections(
     ],
 )
 MGROUP_SELECTIONS = AppRegistrationUserSelections(
+    display_name=EXAMPLE_APP_REGISTRATION_DISPLAY_NAME,
     app_registration_config=DEFAULT_CONFIG_OPTIONS,
     scopes=[EXAMPLE_MANAGEMENT_GROUP_SCOPE],
 )
 SELECTIONS_WITH_LOG_FORWARDING = AppRegistrationUserSelections(
-    app_registration_config=DEFAULT_CONFIG_OPTIONS, log_forwarding_config=EXAMPLE_LOG_FORWARDER, scopes=[]
+    display_name=EXAMPLE_APP_REGISTRATION_DISPLAY_NAME,
+    app_registration_config=DEFAULT_CONFIG_OPTIONS,
+    log_forwarding_config=EXAMPLE_LOG_FORWARDER,
+    scopes=[],
 )
 
 
