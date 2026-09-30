@@ -115,6 +115,15 @@
           "label": "Networking",
           "elements": [
             {
+              "name": "resourceGroupWarning",
+              "type": "Microsoft.Common.InfoBox",
+              "visible": "[empty(steps('basics').resourceScope.resourceGroup.id)]",
+              "options": {
+                "icon": "Warning",
+                "text": "No resource group is selected. Go back to the Basics tab and choose or create one."
+              }
+            },
+            {
               "name": "enableVnetIntegration",
               "type": "Microsoft.Common.CheckBox",
               "label": "Deploy to your own virtual network",
