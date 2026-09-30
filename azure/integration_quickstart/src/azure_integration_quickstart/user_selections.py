@@ -24,7 +24,7 @@ class AppRegistrationUserSelections:
     """The selections the user has made in the quickstart onboarding UI for creating a new app registration."""
 
     scopes: Sequence[Scope]
-    display_name: str
+    display_name: Optional[str]
     app_registration_config: dict
     log_forwarding_config: Optional[dict] = None
 
@@ -88,7 +88,7 @@ def receive_app_registration_selections(workflow_id: str) -> AppRegistrationUser
     selections, scopes = _poll_and_parse_selections(APP_REGISTRATION_WORKFLOW_TYPE, workflow_id)
     return AppRegistrationUserSelections(
         scopes,
-        selections["display_name"],
+        selections.get("display_name"),
         json.loads(selections["config_options"]),
         json.loads(selections["log_forwarding_options"])
         if "log_forwarding_options" in selections and selections["log_forwarding_options"]

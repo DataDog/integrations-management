@@ -2,6 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
+from datetime import datetime
 from unittest.mock import MagicMock
 
 from az_shared.errors import MissingExternalIdError
@@ -32,6 +33,7 @@ class TestCreateAppRegistrationWithPermissions(DDTestCase):
             return_value={"appId": "app-1", "tenant": "tenant-1", "password": "pw"},
         )
         self.execute = self.patch("azure_integration_quickstart.app_registration_quickstart.execute")
+
     def test_secretless_auth_missing_external_id_raises(self):
         with self.assertRaises(MissingExternalIdError):
             create_app_registration_with_permissions(
@@ -69,6 +71,21 @@ class TestCreateAppRegistrationWithPermissions(DDTestCase):
 
         self.assertEqual(app_registration.display_name, _DISPLAY_NAME)
         self.assertIn(f"--name {_DISPLAY_NAME}", " ".join(self.run_cmd.call_args[0][0]))
+
+
+    def test_absent_display_name_uses_original_timestamped_default(self):
+        mock_datetime = self.patch("azure_integration_quickstart.app_registration_quickstart.datetime")
+        mock_datetime.now.return_value = datetime(2026, 9, 30, 12, 34, 56)
+        expected_name = "datadog-azure-integration-2026-09-30-12-34-56"
+
+        for display_name in (None, "", "   "):
+            with self.subTest(display_name=display_name):
+                app_registration = create_app_registration_with_permissions(
+                    [_SCOPE], display_name, use_secretless_auth=False, external_id=None
+                )
+
+                self.assertEqual(app_registration.display_name, expected_name)
+                self.assertIn(f"--name {expected_name}", " ".join(self.run_cmd.call_args[0][0]))
 
 
 class TestSubmitIntegrationConfig(DDTestCase):
