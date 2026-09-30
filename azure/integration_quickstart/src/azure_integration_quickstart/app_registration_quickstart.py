@@ -6,6 +6,7 @@ import os
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 from urllib.error import URLError
 
@@ -50,6 +51,7 @@ class AppRegistration:
     display_name: str
 
 
+APP_REGISTRATION_NAME_PREFIX = "datadog-azure-integration"
 APP_REGISTRATION_CLIENT_SECRET_TTL_YEARS = 2
 APP_REGISTRATION_ROLE = "Monitoring Reader"
 APP_REGISTRATION_UNSTORED_FIELDS = {"external_id"}
@@ -64,6 +66,10 @@ FEDERATED_CREDENTIAL_DESCRIPTION = (
 FEDERATED_AUTH_AUDIENCE = "api://AzureADTokenExchange"
 
 
+def get_app_registration_name() -> str:
+    return f"{APP_REGISTRATION_NAME_PREFIX}-{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}"
+
+
 def run_app_reg_create_cmd(cmd: Cmd):
     try:
         return execute_json(cmd)
@@ -75,9 +81,12 @@ def run_app_reg_create_cmd(cmd: Cmd):
 
 
 def create_app_registration_with_permissions(
-    scopes: Iterable[Scope], display_name: str, use_secretless_auth: bool, external_id: Optional[str]
+    scopes: Iterable[Scope], display_name: Optional[str], use_secretless_auth: bool, external_id: Optional[str]
 ) -> AppRegistration:
     """Create an app registration with the necessary permissions for Datadog to function over the given scopes."""
+    if not display_name or not display_name.strip():
+        display_name = get_app_registration_name()
+
     cmd = (
         Cmd(["az", "ad", "sp", "create-for-rbac"])
         .param("--name", display_name)
