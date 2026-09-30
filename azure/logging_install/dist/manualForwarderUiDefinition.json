@@ -117,7 +117,7 @@
             {
               "name": "resourceGroupWarning",
               "type": "Microsoft.Common.InfoBox",
-              "visible": "[empty(steps('basics').resourceScope.resourceGroup.id)]",
+              "visible": "[empty(coalesce(steps('basics').resourceScope.resourceGroup.name, ''))]",
               "options": {
                 "icon": "Warning",
                 "text": "No resource group is selected. Go back to the Basics tab and choose or create one."
