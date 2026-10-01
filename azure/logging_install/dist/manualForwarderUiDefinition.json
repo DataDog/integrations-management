@@ -176,7 +176,7 @@
                   }
                 }
               },
-              "visible": "[steps('networking').enableVnetIntegration]"
+              "visible": "[and(not(empty(coalesce(steps('basics').resourceScope.resourceGroup.name, ''))), steps('networking').enableVnetIntegration)]"
             },
             {
               "name": "existingPrivateDnsZoneId",
