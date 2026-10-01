@@ -128,7 +128,8 @@
               "type": "Microsoft.Common.CheckBox",
               "label": "Deploy to your own virtual network",
               "toolTip": "Deploy the Container App Environment into a virtual network and disable public access on the storage account (accessed via private endpoint).",
-              "defaultValue": false
+              "defaultValue": false,
+              "visible": "[not(empty(coalesce(steps('basics').resourceScope.resourceGroup.name, '')))]"
             },
             {
               "name": "vnetConfig",
