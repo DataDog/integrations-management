@@ -52,3 +52,38 @@ Notes:
 - You can also build the compiled ARM JSON with `logging_install/build.sh` and deploy
   `dist/azuredeploy.json` via `--template-file logging_install/dist/azuredeploy.json` instead of
   the `.bicep` source.
+
+## Manual Forwarder Deployment (Azure Portal)
+
+`forwarder.bicep` deploys only the Container App job and storage account — no management group scope required. It can be deployed via the Azure Portal using the included UI definition for a guided, form-based experience.
+
+**Portal deploy link** (uses the files from the `main` branch of this repo):
+
+```
+https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FDataDog%2Fintegrations-management%2Fmain%2Fazure%2Flogging_install%2Fdist%2Fforwarder.json/uiFormDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2FDataDog%2Fintegrations-management%2Fmain%2Fazure%2Flogging_install%2Fdist%2FmanualForwarderUiDefinition.json
+```
+
+**Or via CLI:**
+
+```bash
+az deployment group create \
+  --resource-group <RESOURCE_GROUP> \
+  --template-file logging_install/bicep/forwarder.bicep \
+  --parameters datadogApiKey=<DD_API_KEY>
+```
+
+**Virtual Network integration** can be enabled by passing `enableVnetIntegration=true`. When enabled, a virtual network, private endpoint for storage, and private DNS zone are created automatically. To use existing networking resources, pass `createNewVnet=false` along with the existing resource IDs:
+
+```bash
+az deployment group create \
+  --resource-group <RESOURCE_GROUP> \
+  --template-file logging_install/bicep/forwarder.bicep \
+  --parameters \
+    datadogApiKey=<DD_API_KEY> \
+    enableVnetIntegration=true \
+    createNewVnet=false \
+    existingVnetId=<VNET_RESOURCE_ID> \
+    existingInfrastructureSubnetId=<ACA_SUBNET_RESOURCE_ID>
+```
+
+Note: Azure does not support adding a virtual network to an existing Container App Environment after deployment. Virtual network integration must be configured at creation time.
