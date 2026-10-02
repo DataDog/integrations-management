@@ -64,7 +64,7 @@ def main():
 
     validate_az_cli()
     # TODO add other user validation?
-    run_migration(optional_control_plane_ids, args.yes, args.log_level)
+    run_migration(optional_control_plane_ids, args.yes)
 
 
 if __name__ == "__main__":

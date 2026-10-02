@@ -249,7 +249,7 @@ class TestMain(TestCase):
             mock_patch("azure_logging_install.existing_lfo.set_resource_tag_filters") as mock_set_tag_filters,
             mock_patch("azure_logging_install.existing_lfo.set_pii_scrubber_rules") as mock_set_pii_rules,
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
-            mock_patch("azure_logging_install.existing_lfo.revoke_subscriptions_permissions"),
+            mock_patch("azure_logging_install.existing_lfo.remove_subscription_resources"),
         ):
             update_existing_lfo(mock_config, existing_lfo)
 

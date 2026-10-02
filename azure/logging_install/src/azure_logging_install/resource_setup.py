@@ -21,7 +21,7 @@ from az_shared.logs import log
 
 from .az_cmd import AzCmd
 from .configuration import Configuration, ControlPlaneType, ControlPlane, fully_qualified_image
-from .constants import CONTROL_PLANE_CACHE, DIAGNOSTIC_SETTINGS_TASK_CRON, LFO_PUBLIC_STORAGE_ACCOUNT_URL, MAX_THREAD_POOL_WORKERS, MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_CRON, SCALING_TASK_CRON
+from .constants import CONTROL_PLANE_CACHE, DEPLOYER_TASK_CRON, DIAGNOSTIC_SETTINGS_TASK_CRON, LFO_PUBLIC_STORAGE_ACCOUNT_URL, MAX_THREAD_POOL_WORKERS, MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_CRON, SCALING_TASK_CRON
 
 # =============================================================================
 # Subscription, Resource Group, Storage Account
@@ -70,6 +70,19 @@ def create_file_share(storage_account_name: str, control_plane_rg: str):
         .param("--storage-account", storage_account_name)
         .param("--name", CONTROL_PLANE_CACHE)
         .param("--resource-group", control_plane_rg)
+    )
+
+
+def delete_file_share(storage_account_name: str, control_plane_rg: str, subscription_id: str) -> None:
+    """Delete the control plane cache file share."""
+    log.info(f"Deleting file share {CONTROL_PLANE_CACHE}")
+    execute(
+        AzCmd("storage", "share-rm delete")
+        .param("--storage-account", storage_account_name)
+        .param("--name", CONTROL_PLANE_CACHE)
+        .param("--resource-group", control_plane_rg)
+        .param("--subscription", subscription_id)
+        .flag("--yes")
     )
 
 
@@ -286,6 +299,38 @@ def start_function_app(name: str, resource_group: str, subscription_id: str) -> 
     )
 
 
+def delete_function_app(name: str, resource_group: str, subscription_id: str) -> None:
+    """Delete a Function App."""
+    log.info(f"Deleting Function App {name}")
+    execute(
+        AzCmd("functionapp", "delete")
+        .param("--name", name)
+        .param("--resource-group", resource_group)
+        .param("--subscription", subscription_id)
+    )
+
+
+def get_function_app_plan_id(name: str, resource_group: str, subscription_id: str) -> str:
+    """Get the resource ID of the App Service plan hosting a Function App. Consumption plans are created
+    implicitly by `functionapp create` (no explicit name to compute), and can be shared across the Function
+    Apps in the same resource group/region/OS, so the plan must be looked up per app rather than assumed."""
+    output = execute(
+        AzCmd("functionapp", "show")
+        .param("--name", name)
+        .param("--resource-group", resource_group)
+        .param("--subscription", subscription_id)
+        .param("--query", "serverFarmId")
+        .param("--output", "tsv")
+    )
+    return output.strip()
+
+
+def delete_function_app_plan(plan_id: str) -> None:
+    """Delete an App Service plan by its resource ID."""
+    log.info(f"Deleting Function App plan {plan_id}")
+    execute(AzCmd("functionapp", "plan delete").param("--ids", plan_id).flag("--yes"))
+
+
 def create_control_plane_container_app_jobs(config: Configuration):
     """Create container app jobs for LFO Resources Task, Scaling Task, and Diagnostic Settings Task"""
 
@@ -350,28 +395,6 @@ def delete_container_app_job(job_name: str, resource_group: str, subscription_id
         .param("--resource-group", resource_group)
         .param("--subscription", subscription_id)
         .flag("--yes")
-    )
-
-
-def stop_container_app_job(job_name: str, resource_group: str, subscription_id: str) -> None:
-    """Stop any running executions of a Container App Job."""
-    log.info(f"Stopping Container App job {job_name}")
-    execute(
-        AzCmd("containerapp", "job stop")
-        .param("--name", job_name)
-        .param("--resource-group", resource_group)
-        .param("--subscription", subscription_id)
-    )
-
-
-def start_container_app_job(job_name: str, resource_group: str, subscription_id: str) -> None:
-    """Start a Container App Job execution."""
-    log.info(f"Starting Container App job {job_name}")
-    execute(
-        AzCmd("containerapp", "job start")
-        .param("--name", job_name)
-        .param("--resource-group", resource_group)
-        .param("--subscription", subscription_id)
     )
 
 
@@ -514,7 +537,7 @@ def create_deployer_container_app_job(config: Configuration):
         .param("--replica-timeout", "1800")
         .param("--replica-retry-limit", "1")
         .param("--trigger-type", "Schedule")
-        .param("--cron-expression", shlex.quote("*/30 * * * *"))
+        .param("--cron-expression", shlex.quote(DEPLOYER_TASK_CRON))
         .param("--image", config.deployer_image_url)
         .param("--cpu", "0.5")
         .param("--memory", "1Gi")

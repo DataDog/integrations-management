@@ -58,3 +58,39 @@ def _safe_rollback(step: Step) -> None:
         step.rollback()
     except Exception as rollback_error:
         log.error(f"Rollback for step '{step.name}' failed: {rollback_error}")
+
+
+class CleanupStep:
+    """A best-effort unit of work with no rollback. Used once the migration itself has succeeded, to remove
+    resources that are no longer needed."""
+
+    name: str
+
+    def __init__(self, name: str):
+        self.name = name
+
+    def execute(self) -> None:
+        raise NotImplementedError()
+
+
+def run_cleanup_steps(steps: list[CleanupStep]) -> None:
+    """Run cleanup steps in order. Unlike run_steps, a failure does not trigger a rollback or stop the
+    remaining steps: the migration has already succeeded, so each failure is logged and surfaced at the end
+    as a resource the customer must clean up manually.
+    """
+    failed_steps: list[str] = []
+
+    for step in steps:
+        log_header(f"STEP: {step.name}")
+        try:
+            step.execute()
+        except Exception as e:
+            log.error(f"Cleanup step '{step.name}' failed: {e}")
+            failed_steps.append(step.name)
+
+    if failed_steps:
+        log_header("Manual cleanup required")
+        log.error(
+            "The following resources could not be automatically cleaned up and must be removed manually:\n"
+            + "\n".join(f"  - {name}" for name in failed_steps)
+        )

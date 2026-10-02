@@ -4,11 +4,9 @@
 
 from az_shared.logs import log
 from azure_logging_install.configuration import Configuration
-from azure_logging_install.constants import DIAGNOSTIC_SETTINGS_TASK_CRON, RESOURCES_TASK_CRON, SCALING_TASK_CRON
+from azure_logging_install.constants import DEPLOYER_TASK_CRON, DIAGNOSTIC_SETTINGS_TASK_CRON, RESOURCES_TASK_CRON, SCALING_TASK_CRON
 from azure_logging_install.resource_setup import (
-    start_container_app_job,
     start_function_app,
-    stop_container_app_job,
     stop_function_app,
     update_container_app_job_cron_expression,
     update_container_app_job_image,
@@ -26,19 +24,25 @@ _TASK_CRON_EXPRESSIONS = {
 
 
 class PauseDeployer(Step):
-    """Stops the deployer Container App Job so it isn't running while the old Function Apps
-    are paused and the new task Jobs are enabled."""
+    """Disables the deployer Container App Job's schedule so it isn't running while the old Function Apps
+    are paused and the new task Jobs are enabled. Uses a never-run cron rather than `job stop`/`job start`,
+    since stopping a Schedule-triggered Job's executions can leave the Job in a Suspended state that
+    `job start` cannot recover from."""
 
     def __init__(self, config: Configuration):
         super().__init__(f"Pause deployer '{config.deployer_job_name}'")
         self.config = config
 
     def execute(self) -> None:
-        stop_container_app_job(self.config.deployer_job_name, self.config.control_plane.resource_group, self.config.control_plane.sub_id)
+        update_container_app_job_cron_expression(
+            self.config.deployer_job_name, self.config.control_plane.resource_group, self.config.control_plane.sub_id, NEVER_RUN_CRON_EXPRESSION
+        )
 
     def rollback(self) -> None:
         log.info(f"Resuming deployer '{self.config.deployer_job_name}'")
-        start_container_app_job(self.config.deployer_job_name, self.config.control_plane.resource_group, self.config.control_plane.sub_id)
+        update_container_app_job_cron_expression(
+            self.config.deployer_job_name, self.config.control_plane.resource_group, self.config.control_plane.sub_id, DEPLOYER_TASK_CRON
+        )
 
 
 class PauseOldFunctionApps(Step):
@@ -107,15 +111,20 @@ class UpdateDeployerImage(Step):
 
 
 class UnpauseDeployer(Step):
-    """Starts the deployer Container App Job now that it is running the Container App Job-compatible image."""
+    """Restores the deployer Container App Job's real schedule now that it is running the Container App
+    Job-compatible image."""
 
     def __init__(self, config: Configuration):
         super().__init__(f"Unpause deployer '{config.deployer_job_name}'")
         self.config = config
 
     def execute(self) -> None:
-        start_container_app_job(self.config.deployer_job_name, self.config.control_plane.resource_group, self.config.control_plane.sub_id)
+        update_container_app_job_cron_expression(
+            self.config.deployer_job_name, self.config.control_plane.resource_group, self.config.control_plane.sub_id, DEPLOYER_TASK_CRON
+        )
 
     def rollback(self) -> None:
         log.info(f"Pausing deployer '{self.config.deployer_job_name}'")
-        stop_container_app_job(self.config.deployer_job_name, self.config.control_plane.resource_group, self.config.control_plane.sub_id)
+        update_container_app_job_cron_expression(
+            self.config.deployer_job_name, self.config.control_plane.resource_group, self.config.control_plane.sub_id, NEVER_RUN_CRON_EXPRESSION
+        )

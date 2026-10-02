@@ -4,7 +4,7 @@
 
 from unittest import TestCase
 
-from azure_lfo_container_app_migration.steps import Step, run_steps
+from azure_lfo_container_app_migration.steps import CleanupStep, Step, run_cleanup_steps, run_steps
 
 
 class RecordingStep(Step):
@@ -105,3 +105,44 @@ class TestRunSteps(TestCase):
             raise RuntimeError(message)
 
         return action
+
+
+class RecordingCleanupStep(CleanupStep):
+    def __init__(self, name, calls, action=None):
+        super().__init__(name)
+        self.calls = calls
+        self._action = action
+
+    def execute(self) -> None:
+        if self._action:
+            self._action()
+
+
+class TestRunCleanupSteps(TestCase):
+    def test_all_steps_succeed(self):
+        calls = []
+        steps = [
+            RecordingCleanupStep("one", calls, action=lambda: calls.append("one-action")),
+            RecordingCleanupStep("two", calls, action=lambda: calls.append("two-action")),
+        ]
+
+        run_cleanup_steps(steps)
+
+        self.assertEqual(calls, ["one-action", "two-action"])
+
+    def test_a_failing_step_does_not_stop_or_raise_and_remaining_steps_still_run(self):
+        calls = []
+
+        def failing_action():
+            calls.append("two-action")
+            raise RuntimeError("boom")
+
+        steps = [
+            RecordingCleanupStep("one", calls, action=lambda: calls.append("one-action")),
+            RecordingCleanupStep("two", calls, action=failing_action),
+            RecordingCleanupStep("three", calls, action=lambda: calls.append("three-action")),
+        ]
+
+        run_cleanup_steps(steps)  # does not raise
+
+        self.assertEqual(calls, ["one-action", "two-action", "three-action"])
