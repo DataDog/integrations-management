@@ -29,8 +29,7 @@ from .reporter import Reporter, AgentlessStep
 # deploys without producing visible 429s.
 TERRAFORM_PARALLELISM = 20
 
-# TODO: replace with a release tag once terraform-module-datadog-agentless-scanner cuts one
-MODULE_VERSION = "fbc0d0bb425ae4084433834e68d3b23e566fba0d"
+MODULE_VERSION = "0.12.4"
 MODULE_BASE = "git::https://github.com/DataDog/terraform-module-datadog-agentless-scanner//azure/modules"
 
 

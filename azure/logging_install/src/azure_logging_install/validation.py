@@ -86,9 +86,31 @@ def validate_singleton_lfo(config: Configuration, existing_lfos: list[Configurat
         log.info("Exiting...")
         sys.exit(0)
 
-    existing_lfo_control_plane_id = existing_lfos[0].control_plane.id
+    existing_control_plane = existing_lfos[0].control_plane
+    existing_lfo_control_plane_id = existing_control_plane.id
 
     if existing_count == 1 and existing_lfo_control_plane_id.casefold() != config.control_plane.id.casefold():
+        # ARM installations include the management-group ID when generating the
+        # control-plane ID, while Quickstart generates it using the subscription,
+        # resource group, and region. This can produce different IDs for the same LFO,
+        # so allow the update when those three fields match the existing control plane.
+        existing_control_plane_location = (
+            existing_control_plane.sub_id.casefold(),
+            existing_control_plane.resource_group.casefold(),
+            existing_control_plane.region.casefold(),
+        )
+        requested_control_plane_location = (
+            config.control_plane.sub_id.casefold(),
+            config.control_plane.resource_group.casefold(),
+            config.control_plane.region.casefold(),
+        )
+        if existing_control_plane_location == requested_control_plane_location:
+            log.warning(
+                f"Using existing control plane ID '{existing_lfo_control_plane_id}' instead of generated ID "
+                f"'{config.control_plane.id}'."
+            )
+            return
+
         log.error(
             f"Existing log forwarding installation with differing control plane ID '{existing_lfo_control_plane_id}' found in this Azure environment. New installation ID is '{config.control_plane.id}'."
         )

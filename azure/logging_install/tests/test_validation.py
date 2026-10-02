@@ -370,6 +370,38 @@ class TestValidation(TestCase):
         self.assertNotIn(DATADOG_API_KEY, logged_output)
         self.assertIn("***REDACTED***", logged_output)
 
+    def test_validate_singleton_lfo_allows_legacy_id_for_same_control_plane_location(self):
+        existing_lfo = make_config()
+        requested_config = make_config()
+        requested_config.control_plane.id = "different-id"
+
+        with self.assertLogs("logging_installer", level="WARNING") as captured_logs:
+            validation.validate_singleton_lfo(requested_config, [existing_lfo])
+
+        self.assertIn(
+            f"Using existing control plane ID '{CONTROL_PLANE_ID}' instead of generated ID 'different-id'.",
+            "\n".join(captured_logs.output),
+        )
+
+    def test_validate_singleton_lfo_rejects_different_control_plane_location(self):
+        existing_lfo = make_config()
+        requested_config = make_config(control_plane_rg="different-rg")
+        requested_config.control_plane.id = "different-id"
+
+        with self.assertRaises(SystemExit):
+            validation.validate_singleton_lfo(requested_config, [existing_lfo])
+
+    def test_validate_singleton_lfo_compares_control_plane_location_case_insensitively(self):
+        existing_lfo = make_config()
+        requested_config = make_config(
+            control_plane_sub_id=CONTROL_PLANE_SUBSCRIPTION_ID.upper(),
+            control_plane_rg=CONTROL_PLANE_RESOURCE_GROUP.upper(),
+            control_plane_region=CONTROL_PLANE_REGION.upper(),
+        )
+        requested_config.control_plane.id = "different-id"
+
+        validation.validate_singleton_lfo(requested_config, [existing_lfo])
+
     # ===== User Configuration Validation Tests ===== #
 
     def test_validate_user_config_success(self):

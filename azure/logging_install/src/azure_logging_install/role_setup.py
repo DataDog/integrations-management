@@ -420,6 +420,8 @@ def remove_subscription_resources(control_plane: ControlPlane, sub_ids: Iterable
             log.info(
                 "Resource group deletion was started and will continue in the background in Azure; completion may take some time."
             )
+        except ResourceGroupNotFoundError as e:
+            log.debug("Resource group already deleted or not found: %s", e)
         except RuntimeError as e:
             if "could not be found" in str(e).lower() or "ResourceGroupNotFound" in str(e):
                 log.debug("Resource group already deleted or not found: %s", e)
