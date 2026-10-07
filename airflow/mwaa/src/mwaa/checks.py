@@ -32,21 +32,8 @@ from botocore.exceptions import ClientError
 from airflow_shared.mwaa_client import MwaaClient
 from airflow_shared.reporter import Finding, FindingStatus
 
-from .pins import (
-    COMMON_COMPAT_PACKAGE,
-    CONSTRAINT_LINE,
-    DAGS_MOUNT_PREFIX,
-    OPENLINEAGE_PACKAGES,
-    find_wheel_references,
-    parse_pins,
-    resolve_constraint_s3_key,
-)
+from .pins import CONSTRAINT_LINE, DAGS_MOUNT_PREFIX, find_wheel_references, resolve_constraint_s3_key
 from .startup_script import parse_exports
-
-# Airflow versions whose MWAA-default constraints pin an OpenLineage provider
-# with known issues, per Datadog's onboarding docs.
-FLAGGED_AIRFLOW_VERSIONS = {"2.7.2", "2.8.1", "2.9.2"}
-
 
 @dataclass
 class ProbeContext:
@@ -63,7 +50,7 @@ def resolve_constraint_key(requirements_text: str, dag_s3_path: str) -> Optional
     """Find the --constraint line in requirements.txt and resolve it to an S3 key.
 
     Shared by check_constraint_path and probe.py, which needs the same
-    resolution to fetch constraints.txt for check_requirements_constraints_match.
+    resolution to fetch constraints.txt for plan computation.
     Returns None if there's no --constraint line, or it isn't under the DAGs mount.
     """
     match = CONSTRAINT_LINE.search(requirements_text)
@@ -147,74 +134,6 @@ def check_wheel_references(ctx: ProbeContext) -> Finding:
             "\n".join(unresolvable),
         )
     return Finding("wheel_references", FindingStatus.PASS, f"all {len(wheel_refs)} referenced wheel(s) exist in S3")
-
-
-def check_openlineage_pins(ctx: ProbeContext) -> Finding:
-    """OpenLineage-family packages should be explicitly pinned on flagged Airflow versions."""
-    airflow_version = ctx.environment.get("AirflowVersion", "")
-    pins = parse_pins(ctx.requirements_text)
-    pinned_ol_packages = [pkg for pkg in OPENLINEAGE_PACKAGES if pkg in pins]
-
-    if not pinned_ol_packages:
-        if airflow_version in FLAGGED_AIRFLOW_VERSIONS:
-            return Finding(
-                "openlineage_pins",
-                FindingStatus.FAIL,
-                f"no OpenLineage packages are pinned in requirements.txt on Airflow {airflow_version}",
-                "This version's MWAA-default constraints pin a known-broken OpenLineage provider. "
-                "See Datadog's MWAA upgrade guide for the packages and versions to pin.",
-            )
-        return Finding(
-            "openlineage_pins",
-            FindingStatus.PASS,
-            f"no explicit OpenLineage pins on Airflow {airflow_version} (not one of the flagged versions)",
-        )
-
-    if "apache-airflow-providers-openlineage" in pinned_ol_packages and COMMON_COMPAT_PACKAGE not in pins:
-        return Finding(
-            "openlineage_pins",
-            FindingStatus.WARN,
-            f"{COMMON_COMPAT_PACKAGE} is not pinned alongside the OpenLineage provider",
-            "This package is easy to forget and is required by the documented upgrade path.",
-        )
-
-    return Finding(
-        "openlineage_pins",
-        FindingStatus.PASS,
-        f"OpenLineage packages are explicitly pinned: {', '.join(sorted(pinned_ol_packages))}",
-    )
-
-
-def check_requirements_constraints_match(ctx: ProbeContext) -> Finding:
-    """Shared package pins must agree between requirements.txt and constraints.txt."""
-    if ctx.constraints_text is None:
-        return Finding(
-            "requirements_constraints_match",
-            FindingStatus.WARN,
-            "constraints.txt could not be fetched, skipping version cross-check",
-        )
-
-    req_pins = parse_pins(ctx.requirements_text)
-    con_pins = parse_pins(ctx.constraints_text)
-
-    mismatches = [
-        f"{pkg}: requirements.txt has {req_pins[pkg]}, constraints.txt has {con_pins[pkg]}"
-        for pkg in OPENLINEAGE_PACKAGES + (COMMON_COMPAT_PACKAGE,)
-        if pkg in req_pins and pkg in con_pins and req_pins[pkg] != con_pins[pkg]
-    ]
-
-    if mismatches:
-        return Finding(
-            "requirements_constraints_match",
-            FindingStatus.FAIL,
-            "requirements.txt and constraints.txt disagree on pinned versions",
-            "\n".join(mismatches),
-        )
-    return Finding(
-        "requirements_constraints_match",
-        FindingStatus.PASS,
-        "requirements.txt and constraints.txt agree on every shared pin",
-    )
 
 
 def _config_key_to_env_var(config_key: str) -> Optional[str]:

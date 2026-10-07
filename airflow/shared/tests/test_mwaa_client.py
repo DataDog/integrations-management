@@ -114,51 +114,6 @@ def test_simulate_s3_read_access_reports_denied_action(client: MwaaClient):
     assert result == {"s3:GetObject": True, "s3:ListBucket": False}
 
 
-def test_filter_log_events_returns_empty_list_for_missing_log_group(client: MwaaClient):
-    stubber = Stubber(client._logs)
-    stubber.add_client_error("filter_log_events", service_error_code="ResourceNotFoundException")
-    with stubber:
-        assert client.filter_log_events("no-such-group", "ERROR") == []
-
-
-def test_filter_log_events_returns_messages(client: MwaaClient):
-    stubber = Stubber(client._logs)
-    stubber.add_response(
-        "filter_log_events",
-        {"events": [{"message": "ResolutionImpossible: ..."}]},
-        {"logGroupName": "my-log-group", "filterPattern": "ResolutionImpossible", "limit": 100},
-    )
-    with stubber:
-        messages = client.filter_log_events("my-log-group", "ResolutionImpossible")
-    assert messages == ["ResolutionImpossible: ..."]
-
-
-def test_describe_subnet_egress_detects_nat_route(client: MwaaClient):
-    stubber = Stubber(client._ec2)
-    stubber.add_response(
-        "describe_subnets",
-        {"Subnets": [{"SubnetId": "subnet-1", "VpcId": "vpc-1"}]},
-        {"SubnetIds": ["subnet-1"]},
-    )
-    stubber.add_response(
-        "describe_route_tables",
-        {
-            "RouteTables": [
-                {
-                    "RouteTableId": "rtb-1",
-                    "Associations": [{"SubnetId": "subnet-1", "Main": False}],
-                    "Routes": [{"DestinationCidrBlock": "0.0.0.0/0", "NatGatewayId": "nat-1"}],
-                }
-            ]
-        },
-        {"Filters": [{"Name": "vpc-id", "Values": ["vpc-1"]}]},
-    )
-    with stubber:
-        results = client.describe_subnet_egress(["subnet-1"])
-    assert results[0].has_nat_route is True
-    assert results[0].has_internet_gateway_route is False
-
-
 # --- read_only guard ----------------------------------------------------------
 
 

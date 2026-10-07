@@ -10,15 +10,6 @@ import re
 # the S3 prefix (dag_s3_path) the environment is configured with.
 DAGS_MOUNT_PREFIX = "/usr/local/airflow/dags/"
 
-OPENLINEAGE_PACKAGES = (
-    "apache-airflow-providers-openlineage",
-    "openlineage-python",
-    "openlineage-integration-common",
-    "openlineage-sql",
-    "apache-airflow-providers-common-sql",
-)
-COMMON_COMPAT_PACKAGE = "apache-airflow-providers-common-compat"
-
 CONSTRAINT_LINE = re.compile(r'^\s*--constraint\s+"?([^"\s]+)"?', re.MULTILINE)
 WHEEL_REFERENCE = re.compile(r"(\S+\.whl)")
 _PIN_LINE = re.compile(r"^\s*([A-Za-z0-9_.\-]+)\s*==\s*([A-Za-z0-9_.\-]+)", re.MULTILINE)

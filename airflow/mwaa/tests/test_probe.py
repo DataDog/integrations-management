@@ -18,7 +18,6 @@ ENVIRONMENT = {
     "StartupScriptS3ObjectVersion": "v1",
     "ExecutionRoleArn": "arn:aws:iam::123456789012:role/my-execution-role",
     "AirflowConfigurationOptions": {},
-    "NetworkConfiguration": {"SubnetIds": ["subnet-1"]},
 }
 
 

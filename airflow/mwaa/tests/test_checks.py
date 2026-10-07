@@ -11,9 +11,7 @@ from mwaa.checks import (
     ProbeContext,
     check_constraint_path,
     check_execution_role_s3_access,
-    check_openlineage_pins,
     check_openlineage_precedence,
-    check_requirements_constraints_match,
     check_wheel_references,
     resolve_constraint_key,
 )
@@ -25,7 +23,6 @@ BASE_ENVIRONMENT = {
     "DagS3Path": "dags",
     "ExecutionRoleArn": "arn:aws:iam::123456789012:role/my-execution-role",
     "AirflowConfigurationOptions": {},
-    "NetworkConfiguration": {"SubnetIds": ["subnet-1", "subnet-2"]},
 }
 
 
@@ -79,65 +76,6 @@ def test_resolve_constraint_key_none_without_constraint_line():
 def test_resolve_constraint_key_resolves_nested_path():
     text = '--constraint "/usr/local/airflow/dags/constraints/constraints.txt"\n'
     assert resolve_constraint_key(text, "custom/dags") == "custom/dags/constraints/constraints.txt"
-
-
-# --- check_openlineage_pins ---------------------------------------------------
-
-
-def test_openlineage_pins_fails_when_unpinned_on_flagged_version():
-    ctx = make_context(requirements_text="", environment={"AirflowVersion": "2.8.1"})
-    finding = check_openlineage_pins(ctx)
-    assert finding.status == FindingStatus.FAIL
-
-
-def test_openlineage_pins_passes_when_unpinned_on_unflagged_version():
-    ctx = make_context(requirements_text="", environment={"AirflowVersion": "3.0.6"})
-    finding = check_openlineage_pins(ctx)
-    assert finding.status == FindingStatus.PASS
-
-
-def test_openlineage_pins_warns_when_common_compat_missing():
-    ctx = make_context(requirements_text="apache-airflow-providers-openlineage==2.18.0\n")
-    finding = check_openlineage_pins(ctx)
-    assert finding.status == FindingStatus.WARN
-
-
-def test_openlineage_pins_passes_when_fully_pinned():
-    ctx = make_context(
-        requirements_text=(
-            "apache-airflow-providers-openlineage==2.18.0\n"
-            "apache-airflow-providers-common-compat==1.2.1\n"
-        )
-    )
-    finding = check_openlineage_pins(ctx)
-    assert finding.status == FindingStatus.PASS
-
-
-# --- check_requirements_constraints_match ------------------------------------
-
-
-def test_requirements_constraints_match_warns_when_constraints_unavailable():
-    ctx = make_context(requirements_text="apache-airflow-providers-openlineage==2.18.0\n", constraints_text=None)
-    finding = check_requirements_constraints_match(ctx)
-    assert finding.status == FindingStatus.WARN
-
-
-def test_requirements_constraints_match_fails_on_version_mismatch():
-    ctx = make_context(
-        requirements_text="apache-airflow-providers-openlineage==2.18.0\n",
-        constraints_text="apache-airflow-providers-openlineage==1.14.0\n",
-    )
-    finding = check_requirements_constraints_match(ctx)
-    assert finding.status == FindingStatus.FAIL
-
-
-def test_requirements_constraints_match_passes_when_agreeing():
-    ctx = make_context(
-        requirements_text="apache-airflow-providers-openlineage==2.18.0\n",
-        constraints_text="apache-airflow-providers-openlineage==2.18.0\n",
-    )
-    finding = check_requirements_constraints_match(ctx)
-    assert finding.status == FindingStatus.PASS
 
 
 # --- check_openlineage_precedence --------------------------------------------
