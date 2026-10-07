@@ -11,7 +11,7 @@ from airflow_shared.reporter import FindingStatus
 from mwaa.apply import compute_apply_actions, apply_to_environment, interpolate_api_key, real_key_for_path
 from mwaa.base_constraints import BaseConstraints
 from mwaa.checks import ProbeContext, check_wheel_references
-from mwaa.plan import ConstraintDirectiveChange, WheelReference, compute_plan
+from mwaa.plan import ConstraintDirectiveChange, EnvVarChange, WheelReference, compute_plan
 from mwaa.probe import build_context
 from mwaa.startup_script import DD_API_KEY_PLACEHOLDER
 
@@ -199,6 +199,36 @@ def test_compute_apply_actions_refuses_constraints_if_requirements_gained_a_seco
 
     with pytest.raises(RuntimeError, match="2 --constraint lines"):
         compute_apply_actions(at_apply, plan)
+
+
+def test_compute_apply_actions_refuses_requirements_only_flagged_changes_under_a_second_constraint_line():
+    """Base constraints already fully patched, so the plan only touches requirements.txt pins --
+    those pins still can't take effect once a second --constraint line shows up."""
+    local = '--constraint "/usr/local/airflow/dags/constraints.txt"\n'
+    at_scan = make_context(requirements_text=local + "apache-airflow-providers-openlineage==1.4.0\n", constraints_text=FULLY_PINNED_2_8_1)
+    plan = compute_plan("2.8.1", at_scan.requirements_text, at_scan.base_constraints, None, "datadoghq.com", "my-env")
+    assert {fc.path for fc in plan.file_changes if not isinstance(fc, EnvVarChange)} == {"requirements.txt"}
+
+    at_apply = make_context(
+        requirements_text=local + "-c https://example.invalid/c.txt\napache-airflow-providers-openlineage==1.4.0\n",
+        constraints_text=FULLY_PINNED_2_8_1,
+    )
+
+    with pytest.raises(RuntimeError, match="2 --constraint lines"):
+        compute_apply_actions(at_apply, plan)
+
+
+def test_compute_apply_actions_allows_an_unflagged_bare_provider_under_several_constraint_lines():
+    ctx = make_context(
+        environment={**ENVIRONMENT, "AirflowVersion": "2.10.3"},
+        requirements_text="-c https://example.invalid/a.txt\n-c https://example.invalid/b.txt\n",
+        constraints_text=None,
+    )
+    plan = compute_plan("2.10.3", ctx.requirements_text, None, None, "datadoghq.com", "my-env")
+
+    by_path = {u.path: u for u in compute_apply_actions(ctx, plan)}
+
+    assert by_path["requirements.txt"].content.endswith("apache-airflow-providers-openlineage\n")
 
 
 def test_compute_apply_actions_refuses_to_write_constraints_without_a_base():

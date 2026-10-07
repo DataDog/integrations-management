@@ -122,6 +122,13 @@ def compute_apply_actions(ctx: ProbeContext, plan: Plan) -> list[FileUpload]:
     for change in plan.file_changes:
         if not isinstance(change, ConstraintDirectiveChange):
             by_path.setdefault(change.path, []).append(change)
+    # a flagged version's pins (in either file) only take effect under a single
+    # --constraint line -- see plan.py; recheck against the fresh text, since a
+    # line can be added between scan and apply
+    constraint_lines = find_constraint_lines(ctx.requirements_text)
+    has_package_changes = CONSTRAINTS_PATH in by_path or REQUIREMENTS_PATH in by_path
+    if plan.source == "flagged_version_table" and has_package_changes and len(constraint_lines) > 1:
+        raise RuntimeError(f"requirements.txt now has {len(constraint_lines)} --constraint lines; consolidate them into one and re-run scan")
     needs_directive = CONSTRAINTS_PATH in by_path and resolve_constraint_key(ctx.requirements_text, ctx.environment.get("DagS3Path", "dags")) is None
     if needs_directive:
         by_path.setdefault(REQUIREMENTS_PATH, [])
@@ -130,9 +137,6 @@ def compute_apply_actions(ctx: ProbeContext, plan: Plan) -> list[FileUpload]:
     for path, changes in by_path.items():
         old_content = current_text_for_path(ctx, path)
         if path == CONSTRAINTS_PATH:
-            constraint_lines = find_constraint_lines(ctx.requirements_text)
-            if len(constraint_lines) > 1:
-                raise RuntimeError(f"requirements.txt now has {len(constraint_lines)} --constraint lines; consolidate them into one and re-run scan")
             base = ctx.base_constraints
             if base is None or base.text is None:
                 raise RuntimeError(f"can't write {path} without its full base constraints file: {base.error if base else 'not resolved'}")
