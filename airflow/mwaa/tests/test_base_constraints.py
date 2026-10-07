@@ -101,3 +101,28 @@ def test_a_custom_hosted_url_is_used_as_the_base_without_a_version_check():
 )
 def test_parse_apache_constraints_url(url, expected):
     assert parse_apache_constraints_url(url) == expected
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://raw.githubusercontent.com/apache/airflow/constraints-2.8.1/constraints-3.11.txt",
+        "http://artifacts.example.com/constraints.txt",
+    ],
+    ids=["apache", "custom"],
+)
+def test_a_plain_http_url_is_refused_and_never_fetched(url):
+    def fetch(url):
+        raise AssertionError("an http:// URL must not be fetched")
+
+    base = resolve_base_constraints("2.8.1", requirements_pointing_at(url), None, "s3://b/x", fetch)
+
+    assert base.text is None
+    assert "isn't HTTPS" in base.error
+
+
+def test_fetch_bytes_refuses_anything_but_https():
+    from mwaa.fetch import fetch_bytes
+
+    with pytest.raises(FetchError, match="not an https:// URL"):
+        fetch_bytes("http://example.invalid/c.txt")

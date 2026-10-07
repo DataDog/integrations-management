@@ -19,6 +19,9 @@ class FetchError(Exception):
 
 
 def fetch_bytes(url: str, timeout: float = 30.0) -> bytes:
+    """GET a public file over HTTPS -- anything else is refused, since its content ends up in the customer's environment."""
+    if not url.startswith("https://"):
+        raise FetchError(f"refusing to download {url}: not an https:// URL")
     try:
         with urllib.request.urlopen(url, timeout=timeout) as response:
             return response.read()

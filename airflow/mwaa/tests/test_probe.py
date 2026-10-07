@@ -4,6 +4,8 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from botocore.exceptions import ClientError
 
 from mwaa.probe import build_context
@@ -159,3 +161,37 @@ def test_build_context_fingerprints_referenced_wheels_and_derives_presence_from_
     assert ctx.present_wheel_files == frozenset({"other-1.0-py3-none-any.whl"})
     assert ctx.file_versions["dags/other-1.0-py3-none-any.whl"] == "v-other"
     assert f"dags/{wheel}" in ctx.file_version_errors  # an unknowable wheel blocks the package changes instead
+
+
+@pytest.mark.parametrize(
+    "version_key, key, label",
+    [
+        ("RequirementsS3ObjectVersion", "requirements.txt", "requirements.txt"),
+        ("StartupScriptS3ObjectVersion", "startup/mwaa-startup.sh", "dags/startup.sh"),
+    ],
+)
+def test_an_unpinned_configured_file_is_read_at_exactly_the_fingerprinted_version(version_key, key, label):
+    client = make_client()
+    client.get_environment.return_value = {**ENVIRONMENT, "AirflowVersion": "2.10.3", version_key: None}
+    client.latest_version_id.side_effect = lambda bucket, k: "v-fingerprinted" if k == key else None
+    # a newer upload landed after the fingerprint -- an unversioned read would see it
+    client.get_object_text.side_effect = lambda bucket, k, version_id=None: (
+        "fingerprinted content\n" if (k != key or version_id == "v-fingerprinted") else "newer content\n"
+    )
+
+    ctx = build_context(client, "my-env")
+
+    assert ctx.file_versions[label] == "v-fingerprinted"
+    text = ctx.requirements_text if key == "requirements.txt" else ctx.startup_script_text
+    assert text == "fingerprinted content\n"
+
+
+def test_a_pinned_configured_file_is_still_read_at_its_configured_version():
+    client = make_client()
+    client.get_environment.return_value = {**ENVIRONMENT, "AirflowVersion": "2.10.3"}
+    client.latest_version_id.side_effect = lambda bucket, k: "v-latest"
+
+    build_context(client, "my-env")
+
+    requirements_reads = [call for call in client.get_object_text.call_args_list if call.args[1] == "requirements.txt"]
+    assert [call.args[2] for call in requirements_reads] == ["v1"]  # ENVIRONMENT's RequirementsS3ObjectVersion

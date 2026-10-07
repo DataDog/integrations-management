@@ -59,20 +59,26 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
 
     # the plan is computed from the configured versions; check_unapplied_uploads
     # compares them with the latest ones fingerprinted here
-    fingerprint(REQUIREMENTS_PATH)
+    # a configured path with no pinned version means MWAA uses the latest, so read
+    # exactly the latest version fingerprinted, not whatever's latest a moment later
+    _, requirements_version = fingerprint(REQUIREMENTS_PATH)
     requirements_path = environment.get("RequirementsS3Path")
     if requirements_path:
-        requirements_text = client.get_object_text(bucket, requirements_path, environment.get("RequirementsS3ObjectVersion"))
+        requirements_text = client.get_object_text(
+            bucket, requirements_path, environment.get("RequirementsS3ObjectVersion") or requirements_version
+        )
     else:
         # optional in the MWAA API -- never configured
         requirements_text = ""
 
-    fingerprint(STARTUP_SCRIPT_PATH)
+    _, startup_script_version = fingerprint(STARTUP_SCRIPT_PATH)
     startup_script_text = None
     startup_script_path = environment.get("StartupScriptS3Path")
     if startup_script_path:
         try:
-            startup_script_text = client.get_object_text(bucket, startup_script_path, environment.get("StartupScriptS3ObjectVersion"))
+            startup_script_text = client.get_object_text(
+                bucket, startup_script_path, environment.get("StartupScriptS3ObjectVersion") or startup_script_version
+            )
         except ObjectNotFoundError:
             startup_script_text = None
 

@@ -13,7 +13,8 @@ order of preference:
 
   1. the local constraints file requirements.txt already points at under the
      DAGs mount (it's patched in place, whatever it's named);
-  2. the URL requirements.txt's --constraint line already points at -- most
+  2. the https:// URL requirements.txt's --constraint line already points at
+     (plain http:// is refused: its content can't be trusted) -- most
      often the upstream file itself, which is what AWS recommends. When it's
      an Apache-hosted upstream file, its Airflow/Python versions must match
      the environment's (see parse_apache_constraints_url); a custom-hosted
@@ -77,7 +78,13 @@ def resolve_base_constraints(
         return BaseConstraints(source=local_constraints_uri, text=local_constraints_text)
 
     constraint_path = find_constraint_path(requirements_text)
-    if constraint_path and constraint_path.startswith(("https://", "http://")):
+    if constraint_path and constraint_path.startswith("http://"):
+        return BaseConstraints(
+            source=constraint_path,
+            text=None,
+            error=f"--constraint URL {constraint_path} isn't HTTPS, so it can't be trusted as a base; point it at an https:// URL and re-scan",
+        )
+    if constraint_path and constraint_path.startswith("https://"):
         url = constraint_path
         apache_versions = parse_apache_constraints_url(url)
         python_version = PYTHON_VERSION_BY_AIRFLOW_VERSION.get(airflow_version, "unknown")
