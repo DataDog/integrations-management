@@ -31,7 +31,7 @@ from airflow_shared.mwaa_client import MwaaClient
 from .checks import ProbeContext, resolve_constraint_key
 from .fetch import fetch_bytes
 from .patch import patch_env_vars, patch_pins, patch_wheel_references, set_constraint_line
-from .pins import resolve_constraint_s3_key
+from .pins import find_constraint_lines, resolve_constraint_s3_key
 from .plan import (
     CONSTRAINTS_PATH,
     EXPECTED_CONSTRAINT_LINE,
@@ -130,6 +130,9 @@ def compute_apply_actions(ctx: ProbeContext, plan: Plan) -> list[FileUpload]:
     for path, changes in by_path.items():
         old_content = current_text_for_path(ctx, path)
         if path == CONSTRAINTS_PATH:
+            constraint_lines = find_constraint_lines(ctx.requirements_text)
+            if len(constraint_lines) > 1:
+                raise RuntimeError(f"requirements.txt now has {len(constraint_lines)} --constraint lines; consolidate them into one and re-run scan")
             base = ctx.base_constraints
             if base is None or base.text is None:
                 raise RuntimeError(f"can't write {path} without its full base constraints file: {base.error if base else 'not resolved'}")

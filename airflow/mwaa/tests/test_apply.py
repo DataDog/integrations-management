@@ -188,6 +188,19 @@ def test_constraint_line_that_moved_from_a_local_file_to_a_url_after_scan_gets_r
     assert real_key_for_path(at_apply, "dags/constraints.txt") == "dags/constraints.txt"
 
 
+def test_compute_apply_actions_refuses_constraints_if_requirements_gained_a_second_constraint_line():
+    at_scan = make_context(constraints_text=None, base_constraints=BaseConstraints(source=UPSTREAM_URL, text=UPSTREAM_TEXT))
+    plan = compute_plan("2.8.1", at_scan.requirements_text, at_scan.base_constraints, None, "datadoghq.com", "my-env")
+    at_apply = make_context(
+        requirements_text=f'--constraint "{UPSTREAM_URL}"\n-c https://example.invalid/c.txt\n',
+        constraints_text=None,
+        base_constraints=BaseConstraints(source=UPSTREAM_URL, text=UPSTREAM_TEXT),
+    )
+
+    with pytest.raises(RuntimeError, match="2 --constraint lines"):
+        compute_apply_actions(at_apply, plan)
+
+
 def test_compute_apply_actions_refuses_to_write_constraints_without_a_base():
     """Scan read the base fine, but apply's fresh fetch didn't -- never fall back to a pins-only file."""
     readable = make_context(constraints_text=None, base_constraints=BaseConstraints(source=UPSTREAM_URL, text=UPSTREAM_TEXT))

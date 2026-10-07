@@ -72,9 +72,13 @@ def find_constraint_path(requirements_text: str) -> "str | None":
     return match.group(1) if match else None
 
 
-def find_constraint_line(requirements_text: str) -> "str | None":
-    """Return requirements.txt's whole --constraint line, stripped, if present."""
-    return next((line.strip() for line in requirements_text.splitlines() if CONSTRAINT_LINE.match(line)), None)
+def find_constraint_lines(requirements_text: str) -> list[str]:
+    """Return every whole --constraint/-c line in requirements.txt, stripped, in order.
+
+    pip enforces every one of them, not just the first -- see plan.py's
+    handling of more than one.
+    """
+    return [line.strip() for line in requirements_text.splitlines() if CONSTRAINT_LINE.match(line)]
 
 
 def find_wheel_references(requirements_text: str) -> list[str]:

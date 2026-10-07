@@ -11,6 +11,7 @@ from mwaa.base_constraints import BaseConstraints
 from mwaa.checks import (
     ProbeContext,
     check_base_constraints,
+    check_constraint_directives,
     check_constraint_path,
     check_execution_role_s3_access,
     check_openlineage_precedence,
@@ -186,3 +187,21 @@ def test_base_constraints_fails_when_unreadable():
     assert finding.status == FindingStatus.FAIL
     assert "timed out" in finding.detail
     assert "https://example.invalid/c.txt" in finding.detail
+
+
+# --- check_constraint_directives ---------------------------------------------
+
+TWO_CONSTRAINT_LINES = '--constraint "/usr/local/airflow/dags/constraints.txt"\n-c https://example.invalid/c.txt\n'
+
+
+def test_constraint_directives_fails_on_more_than_one_line_for_a_flagged_version():
+    finding = check_constraint_directives(make_context(requirements_text=TWO_CONSTRAINT_LINES))
+
+    assert finding.status == FindingStatus.FAIL
+    assert "-c https://example.invalid/c.txt" in finding.detail
+
+
+def test_constraint_directives_passes_with_one_line_or_an_unflagged_version():
+    assert check_constraint_directives(make_context(requirements_text="-c https://example.invalid/c.txt\n")).status == FindingStatus.PASS
+    unflagged = make_context(environment={"AirflowVersion": "2.10.3"}, requirements_text=TWO_CONSTRAINT_LINES)
+    assert check_constraint_directives(unflagged).status == FindingStatus.PASS

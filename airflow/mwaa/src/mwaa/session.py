@@ -51,6 +51,7 @@ from airflow_shared.reporter import Finding, FindingStatus
 from .checks import (
     ProbeContext,
     check_base_constraints,
+    check_constraint_directives,
     check_constraint_path,
     check_execution_role_s3_access,
     check_openlineage_precedence,
@@ -64,6 +65,7 @@ from .plan import EnvVarChange, Plan, compute_plan, plan_from_dict
 #: normal onboarding-status fact (that's already_configured/plan above).
 _ISSUE_CHECKS = (
     check_base_constraints,
+    check_constraint_directives,
     check_openlineage_precedence,
     check_constraint_path,
     check_wheel_references,
@@ -133,7 +135,7 @@ def _compute_issues(ctx: ProbeContext) -> list[Finding]:
     """
     issues: list[Finding] = []
     for check in _ISSUE_CHECKS:
-        if ctx.client is None and check not in (check_base_constraints, check_openlineage_precedence):
+        if ctx.client is None and check not in (check_base_constraints, check_constraint_directives, check_openlineage_precedence):
             continue
         try:
             finding = check(ctx)

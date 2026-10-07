@@ -185,3 +185,12 @@ def test_build_session_records_an_issue_and_plans_no_package_changes_when_the_ba
     assert entry.issues[0].status == FindingStatus.FAIL
     assert "could not download it" in entry.issues[0].detail
     assert not any(fc.path in ("requirements.txt", "dags/constraints.txt") for fc in entry.plan.file_changes)
+
+
+def test_build_session_records_an_issue_for_more_than_one_constraint_line():
+    ctx = make_context(requirements_text='--constraint "/usr/local/airflow/dags/constraints.txt"\n--constraint "https://example.invalid/c.txt"\n')
+
+    entry = build_session("session-1", "us-east-1", "datadoghq.com", [ctx]).environments[0]
+
+    assert [i.check_id for i in entry.issues] == ["constraint_directives"]
+    assert not any(fc.path in ("requirements.txt", "dags/constraints.txt") for fc in entry.plan.file_changes)

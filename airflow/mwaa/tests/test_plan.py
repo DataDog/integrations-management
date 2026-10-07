@@ -4,6 +4,8 @@
 
 from dataclasses import asdict
 
+import pytest
+
 from mwaa.base_constraints import BaseConstraints
 from mwaa.plan import ConstraintDirectiveChange, EnvVarChange, PinChange, WheelReference, compute_plan, plan_from_dict
 from mwaa.startup_script import DD_API_KEY_PLACEHOLDER
@@ -275,6 +277,29 @@ def test_unreadable_base_constraints_leaves_out_every_package_change():
     assert all(isinstance(fc, EnvVarChange) for fc in plan.file_changes)
     assert plan.file_changes  # startup.sh changes are still planned
     assert "timed out" in plan.rationale
+
+
+@pytest.mark.parametrize(
+    "constraint_lines",
+    [
+        [f'--constraint "{UPSTREAM_URL}"', "-c https://example.invalid/other.txt"],
+        ['--constraint "/usr/local/airflow/dags/constraints.txt"', f'--constraint "{UPSTREAM_URL}"'],
+    ],
+    ids=["url+url", "local+url"],
+)
+def test_more_than_one_constraint_line_leaves_out_every_package_change(constraint_lines):
+    plan = compute_plan(
+        airflow_version="2.8.1",
+        requirements_text="\n".join(constraint_lines) + "\napache-airflow-providers-openlineage==1.4.0\n",
+        base_constraints=BaseConstraints(source=UPSTREAM_URL, text=UPSTREAM_TEXT),
+        startup_script_text=None,
+        dd_site="datadoghq.com",
+        environment_name="my-env",
+    )
+
+    assert plan.upgrade_needed is True
+    assert plan.file_changes and all(isinstance(fc, EnvVarChange) for fc in plan.file_changes)
+    assert "2 --constraint lines" in plan.rationale
 
 
 def test_flagged_version_without_any_base_constraints_also_fails_safe():

@@ -43,7 +43,7 @@ from dataclasses import dataclass
 from typing import Optional, Union
 
 from .base_constraints import BaseConstraints
-from .pins import DAGS_MOUNT_PREFIX, find_constraint_line, find_constraint_path, mentions_package, parse_pins, resolve_constraint_s3_key
+from .pins import DAGS_MOUNT_PREFIX, find_constraint_lines, find_constraint_path, mentions_package, parse_pins, resolve_constraint_s3_key
 from .startup_script import SECRET_VAR_NAMES, parse_exports, target_values
 from .version_table import DATADOG_WHEEL_BASE_URL, FLAGGED_VERSION_TABLE, SOURCE_DOC, FlaggedVersionEntry, datadog_wheel_filename
 
@@ -188,6 +188,17 @@ def _plan_flagged_version(
             "every other package. Re-run scan once it's reachable.",
             [],
         )
+    constraint_lines = find_constraint_lines(requirements_text)
+    if len(constraint_lines) > 1:
+        # pip enforces every --constraint line, so replacing one would leave the
+        # others' old pins in force; a single ConstraintDirectiveChange can't say
+        # "remove the rest", so leave it to the customer instead (see check_constraint_directives)
+        return (
+            True,
+            f"{rationale} requirements.txt has {len(constraint_lines)} --constraint lines, and pip enforces all of "
+            "them, so this plan leaves out every package change. Consolidate them into one and re-run scan.",
+            [],
+        )
 
     base_pins = parse_pins(base_constraints.text)
     current_req_pins = parse_pins(requirements_text)
@@ -201,7 +212,7 @@ def _plan_flagged_version(
         # a --constraint already under the dags mount is the file being patched in place
         if resolve_constraint_s3_key(find_constraint_path(requirements_text) or "", "dags") is None:
             changes.append(
-                ConstraintDirectiveChange(path=REQUIREMENTS_PATH, from_line=find_constraint_line(requirements_text), to_line=EXPECTED_CONSTRAINT_LINE)
+                ConstraintDirectiveChange(path=REQUIREMENTS_PATH, from_line=constraint_lines[0] if constraint_lines else None, to_line=EXPECTED_CONSTRAINT_LINE)
             )
     for package, target in entry.target_versions.items():
         if package in entry.wheel_only_packages:

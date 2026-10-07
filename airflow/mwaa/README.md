@@ -26,7 +26,9 @@ points at (the line is then replaced, never duplicated), else the upstream
 `base_constraints.py`, and `version_table.py` for the Airflow-to-Python table. If that
 base can't be read, the plan leaves out the package changes entirely and records a
 `base_constraints` issue: a constraints file holding only the OpenLineage pins would
-unconstrain every other package, Airflow included.
+unconstrain every other package, Airflow included. The same goes for a requirements.txt
+with more than one `--constraint` line (a `constraint_directives` issue): pip enforces
+all of them, so repointing just one would leave the others' old pins in force.
 
 Airflow 2.7.2 can't use the upstream 1.14.0 provider, so for it the guide swaps two
 requirements.txt pins for Datadog-patched wheels (`wheel_reference` changes in the plan):

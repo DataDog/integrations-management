@@ -2,7 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-from mwaa.pins import find_constraint_line, find_constraint_path, find_wheel_references, mentions_package
+from mwaa.pins import find_constraint_lines, find_constraint_path, find_wheel_references, mentions_package
 
 
 def test_mentions_package_finds_a_bare_line():
@@ -42,10 +42,10 @@ def test_find_wheel_references_empty_when_none_referenced():
     assert find_wheel_references("pandas==2.1.4\n") == []
 
 
-def test_find_constraint_line_returns_the_whole_stripped_line():
-    text = 'pandas==2.1.4\n  --constraint "https://example.invalid/c.txt"\n'
-    assert find_constraint_line(text) == '--constraint "https://example.invalid/c.txt"'
-    assert find_constraint_line("pandas==2.1.4\n") is None
+def test_find_constraint_lines_returns_every_whole_stripped_line():
+    text = 'pandas==2.1.4\n  --constraint "https://example.invalid/c.txt"\n-c /usr/local/airflow/dags/c.txt\n'
+    assert find_constraint_lines(text) == ['--constraint "https://example.invalid/c.txt"', "-c /usr/local/airflow/dags/c.txt"]
+    assert find_constraint_lines("pandas==2.1.4\n") == []
 
 
 def test_find_constraint_path_accepts_short_and_equals_forms():

@@ -33,7 +33,8 @@ from airflow_shared.mwaa_client import MwaaClient
 from airflow_shared.reporter import Finding, FindingStatus
 
 from .base_constraints import BaseConstraints
-from .pins import CONSTRAINT_LINE, DAGS_MOUNT_PREFIX, find_wheel_references, resolve_constraint_s3_key
+from .pins import CONSTRAINT_LINE, DAGS_MOUNT_PREFIX, find_constraint_lines, find_wheel_references, resolve_constraint_s3_key
+from .version_table import FLAGGED_VERSION_TABLE
 from .startup_script import parse_exports
 
 @dataclass
@@ -114,6 +115,25 @@ def check_base_constraints(ctx: ProbeContext) -> Finding:
         FindingStatus.FAIL,
         "could not read the base constraints file, so the plan leaves out every OpenLineage package change",
         f"{base.error}\nRe-run scan once {base.source or 'it'} is reachable.",
+    )
+
+
+def check_constraint_directives(ctx: ProbeContext) -> Finding:
+    """A flagged version's requirements.txt can have at most one --constraint line for the plan to fix it.
+
+    pip enforces every --constraint line it's given, so with two, repointing
+    one at the patched constraints.txt would leave the other's old
+    OpenLineage pins still in force. The plan leaves the package changes out
+    in that case, and this records why.
+    """
+    lines = find_constraint_lines(ctx.requirements_text)
+    if len(lines) <= 1 or ctx.environment.get("AirflowVersion", "") not in FLAGGED_VERSION_TABLE:
+        return Finding("constraint_directives", FindingStatus.PASS, "requirements.txt has at most one --constraint line that matters")
+    return Finding(
+        "constraint_directives",
+        FindingStatus.FAIL,
+        f"requirements.txt has {len(lines)} --constraint lines, so the plan leaves out every OpenLineage package change",
+        "\n".join(lines) + "\npip enforces all of them. Consolidate them into one and re-run scan.",
     )
 
 
