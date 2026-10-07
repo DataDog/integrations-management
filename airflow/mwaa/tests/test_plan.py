@@ -249,6 +249,35 @@ def test_constraints_from_version_comes_from_the_base_file_not_requirements():
     assert ol_changes["requirements.txt"].from_version == "1.6.0"
 
 
+def test_from_versions_match_underscore_spelled_pins_in_both_files():
+    plan = compute_plan(
+        airflow_version="2.8.1",
+        requirements_text="Apache_Airflow_Providers_OpenLineage==1.4.0\n",
+        base_constraints=BaseConstraints(source=UPSTREAM_URL, text="openlineage_sql==1.7.0\nopenlineage-python==1.7.0\n"),
+        startup_script_text=None,
+        dd_site="datadoghq.com",
+        environment_name="my-env",
+    )
+
+    changes = {(fc.path, fc.package): fc.from_version for fc in plan.file_changes if isinstance(fc, PinChange)}
+    assert changes[("dags/constraints.txt", "openlineage-sql")] == "1.7.0"
+    assert changes[("requirements.txt", "apache-airflow-providers-openlineage")] == "1.4.0"
+
+
+def test_2_7_2_recognizes_a_present_wheel_under_a_different_spelling():
+    plan = compute_plan(
+        airflow_version="2.7.2",
+        requirements_text="",
+        base_constraints=local_base(UPSTREAM_2_7_2_TEXT),
+        startup_script_text=None,
+        dd_site="datadoghq.com",
+        environment_name="my-env",
+        present_wheel_files=frozenset({"Apache_Airflow_Providers_OpenLineage-1.14.0-py3-none-any.whl"}),
+    )
+
+    assert [fc.package for fc in plan.file_changes if isinstance(fc, WheelReference)] == ["apache-airflow-providers-common-compat"]
+
+
 def test_custom_named_local_constraints_file_is_patched_in_place_with_no_directive_change():
     plan = compute_plan(
         airflow_version="2.8.1",

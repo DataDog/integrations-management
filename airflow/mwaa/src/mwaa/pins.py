@@ -16,13 +16,25 @@ _PIN_LINE = re.compile(r"^\s*([A-Za-z0-9_.\-]+)\s*==\s*([A-Za-z0-9_.\-]+)", re.M
 _REQUIREMENT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.\-]*")
 
 
-def parse_pins(text: str) -> dict[str, str]:
-    """Parse `package==version` lines into a lowercase-keyed dict. Ignores comments and flags."""
-    return {name.lower(): version for name, version in _PIN_LINE.findall(text)}
+def normalize_package_name(name: str) -> str:
+    """PEP 503 normalization, the way pip compares project names.
 
-
-def _normalize_package_name(name: str) -> str:
+    Upstream constraints files spell some projects with underscores
+    (`openlineage_sql==1.3.1`), so a literal-name comparison would miss them
+    and end up with two conflicting lines for one project.
+    """
     return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def parse_pins(text: str) -> dict[str, str]:
+    """Parse `package==version` lines into a dict keyed by normalize_package_name. Ignores comments and flags."""
+    return {normalize_package_name(name): version for name, version in _PIN_LINE.findall(text)}
+
+
+def wheel_identity(filename: str) -> tuple[str, str]:
+    """(normalized project name, version) from a wheel filename, so two spellings of one wheel compare equal."""
+    name, _, rest = filename.partition("-")
+    return normalize_package_name(name), rest.split("-", 1)[0]
 
 
 def requirement_line_package(line: str) -> "str | None":
@@ -38,9 +50,9 @@ def requirement_line_package(line: str) -> "str | None":
         return None
     wheel = WHEEL_REFERENCE.search(stripped)
     if wheel:
-        return _normalize_package_name(wheel.group(1).rsplit("/", 1)[-1].split("-", 1)[0])
+        return normalize_package_name(wheel.group(1).rsplit("/", 1)[-1].split("-", 1)[0])
     match = _REQUIREMENT_NAME.match(stripped)
-    return _normalize_package_name(match.group(0)) if match else None
+    return normalize_package_name(match.group(0)) if match else None
 
 
 def mentions_package(requirements_text: str, package: str) -> bool:
@@ -51,7 +63,7 @@ def mentions_package(requirements_text: str, package: str) -> bool:
     plan path's target), a `==` lookup would never find it again, and would
     propose adding it a second time on every subsequent scan.
     """
-    return any(requirement_line_package(line) == package for line in requirements_text.splitlines())
+    return any(requirement_line_package(line) == normalize_package_name(package) for line in requirements_text.splitlines())
 
 
 def resolve_constraint_s3_key(constraint_path: str, dag_s3_path: str) -> "str | None":

@@ -43,7 +43,7 @@ from dataclasses import dataclass
 from typing import Optional, Union
 
 from .base_constraints import BaseConstraints
-from .pins import DAGS_MOUNT_PREFIX, find_constraint_lines, find_constraint_path, mentions_package, parse_pins, resolve_constraint_s3_key
+from .pins import DAGS_MOUNT_PREFIX, find_constraint_lines, find_constraint_path, mentions_package, parse_pins, resolve_constraint_s3_key, wheel_identity
 from .startup_script import SECRET_VAR_NAMES, parse_exports, target_values
 from .version_table import DATADOG_WHEEL_BASE_URL, FLAGGED_VERSION_TABLE, SOURCE_DOC, FlaggedVersionEntry, datadog_wheel_filename
 
@@ -218,7 +218,7 @@ def _plan_flagged_version(
         if package in entry.wheel_only_packages:
             filename = datadog_wheel_filename(package, target)
             # a reference line whose object is missing still gets one, so apply uploads it
-            if filename not in present_wheel_files:
+            if wheel_identity(filename) not in {wheel_identity(f) for f in present_wheel_files}:
                 changes.append(
                     WheelReference(
                         path=REQUIREMENTS_PATH,

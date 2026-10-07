@@ -9,13 +9,17 @@ from mwaa.fetch import FetchError
 UPSTREAM_2_8_1_URL = "https://raw.githubusercontent.com/apache/airflow/constraints-2.8.1/constraints-3.11.txt"
 
 # a trimmed stand-in for the real upstream file: the openlineage pins it actually
-# carries for 2.8.1, plus enough unrelated pins to tell "full base" from "pins only"
+# carries for 2.8.1, spelled the way it spells them (openlineage_sql), plus enough
+# unrelated pins to tell "full base" from "pins only"
 UPSTREAM_2_8_1_TEXT = (
     "# This constraints file was automatically generated\n"
     "apache-airflow-providers-amazon==8.16.0\n"
     "apache-airflow-providers-common-sql==1.10.0\n"
     "apache-airflow-providers-openlineage==1.4.0\n"
     "boto3==1.33.13\n"
+    "openlineage-integration-common==1.7.0\n"
+    "openlineage-python==1.7.0\n"
+    "openlineage_sql==1.7.0\n"
     "pandas==2.1.4\n"
 )
 
@@ -24,6 +28,7 @@ UPSTREAM_2_7_2_TEXT = (
     "apache-airflow-providers-common-sql==1.7.2\n"
     "apache-airflow-providers-openlineage==1.1.0\n"
     "boto3==1.28.62\n"
+    "openlineage_sql==1.3.1\n"
 )
 
 OPENLINEAGE_WHEEL_URL = "https://docs.datadoghq.com/resources/whl/apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl"

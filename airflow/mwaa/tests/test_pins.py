@@ -2,7 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-from mwaa.pins import find_constraint_lines, find_constraint_path, find_wheel_references, mentions_package
+from mwaa.pins import find_constraint_lines, find_constraint_path, find_wheel_references, mentions_package, parse_pins, wheel_identity
 
 
 def test_mentions_package_finds_a_bare_line():
@@ -51,3 +51,19 @@ def test_find_constraint_lines_returns_every_whole_stripped_line():
 def test_find_constraint_path_accepts_short_and_equals_forms():
     assert find_constraint_path("-c /usr/local/airflow/dags/c.txt\n") == "/usr/local/airflow/dags/c.txt"
     assert find_constraint_path("--constraint=https://example.invalid/c.txt\n") == "https://example.invalid/c.txt"
+
+
+def test_parse_pins_keys_by_pep_503_normalized_name():
+    assert parse_pins("openlineage_sql==1.3.1\nApache_Airflow_Providers.OpenLineage==1.4.0\n") == {
+        "openlineage-sql": "1.3.1",
+        "apache-airflow-providers-openlineage": "1.4.0",
+    }
+
+
+def test_mentions_package_matches_any_spelling_of_the_name():
+    assert mentions_package("Apache_Airflow_Providers_OpenLineage==1.4.0\n", "apache-airflow-providers-openlineage")
+
+
+def test_wheel_identity_ignores_name_spelling_and_tolerates_odd_filenames():
+    assert wheel_identity("Apache_Airflow_Providers_OpenLineage-1.14.0-py3-none-any.whl") == ("apache-airflow-providers-openlineage", "1.14.0")
+    assert wheel_identity("custom.whl") == ("custom-whl", "")

@@ -70,6 +70,22 @@ def test_patch_pins_unpins_an_existing_pinned_line_for_a_none_target():
     assert patch_pins("apache-airflow-providers-openlineage==1.4.0\n", changes) == "apache-airflow-providers-openlineage\n"
 
 
+def test_patch_pins_replaces_an_underscore_spelled_line_with_one_canonical_line():
+    """The real upstream constraints spell it openlineage_sql -- appending openlineage-sql
+    alongside it would leave pip two conflicting constraints for one project."""
+    text = "openlineage-python==1.3.1\nopenlineage_sql==1.3.1\npandas==2.1.4\n"
+    changes = [PinChange(path="dags/constraints.txt", package="openlineage-sql", from_version="1.3.1", to_version="1.24.2")]
+
+    assert patch_pins(text, changes) == "openlineage-python==1.3.1\nopenlineage-sql==1.24.2\npandas==2.1.4\n"
+
+
+def test_patch_pins_leaves_exactly_one_line_when_a_project_is_pinned_under_two_spellings():
+    text = "Apache_Airflow_Providers_OpenLineage==1.4.0\npandas==2.1.4\napache-airflow-providers-openlineage==1.4.0\n"
+    changes = [PinChange(path="requirements.txt", package="apache-airflow-providers-openlineage", from_version="1.4.0", to_version="1.14.0")]
+
+    assert patch_pins(text, changes) == "apache-airflow-providers-openlineage==1.14.0\npandas==2.1.4\n"
+
+
 def test_patch_pins_does_not_touch_unrelated_packages():
     text = "pandas==2.1.4\nboto3==1.34.11\n"
     patched = patch_pins(text, [PinChange(path="requirements.txt", package="apache-airflow-providers-openlineage", from_version=None, to_version="1.14.0")])
@@ -116,6 +132,10 @@ def test_patch_wheel_references_replaces_the_packages_pin_line():
 def test_patch_wheel_references_replaces_a_different_wheel_for_the_same_package():
     text = "/usr/local/airflow/dags/apache_airflow_providers_openlineage-1.13.0-py3-none-any.whl\n"
     assert patch_wheel_references(text, [WHEEL]) == f"{WHEEL.line}\n"
+
+
+def test_patch_wheel_references_replaces_an_underscore_spelled_pin():
+    assert patch_wheel_references("Apache_Airflow_Providers_OpenLineage==1.1.0\n", [WHEEL]) == f"{WHEEL.line}\n"
 
 
 def test_patch_wheel_references_appends_and_is_idempotent():

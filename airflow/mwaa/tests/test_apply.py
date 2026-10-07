@@ -92,7 +92,7 @@ def test_interpolate_api_key_substitutes_only_the_startup_script_upload():
 
 
 UPSTREAM_URL = "https://raw.githubusercontent.com/apache/airflow/constraints-2.8.1/constraints-3.11.txt"
-UPSTREAM_TEXT = "apache-airflow-providers-openlineage==1.4.0\nboto3==1.33.13\npandas==2.1.4\n"
+UPSTREAM_TEXT = "apache-airflow-providers-openlineage==1.4.0\nboto3==1.33.13\nopenlineage_sql==1.7.0\npandas==2.1.4\n"
 
 
 def test_url_constraint_writes_the_full_base_and_replaces_the_url_line():
@@ -108,7 +108,8 @@ def test_url_constraint_writes_the_full_base_and_replaces_the_url_line():
 
     constraints = by_path["dags/constraints.txt"]
     assert constraints.action == "create"
-    assert constraints.content.startswith("apache-airflow-providers-openlineage==1.14.0\nboto3==1.33.13\npandas==2.1.4\n")
+    assert constraints.content.startswith("apache-airflow-providers-openlineage==1.14.0\nboto3==1.33.13\nopenlineage-sql==1.24.2\npandas==2.1.4\n")
+    assert "openlineage_sql" not in constraints.content
     assert "apache-airflow-providers-common-compat==1.2.1" in constraints.content
 
     requirements = by_path["requirements.txt"].content
