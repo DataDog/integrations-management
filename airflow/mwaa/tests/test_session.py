@@ -2,6 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
+import json
 from dataclasses import asdict
 from unittest.mock import MagicMock
 
@@ -155,3 +156,14 @@ def test_session_round_trips_recorded_issues():
     loaded = session_from_dict(asdict(session))
 
     assert loaded == session
+
+
+def test_session_round_trips_a_bare_package_pin_change_as_json_null():
+    ctx = make_context(environment={**ENVIRONMENT, "AirflowVersion": "3.0.6"}, requirements_text="pandas==2.1.4\n")
+    session = build_session("session-1", "us-east-1", "datadoghq.com", [ctx])
+
+    serialized = json.loads(json.dumps(asdict(session)))
+    pin_change = next(fc for fc in serialized["environments"][0]["plan"]["file_changes"] if fc["type"] == "pin_change")
+    assert pin_change["to_version"] is None
+
+    assert session_from_dict(serialized) == session

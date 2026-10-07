@@ -19,9 +19,6 @@ import re
 from .plan import EnvVarChange, PinChange
 from .startup_script import render_export_line
 
-_UNPINNED_PREFIX = "unpinned"
-
-
 def _pin_line_pattern(package: str) -> "re.Pattern[str]":
     return re.compile(rf"^(\s*){re.escape(package)}\s*==\s*[A-Za-z0-9_.\-]+(.*)$", re.IGNORECASE | re.MULTILINE)
 
@@ -29,9 +26,9 @@ def _pin_line_pattern(package: str) -> "re.Pattern[str]":
 def patch_pins(text: str, pin_changes: list[PinChange]) -> str:
     """Rewrite each pinned package's version line in place; append any that don't exist yet.
 
-    A `to_version` starting with "unpinned" (see plan.py's unflagged-version
-    path) means "just add the bare package name, no version" -- MWAA resolves
-    the version itself from its own default constraints.
+    A `to_version` of None (see plan.py's unflagged-version path) means "just
+    add the bare package name, no version" -- MWAA resolves the version itself
+    from its own default constraints.
     """
     lines = text.splitlines()
     remaining = {change.package: change for change in pin_changes}
@@ -42,7 +39,7 @@ def patch_pins(text: str, pin_changes: list[PinChange]) -> str:
             if not match:
                 continue
             indent, trailing = match.group(1), match.group(2)
-            if change.to_version.startswith(_UNPINNED_PREFIX):
+            if change.to_version is None:
                 lines[i] = f"{indent}{package}{trailing}"
             else:
                 lines[i] = f"{indent}{package}=={change.to_version}{trailing}"
@@ -51,7 +48,7 @@ def patch_pins(text: str, pin_changes: list[PinChange]) -> str:
 
     if remaining:
         for package, change in remaining.items():
-            if change.to_version.startswith(_UNPINNED_PREFIX):
+            if change.to_version is None:
                 lines.append(package)
             else:
                 lines.append(f"{package}=={change.to_version}")

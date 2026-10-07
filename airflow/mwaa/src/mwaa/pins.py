@@ -22,7 +22,7 @@ COMMON_COMPAT_PACKAGE = "apache-airflow-providers-common-compat"
 CONSTRAINT_LINE = re.compile(r'^\s*--constraint\s+"?([^"\s]+)"?', re.MULTILINE)
 WHEEL_REFERENCE = re.compile(r"(\S+\.whl)")
 _PIN_LINE = re.compile(r"^\s*([A-Za-z0-9_.\-]+)\s*==\s*([A-Za-z0-9_.\-]+)", re.MULTILINE)
-# patch_pins' "unpinned" append format (see patch.py) -- a package name alone on its
+# patch_pins' to_version=None append format (see patch.py) -- a package name alone on its
 # line, no version. Anchored at both ends so a `package==version` line's package name
 # (which has trailing content after it) never double-matches here too.
 _BARE_PACKAGE_LINE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9_.\-]*)\s*$", re.MULTILINE)

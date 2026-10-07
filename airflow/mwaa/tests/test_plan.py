@@ -88,9 +88,8 @@ def test_unflagged_version_without_provider_needs_addition_only():
     assert plan.source == "unflagged_version"
     assert plan.matched_table_entry is None
 
-    paths = {fc.path for fc in plan.file_changes if isinstance(fc, (PinChange, ConstraintDirectiveAdded))}
-    assert "dags/constraints.txt" not in paths
-    assert "requirements.txt" in paths
+    pin_changes = [fc for fc in plan.file_changes if isinstance(fc, (PinChange, ConstraintDirectiveAdded))]
+    assert pin_changes == [PinChange(path="requirements.txt", package="apache-airflow-providers-openlineage", from_version=None, to_version=None)]
     assert any(isinstance(fc, EnvVarChange) for fc in plan.file_changes)
 
 
@@ -112,7 +111,7 @@ def test_unflagged_version_with_provider_already_pinned_and_startup_configured_n
 
 
 def test_unflagged_version_recognizes_a_previously_added_bare_package_line():
-    """apply's own output for this exact path (see patch.py's "unpinned" branch) is a bare
+    """apply's own output for this exact path (see patch.py's to_version=None branch) is a bare
     `apache-airflow-providers-openlineage` line, no `==version` -- parse_pins alone can't see
     it, so without parse_bare_packages this would propose adding a duplicate on every re-scan."""
     plan = compute_plan(
@@ -260,6 +259,7 @@ def test_plan_from_dict_round_trips_every_file_change_variant():
         source_doc="https://example.invalid",
         file_changes=[
             PinChange(path="requirements.txt", package="apache-airflow-providers-openlineage", from_version="1.4.0", to_version="1.14.0"),
+            PinChange(path="requirements.txt", package="apache-airflow-providers-openlineage", from_version=None, to_version=None),
             ConstraintDirectiveAdded(path="requirements.txt", line='--constraint "/usr/local/airflow/dags/constraints.txt"'),
             EnvVarChange(path="dags/startup.sh", name="OPENLINEAGE_API_KEY", from_value=None, to_value=DD_API_KEY_PLACEHOLDER, secret=True),
         ],

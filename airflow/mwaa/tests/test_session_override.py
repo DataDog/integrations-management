@@ -38,7 +38,7 @@ def test_round_trips_a_session_with_no_matched_table_entry(tmp_path):
                             path="requirements.txt",
                             package="apache-airflow-providers-openlineage",
                             from_version=None,
-                            to_version="unpinned (resolved by MWAA's current default constraints)",
+                            to_version=None,
                         )
                     ],
                 ),

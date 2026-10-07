@@ -54,7 +54,7 @@ def test_patch_pins_adds_bare_package_name_for_unpinned_target():
             path="requirements.txt",
             package="apache-airflow-providers-openlineage",
             from_version=None,
-            to_version="unpinned (resolved by MWAA's current default constraints)",
+            to_version=None,
         )
     ]
 
@@ -62,6 +62,12 @@ def test_patch_pins_adds_bare_package_name_for_unpinned_target():
 
     assert "apache-airflow-providers-openlineage\n" in patched
     assert "apache-airflow-providers-openlineage==" not in patched
+
+
+def test_patch_pins_unpins_an_existing_pinned_line_for_a_none_target():
+    changes = [PinChange(path="requirements.txt", package="apache-airflow-providers-openlineage", from_version="1.4.0", to_version=None)]
+
+    assert patch_pins("apache-airflow-providers-openlineage==1.4.0\n", changes) == "apache-airflow-providers-openlineage\n"
 
 
 def test_patch_pins_does_not_touch_unrelated_packages():

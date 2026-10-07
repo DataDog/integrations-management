@@ -53,7 +53,7 @@ class PinChange:
     path: str
     package: str
     from_version: Optional[str]  # None means the package wasn't pinned before
-    to_version: str
+    to_version: Optional[str]  # None means the bare package name, no version -- MWAA's constraints resolve it
     type: str = "pin_change"
 
 
@@ -107,7 +107,7 @@ class Plan:
 def _file_change_from_dict(data: dict) -> FileChange:
     change_type = data["type"]
     if change_type == "pin_change":
-        return PinChange(path=data["path"], package=data["package"], from_version=data.get("from_version"), to_version=data["to_version"])
+        return PinChange(path=data["path"], package=data["package"], from_version=data.get("from_version"), to_version=data.get("to_version"))
     if change_type == "constraint_directive_added":
         return ConstraintDirectiveAdded(path=data["path"], line=data["line"])
     if change_type == "env_var_change":
@@ -164,7 +164,7 @@ def _plan_unflagged_version(airflow_version: str, mentioned_packages: set) -> tu
         f"Airflow {airflow_version} is not one of the flagged versions, so MWAA's own default constraints "
         "should already resolve a healthy OpenLineage provider version -- only the package itself needs to "
         "be added, with no constraints.txt change.",
-        [("apache-airflow-providers-openlineage", None, "unpinned (resolved by MWAA's current default constraints)")],
+        [("apache-airflow-providers-openlineage", None, None)],
     )
 
 
