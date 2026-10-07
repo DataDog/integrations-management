@@ -22,6 +22,7 @@ diff content -- which is exactly the ambiguity that motivated this shape:
 
   PinChange                 a package's version, in constraints.txt or requirements.txt
   ConstraintDirectiveChange requirements.txt's one non-package line: --constraint "..."
+  WheelReference            a requirements.txt line installing a Datadog-patched wheel (2.7.2)
   EnvVarChange              one startup.sh variable being added or corrected
 
 No "removed" variant exists because nothing in this plan ever removes a line
@@ -42,9 +43,9 @@ from dataclasses import dataclass
 from typing import Optional, Union
 
 from .base_constraints import BaseConstraints
-from .pins import find_constraint_line, find_constraint_path, mentions_package, parse_pins, resolve_constraint_s3_key
+from .pins import DAGS_MOUNT_PREFIX, find_constraint_line, find_constraint_path, find_wheel_references, mentions_package, parse_pins, resolve_constraint_s3_key
 from .startup_script import SECRET_VAR_NAMES, parse_exports, target_values
-from .version_table import FLAGGED_VERSION_TABLE, SOURCE_DOC, FlaggedVersionEntry
+from .version_table import DATADOG_WHEEL_BASE_URL, FLAGGED_VERSION_TABLE, SOURCE_DOC, FlaggedVersionEntry, datadog_wheel_filename
 
 REQUIREMENTS_PATH = "requirements.txt"
 CONSTRAINTS_PATH = "dags/constraints.txt"
@@ -82,6 +83,24 @@ class ConstraintDirectiveChange:
 
 
 @dataclass(frozen=True)
+class WheelReference:
+    """A requirements.txt line installing a Datadog-patched wheel, instead of a pin for that package.
+
+    `line` is the wheel's path under the DAGs mount; apply downloads
+    `wheel_url` and uploads it to the matching key under DagS3Path first.
+    Replaces whatever line already installs `package` (a pin, or a
+    different wheel), else is appended.
+    """
+
+    path: str
+    package: str
+    version: str
+    wheel_url: str
+    line: str
+    type: str = "wheel_reference"
+
+
+@dataclass(frozen=True)
 class EnvVarChange:
     """One startup.sh variable being added or corrected.
 
@@ -100,7 +119,7 @@ class EnvVarChange:
     type: str = "env_var_change"
 
 
-FileChange = Union[PinChange, ConstraintDirectiveChange, EnvVarChange]
+FileChange = Union[PinChange, ConstraintDirectiveChange, WheelReference, EnvVarChange]
 
 
 @dataclass(frozen=True)
@@ -121,6 +140,10 @@ def _file_change_from_dict(data: dict) -> FileChange:
         return PinChange(path=data["path"], package=data["package"], from_version=data.get("from_version"), to_version=data.get("to_version"))
     if change_type == "constraint_directive_change":
         return ConstraintDirectiveChange(path=data["path"], from_line=data.get("from_line"), to_line=data["to_line"])
+    if change_type == "wheel_reference":
+        return WheelReference(
+            path=data["path"], package=data["package"], version=data["version"], wheel_url=data["wheel_url"], line=data["line"]
+        )
     if change_type == "env_var_change":
         return EnvVarChange(
             path=data["path"], name=data["name"], from_value=data.get("from_value"), to_value=data["to_value"], secret=data["secret"]
@@ -180,11 +203,22 @@ def _plan_flagged_version(
             changes.append(
                 ConstraintDirectiveChange(path=REQUIREMENTS_PATH, from_line=find_constraint_line(requirements_text), to_line=EXPECTED_CONSTRAINT_LINE)
             )
-    changes += [
-        PinChange(path=REQUIREMENTS_PATH, package=package, from_version=current_req_pins.get(package), to_version=target)
-        for package, target in entry.target_versions.items()
-        if current_req_pins.get(package) != target
-    ]
+    referenced_wheels = {ref.rsplit("/", 1)[-1] for ref in find_wheel_references(requirements_text)}
+    for package, target in entry.target_versions.items():
+        if package in entry.wheel_only_packages:
+            filename = datadog_wheel_filename(package, target)
+            if filename not in referenced_wheels:
+                changes.append(
+                    WheelReference(
+                        path=REQUIREMENTS_PATH,
+                        package=package,
+                        version=target,
+                        wheel_url=f"{DATADOG_WHEEL_BASE_URL}{filename}",
+                        line=f"{DAGS_MOUNT_PREFIX}{filename}",
+                    )
+                )
+        elif current_req_pins.get(package) != target:
+            changes.append(PinChange(path=REQUIREMENTS_PATH, package=package, from_version=current_req_pins.get(package), to_version=target))
     return bool(changes), rationale, changes
 
 

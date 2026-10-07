@@ -19,6 +19,17 @@ UPSTREAM_2_8_1_TEXT = (
     "pandas==2.1.4\n"
 )
 
+UPSTREAM_2_7_2_URL = "https://raw.githubusercontent.com/apache/airflow/constraints-2.7.2/constraints-3.11.txt"
+UPSTREAM_2_7_2_TEXT = (
+    "apache-airflow-providers-common-sql==1.7.2\n"
+    "apache-airflow-providers-openlineage==1.1.0\n"
+    "boto3==1.28.62\n"
+)
+
+OPENLINEAGE_WHEEL_URL = "https://docs.datadoghq.com/resources/whl/apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl"
+COMMON_COMPAT_WHEEL_URL = "https://docs.datadoghq.com/resources/whl/apache_airflow_providers_common_compat-1.2.2-py3-none-any.whl"
+FAKE_WHEEL_BYTES = b"PK\x03\x04 not really a wheel"
+
 
 @pytest.fixture(autouse=True)
 def fake_fetch(monkeypatch) -> dict[str, bytes]:
@@ -27,7 +38,12 @@ def fake_fetch(monkeypatch) -> dict[str, bytes]:
     Maps URL -> body; tests add, replace or delete entries. Anything not in
     it raises FetchError, the same as an unreachable host.
     """
-    responses = {UPSTREAM_2_8_1_URL: UPSTREAM_2_8_1_TEXT.encode()}
+    responses = {
+        UPSTREAM_2_8_1_URL: UPSTREAM_2_8_1_TEXT.encode(),
+        UPSTREAM_2_7_2_URL: UPSTREAM_2_7_2_TEXT.encode(),
+        OPENLINEAGE_WHEEL_URL: FAKE_WHEEL_BYTES,
+        COMMON_COMPAT_WHEEL_URL: FAKE_WHEEL_BYTES,
+    }
 
     def fetch(url: str, timeout: float = 30.0) -> bytes:
         if url not in responses:
@@ -35,4 +51,5 @@ def fake_fetch(monkeypatch) -> dict[str, bytes]:
         return responses[url]
 
     monkeypatch.setattr("mwaa.probe.fetch_bytes", fetch)
+    monkeypatch.setattr("mwaa.apply.fetch_bytes", fetch)
     return responses

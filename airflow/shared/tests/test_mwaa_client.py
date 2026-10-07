@@ -154,3 +154,10 @@ class _StreamingBody:
 
     def read(self) -> bytes:
         return self._content
+
+
+def test_put_object_bytes_writes_the_body_unchanged(client: MwaaClient):
+    stubber = Stubber(client._s3)
+    stubber.add_response("put_object", {"VersionId": "v9"}, {"Bucket": "my-bucket", "Key": "dags/x.whl", "Body": b"PK\x03\x04"})
+    with stubber:
+        assert client.put_object_bytes("my-bucket", "dags/x.whl", b"PK\x03\x04") == "v9"

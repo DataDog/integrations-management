@@ -27,6 +27,7 @@ from airflow_shared.reporter import Reporter
 from .apply import apply_to_environment, compute_apply_actions, interpolate_api_key
 from .apply_config import ApplyConfig
 from .diff_preview import render_unified_diff
+from .plan import WheelReference
 from .probe import build_context
 from .session import seal_applied
 from .session_override import SESSION_OVERRIDE_ENV_VAR, load_session_override
@@ -71,6 +72,7 @@ def run_apply(config: ApplyConfig, reporter: Reporter) -> dict[str, Any]:
         return {"applied": False, "plan": plan, "uploads": []}
 
     uploads = interpolate_api_key(compute_apply_actions(ctx, plan), config.dd_api_key)
+    wheels = [fc for fc in plan.file_changes if isinstance(fc, WheelReference)]
 
     print()
     print(f"Rationale: {plan.rationale}")
@@ -80,6 +82,8 @@ def run_apply(config: ApplyConfig, reporter: Reporter) -> dict[str, Any]:
         diff = render_unified_diff(upload.path, upload.old_content, upload.content)
         print(f"\n--- {upload.action}: {upload.path} ---")
         print(diff if diff else "(no textual change)")
+    for wheel in wheels:
+        print(f"\n--- upload wheel: {wheel.line} ---\nfrom {wheel.wheel_url}")
 
     if not config.confirmed:
         print()
@@ -87,7 +91,7 @@ def run_apply(config: ApplyConfig, reporter: Reporter) -> dict[str, Any]:
         return {"applied": False, "plan": plan, "uploads": uploads}
 
     with reporter.report_step("apply_changes"):
-        result = apply_to_environment(client, ctx, uploads)
+        result = apply_to_environment(client, ctx, uploads, wheels)
 
     session = seal_applied(session, config.environment_name)
     store.save(session)

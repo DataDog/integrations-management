@@ -5,7 +5,7 @@
 from dataclasses import asdict
 
 from mwaa.base_constraints import BaseConstraints
-from mwaa.plan import ConstraintDirectiveChange, EnvVarChange, PinChange, compute_plan, plan_from_dict
+from mwaa.plan import ConstraintDirectiveChange, EnvVarChange, PinChange, WheelReference, compute_plan, plan_from_dict
 from mwaa.startup_script import DD_API_KEY_PLACEHOLDER
 
 
@@ -290,6 +290,71 @@ def test_flagged_version_without_any_base_constraints_also_fails_safe():
     assert all(isinstance(fc, EnvVarChange) for fc in plan.file_changes)
 
 
+UPSTREAM_2_7_2_TEXT = "apache-airflow-providers-common-sql==1.7.2\napache-airflow-providers-openlineage==1.1.0\nboto3==1.28.62\n"
+OPENLINEAGE_WHEEL = "apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl"
+COMMON_COMPAT_WHEEL = "apache_airflow_providers_common_compat-1.2.2-py3-none-any.whl"
+
+
+def test_2_7_2_references_datadog_wheels_instead_of_pinning_those_packages():
+    plan = compute_plan(
+        airflow_version="2.7.2",
+        requirements_text="apache-airflow-providers-openlineage==1.1.0\n",
+        base_constraints=BaseConstraints(source="https://example.invalid/c.txt", text=UPSTREAM_2_7_2_TEXT),
+        startup_script_text=None,
+        dd_site="datadoghq.com",
+        environment_name="my-env",
+    )
+
+    wheels = [fc for fc in plan.file_changes if isinstance(fc, WheelReference)]
+    assert wheels == [
+        WheelReference(
+            path="requirements.txt",
+            package="apache-airflow-providers-openlineage",
+            version="1.14.0",
+            wheel_url=f"https://docs.datadoghq.com/resources/whl/{OPENLINEAGE_WHEEL}",
+            line=f"/usr/local/airflow/dags/{OPENLINEAGE_WHEEL}",
+        ),
+        WheelReference(
+            path="requirements.txt",
+            package="apache-airflow-providers-common-compat",
+            version="1.2.2",
+            wheel_url=f"https://docs.datadoghq.com/resources/whl/{COMMON_COMPAT_WHEEL}",
+            line=f"/usr/local/airflow/dags/{COMMON_COMPAT_WHEEL}",
+        ),
+    ]
+    requirements_pins = {fc.package for fc in plan.file_changes if isinstance(fc, PinChange) and fc.path == "requirements.txt"}
+    assert requirements_pins == {"openlineage-integration-common", "openlineage-python", "openlineage-sql"}
+    constraint_pins = {fc.package: fc.to_version for fc in plan.file_changes if isinstance(fc, PinChange) and fc.path == "dags/constraints.txt"}
+    assert constraint_pins["apache-airflow-providers-openlineage"] == "1.14.0"  # constraints.txt still pins the wheel packages
+    assert constraint_pins["apache-airflow-providers-common-compat"] == "1.2.2"
+
+
+def test_2_7_2_recognizes_existing_wheel_references():
+    plan = compute_plan(
+        airflow_version="2.7.2",
+        requirements_text=(
+            '--constraint "/usr/local/airflow/dags/constraints.txt"\n'
+            f"/usr/local/airflow/dags/{OPENLINEAGE_WHEEL}\n"
+            f"/usr/local/airflow/dags/{COMMON_COMPAT_WHEEL}\n"
+            "openlineage-integration-common==1.24.2\n"
+            "openlineage-python==1.24.2\n"
+            "openlineage-sql==1.24.2\n"
+        ),
+        base_constraints=local_base(
+            "apache-airflow-providers-openlineage==1.14.0\n"
+            "apache-airflow-providers-common-compat==1.2.2\n"
+            "openlineage-integration-common==1.24.2\n"
+            "openlineage-python==1.24.2\n"
+            "openlineage-sql==1.24.2\n"
+        ),
+        startup_script_text=None,
+        dd_site="datadoghq.com",
+        environment_name="my-env",
+    )
+
+    assert all(isinstance(fc, EnvVarChange) for fc in plan.file_changes)
+
+
 # --- startup.sh env var diffing ------------------------------------------------
 
 
@@ -372,6 +437,13 @@ def test_plan_from_dict_round_trips_every_file_change_variant():
             ConstraintDirectiveChange(path="requirements.txt", from_line=None, to_line='--constraint "/usr/local/airflow/dags/constraints.txt"'),
             ConstraintDirectiveChange(
                 path="requirements.txt", from_line='--constraint "https://example.invalid/c.txt"', to_line='--constraint "/usr/local/airflow/dags/constraints.txt"'
+            ),
+            WheelReference(
+                path="requirements.txt",
+                package="apache-airflow-providers-common-compat",
+                version="1.2.2",
+                wheel_url=f"https://docs.datadoghq.com/resources/whl/{COMMON_COMPAT_WHEEL}",
+                line=f"/usr/local/airflow/dags/{COMMON_COMPAT_WHEEL}",
             ),
             EnvVarChange(path="dags/startup.sh", name="OPENLINEAGE_API_KEY", from_value=None, to_value=DD_API_KEY_PLACEHOLDER, secret=True),
         ],

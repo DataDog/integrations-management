@@ -8,10 +8,10 @@ Plays the role gcp_shared/gcloud.py and az_shared/execute_cmd.py play for
 their clouds: MWAA has no CLI to shell out to, so this wraps the relevant
 boto3 clients (mwaa, s3, iam) directly instead.
 
-Most methods here are read-only. Two are not -- `put_object_text` and
-`update_environment`, used by the `apply` command -- and both are called out
-individually in their own docstrings, since an `update_environment` call
-restarts the environment's workers.
+Most methods here are read-only. Three are not -- `put_object_text`,
+`put_object_bytes` and `update_environment`, used by the `apply` command --
+and each is called out individually in its own docstring, since an
+`update_environment` call restarts the environment's workers.
 """
 
 from typing import Any, Optional
@@ -131,7 +131,14 @@ class MwaaClient:
 
         Returns the new object's S3 VersionId (None if the bucket isn't versioned).
         """
-        response = self._s3.put_object(Bucket=bucket, Key=key, Body=content.encode("utf-8"))
+        return self.put_object_bytes(bucket, key, content.encode("utf-8"))
+
+    def put_object_bytes(self, bucket: str, key: str, content: bytes) -> Optional[str]:
+        """Write binary content (e.g. a wheel) to an S3 object. Mutating -- used only by `apply`.
+
+        Returns the new object's S3 VersionId (None if the bucket isn't versioned).
+        """
+        response = self._s3.put_object(Bucket=bucket, Key=key, Body=content)
         return response.get("VersionId")
 
     def update_environment(self, name: str, **kwargs: Any) -> None:

@@ -32,9 +32,10 @@ class FlaggedVersionEntry:
     airflow_version: str
     default_versions: dict[str, str]
     target_versions: dict[str, str]
-    # Packages that must be installed from a Datadog-hosted wheel file instead
-    # of a plain version pin. Only true for 2.7.2, where the upstream provider
-    # isn't compatible with that Airflow version at all.
+    # Packages that must be installed from a Datadog-patched wheel (see
+    # datadog_wheel_filename) instead of a plain version pin in requirements.txt
+    # -- constraints.txt still pins them. Only true for 2.7.2, where the
+    # upstream provider isn't compatible with that Airflow version at all.
     wheel_only_packages: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -59,6 +60,14 @@ PYTHON_VERSION_BY_AIRFLOW_VERSION: dict[str, str] = {
     "3.2.1": "3.12",
     "3.3.1": "3.12",
 }
+
+DATADOG_WHEEL_BASE_URL = "https://docs.datadoghq.com/resources/whl/"
+
+
+def datadog_wheel_filename(package: str, version: str) -> str:
+    """The upgrade guide's patched wheels follow the standard wheel name for a pure-Python package."""
+    return f"{package.replace('-', '_')}-{version}-py3-none-any.whl"
+
 
 UPSTREAM_CONSTRAINTS_URL = "https://raw.githubusercontent.com/apache/airflow/constraints-{airflow_version}/constraints-{python_version}.txt"
 

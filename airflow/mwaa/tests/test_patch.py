@@ -2,8 +2,8 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-from mwaa.patch import patch_env_vars, patch_pins, set_constraint_line
-from mwaa.plan import EnvVarChange, PinChange
+from mwaa.patch import patch_env_vars, patch_pins, patch_wheel_references, set_constraint_line
+from mwaa.plan import EnvVarChange, PinChange, WheelReference
 from mwaa.startup_script import DD_API_KEY_PLACEHOLDER
 
 
@@ -94,6 +94,35 @@ def test_set_constraint_line_replaces_an_existing_url_line_in_place():
 def test_set_constraint_line_replaces_the_short_c_form_too():
     result = set_constraint_line("-c https://example.invalid/c.txt\npandas==2.1.4\n", '--constraint "/usr/local/airflow/dags/constraints.txt"')
     assert result == '--constraint "/usr/local/airflow/dags/constraints.txt"\npandas==2.1.4\n'
+
+
+WHEEL = WheelReference(
+    path="requirements.txt",
+    package="apache-airflow-providers-openlineage",
+    version="1.14.0",
+    wheel_url="https://docs.datadoghq.com/resources/whl/apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl",
+    line="/usr/local/airflow/dags/apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl",
+)
+
+
+def test_patch_wheel_references_replaces_the_packages_pin_line():
+    text = "pandas==2.1.4\napache-airflow-providers-openlineage==1.1.0\nboto3==1.34.11\n"
+
+    patched = patch_wheel_references(text, [WHEEL])
+
+    assert patched == f"pandas==2.1.4\n{WHEEL.line}\nboto3==1.34.11\n"
+
+
+def test_patch_wheel_references_replaces_a_different_wheel_for_the_same_package():
+    text = "/usr/local/airflow/dags/apache_airflow_providers_openlineage-1.13.0-py3-none-any.whl\n"
+    assert patch_wheel_references(text, [WHEEL]) == f"{WHEEL.line}\n"
+
+
+def test_patch_wheel_references_appends_and_is_idempotent():
+    once = patch_wheel_references("pandas==2.1.4\n", [WHEEL])
+
+    assert once == f"pandas==2.1.4\n{WHEEL.line}\n"
+    assert patch_wheel_references(once, [WHEEL]) == once
 
 
 # --- patch_env_vars ------------------------------------------------------------

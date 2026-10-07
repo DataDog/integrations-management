@@ -8,9 +8,13 @@ import pytest
 
 from mwaa.apply import compute_apply_actions, apply_to_environment, interpolate_api_key, real_key_for_path
 from mwaa.base_constraints import BaseConstraints
-from mwaa.checks import ProbeContext
+from mwaa.checks import ProbeContext, check_wheel_references
 from mwaa.plan import compute_plan
+from mwaa.plan import WheelReference
 from mwaa.startup_script import DD_API_KEY_PLACEHOLDER
+from airflow_shared.reporter import FindingStatus
+
+from .conftest import FAKE_WHEEL_BYTES, OPENLINEAGE_WHEEL_URL, UPSTREAM_2_7_2_TEXT
 
 ENVIRONMENT = {"Name": "my-env", "AirflowVersion": "2.8.1", "SourceBucketArn": "arn:aws:s3:::my-bucket"}
 
@@ -193,7 +197,7 @@ def test_apply_to_environment_uploads_and_calls_update():
     plan = compute_plan("2.8.1", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com", "my-env")
     uploads = compute_apply_actions(ctx, plan)
 
-    result = apply_to_environment(client, ctx, uploads)
+    result = apply_to_environment(client, ctx, uploads, [])
 
     assert client.put_object_text.call_count == len(uploads)
     client.update_environment.assert_called_once()
@@ -212,7 +216,7 @@ def test_apply_to_environment_skips_update_call_when_only_constraints_change():
     ctx = make_context()
     uploads = [FileUpload(path="dags/constraints.txt", old_content="", content="pandas==2.1.4\n", action="update")]
 
-    result = apply_to_environment(client, ctx, uploads)
+    result = apply_to_environment(client, ctx, uploads, [])
 
     client.update_environment.assert_not_called()
     assert result["update_environment_called"] is False
@@ -238,7 +242,7 @@ def test_apply_to_environment_writes_to_the_environments_real_prefixed_keys():
     plan = compute_plan("2.8.1", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com", "my-env")
     uploads = compute_apply_actions(ctx, plan)
 
-    result = apply_to_environment(client, ctx, uploads)
+    result = apply_to_environment(client, ctx, uploads, [])
 
     written_keys = {call.args[1] for call in client.put_object_text.call_args_list}
     assert written_keys == {
@@ -284,3 +288,73 @@ def test_real_key_for_path_falls_back_for_never_configured_requirements():
     from mwaa.plan import REQUIREMENTS_PATH
 
     assert real_key_for_path(ctx, REQUIREMENTS_PATH) == "setup-probe/probe-env/requirements.txt"
+
+
+class FakeS3Client:
+    """Just enough of MwaaClient to apply against and then re-check, backed by a dict."""
+
+    def __init__(self, objects: dict):
+        self.objects = dict(objects)
+        self.update_environment = MagicMock()
+
+    def put_object_text(self, bucket, key, content):
+        self.objects[key] = content
+        return None
+
+    def put_object_bytes(self, bucket, key, content):
+        self.objects[key] = content
+        return None
+
+    def object_exists(self, bucket, key):
+        return key in self.objects
+
+
+def test_2_7_2_apply_uploads_wheels_references_them_and_rescans_clean():
+    environment = {**ENVIRONMENT, "AirflowVersion": "2.7.2", "DagS3Path": "dags", "RequirementsS3Path": "requirements.txt"}
+    requirements = "apache-airflow-providers-openlineage==1.1.0\npandas==2.1.4\n"
+    client = FakeS3Client({"requirements.txt": requirements})
+    ctx = make_context(
+        environment=environment,
+        requirements_text=requirements,
+        constraints_text=None,
+        base_constraints=BaseConstraints(source="https://example.invalid/c.txt", text=UPSTREAM_2_7_2_TEXT),
+        client=client,
+    )
+    plan = compute_plan("2.7.2", ctx.requirements_text, ctx.base_constraints, None, "datadoghq.com", "my-env")
+    wheels = [fc for fc in plan.file_changes if isinstance(fc, WheelReference)]
+
+    apply_to_environment(client, ctx, compute_apply_actions(ctx, plan), wheels)
+
+    assert client.objects["dags/apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl"] == FAKE_WHEEL_BYTES
+    assert client.objects["dags/apache_airflow_providers_common_compat-1.2.2-py3-none-any.whl"] == FAKE_WHEEL_BYTES
+    new_requirements = client.objects["requirements.txt"]
+    assert new_requirements.splitlines() == [
+        '--constraint "/usr/local/airflow/dags/constraints.txt"',
+        "/usr/local/airflow/dags/apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl",
+        "pandas==2.1.4",
+        "openlineage-integration-common==1.24.2",
+        "openlineage-python==1.24.2",
+        "openlineage-sql==1.24.2",
+        "/usr/local/airflow/dags/apache_airflow_providers_common_compat-1.2.2-py3-none-any.whl",
+    ]
+
+    rescanned = make_context(
+        environment=environment, requirements_text=new_requirements, constraints_text=client.objects["dags/constraints.txt"], client=client
+    )
+    assert check_wheel_references(rescanned).status == FindingStatus.PASS
+    replan = compute_plan("2.7.2", rescanned.requirements_text, rescanned.base_constraints, None, "datadoghq.com", "my-env")
+    assert not any(fc.path in ("requirements.txt", "dags/constraints.txt") for fc in replan.file_changes)
+
+
+def test_apply_to_environment_writes_nothing_if_a_wheel_download_isnt_a_wheel(fake_fetch):
+    fake_fetch[OPENLINEAGE_WHEEL_URL] = b"<html>not found</html>"
+    client = MagicMock()
+    ctx = make_context(environment={**ENVIRONMENT, "AirflowVersion": "2.7.2"}, constraints_text=None, base_constraints=BaseConstraints(source="x", text=UPSTREAM_2_7_2_TEXT))
+    plan = compute_plan("2.7.2", ctx.requirements_text, ctx.base_constraints, None, "datadoghq.com", "my-env")
+    wheels = [fc for fc in plan.file_changes if isinstance(fc, WheelReference)]
+
+    with pytest.raises(RuntimeError, match="didn't return a wheel"):
+        apply_to_environment(client, ctx, compute_apply_actions(ctx, plan), wheels)
+
+    client.put_object_bytes.assert_not_called()
+    client.put_object_text.assert_not_called()

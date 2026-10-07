@@ -28,6 +28,12 @@ base can't be read, the plan leaves out the package changes entirely and records
 `base_constraints` issue: a constraints file holding only the OpenLineage pins would
 unconstrain every other package, Airflow included.
 
+Airflow 2.7.2 can't use the upstream 1.14.0 provider, so for it the guide swaps two
+requirements.txt pins for Datadog-patched wheels (`wheel_reference` changes in the plan):
+`apply` downloads each one from docs.datadoghq.com and uploads it under `DagS3Path` before
+writing anything else, and requirements.txt references it as
+`/usr/local/airflow/dags/<wheel>.whl`. constraints.txt still pins both packages.
+
 A Session is submitted to (and later read back from) Datadog's config-sessions intake
 API by default -- see `SessionStore`/`NetworkSessionStore` (`session_store.py`/
 `network_session_store.py`), chosen by `session_store_selection.py`. `--offline` skips

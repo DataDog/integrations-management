@@ -16,8 +16,8 @@ patch_pins already used for package pins.
 
 import re
 
-from .pins import CONSTRAINT_LINE
-from .plan import EnvVarChange, PinChange
+from .pins import CONSTRAINT_LINE, requirement_line_package
+from .plan import EnvVarChange, PinChange, WheelReference
 from .startup_script import render_export_line
 
 def _pin_line_pattern(package: str) -> "re.Pattern[str]":
@@ -54,6 +54,24 @@ def patch_pins(text: str, pin_changes: list[PinChange]) -> str:
             else:
                 lines.append(f"{package}=={change.to_version}")
 
+    return "\n".join(lines) + "\n"
+
+
+def patch_wheel_references(text: str, wheel_references: list[WheelReference]) -> str:
+    """Replace the line that installs each wheel's package (a pin, a bare name, another wheel)
+    with the wheel's line; append it if nothing installs that package yet.
+
+    Replacing matters: a leftover `package==1.1.0` pin next to the wheel
+    would conflict with it at install time.
+    """
+    lines = text.splitlines()
+    for ref in wheel_references:
+        for i, line in enumerate(lines):
+            if requirement_line_package(line) == ref.package:
+                lines[i] = ref.line
+                break
+        else:
+            lines.append(ref.line)
     return "\n".join(lines) + "\n"
 
 

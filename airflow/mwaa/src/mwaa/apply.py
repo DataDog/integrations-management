@@ -29,7 +29,8 @@ from typing import Any
 from airflow_shared.mwaa_client import MwaaClient
 
 from .checks import ProbeContext, resolve_constraint_key
-from .patch import patch_env_vars, patch_pins, set_constraint_line
+from .fetch import fetch_bytes
+from .patch import patch_env_vars, patch_pins, patch_wheel_references, set_constraint_line
 from .pins import resolve_constraint_s3_key
 from .plan import (
     CONSTRAINTS_PATH,
@@ -41,6 +42,7 @@ from .plan import (
     EnvVarChange,
     PinChange,
     Plan,
+    WheelReference,
 )
 from .startup_script import interpolate_api_key as _substitute_api_key
 
@@ -124,6 +126,7 @@ def compute_apply_actions(ctx: ProbeContext, plan: Plan) -> list[FileUpload]:
             action = "update" if ctx.constraints_text else "create"
         elif path == REQUIREMENTS_PATH:
             content = patch_pins(old_content, [c for c in changes if isinstance(c, PinChange)])
+            content = patch_wheel_references(content, [c for c in changes if isinstance(c, WheelReference)])
             if any(isinstance(c, ConstraintDirectiveChange) for c in changes):
                 content = set_constraint_line(content, EXPECTED_CONSTRAINT_LINE)
             action = "update"
@@ -151,19 +154,33 @@ def interpolate_api_key(uploads: list[FileUpload], dd_api_key: str) -> list[File
     ]
 
 
-def apply_to_environment(client: MwaaClient, ctx: ProbeContext, uploads: list[FileUpload]) -> dict[str, Any]:
-    """Upload every file to ITS real S3 key and, if requirements.txt or startup.sh
-    changed, call UpdateEnvironment with that same real key.
+def apply_to_environment(client: MwaaClient, ctx: ProbeContext, uploads: list[FileUpload], wheels: list[WheelReference]) -> dict[str, Any]:
+    """Upload every wheel and file to ITS real S3 key and, if requirements.txt or
+    startup.sh changed, call UpdateEnvironment with that same real key.
 
     Mutating -- an UpdateEnvironment call restarts the environment's workers
-    and takes MWAA 20-30 minutes. constraints.txt alone doesn't need an
-    UpdateEnvironment call: MWAA re-reads it from the DAGs prefix on every
+    and takes MWAA 20-30 minutes. constraints.txt and wheels alone don't need
+    an UpdateEnvironment call: MWAA re-reads the DAGs prefix on every
     install, gated only by the requirements/startup script object versions.
+
+    Every wheel is downloaded before anything is written, so a failed
+    download leaves the environment untouched rather than half-applied.
     """
     environment = ctx.environment
     bucket = environment["SourceBucketArn"].rsplit(":", 1)[-1]
+    dag_s3_path = environment.get("DagS3Path", "dags")
     uploaded = []
     update_kwargs: dict[str, str] = {}
+
+    wheel_contents = []
+    for wheel in wheels:
+        content = fetch_bytes(wheel.wheel_url)
+        if not content.startswith(b"PK"):
+            raise RuntimeError(f"{wheel.wheel_url} didn't return a wheel (zip) file")
+        wheel_contents.append((resolve_constraint_s3_key(wheel.line, dag_s3_path), content))
+    for key, content in wheel_contents:
+        version_id = client.put_object_bytes(bucket, key, content)
+        uploaded.append({"path": key, "version_id": version_id, "action": "create"})
 
     for upload in uploads:
         real_key = real_key_for_path(ctx, upload.path)

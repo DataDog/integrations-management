@@ -42,7 +42,7 @@ from .apply import apply_to_environment, compute_apply_actions, interpolate_api_
 from .checks import ProbeContext
 from .diff_preview import render_unified_diff
 from .discovery import discover_environments
-from .plan import Plan
+from .plan import Plan, WheelReference
 from .scan_config import ScanConfig
 from .session import Session, build_session, seal_applied
 from .session_store import FilesystemSessionStore, SessionStore
@@ -165,11 +165,14 @@ def _run_interactive(
     print(f"\nRationale: {entry.plan.rationale}")
 
     uploads = interpolate_api_key(compute_apply_actions(ctx, entry.plan), config.dd_api_key)
+    wheels = [fc for fc in entry.plan.file_changes if isinstance(fc, WheelReference)]
     print("\nProposed changes:")
     for upload in uploads:
         diff = render_unified_diff(upload.path, upload.old_content, upload.content)
         print(f"\n--- {upload.action}: {upload.path} ---")
         print(diff if diff else "(no textual change)")
+    for wheel in wheels:
+        print(f"\n--- upload wheel: {wheel.line} ---\nfrom {wheel.wheel_url}")
 
     if config.dry_run:
         print("\nDry run (--dry-run) -- not applying. No changes made.")
@@ -185,7 +188,7 @@ def _run_interactive(
     # client, created only once the user has explicitly confirmed.
     apply_client = MwaaClient(region=config.region)
     with reporter.report_step("apply_changes"):
-        result = apply_to_environment(apply_client, ctx, uploads)
+        result = apply_to_environment(apply_client, ctx, uploads, wheels)
 
     session = seal_applied(session, entry.name)
     store.save(session)
