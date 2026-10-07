@@ -10,7 +10,7 @@ from airflow_shared.reporter import FindingStatus
 from mwaa.apply import compute_apply_actions, apply_to_environment, interpolate_api_key, real_key_for_path
 from mwaa.base_constraints import BaseConstraints
 from mwaa.checks import ProbeContext, check_wheel_references
-from mwaa.plan import ConstraintDirectiveChange, EnvVarChange, WheelReference, compute_plan
+from mwaa.plan import WheelReference, compute_plan
 from mwaa.probe import build_context
 from mwaa.startup_script import DD_API_KEY_PLACEHOLDER
 
@@ -115,7 +115,7 @@ def test_url_constraint_writes_the_full_base_and_replaces_the_url_line():
     assert requirements.splitlines()[0] == '--constraint "/usr/local/airflow/dags/constraints.txt"'
     assert requirements.count("--constraint") == 1
     assert UPSTREAM_URL not in requirements
-    assert real_key_for_path(ctx, "dags/constraints.txt") == "dags/constraints.txt"
+    assert real_key_for_path(ctx.environment, "dags/constraints.txt") == "dags/constraints.txt"
 
 
 def test_custom_named_local_constraints_file_is_patched_in_place():
@@ -124,111 +124,19 @@ def test_custom_named_local_constraints_file_is_patched_in_place():
         environment={**ENVIRONMENT, "DagS3Path": "dags"},
         requirements_text='--constraint "/usr/local/airflow/dags/deps/my-constraints.txt"\napache-airflow-providers-openlineage==1.4.0\n',
         constraints_text=local_text,
+        constraints_path="dags/deps/my-constraints.txt",
     )
-    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com")
+    plan = compute_plan(
+        "2.8.1", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com", constraints_path=ctx.constraints_path
+    )
 
     by_path = {u.path: u for u in compute_apply_actions(ctx, plan)}
 
-    assert by_path["dags/constraints.txt"].action == "update"
-    assert by_path["dags/constraints.txt"].old_content == local_text
-    assert "boto3==1.33.13" in by_path["dags/constraints.txt"].content
+    assert by_path["dags/deps/my-constraints.txt"].action == "update"
+    assert by_path["dags/deps/my-constraints.txt"].old_content == local_text
+    assert "boto3==1.33.13" in by_path["dags/deps/my-constraints.txt"].content
     assert by_path["requirements.txt"].content.splitlines()[0] == '--constraint "/usr/local/airflow/dags/deps/my-constraints.txt"'
-    assert real_key_for_path(ctx, "dags/constraints.txt") == "dags/deps/my-constraints.txt"
-
-
-FULLY_PINNED_2_8_1 = (
-    "apache-airflow-providers-openlineage==1.14.0\n"
-    "apache-airflow-providers-common-sql==1.20.0\n"
-    "apache-airflow-providers-common-compat==1.2.1\n"
-    "openlineage-integration-common==1.24.2\n"
-    "openlineage-python==1.24.2\n"
-    "openlineage-sql==1.24.2\n"
-)
-
-
-def test_constraint_line_that_moved_from_url_to_a_local_file_after_scan_is_left_alone():
-    at_scan = make_context(
-        requirements_text=f'--constraint "{UPSTREAM_URL}"\n',
-        constraints_text=None,
-        base_constraints=BaseConstraints(source=UPSTREAM_URL, text=UPSTREAM_TEXT),
-    )
-    plan = compute_plan("2.8.1", at_scan.requirements_text, at_scan.base_constraints, None, "datadoghq.com")
-    assert any(isinstance(fc, ConstraintDirectiveChange) for fc in plan.file_changes)
-
-    at_apply = make_context(
-        requirements_text='--constraint "/usr/local/airflow/dags/deps/custom.txt"\n',
-        constraints_text="apache-airflow-providers-openlineage==1.4.0\nboto3==1.33.13\n",
-    )
-    by_path = {u.path: u for u in compute_apply_actions(at_apply, plan)}
-
-    assert by_path["requirements.txt"].content.splitlines()[0] == '--constraint "/usr/local/airflow/dags/deps/custom.txt"'
-    assert "boto3==1.33.13" in by_path["dags/constraints.txt"].content
-    assert real_key_for_path(at_apply, "dags/constraints.txt") == "dags/deps/custom.txt"
-
-
-def test_constraint_line_that_moved_from_a_local_file_to_a_url_after_scan_gets_replaced():
-    """The plan has no requirements.txt change at all, but apply still has to repoint it."""
-    at_scan = make_context(
-        requirements_text='--constraint "/usr/local/airflow/dags/deps/custom.txt"\n' + FULLY_PINNED_2_8_1,
-        constraints_text=UPSTREAM_TEXT,
-    )
-    plan = compute_plan("2.8.1", at_scan.requirements_text, at_scan.base_constraints, None, "datadoghq.com")
-    assert not any(fc.path == "requirements.txt" for fc in plan.file_changes)
-
-    at_apply = make_context(
-        requirements_text=f'--constraint "{UPSTREAM_URL}"\n' + FULLY_PINNED_2_8_1,
-        constraints_text=None,
-        base_constraints=BaseConstraints(source=UPSTREAM_URL, text=UPSTREAM_TEXT),
-    )
-    by_path = {u.path: u for u in compute_apply_actions(at_apply, plan)}
-
-    requirements = by_path["requirements.txt"].content
-    assert requirements.splitlines()[0] == '--constraint "/usr/local/airflow/dags/constraints.txt"'
-    assert UPSTREAM_URL not in requirements
-    assert real_key_for_path(at_apply, "dags/constraints.txt") == "dags/constraints.txt"
-
-
-def test_compute_apply_actions_refuses_constraints_if_requirements_gained_a_second_constraint_line():
-    at_scan = make_context(constraints_text=None, base_constraints=BaseConstraints(source=UPSTREAM_URL, text=UPSTREAM_TEXT))
-    plan = compute_plan("2.8.1", at_scan.requirements_text, at_scan.base_constraints, None, "datadoghq.com")
-    at_apply = make_context(
-        requirements_text=f'--constraint "{UPSTREAM_URL}"\n-c https://example.invalid/c.txt\n',
-        constraints_text=None,
-        base_constraints=BaseConstraints(source=UPSTREAM_URL, text=UPSTREAM_TEXT),
-    )
-
-    with pytest.raises(RuntimeError, match="2 --constraint lines"):
-        compute_apply_actions(at_apply, plan)
-
-
-def test_compute_apply_actions_refuses_requirements_only_flagged_changes_under_a_second_constraint_line():
-    """Base constraints already fully patched, so the plan only touches requirements.txt pins --
-    those pins still can't take effect once a second --constraint line shows up."""
-    local = '--constraint "/usr/local/airflow/dags/constraints.txt"\n'
-    at_scan = make_context(requirements_text=local + "apache-airflow-providers-openlineage==1.4.0\n", constraints_text=FULLY_PINNED_2_8_1)
-    plan = compute_plan("2.8.1", at_scan.requirements_text, at_scan.base_constraints, None, "datadoghq.com")
-    assert {fc.path for fc in plan.file_changes if not isinstance(fc, EnvVarChange)} == {"requirements.txt"}
-
-    at_apply = make_context(
-        requirements_text=local + "-c https://example.invalid/c.txt\napache-airflow-providers-openlineage==1.4.0\n",
-        constraints_text=FULLY_PINNED_2_8_1,
-    )
-
-    with pytest.raises(RuntimeError, match="2 --constraint lines"):
-        compute_apply_actions(at_apply, plan)
-
-
-def test_compute_apply_actions_allows_an_unflagged_bare_provider_under_several_constraint_lines():
-    ctx = make_context(
-        environment={**ENVIRONMENT, "AirflowVersion": "2.10.3"},
-        requirements_text="-c https://example.invalid/a.txt\n-c https://example.invalid/b.txt\n",
-        constraints_text=None,
-    )
-    plan = compute_plan("2.10.3", ctx.requirements_text, None, None, "datadoghq.com")
-
-    by_path = {u.path: u for u in compute_apply_actions(ctx, plan)}
-
-    assert by_path["requirements.txt"].content.endswith("apache-airflow-providers-openlineage\n")
+    assert real_key_for_path(ctx.environment, "dags/deps/my-constraints.txt") == "dags/deps/my-constraints.txt"
 
 
 def test_compute_apply_actions_refuses_to_write_constraints_without_a_base():
@@ -367,7 +275,7 @@ def test_real_key_for_path_resolves_constraints_under_the_dags_prefix_when_none_
 
     from mwaa.plan import CONSTRAINTS_PATH
 
-    assert real_key_for_path(ctx, CONSTRAINTS_PATH) == "setup-probe/probe-env/dags/constraints.txt"
+    assert real_key_for_path(ctx.environment, CONSTRAINTS_PATH) == "setup-probe/probe-env/dags/constraints.txt"
 
 
 def test_real_key_for_path_falls_back_for_never_configured_requirements():
@@ -383,7 +291,7 @@ def test_real_key_for_path_falls_back_for_never_configured_requirements():
 
     from mwaa.plan import REQUIREMENTS_PATH
 
-    assert real_key_for_path(ctx, REQUIREMENTS_PATH) == "setup-probe/probe-env/requirements.txt"
+    assert real_key_for_path(ctx.environment, REQUIREMENTS_PATH) == "setup-probe/probe-env/requirements.txt"
 
 
 WHEEL_ENVIRONMENT = {**ENVIRONMENT, "AirflowVersion": "2.7.2", "DagS3Path": "dags", "RequirementsS3Path": "requirements.txt"}

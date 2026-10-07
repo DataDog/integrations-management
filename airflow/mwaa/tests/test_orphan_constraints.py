@@ -46,7 +46,7 @@ def test_an_existing_unreferenced_constraints_txt_sends_the_patch_to_constraints
         "dags/constraints.txt already exists but isn't referenced by requirements.txt, so the patched constraints "
         "are written to constraints-datadog.txt instead of overwriting it."
     ) in entry.plan.rationale
-    assert real_key_for_path(ctx, "dags/constraints-datadog.txt") == "dags/constraints-datadog.txt"
+    assert real_key_for_path(ctx.environment, "dags/constraints-datadog.txt") == "dags/constraints-datadog.txt"
 
     apply_to_environment(client, ctx, compute_apply_actions(ctx, entry.plan), [])
 
@@ -101,4 +101,4 @@ def test_a_referenced_custom_named_local_file_keeps_its_own_name_as_the_label():
 
     assert constraints_paths(entry.plan) == {"dags/deps/pinned.txt"}
     assert not any(isinstance(fc, ConstraintDirectiveChange) for fc in entry.plan.file_changes)
-    assert real_key_for_path(ctx, "dags/deps/pinned.txt") == "dags/deps/pinned.txt"
+    assert real_key_for_path(ctx.environment, "dags/deps/pinned.txt") == "dags/deps/pinned.txt"

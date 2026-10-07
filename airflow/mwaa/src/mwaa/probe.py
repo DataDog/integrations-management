@@ -10,16 +10,19 @@ environment, no session involved), retired once `scan` started recording the
 same checks as each environment's `issues` (see session.py).
 """
 
+from typing import Optional
+
 from botocore.exceptions import ClientError
 
 from airflow_shared.mwaa_client import MwaaClient, ObjectNotFoundError, VersionIdUnavailable
 
+from .apply import real_key_for_path
 from .base_constraints import BaseConstraints, resolve_base_constraints
 from .checks import ProbeContext, resolve_constraint_key
 from .fetch import fetch_bytes
 from .pins import find_wheel_references, resolve_constraint_s3_key
-from .plan import CONSTRAINTS_PATH, DATADOG_CONSTRAINTS_PATH
-from .version_table import FLAGGED_VERSION_TABLE
+from .plan import CONSTRAINTS_PATH, DATADOG_CONSTRAINTS_PATH, REQUIREMENTS_PATH, STARTUP_SCRIPT_PATH
+from .version_table import FLAGGED_VERSION_TABLE, datadog_wheel_filename
 
 
 def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
@@ -28,6 +31,12 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
     Everything comes from AWS except a flagged version's base constraints
     file when it isn't already a local S3 object (see base_constraints.py) --
     that's a plain HTTPS GET.
+
+    Also records file_versions: the latest S3 VersionId (None if it doesn't
+    exist) of every file the plan reads or might write, keyed by the plan's
+    path labels. Apply refuses to run if any of them changed since (see
+    apply.check_files_unchanged), which is what lets it trust the plan
+    instead of re-deriving it from whatever's there by then.
     """
     environment = client.get_environment(environment_name)
     bucket = environment["SourceBucketArn"].rsplit(":", 1)[-1]
@@ -65,8 +74,10 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
     present_wheel_files: set[str] = set()
     flagged_entry = FLAGGED_VERSION_TABLE.get(environment.get("AirflowVersion", ""))
     constraints_path = CONSTRAINTS_PATH
+    fingerprinted = [REQUIREMENTS_PATH, STARTUP_SCRIPT_PATH]
     if flagged_entry and constraints_key:
         constraints_path = f"dags/{constraints_key.removeprefix(dag_s3_path + '/')}"
+        fingerprinted.append(constraints_path)
         base_constraints = resolve_base_constraints(
             flagged_entry.airflow_version, requirements_text, constraints_text, f"s3://{bucket}/{constraints_key}", fetch_bytes
         )
@@ -90,8 +101,12 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
                     constraints_text = client.get_object_text(bucket, f"{dag_s3_path}/{DATADOG_CONSTRAINTS_PATH.removeprefix('dags/')}")
                 except ObjectNotFoundError:
                     constraints_text = None
+            fingerprinted += [CONSTRAINTS_PATH, constraints_path]
             base_constraints = resolve_base_constraints(flagged_entry.airflow_version, requirements_text, None, "", fetch_bytes)
     if flagged_entry and flagged_entry.wheel_only_packages:
+        fingerprinted += [
+            f"dags/{datadog_wheel_filename(package, flagged_entry.target_versions[package])}" for package in flagged_entry.wheel_only_packages
+        ]
         for ref in find_wheel_references(requirements_text):
             key = resolve_constraint_s3_key(ref, dag_s3_path)
             try:
@@ -102,6 +117,14 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
                 # missing, so the plan re-uploads it rather than trust it's there
                 pass
 
+    file_versions: dict[str, Optional[str]] = {}
+    file_version_errors: dict[str, str] = {}
+    for label in dict.fromkeys(fingerprinted):
+        try:
+            file_versions[label] = client.latest_version_id(bucket, real_key_for_path(environment, label))
+        except (ClientError, VersionIdUnavailable) as exc:
+            file_version_errors[label] = str(exc)
+
     return ProbeContext(
         environment=environment,
         requirements_text=requirements_text,
@@ -111,4 +134,6 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
         base_constraints=base_constraints,
         present_wheel_files=frozenset(present_wheel_files),
         constraints_path=constraints_path,
+        file_versions=file_versions,
+        file_version_errors=file_version_errors,
     )

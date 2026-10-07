@@ -7,7 +7,10 @@ import uuid
 from dataclasses import asdict
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from airflow_shared.reporter import Reporter
+from mwaa.apply import StaleSessionError
 from mwaa.apply_command import run_apply
 from mwaa.apply_config import ApplyConfig
 from mwaa.plan import PinChange, Plan
@@ -51,11 +54,15 @@ def make_client() -> MagicMock:
     return client
 
 
-def make_session(plan: Plan = NEEDS_UPGRADE_PLAN) -> Session:
+# what make_client's latest_version_id (None for everything) reports at apply time
+UNCHANGED_FILE_VERSIONS = {"requirements.txt": None, "dags/startup.sh": None}
+
+
+def make_session(plan: Plan = NEEDS_UPGRADE_PLAN, file_versions: dict = UNCHANGED_FILE_VERSIONS) -> Session:
     return Session(
         session_id=SESSION_ID,
         region="us-east-1",
-        environments=[EnvironmentEntry(name="my-env", airflow_version="2.8.1", already_configured=False, plan=plan)],
+        environments=[EnvironmentEntry(name="my-env", airflow_version="2.8.1", already_configured=False, plan=plan, file_versions=file_versions)],
     )
 
 
@@ -113,8 +120,8 @@ def test_run_apply_seals_only_the_applied_environment(capsys):
         session_id=SESSION_ID,
         region="us-east-1",
         environments=[
-            EnvironmentEntry(name="my-env", airflow_version="2.8.1", already_configured=False, plan=NEEDS_UPGRADE_PLAN),
-            EnvironmentEntry(name="other-env", airflow_version="2.8.1", already_configured=False, plan=NEEDS_UPGRADE_PLAN),
+            EnvironmentEntry(name="my-env", airflow_version="2.8.1", already_configured=False, plan=NEEDS_UPGRADE_PLAN, file_versions=UNCHANGED_FILE_VERSIONS),
+            EnvironmentEntry(name="other-env", airflow_version="2.8.1", already_configured=False, plan=NEEDS_UPGRADE_PLAN, file_versions=UNCHANGED_FILE_VERSIONS),
         ],
     )
     config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", dd_api_key="fake-dd-api-key", confirmed=True)
@@ -162,6 +169,61 @@ def test_run_apply_reports_when_name_not_in_session(capsys):
 
     assert result["applied"] is False
     assert "No plan for 'not-in-session'" in capsys.readouterr().out
+
+
+def run_confirmed_apply(session: Session, client: MagicMock):
+    config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", dd_api_key="fake-dd-api-key", confirmed=True)
+    with (
+        patch("mwaa.apply_command.MwaaClient", return_value=client),
+        patch("mwaa.apply_command.select_session_store", return_value=(make_store(session), False)),
+    ):
+        return run_apply(config, Reporter(workflow_type="mwaa-setup"))
+
+
+@pytest.mark.parametrize(
+    "scanned, now",
+    [("v1", "v2"), (None, "v1"), ("v1", None)],
+    ids=["changed-version", "appeared", "disappeared"],
+)
+def test_run_apply_writes_nothing_if_a_file_changed_since_scan(scanned, now):
+    client = make_client()
+    client.latest_version_id.side_effect = lambda bucket, key: now if key == "requirements.txt" else None
+
+    with pytest.raises(StaleSessionError, match="requirements.txt"):
+        run_confirmed_apply(make_session(file_versions={"requirements.txt": scanned, "dags/startup.sh": None}), client)
+
+    client.put_object_text.assert_not_called()
+    client.put_object_bytes.assert_not_called()
+    client.update_environment.assert_not_called()
+
+
+def test_run_apply_refuses_a_session_without_file_versions():
+    client = make_client()
+
+    with pytest.raises(StaleSessionError, match="re-run scan"):
+        run_confirmed_apply(make_session(file_versions={}), client)
+
+    client.put_object_text.assert_not_called()
+
+
+def test_run_apply_refuses_a_plan_that_writes_a_file_with_no_recorded_version():
+    client = make_client()
+
+    with pytest.raises(StaleSessionError, match="no recorded version for requirements.txt"):
+        run_confirmed_apply(make_session(file_versions={"dags/startup.sh": None}), client)
+
+    client.put_object_text.assert_not_called()
+
+
+def test_run_apply_only_warns_for_an_override_session_without_file_versions(capsys, tmp_path, monkeypatch):
+    override_path = tmp_path / "override.json"
+    override_path.write_text(json.dumps(asdict(make_session(file_versions={}))))
+    monkeypatch.setenv(SESSION_OVERRIDE_ENV_VAR, str(override_path))
+
+    result = run_confirmed_apply(make_session(), make_client())
+
+    assert result["applied"] is True
+    assert "can't check that no file changed since it was scanned" in capsys.readouterr().out
 
 
 def test_run_apply_uses_session_override_when_env_var_set(capsys, tmp_path, monkeypatch):

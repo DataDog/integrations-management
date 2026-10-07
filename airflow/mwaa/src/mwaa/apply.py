@@ -4,15 +4,14 @@
 
 """Turns a Plan into real file uploads and an MWAA environment update.
 
-Deliberately re-fetches the environment's current files itself (via
-ProbeContext, built fresh by discovery/probe) rather than trusting anything
-carried in a previously-computed Plan or a persisted scan session -- content
-captured during a scan may be stale by the time a plan is reviewed and
-applied, and patching against stale content risks clobbering a concurrent
-edit. Nothing here is ever printed or persisted outside this process.
+A session never carries file content, so the files are re-fetched here (via
+ProbeContext, built fresh by probe) to patch against. check_files_unchanged
+first proves each one is still the exact S3 version the plan was computed
+from -- anything changed means re-scan, never patch -- so the plan itself is
+applied as-is. Nothing here is ever printed or persisted outside this process.
 
-REQUIREMENTS_PATH/STARTUP_SCRIPT_PATH and the `dags/...` constraints labels (plan.py) are internal
-labels for what KIND of file a FileChange touches -- never literal S3 keys.
+REQUIREMENTS_PATH/STARTUP_SCRIPT_PATH and the `dags/...` constraints and
+wheel labels (plan.py) are display labels -- never literal S3 keys.
 Reading (current_text_for_path) always went through ctx's already-correctly-
 fetched content, so it never cared. Writing didn't used to make that
 distinction, and it bit a real environment for real: an environment whose
@@ -24,14 +23,16 @@ environment-specific key resolution reads already use.
 """
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
-from airflow_shared.mwaa_client import MwaaClient
+from airflow_shared.mwaa_client import MwaaClient, VersionIdUnavailable
 
-from .checks import ProbeContext, resolve_constraint_key
+from botocore.exceptions import ClientError
+
+from .checks import ProbeContext
 from .fetch import fetch_bytes
 from .patch import patch_env_vars, patch_pins, patch_wheel_references, set_constraint_line
-from .pins import find_constraint_lines, resolve_constraint_s3_key
+from .pins import DAGS_MOUNT_PREFIX
 from .plan import (
     REQUIREMENTS_PATH,
     STARTUP_SCRIPT_PATH,
@@ -40,7 +41,6 @@ from .plan import (
     PinChange,
     Plan,
     WheelReference,
-    constraint_line_for,
 )
 from .startup_script import interpolate_api_key as _substitute_api_key
 
@@ -86,20 +86,57 @@ def _default_requirements_key(dag_s3_path: str) -> str:
     return f"{parent}/requirements.txt" if parent else "requirements.txt"
 
 
-def real_key_for_path(ctx: ProbeContext, path: str) -> str:
-    """Map a Plan's generic path label to THIS environment's actual S3 key."""
-    dag_s3_path = ctx.environment.get("DagS3Path", "dags")
+def real_key_for_path(environment: dict, path: str) -> str:
+    """Map a Plan's path label to THIS environment's actual S3 key.
+
+    `dags/...` labels other than startup.sh (constraints files, wheels) name
+    the real file under DagS3Path, so this needs nothing but the label.
+    """
+    dag_s3_path = environment.get("DagS3Path", "dags").rstrip("/")
 
     if path == REQUIREMENTS_PATH:
-        return ctx.environment.get("RequirementsS3Path") or _default_requirements_key(dag_s3_path)
+        return environment.get("RequirementsS3Path") or _default_requirements_key(dag_s3_path)
     if path == STARTUP_SCRIPT_PATH:
-        return ctx.environment.get("StartupScriptS3Path") or f"{dag_s3_path}/startup.sh"
-    if _is_constraints_path(path):
-        # a --constraint already under the dags mount is patched in place; anything
-        # else (none yet, or a URL) gets replaced by the line set_constraint_line
-        # writes for this same label, so the two agree on the key.
-        return resolve_constraint_key(ctx.requirements_text, dag_s3_path) or f"{dag_s3_path.rstrip('/')}/{path.removeprefix('dags/')}"
+        return environment.get("StartupScriptS3Path") or f"{dag_s3_path}/startup.sh"
+    if path.startswith("dags/"):
+        return f"{dag_s3_path}/{path.removeprefix('dags/')}"
     raise ValueError(f"don't know the real S3 key for {path!r}")
+
+
+class StaleSessionError(RuntimeError):
+    """A file the session's plan was computed from has changed since it was scanned."""
+
+
+def wheel_path(wheel: WheelReference) -> str:
+    """A wheel's `dags/...` label -- the same one its file_versions entry uses."""
+    return "dags/" + wheel.line.removeprefix(DAGS_MOUNT_PREFIX)
+
+
+def check_files_unchanged(client: MwaaClient, environment: dict, plan: Plan, file_versions: dict[str, Optional[str]]) -> None:
+    """Raise StaleSessionError unless every file the session was scanned from is still that version.
+
+    file_versions is the session's record (see probe.py); this re-reads each
+    one's latest VersionId and compares, appearing/disappearing included. It
+    also refuses outright if the plan would write a file the session has no
+    recorded version for. Called before anything is written.
+    """
+    written = {fc.path for fc in plan.file_changes} | {wheel_path(fc) for fc in plan.file_changes if isinstance(fc, WheelReference)}
+    unrecorded = sorted(written - set(file_versions))
+    if unrecorded:
+        raise StaleSessionError(f"this session has no recorded version for {', '.join(unrecorded)}. Nothing was written -- re-run scan.")
+
+    bucket = environment["SourceBucketArn"].rsplit(":", 1)[-1]
+    changed = []
+    for path, scanned in file_versions.items():
+        try:
+            latest = client.latest_version_id(bucket, real_key_for_path(environment, path))
+        except (ClientError, VersionIdUnavailable) as exc:
+            changed.append(f"{path} (its current version can't be read: {exc})")
+            continue
+        if latest != scanned:
+            changed.append(f"{path} ({scanned or 'missing'} at scan, {latest or 'missing'} now)")
+    if changed:
+        raise StaleSessionError(f"changed since this session was scanned: {'; '.join(changed)}. Nothing was written -- re-run scan.")
 
 
 def compute_apply_actions(ctx: ProbeContext, plan: Plan) -> list[FileUpload]:
@@ -109,37 +146,22 @@ def compute_apply_actions(ctx: ProbeContext, plan: Plan) -> list[FileUpload]:
     changes, possibly several sharing the same path (e.g. six PinChanges all
     for dags/constraints.txt) -- group by path first, then patch once per file.
 
-    constraints.txt pins are patched into ctx.base_constraints, the full base
+    constraints pins are patched into ctx.base_constraints, the full base
     file (see base_constraints.py), never into whatever's at the target key
     or an empty file -- if the base can't be read now, this raises rather
     than produce a pins-only constraints file.
 
-    Whether requirements.txt's --constraint line changes is decided here from
-    the same fresh requirements text real_key_for_path resolves the
-    constraints key from, not from the plan's ConstraintDirectiveChange
-    (which is the scan-time preview): if the line changed between scan and
-    apply, trusting the plan could write constraints.txt to one key while
-    requirements.txt points at another.
+    Everything else is taken from the plan as-is: check_files_unchanged has
+    already proven every file it was computed from is still the same version.
     """
     by_path: dict[str, list] = {}
     for change in plan.file_changes:
-        if not isinstance(change, ConstraintDirectiveChange):
-            by_path.setdefault(change.path, []).append(change)
-    # a flagged version's pins (in either file) only take effect under a single
-    # --constraint line -- see plan.py; recheck against the fresh text, since a
-    # line can be added between scan and apply
-    constraint_lines = find_constraint_lines(ctx.requirements_text)
-    constraints_path = next((path for path in by_path if _is_constraints_path(path)), None)
-    if plan.source == "flagged_version_table" and (constraints_path or REQUIREMENTS_PATH in by_path) and len(constraint_lines) > 1:
-        raise RuntimeError(f"requirements.txt now has {len(constraint_lines)} --constraint lines; consolidate them into one and re-run scan")
-    needs_directive = constraints_path is not None and resolve_constraint_key(ctx.requirements_text, ctx.environment.get("DagS3Path", "dags")) is None
-    if needs_directive:
-        by_path.setdefault(REQUIREMENTS_PATH, [])
+        by_path.setdefault(change.path, []).append(change)
 
     uploads = []
     for path, changes in by_path.items():
         old_content = current_text_for_path(ctx, path)
-        if path == constraints_path:
+        if _is_constraints_path(path):
             base = ctx.base_constraints
             if base is None or base.text is None:
                 raise RuntimeError(f"can't write {path} without its full base constraints file: {base.error if base else 'not resolved'}")
@@ -148,8 +170,8 @@ def compute_apply_actions(ctx: ProbeContext, plan: Plan) -> list[FileUpload]:
         elif path == REQUIREMENTS_PATH:
             content = patch_pins(old_content, [c for c in changes if isinstance(c, PinChange)])
             content = patch_wheel_references(content, [c for c in changes if isinstance(c, WheelReference)])
-            if needs_directive:
-                content = set_constraint_line(content, constraint_line_for(constraints_path))
+            for directive in (c for c in changes if isinstance(c, ConstraintDirectiveChange)):
+                content = set_constraint_line(content, directive.to_line)
             action = "update"
         else:  # STARTUP_SCRIPT_PATH -- current_text_for_path already validated the path
             content = patch_env_vars(old_content, [c for c in changes if isinstance(c, EnvVarChange)])
@@ -189,7 +211,6 @@ def apply_to_environment(client: MwaaClient, ctx: ProbeContext, uploads: list[Fi
     """
     environment = ctx.environment
     bucket = environment["SourceBucketArn"].rsplit(":", 1)[-1]
-    dag_s3_path = environment.get("DagS3Path", "dags")
     uploaded = []
     update_kwargs: dict[str, str] = {}
 
@@ -198,13 +219,13 @@ def apply_to_environment(client: MwaaClient, ctx: ProbeContext, uploads: list[Fi
         content = fetch_bytes(wheel.wheel_url)
         if not content.startswith(b"PK"):
             raise RuntimeError(f"{wheel.wheel_url} didn't return a wheel (zip) file")
-        wheel_contents.append((resolve_constraint_s3_key(wheel.line, dag_s3_path), content))
+        wheel_contents.append((real_key_for_path(environment, wheel_path(wheel)), content))
     for key, content in wheel_contents:
         version_id = client.put_object_bytes(bucket, key, content)
         uploaded.append({"path": key, "version_id": version_id, "action": "create"})
 
     for upload in uploads:
-        real_key = real_key_for_path(ctx, upload.path)
+        real_key = real_key_for_path(environment, upload.path)
         version_id = client.put_object_text(bucket, real_key, upload.content)
         uploaded.append({"path": real_key, "version_id": version_id, "action": upload.action})
         if upload.path == REQUIREMENTS_PATH:

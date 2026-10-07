@@ -103,6 +103,15 @@ AWS credentials are picked up the normal boto3 way (CloudShell's assumed role, a
 environment profile, `~/.aws/credentials`, etc.) -- this tool does not manage credentials
 itself.
 
+Each environment in a session also records `file_versions`: the latest S3 `VersionId`
+(`null` if it doesn't exist) of every file its plan reads or might write. `apply`
+re-reads them first and, if any changed, writes nothing and exits non-zero -- re-run
+`scan`. That's what lets `apply` trust the plan as-is instead of re-deriving it. Scan
+also refuses to plan changes to requirements.txt or startup.sh when its latest upload
+isn't the version the environment is configured with (an `unapplied_uploads` issue):
+apply or discard that upload first. A `SESSION_OVERRIDE_PATH` session without
+`file_versions` only gets a warning.
+
 If `scan` recorded any `issues` for the environment you `apply` (a conflicting OpenLineage
 config, a missing constraints/wheel file, an execution role that can't read what the plan
 would write), they're printed before the diff. They don't block applying.

@@ -24,7 +24,7 @@ Grounded in two sources:
     MWAA startup script and airflow_configuration_options, which one wins.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from botocore.exceptions import ClientError
@@ -33,7 +33,7 @@ from airflow_shared.mwaa_client import MwaaClient
 from airflow_shared.reporter import Finding, FindingStatus
 
 from .base_constraints import BaseConstraints
-from .plan import CONSTRAINTS_PATH
+from .plan import CONSTRAINTS_PATH, REQUIREMENTS_PATH, STARTUP_SCRIPT_PATH
 from .pins import CONSTRAINT_LINE, DAGS_MOUNT_PREFIX, find_constraint_lines, find_wheel_references, resolve_constraint_s3_key
 from .version_table import FLAGGED_VERSION_TABLE
 from .startup_script import parse_exports
@@ -57,6 +57,10 @@ class ProbeContext:
     # requirements.txt references under the DAGs mount, else dags/constraints.txt,
     # or dags/constraints-datadog.txt when an unreferenced dags/constraints.txt exists
     constraints_path: str = CONSTRAINTS_PATH
+    # label -> latest S3 VersionId (None = doesn't exist) of every file the plan reads
+    # or might write; labels whose version couldn't be read are in file_version_errors
+    file_versions: dict[str, Optional[str]] = field(default_factory=dict)
+    file_version_errors: dict[str, str] = field(default_factory=dict)
 
 
 def resolve_constraint_key(requirements_text: str, dag_s3_path: str) -> Optional[str]:
@@ -144,6 +148,64 @@ def check_constraint_directives(ctx: ProbeContext) -> Finding:
         FindingStatus.FAIL,
         f"requirements.txt has {len(lines)} --constraint lines, so the plan leaves out every OpenLineage package change",
         "\n".join(lines) + "\npip enforces all of them. Consolidate them into one and re-run scan.",
+    )
+
+
+def unapplied_uploads(ctx: ProbeContext) -> list[str]:
+    """Labels of requirements.txt/startup.sh whose latest S3 version isn't the one the environment is configured with.
+
+    Someone uploaded a newer file without updating the environment. A plan
+    computed from the configured version would silently discard their
+    upload; one computed from the newer one would silently apply it.
+    """
+    configured = (
+        (REQUIREMENTS_PATH, "RequirementsS3Path", "RequirementsS3ObjectVersion"),
+        (STARTUP_SCRIPT_PATH, "StartupScriptS3Path", "StartupScriptS3ObjectVersion"),
+    )
+    return [
+        label
+        for label, path_key, version_key in configured
+        if ctx.environment.get(path_key)
+        and ctx.environment.get(version_key)
+        and label in ctx.file_versions
+        and ctx.file_versions[label] != ctx.environment[version_key]
+    ]
+
+
+def check_unapplied_uploads(ctx: ProbeContext) -> Finding:
+    """requirements.txt/startup.sh must not have a newer upload the environment isn't configured with yet.
+
+    The plan leaves out that file's changes (session.py) -- all package
+    changes for requirements.txt, the env-var changes for startup.sh.
+    """
+    labels = unapplied_uploads(ctx)
+    if not labels:
+        return Finding("unapplied_uploads", FindingStatus.PASS, "the environment is configured with the latest requirements.txt and startup.sh")
+    return Finding(
+        "unapplied_uploads",
+        FindingStatus.FAIL,
+        f"{' and '.join(labels)} {'has a newer upload' if len(labels) == 1 else 'have newer uploads'} than the environment "
+        f"is configured with; apply or discard {'it' if len(labels) == 1 else 'them'}, then re-scan",
+        "Until then the plan leaves out the changes to "
+        + (" and ".join(labels))
+        + ".",
+    )
+
+
+def check_file_versions(ctx: ProbeContext) -> Finding:
+    """Every file the plan reads or writes needs a readable latest VersionId, for apply's staleness check.
+
+    The plan leaves out the changes that depend on a file whose version
+    couldn't be read (session.py).
+    """
+    if not ctx.file_version_errors:
+        return Finding("file_versions", FindingStatus.PASS, "read the latest version of every file the plan depends on")
+    return Finding(
+        "file_versions",
+        FindingStatus.FAIL,
+        f"couldn't read the latest S3 version of {', '.join(ctx.file_version_errors)}, so the plan leaves out the changes that depend on it",
+        "\n".join(f"{label}: {error}" for label, error in ctx.file_version_errors.items())
+        + "\nRe-run scan once these can be read (HeadObject, with s3:ListBucket on the bucket).",
     )
 
 

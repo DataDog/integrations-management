@@ -38,7 +38,7 @@ from typing import Any, Callable
 from airflow_shared.mwaa_client import MwaaClient
 from airflow_shared.reporter import Reporter
 
-from .apply import apply_to_environment, compute_apply_actions, interpolate_api_key
+from .apply import apply_to_environment, check_files_unchanged, compute_apply_actions, interpolate_api_key
 from .checks import ProbeContext
 from .diff_preview import render_unified_diff
 from .discovery import discover_environments
@@ -187,6 +187,8 @@ def _run_interactive(
     # MwaaClient's `read_only` guard); applying needs a separate, full-power
     # client, created only once the user has explicitly confirmed.
     apply_client = MwaaClient(region=config.region)
+    with reporter.report_step("check_files_unchanged"):
+        check_files_unchanged(apply_client, ctx.environment, entry.plan, entry.file_versions)
     with reporter.report_step("apply_changes"):
         result = apply_to_environment(apply_client, ctx, uploads, wheels)
 

@@ -34,6 +34,12 @@ before acting, without recomputing anything -- and without blocking apply
 outright, since the person running it may already know and want to proceed
 anyway.
 
+Each environment also carries `file_versions` (see probe.py): the latest
+S3 VersionId of every file its plan reads or might write, so apply can
+refuse if any changed since. Changes depending on a file with an
+unapplied upload or an unreadable version are left out of the plan
+entirely (_without_blocked_changes).
+
 Each environment also carries `status`: has THIS session's plan actually
 been applied to it yet? Deliberately just the current state, not a history
 of transitions -- ScannedStatus/AppliedStatus are the only two that exist
@@ -45,6 +51,7 @@ consistent with everything else here.
 """
 
 from dataclasses import dataclass, field, replace
+from typing import Optional
 
 from airflow_shared.reporter import Finding, FindingStatus
 
@@ -54,10 +61,13 @@ from .checks import (
     check_constraint_directives,
     check_constraint_path,
     check_execution_role_s3_access,
+    check_file_versions,
     check_openlineage_precedence,
+    check_unapplied_uploads,
     check_wheel_references,
+    unapplied_uploads,
 )
-from .plan import EnvVarChange, Plan, compute_plan, plan_from_dict
+from .plan import STARTUP_SCRIPT_PATH, EnvVarChange, Plan, compute_plan, plan_from_dict
 
 #: The subset of probe checks worth recording at scan time and re-surfacing
 #: at apply time -- each one is a way applying this environment's plan could
@@ -66,11 +76,17 @@ from .plan import EnvVarChange, Plan, compute_plan, plan_from_dict
 _ISSUE_CHECKS = (
     check_base_constraints,
     check_constraint_directives,
+    check_unapplied_uploads,
+    check_file_versions,
     check_openlineage_precedence,
     check_constraint_path,
     check_wheel_references,
     check_execution_role_s3_access,
 )
+
+
+#: The checks that only read ProbeContext, never call AWS themselves.
+_PURE_CHECKS = (check_base_constraints, check_constraint_directives, check_unapplied_uploads, check_file_versions, check_openlineage_precedence)
 
 
 @dataclass(frozen=True)
@@ -97,6 +113,8 @@ class EnvironmentEntry:
     plan: Plan
     issues: list[Finding] = field(default_factory=list)
     status: "ScannedStatus | AppliedStatus" = field(default_factory=ScannedStatus)
+    # plan path label -> latest S3 VersionId at scan time (None = didn't exist); see probe.py
+    file_versions: dict[str, Optional[str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -135,7 +153,7 @@ def _compute_issues(ctx: ProbeContext) -> list[Finding]:
     """
     issues: list[Finding] = []
     for check in _ISSUE_CHECKS:
-        if ctx.client is None and check not in (check_base_constraints, check_constraint_directives, check_openlineage_precedence):
+        if ctx.client is None and check not in _PURE_CHECKS:
             continue
         try:
             finding = check(ctx)
@@ -145,6 +163,27 @@ def _compute_issues(ctx: ProbeContext) -> list[Finding]:
         if finding.status != FindingStatus.PASS:
             issues.append(finding)
     return issues
+
+
+def _without_blocked_changes(plan: Plan, ctx: ProbeContext) -> Plan:
+    """Drop the changes that depend on a file with an unapplied upload or an unreadable version.
+
+    startup.sh blocks only the env-var changes; any other file (requirements.txt,
+    the constraints file, a wheel) blocks every package change. See
+    check_unapplied_uploads/check_file_versions for the issues that say why.
+    """
+    blocked = set(unapplied_uploads(ctx)) | set(ctx.file_version_errors)
+    drop_packages = any(label != STARTUP_SCRIPT_PATH for label in blocked)
+    drop_env_vars = STARTUP_SCRIPT_PATH in blocked
+    if not drop_packages and not drop_env_vars:
+        return plan
+    kept = [fc for fc in plan.file_changes if (isinstance(fc, EnvVarChange) and not drop_env_vars) or (not isinstance(fc, EnvVarChange) and not drop_packages)]
+    left_out = " and ".join(name for name, dropped in (("package", drop_packages), ("startup.sh", drop_env_vars)) if dropped)
+    return replace(
+        plan,
+        rationale=f"{plan.rationale} The {left_out} changes are left out until the issues recorded for {', '.join(sorted(blocked))} are resolved.",
+        file_changes=kept,
+    )
 
 
 def _environment_entry(ctx: ProbeContext, dd_site: str) -> EnvironmentEntry:
@@ -161,9 +200,11 @@ def _environment_entry(ctx: ProbeContext, dd_site: str) -> EnvironmentEntry:
     return EnvironmentEntry(
         name=ctx.environment.get("Name"),
         airflow_version=airflow_version,
+        # transport configured or not -- decided before any blocked changes are dropped
         already_configured=not any(isinstance(fc, EnvVarChange) for fc in plan.file_changes),
-        plan=plan,
+        plan=_without_blocked_changes(plan, ctx),
         issues=_compute_issues(ctx),
+        file_versions=ctx.file_versions,
     )
 
 
@@ -206,6 +247,7 @@ def session_from_dict(data: dict) -> Session:
                     for i in e.get("issues", [])
                 ],
                 status=_status_from_dict(e.get("status", {"type": "scanned"})),
+                file_versions=e.get("file_versions", {}),
             )
             for e in data["environments"]
         ],

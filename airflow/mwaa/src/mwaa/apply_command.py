@@ -8,9 +8,12 @@ Loads the Session a prior `scan --session-id` persisted -- via whichever
 SessionStore select_session_store picks for this run (network by default,
 local file under --offline or if the network's unreachable), or under
 SESSION_OVERRIDE_PATH, a hand-authored one instead -- see session_override.py.
-Pulls out the plan for --name, then always fetches that environment fresh
-and previews before doing anything mutating -- without --yes (see
-apply_config.py), this only prints what it would do.
+Pulls out the plan for --name, then always fetches that environment fresh,
+refuses to go on if any file the plan was computed from has changed since
+(check_files_unchanged -- a hand-authored override session without
+file_versions only gets a warning), and previews before doing anything
+mutating -- without --yes (see apply_config.py), this only prints what it
+would do.
 
 Once a real apply succeeds, seal_applied (session.py) marks that one
 environment's entry AppliedStatus and this re-persists the session --
@@ -24,7 +27,7 @@ from typing import Any
 from airflow_shared.mwaa_client import MwaaClient
 from airflow_shared.reporter import Reporter
 
-from .apply import apply_to_environment, compute_apply_actions, interpolate_api_key
+from .apply import StaleSessionError, apply_to_environment, check_files_unchanged, compute_apply_actions, interpolate_api_key
 from .apply_config import ApplyConfig
 from .diff_preview import render_unified_diff
 from .plan import WheelReference
@@ -70,6 +73,14 @@ def run_apply(config: ApplyConfig, reporter: Reporter) -> dict[str, Any]:
     if not plan.file_changes:
         print("Nothing to apply -- this environment is already fully configured.")
         return {"applied": False, "plan": plan, "uploads": []}
+
+    if entry.file_versions:
+        with reporter.report_step("check_files_unchanged"):
+            check_files_unchanged(client, ctx.environment, plan, entry.file_versions)
+    elif override_path:
+        print(f"\nWarning: the session in {override_path} has no file_versions, so this can't check that no file changed since it was scanned.")
+    else:
+        raise StaleSessionError("this session has no recorded file versions (it predates them). Nothing was written -- re-run scan.")
 
     uploads = interpolate_api_key(compute_apply_actions(ctx, plan), config.dd_api_key)
     wheels = [fc for fc in plan.file_changes if isinstance(fc, WheelReference)]
