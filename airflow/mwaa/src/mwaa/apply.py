@@ -110,10 +110,21 @@ def compute_apply_actions(ctx: ProbeContext, plan: Plan) -> list[FileUpload]:
     file (see base_constraints.py), never into whatever's at the target key
     or an empty file -- if the base can't be read now, this raises rather
     than produce a pins-only constraints file.
+
+    Whether requirements.txt's --constraint line changes is decided here from
+    the same fresh requirements text real_key_for_path resolves the
+    constraints key from, not from the plan's ConstraintDirectiveChange
+    (which is the scan-time preview): if the line changed between scan and
+    apply, trusting the plan could write constraints.txt to one key while
+    requirements.txt points at another.
     """
     by_path: dict[str, list] = {}
     for change in plan.file_changes:
-        by_path.setdefault(change.path, []).append(change)
+        if not isinstance(change, ConstraintDirectiveChange):
+            by_path.setdefault(change.path, []).append(change)
+    needs_directive = CONSTRAINTS_PATH in by_path and resolve_constraint_key(ctx.requirements_text, ctx.environment.get("DagS3Path", "dags")) is None
+    if needs_directive:
+        by_path.setdefault(REQUIREMENTS_PATH, [])
 
     uploads = []
     for path, changes in by_path.items():
@@ -127,7 +138,7 @@ def compute_apply_actions(ctx: ProbeContext, plan: Plan) -> list[FileUpload]:
         elif path == REQUIREMENTS_PATH:
             content = patch_pins(old_content, [c for c in changes if isinstance(c, PinChange)])
             content = patch_wheel_references(content, [c for c in changes if isinstance(c, WheelReference)])
-            if any(isinstance(c, ConstraintDirectiveChange) for c in changes):
+            if needs_directive:
                 content = set_constraint_line(content, EXPECTED_CONSTRAINT_LINE)
             action = "update"
         else:  # STARTUP_SCRIPT_PATH -- current_text_for_path already validated the path

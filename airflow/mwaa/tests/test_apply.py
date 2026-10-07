@@ -10,7 +10,7 @@ from mwaa.apply import compute_apply_actions, apply_to_environment, interpolate_
 from mwaa.base_constraints import BaseConstraints
 from mwaa.checks import ProbeContext, check_wheel_references
 from mwaa.plan import compute_plan
-from mwaa.plan import WheelReference
+from mwaa.plan import ConstraintDirectiveChange, WheelReference
 from mwaa.startup_script import DD_API_KEY_PLACEHOLDER
 from airflow_shared.reporter import FindingStatus
 
@@ -133,6 +133,58 @@ def test_custom_named_local_constraints_file_is_patched_in_place():
     assert "boto3==1.33.13" in by_path["dags/constraints.txt"].content
     assert by_path["requirements.txt"].content.splitlines()[0] == '--constraint "/usr/local/airflow/dags/deps/my-constraints.txt"'
     assert real_key_for_path(ctx, "dags/constraints.txt") == "dags/deps/my-constraints.txt"
+
+
+FULLY_PINNED_2_8_1 = (
+    "apache-airflow-providers-openlineage==1.14.0\n"
+    "apache-airflow-providers-common-sql==1.20.0\n"
+    "apache-airflow-providers-common-compat==1.2.1\n"
+    "openlineage-integration-common==1.24.2\n"
+    "openlineage-python==1.24.2\n"
+    "openlineage-sql==1.24.2\n"
+)
+
+
+def test_constraint_line_that_moved_from_url_to_a_local_file_after_scan_is_left_alone():
+    at_scan = make_context(
+        requirements_text=f'--constraint "{UPSTREAM_URL}"\n',
+        constraints_text=None,
+        base_constraints=BaseConstraints(source=UPSTREAM_URL, text=UPSTREAM_TEXT),
+    )
+    plan = compute_plan("2.8.1", at_scan.requirements_text, at_scan.base_constraints, None, "datadoghq.com", "my-env")
+    assert any(isinstance(fc, ConstraintDirectiveChange) for fc in plan.file_changes)
+
+    at_apply = make_context(
+        requirements_text='--constraint "/usr/local/airflow/dags/deps/custom.txt"\n',
+        constraints_text="apache-airflow-providers-openlineage==1.4.0\nboto3==1.33.13\n",
+    )
+    by_path = {u.path: u for u in compute_apply_actions(at_apply, plan)}
+
+    assert by_path["requirements.txt"].content.splitlines()[0] == '--constraint "/usr/local/airflow/dags/deps/custom.txt"'
+    assert "boto3==1.33.13" in by_path["dags/constraints.txt"].content
+    assert real_key_for_path(at_apply, "dags/constraints.txt") == "dags/deps/custom.txt"
+
+
+def test_constraint_line_that_moved_from_a_local_file_to_a_url_after_scan_gets_replaced():
+    """The plan has no requirements.txt change at all, but apply still has to repoint it."""
+    at_scan = make_context(
+        requirements_text='--constraint "/usr/local/airflow/dags/deps/custom.txt"\n' + FULLY_PINNED_2_8_1,
+        constraints_text=UPSTREAM_TEXT,
+    )
+    plan = compute_plan("2.8.1", at_scan.requirements_text, at_scan.base_constraints, None, "datadoghq.com", "my-env")
+    assert not any(fc.path == "requirements.txt" for fc in plan.file_changes)
+
+    at_apply = make_context(
+        requirements_text=f'--constraint "{UPSTREAM_URL}"\n' + FULLY_PINNED_2_8_1,
+        constraints_text=None,
+        base_constraints=BaseConstraints(source=UPSTREAM_URL, text=UPSTREAM_TEXT),
+    )
+    by_path = {u.path: u for u in compute_apply_actions(at_apply, plan)}
+
+    requirements = by_path["requirements.txt"].content
+    assert requirements.splitlines()[0] == '--constraint "/usr/local/airflow/dags/constraints.txt"'
+    assert UPSTREAM_URL not in requirements
+    assert real_key_for_path(at_apply, "dags/constraints.txt") == "dags/constraints.txt"
 
 
 def test_compute_apply_actions_refuses_to_write_constraints_without_a_base():
