@@ -21,7 +21,9 @@ constraints file, patch the OpenLineage pins into it, upload it as `dags/constra
 and point requirements.txt's `--constraint` line at it. The plan does the same, starting
 from (in order) the local constraints file requirements.txt already points at under the
 DAGs mount (patched in place, whatever it's named), else the URL requirements.txt already
-points at (the line is then replaced, never duplicated), else the upstream
+points at (the line is then replaced, never duplicated; an Apache-hosted upstream URL
+must be for the environment's own Airflow and Python version, or it's a `base_constraints`
+issue instead), else the upstream
 `constraints-<airflow>/constraints-<python>.txt` for the environment's version -- see
 `base_constraints.py`, and `version_table.py` for the Airflow-to-Python table. If that
 base can't be read, the plan leaves out the package changes entirely and records a

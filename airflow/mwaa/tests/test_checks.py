@@ -185,8 +185,8 @@ def test_base_constraints_fails_when_unreadable():
     finding = check_base_constraints(ctx)
 
     assert finding.status == FindingStatus.FAIL
-    assert "timed out" in finding.detail
-    assert "https://example.invalid/c.txt" in finding.detail
+    assert finding.message == "timed out"
+    assert "leaves out every OpenLineage package change" in finding.detail
 
 
 # --- check_constraint_directives ---------------------------------------------

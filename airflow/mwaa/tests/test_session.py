@@ -9,6 +9,8 @@ from unittest.mock import MagicMock
 from airflow_shared.reporter import FindingStatus
 from mwaa.base_constraints import BaseConstraints
 from mwaa.checks import ProbeContext
+from mwaa.plan import EnvVarChange
+from mwaa.probe import build_context
 from mwaa.session import AppliedStatus, ScannedStatus, build_session, seal_applied, session_from_dict
 
 ENVIRONMENT = {
@@ -183,7 +185,7 @@ def test_build_session_records_an_issue_and_plans_no_package_changes_when_the_ba
 
     assert [i.check_id for i in entry.issues] == ["base_constraints"]
     assert entry.issues[0].status == FindingStatus.FAIL
-    assert "could not download it" in entry.issues[0].detail
+    assert entry.issues[0].message == "could not download it"
     assert not any(fc.path in ("requirements.txt", "dags/constraints.txt") for fc in entry.plan.file_changes)
 
 
@@ -232,3 +234,17 @@ def test_an_empty_namespace_still_means_not_already_configured():
 
     assert entry.already_configured is False
     assert [fc.name for fc in entry.plan.file_changes] == ["AIRFLOW__OPENLINEAGE__NAMESPACE"]
+
+
+def test_build_session_records_a_url_version_mismatch_and_keeps_only_env_var_changes():
+    client = MagicMock()
+    client.get_environment.return_value = {**ENVIRONMENT, "RequirementsS3Path": "requirements.txt"}
+    client.get_object_text.return_value = '--constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.7.2/constraints-3.11.txt"\n'
+    ctx = build_context(client, "my-mwaa-prod")
+    ctx.client = None  # only the pure checks
+
+    entry = build_session("session-1", "us-east-1", "datadoghq.com", [ctx]).environments[0]
+
+    assert [i.check_id for i in entry.issues] == ["base_constraints"]
+    assert "Airflow 2.7.2 / Python 3.11 but this environment runs Airflow 2.8.1" in entry.issues[0].message
+    assert entry.plan.file_changes and all(isinstance(fc, EnvVarChange) for fc in entry.plan.file_changes)

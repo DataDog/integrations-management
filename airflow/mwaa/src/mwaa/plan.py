@@ -183,9 +183,9 @@ def _plan_flagged_version(
         reason = base_constraints.error if base_constraints else "it wasn't resolved"
         return (
             True,
-            f"{rationale} The full base constraints file couldn't be read ({reason}), so this plan leaves out "
+            f"{rationale} No safe full constraints file could be planned ({reason}), so this plan leaves out "
             "every package change -- a constraints file holding only the OpenLineage pins would unconstrain "
-            "every other package. Re-run scan once it's reachable.",
+            "every other package.",
             [],
         )
     constraint_lines = find_constraint_lines(requirements_text)

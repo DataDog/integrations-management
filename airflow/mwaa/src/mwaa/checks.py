@@ -101,11 +101,14 @@ def check_constraint_path(ctx: ProbeContext) -> Finding:
 
 
 def check_base_constraints(ctx: ProbeContext) -> Finding:
-    """A flagged version's full base constraints file has to be readable to plan its package changes.
+    """A flagged version needs a safe, full base constraints file to plan its package changes.
 
-    See base_constraints.py: without it the only file this tool could write is
-    a pins-only constraints.txt, which unconstrains everything else, so the
-    plan leaves the package changes out instead and this records why.
+    See base_constraints.py for every way that can fail (an unreachable
+    download, an upstream URL for the wrong Airflow/Python version, ...);
+    base.error says which, and what to do about it. Without one, the only
+    file this tool could write is a pins-only constraints file, which
+    unconstrains everything else, so the plan leaves the package changes out
+    instead and this records why.
     """
     base = ctx.base_constraints
     if base is None or base.text is not None:
@@ -113,8 +116,9 @@ def check_base_constraints(ctx: ProbeContext) -> Finding:
     return Finding(
         "base_constraints",
         FindingStatus.FAIL,
-        "could not read the base constraints file, so the plan leaves out every OpenLineage package change",
-        f"{base.error}\nRe-run scan once {base.source or 'it'} is reachable.",
+        base.error,
+        "The plan leaves out every OpenLineage package change until this is fixed: a constraints file holding "
+        "only the OpenLineage pins would unconstrain every other package.",
     )
 
 
