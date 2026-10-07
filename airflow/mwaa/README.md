@@ -13,7 +13,20 @@ one named environment's plan.
 `scan` makes no changes to the environment: every call it makes is a read
 (`mwaa:GetEnvironment`, `s3:GetObject`/`HeadObject`, `iam:SimulatePrincipalPolicy`), and
 that's enforced mechanically, not just by review -- see `MwaaClient`'s `read_only` guard
-in `shared/src/airflow_shared/mwaa_client.py`.
+in `shared/src/airflow_shared/mwaa_client.py`. Its one non-AWS request is a plain HTTPS
+GET for a public constraints file (below).
+
+For Airflow 2.7.2/2.8.1/2.9.2, the upgrade guide's procedure is to take the *full* Airflow
+constraints file, patch the OpenLineage pins into it, upload it as `dags/constraints.txt`
+and point requirements.txt's `--constraint` line at it. The plan does the same, starting
+from (in order) the local constraints file requirements.txt already points at under the
+DAGs mount (patched in place, whatever it's named), else the URL requirements.txt already
+points at (the line is then replaced, never duplicated), else the upstream
+`constraints-<airflow>/constraints-<python>.txt` for the environment's version -- see
+`base_constraints.py`, and `version_table.py` for the Airflow-to-Python table. If that
+base can't be read, the plan leaves out the package changes entirely and records a
+`base_constraints` issue: a constraints file holding only the OpenLineage pins would
+unconstrain every other package, Airflow included.
 
 A Session is submitted to (and later read back from) Datadog's config-sessions intake
 API by default -- see `SessionStore`/`NetworkSessionStore` (`session_store.py`/

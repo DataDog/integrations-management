@@ -7,6 +7,7 @@ from dataclasses import asdict
 from unittest.mock import MagicMock
 
 from airflow_shared.reporter import FindingStatus
+from mwaa.base_constraints import BaseConstraints
 from mwaa.checks import ProbeContext
 from mwaa.session import AppliedStatus, ScannedStatus, build_session, seal_applied, session_from_dict
 
@@ -29,6 +30,9 @@ def make_context(**overrides) -> ProbeContext:
         "client": None,
     }
     defaults.update(overrides)
+    # same as build_context for a referenced local file: it's its own base
+    if "base_constraints" not in defaults and defaults["constraints_text"] is not None:
+        defaults["base_constraints"] = BaseConstraints(source="s3://my-bucket/dags/constraints.txt", text=defaults["constraints_text"])
     return ProbeContext(**defaults)
 
 
@@ -167,3 +171,17 @@ def test_session_round_trips_a_bare_package_pin_change_as_json_null():
     assert pin_change["to_version"] is None
 
     assert session_from_dict(serialized) == session
+
+
+def test_build_session_records_an_issue_and_plans_no_package_changes_when_the_base_cant_be_read():
+    ctx = make_context(
+        constraints_text=None,
+        base_constraints=BaseConstraints(source="https://example.invalid/c.txt", text=None, error="could not download it"),
+    )
+
+    entry = build_session("session-1", "us-east-1", "datadoghq.com", [ctx]).environments[0]
+
+    assert [i.check_id for i in entry.issues] == ["base_constraints"]
+    assert entry.issues[0].status == FindingStatus.FAIL
+    assert "could not download it" in entry.issues[0].detail
+    assert not any(fc.path in ("requirements.txt", "dags/constraints.txt") for fc in entry.plan.file_changes)

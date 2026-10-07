@@ -40,6 +40,28 @@ class FlaggedVersionEntry:
 
 SOURCE_DOC = "https://docs.datadoghq.com/data_observability/jobs_monitoring/airflow_mwaa_upgrade.md"
 
+#: The Python version MWAA runs each Airflow version on. GetEnvironment doesn't
+#: return it, so it's encoded here from AWS's "Apache Airflow versions on Amazon
+#: MWAA" table (https://docs.aws.amazon.com/mwaa/latest/userguide/airflow-versions.html),
+#: whose constraints-file links agree. Datadog's upgrade guide uses
+#: constraints-3.12.txt in its 2.9.2 example; AWS lists 3.11 for 2.9.2, and AWS
+#: is what actually builds the image. End-of-support versions (2.6.3 and older)
+#: aren't listed there, so they're left out rather than guessed.
+PYTHON_VERSION_BY_AIRFLOW_VERSION: dict[str, str] = {
+    "2.7.2": "3.11",
+    "2.8.1": "3.11",
+    "2.9.2": "3.11",
+    "2.10.1": "3.11",
+    "2.10.3": "3.11",
+    "2.11.0": "3.12",
+    "2.11.2": "3.12",
+    "3.0.6": "3.12",
+    "3.2.1": "3.12",
+    "3.3.1": "3.12",
+}
+
+UPSTREAM_CONSTRAINTS_URL = "https://raw.githubusercontent.com/apache/airflow/constraints-{airflow_version}/constraints-{python_version}.txt"
+
 FLAGGED_VERSION_TABLE: dict[str, FlaggedVersionEntry] = {
     "2.7.2": FlaggedVersionEntry(
         airflow_version="2.7.2",

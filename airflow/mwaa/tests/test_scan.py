@@ -8,10 +8,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from airflow_shared.reporter import Reporter
+from mwaa.patch import patch_pins
 from mwaa.scan import _app_url, run_scan
 from mwaa.scan_config import ScanConfig
 from mwaa.session import AppliedStatus, ScannedStatus
 from mwaa.session_store import SessionStore
+
+from .conftest import UPSTREAM_2_8_1_TEXT, UPSTREAM_2_8_1_URL
 
 SESSION_ID = str(uuid.uuid4())
 
@@ -278,6 +281,39 @@ def test_run_scan_interactive_confirming_apply_uploads_and_updates(capsys):
     # persist_session (initial) + the post-apply seal
     assert store.save.call_count == 2
     assert store.save.call_args.args[0] == session
+
+
+def test_run_scan_interactive_apply_replaces_an_upstream_url_constraint_with_a_full_local_copy():
+    """The PM's repro: requirements.txt already points at the upstream URL AWS recommends.
+    The URL line has to be replaced (not kept alongside a second one), and the
+    constraints.txt written has to be that full file with pins patched in."""
+    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key", interactive=True)
+    reporter = Reporter(workflow_type="mwaa-setup")
+    client = make_client()
+    objects = {
+        ("my-bucket", "requirements.txt"): f'--constraint "{UPSTREAM_2_8_1_URL}"\napache-airflow-providers-amazon==8.16.0\n',
+        ("my-bucket-2", "requirements.txt"): "apache-airflow-providers-openlineage==2.18.0\n",
+        ("my-bucket-2", "dags/startup.sh"): "",
+    }
+    client.get_object_text.side_effect = lambda bucket, key, version_id=None: objects[(bucket, key)]
+
+    with (
+        patch("mwaa.scan.MwaaClient", return_value=client),
+        patch("mwaa.scan.select_session_store", return_value=(make_store(), False)),
+    ):
+        result = run_scan(config, reporter, input_func=fake_input("1", "y"))
+
+    assert result["applied"] is True
+    written = {call.args[1]: call.args[2] for call in client.put_object_text.call_args_list}
+    assert written["dags/constraints.txt"] == patch_pins(
+        UPSTREAM_2_8_1_TEXT,
+        [fc for fc in result["session"].find("my-mwaa-prod").plan.file_changes if fc.path == "dags/constraints.txt"],
+    )
+    assert "pandas==2.1.4" in written["dags/constraints.txt"]  # an unrelated upstream pin survives
+    requirements = written["requirements.txt"]
+    assert requirements.count("--constraint") == 1
+    assert '--constraint "/usr/local/airflow/dags/constraints.txt"' in requirements
+    assert "apache-airflow-providers-openlineage==1.14.0" in requirements
 
 
 def test_run_scan_interactive_no_environments_found(capsys):

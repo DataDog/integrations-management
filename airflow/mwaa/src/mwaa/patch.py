@@ -16,6 +16,7 @@ patch_pins already used for package pins.
 
 import re
 
+from .pins import CONSTRAINT_LINE
 from .plan import EnvVarChange, PinChange
 from .startup_script import render_export_line
 
@@ -56,11 +57,19 @@ def patch_pins(text: str, pin_changes: list[PinChange]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def ensure_constraint_line(text: str, constraint_target: str) -> str:
-    """Prepend a --constraint line if the file doesn't already have one."""
-    if re.search(r"^\s*--constraint\b", text, re.MULTILINE):
-        return text
-    return f'--constraint "{constraint_target}"\n{text}'
+def set_constraint_line(text: str, constraint_line: str) -> str:
+    """Replace requirements.txt's --constraint line, or prepend one if it has none.
+
+    Replaces rather than skips an existing line: pip honors every
+    --constraint it's given, so leaving e.g. the upstream URL in place
+    alongside a new line would keep enforcing the very pins being upgraded.
+    """
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if CONSTRAINT_LINE.match(line):
+            lines[i] = constraint_line
+            return "\n".join(lines) + "\n"
+    return f"{constraint_line}\n{text}"
 
 
 def _export_line_pattern(name: str) -> "re.Pattern[str]":

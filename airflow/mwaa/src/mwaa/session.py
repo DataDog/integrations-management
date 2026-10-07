@@ -29,7 +29,7 @@ Each environment also carries `issues`: findings from the subset of probe
 checks.py checks that matter for whether it's *safe* to apply this plan --
 a conflicting AirflowConfigurationOptions value, a referenced constraints/
 wheel file that doesn't exist, an execution role that can't read what the
-plan would write. Recorded at scan time so `apply` can surface them right
+plan would write, a base constraints file that couldn't be downloaded. Recorded at scan time so `apply` can surface them right
 before acting, without recomputing anything -- and without blocking apply
 outright, since the person running it may already know and want to proceed
 anyway.
@@ -50,6 +50,7 @@ from airflow_shared.reporter import Finding, FindingStatus
 
 from .checks import (
     ProbeContext,
+    check_base_constraints,
     check_constraint_path,
     check_execution_role_s3_access,
     check_openlineage_precedence,
@@ -62,6 +63,7 @@ from .plan import EnvVarChange, Plan, compute_plan, plan_from_dict
 #: go wrong or interact badly with something already there, not just a
 #: normal onboarding-status fact (that's already_configured/plan above).
 _ISSUE_CHECKS = (
+    check_base_constraints,
     check_openlineage_precedence,
     check_constraint_path,
     check_wheel_references,
@@ -131,7 +133,7 @@ def _compute_issues(ctx: ProbeContext) -> list[Finding]:
     """
     issues: list[Finding] = []
     for check in _ISSUE_CHECKS:
-        if ctx.client is None and check is not check_openlineage_precedence:
+        if ctx.client is None and check not in (check_base_constraints, check_openlineage_precedence):
             continue
         try:
             finding = check(ctx)
@@ -149,7 +151,7 @@ def _environment_entry(ctx: ProbeContext, dd_site: str) -> EnvironmentEntry:
     plan = compute_plan(
         airflow_version=airflow_version,
         requirements_text=ctx.requirements_text,
-        constraints_text=ctx.constraints_text,
+        base_constraints=ctx.base_constraints,
         startup_script_text=ctx.startup_script_text,
         dd_site=dd_site,
         environment_name=environment_name,

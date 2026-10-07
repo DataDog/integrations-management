@@ -2,7 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-from mwaa.patch import ensure_constraint_line, patch_env_vars, patch_pins
+from mwaa.patch import patch_env_vars, patch_pins, set_constraint_line
 from mwaa.plan import EnvVarChange, PinChange
 from mwaa.startup_script import DD_API_KEY_PLACEHOLDER
 
@@ -78,15 +78,22 @@ def test_patch_pins_does_not_touch_unrelated_packages():
     assert "boto3==1.34.11" in patched
 
 
-def test_ensure_constraint_line_prepends_when_missing():
-    result = ensure_constraint_line("pandas==2.1.4\n", "/usr/local/airflow/dags/constraints.txt")
-    assert result.startswith('--constraint "/usr/local/airflow/dags/constraints.txt"\n')
-    assert "pandas==2.1.4" in result
+def test_set_constraint_line_prepends_when_missing():
+    result = set_constraint_line("pandas==2.1.4\n", '--constraint "/usr/local/airflow/dags/constraints.txt"')
+    assert result == '--constraint "/usr/local/airflow/dags/constraints.txt"\npandas==2.1.4\n'
 
 
-def test_ensure_constraint_line_leaves_existing_line_untouched():
-    text = '--constraint "/usr/local/airflow/dags/constraints.txt"\npandas==2.1.4\n'
-    assert ensure_constraint_line(text, "/usr/local/airflow/dags/constraints.txt") == text
+def test_set_constraint_line_replaces_an_existing_url_line_in_place():
+    text = 'pandas==2.1.4\n--constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.8.1/constraints-3.11.txt"\nboto3==1.34.11\n'
+
+    result = set_constraint_line(text, '--constraint "/usr/local/airflow/dags/constraints.txt"')
+
+    assert result == 'pandas==2.1.4\n--constraint "/usr/local/airflow/dags/constraints.txt"\nboto3==1.34.11\n'
+
+
+def test_set_constraint_line_replaces_the_short_c_form_too():
+    result = set_constraint_line("-c https://example.invalid/c.txt\npandas==2.1.4\n", '--constraint "/usr/local/airflow/dags/constraints.txt"')
+    assert result == '--constraint "/usr/local/airflow/dags/constraints.txt"\npandas==2.1.4\n'
 
 
 # --- patch_env_vars ------------------------------------------------------------

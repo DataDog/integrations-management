@@ -7,6 +7,8 @@ from unittest.mock import MagicMock
 from airflow_shared.mwaa_client import ObjectNotFoundError
 from mwaa.probe import build_context
 
+from .conftest import UPSTREAM_2_8_1_TEXT, UPSTREAM_2_8_1_URL
+
 ENVIRONMENT = {
     "Name": "my-env",
     "AirflowVersion": "2.8.1",
@@ -74,3 +76,65 @@ def test_build_context_tolerates_environment_with_no_requirements_configured():
 
     assert ctx.requirements_text == ""
     assert ctx.constraints_text is None
+
+
+def test_build_context_uses_the_referenced_local_constraints_file_as_its_own_base(fake_fetch):
+    fake_fetch.clear()  # a local base must never need the network
+    client = make_client()
+
+    ctx = build_context(client, "my-env")
+
+    assert ctx.base_constraints.source == "s3://my-bucket/dags/constraints.txt"
+    assert ctx.base_constraints.text == "apache-airflow-providers-openlineage==2.18.0\n"
+
+
+def test_build_context_fetches_the_url_requirements_already_points_at(fake_fetch):
+    url = "https://example.invalid/my-constraints.txt"
+    fake_fetch[url] = b"apache-airflow-providers-openlineage==1.4.0\nboto3==1.33.13\n"
+    client = make_client()
+    client.get_object_text.side_effect = lambda bucket, key, version_id=None: {
+        "requirements.txt": f'--constraint "{url}"\n',
+        "startup/mwaa-startup.sh": "",
+    }[key]
+
+    ctx = build_context(client, "my-env")
+
+    assert ctx.constraints_text is None
+    assert ctx.base_constraints.source == url
+    assert "boto3==1.33.13" in ctx.base_constraints.text
+
+
+def test_build_context_falls_back_to_upstream_constraints_for_the_airflow_and_python_version():
+    client = make_client()
+    client.get_object_text.side_effect = lambda bucket, key, version_id=None: {
+        "requirements.txt": "pandas==2.1.4\n",
+        "startup/mwaa-startup.sh": "",
+    }[key]
+
+    ctx = build_context(client, "my-env")
+
+    assert ctx.base_constraints.source == UPSTREAM_2_8_1_URL
+    assert ctx.base_constraints.text == UPSTREAM_2_8_1_TEXT
+
+
+def test_build_context_records_a_base_constraints_fetch_failure_instead_of_raising(fake_fetch):
+    fake_fetch.clear()
+    client = make_client()
+    client.get_object_text.side_effect = lambda bucket, key, version_id=None: {
+        "requirements.txt": "pandas==2.1.4\n",
+        "startup/mwaa-startup.sh": "",
+    }[key]
+
+    ctx = build_context(client, "my-env")
+
+    assert ctx.base_constraints.text is None
+    assert ctx.base_constraints.source == UPSTREAM_2_8_1_URL
+    assert "could not download" in ctx.base_constraints.error
+
+
+def test_build_context_skips_base_constraints_for_unflagged_versions(fake_fetch):
+    fake_fetch.clear()
+    client = make_client()
+    client.get_environment.return_value = {**ENVIRONMENT, "AirflowVersion": "2.10.3"}
+
+    assert build_context(client, "my-env").base_constraints is None

@@ -4,15 +4,20 @@
 
 from dataclasses import asdict
 
-from mwaa.plan import ConstraintDirectiveAdded, EnvVarChange, PinChange, compute_plan, plan_from_dict
+from mwaa.base_constraints import BaseConstraints
+from mwaa.plan import ConstraintDirectiveChange, EnvVarChange, PinChange, compute_plan, plan_from_dict
 from mwaa.startup_script import DD_API_KEY_PLACEHOLDER
+
+
+def local_base(text: str) -> BaseConstraints:
+    return BaseConstraints(source="s3://my-bucket/dags/constraints.txt", text=text)
 
 
 def test_flagged_version_with_stale_pins_needs_upgrade():
     plan = compute_plan(
         airflow_version="2.8.1",
         requirements_text="apache-airflow-providers-openlineage==1.4.0\n",
-        constraints_text="apache-airflow-providers-openlineage==1.4.0\napache-airflow-providers-common-sql==1.10.0\n",
+        base_constraints=local_base("apache-airflow-providers-openlineage==1.4.0\napache-airflow-providers-common-sql==1.10.0\n"),
         startup_script_text=None,
         dd_site="datadoghq.com",
         environment_name="my-env",
@@ -36,7 +41,7 @@ def test_flagged_version_with_stale_pins_needs_upgrade():
     assert compat_diff.from_version is None
     assert compat_diff.to_version == "1.2.1"
 
-    assert any(isinstance(fc, ConstraintDirectiveAdded) for fc in plan.file_changes)
+    assert any(isinstance(fc, ConstraintDirectiveChange) for fc in plan.file_changes)
     assert any(isinstance(fc, EnvVarChange) for fc in plan.file_changes)  # no startup.sh at all yet
 
 
@@ -52,7 +57,7 @@ def test_flagged_version_already_upgraded_needs_no_package_or_directive_changes(
             "openlineage-python==1.24.2\n"
             "openlineage-sql==1.24.2\n"
         ),
-        constraints_text=(
+        base_constraints=local_base(
             "apache-airflow-providers-openlineage==1.14.0\n"
             "apache-airflow-providers-common-sql==1.20.0\n"
             "apache-airflow-providers-common-compat==1.2.1\n"
@@ -79,7 +84,7 @@ def test_unflagged_version_without_provider_needs_addition_only():
     plan = compute_plan(
         airflow_version="2.10.1",
         requirements_text="pandas==2.1.4\n",
-        constraints_text=None,
+        base_constraints=None,
         startup_script_text=None,
         dd_site="datadoghq.com",
         environment_name="my-env",
@@ -88,7 +93,7 @@ def test_unflagged_version_without_provider_needs_addition_only():
     assert plan.source == "unflagged_version"
     assert plan.matched_table_entry is None
 
-    pin_changes = [fc for fc in plan.file_changes if isinstance(fc, (PinChange, ConstraintDirectiveAdded))]
+    pin_changes = [fc for fc in plan.file_changes if isinstance(fc, (PinChange, ConstraintDirectiveChange))]
     assert pin_changes == [PinChange(path="requirements.txt", package="apache-airflow-providers-openlineage", from_version=None, to_version=None)]
     assert any(isinstance(fc, EnvVarChange) for fc in plan.file_changes)
 
@@ -97,7 +102,7 @@ def test_unflagged_version_with_provider_already_pinned_and_startup_configured_n
     plan = compute_plan(
         airflow_version="2.10.1",
         requirements_text="apache-airflow-providers-openlineage==2.8.0\n",
-        constraints_text=None,
+        base_constraints=None,
         startup_script_text=(
             "export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n"
             "export OPENLINEAGE_API_KEY=some-real-key\n"
@@ -117,7 +122,7 @@ def test_unflagged_version_recognizes_a_previously_added_bare_package_line():
     plan = compute_plan(
         airflow_version="2.10.1",
         requirements_text="pandas==2.1.4\napache-airflow-providers-openlineage\n",
-        constraints_text=None,
+        base_constraints=None,
         startup_script_text=(
             "export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n"
             "export OPENLINEAGE_API_KEY=some-real-key\n"
@@ -135,7 +140,7 @@ def test_unflagged_version_with_only_common_sql_still_proposes_the_provider():
     plan = compute_plan(
         airflow_version="2.10.3",
         requirements_text="apache-airflow-providers-common-sql==1.20.0\n",
-        constraints_text=None,
+        base_constraints=None,
         startup_script_text=None,
         dd_site="datadoghq.com",
         environment_name="my-env",
@@ -148,7 +153,7 @@ def test_requirements_txt_gets_constraint_directive_when_missing():
     plan = compute_plan(
         airflow_version="2.8.1",
         requirements_text="apache-airflow-providers-openlineage==1.4.0\n",
-        constraints_text="apache-airflow-providers-openlineage==1.4.0\n",
+        base_constraints=local_base("apache-airflow-providers-openlineage==1.4.0\n"),
         startup_script_text=(
             "export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n"
             "export OPENLINEAGE_API_KEY=some-real-key\n"
@@ -157,9 +162,10 @@ def test_requirements_txt_gets_constraint_directive_when_missing():
         dd_site="datadoghq.com",
         environment_name="my-env",
     )
-    directive = next(fc for fc in plan.file_changes if isinstance(fc, ConstraintDirectiveAdded))
+    directive = next(fc for fc in plan.file_changes if isinstance(fc, ConstraintDirectiveChange))
     assert directive.path == "requirements.txt"
-    assert directive.line == '--constraint "/usr/local/airflow/dags/constraints.txt"'
+    assert directive.from_line is None
+    assert directive.to_line == '--constraint "/usr/local/airflow/dags/constraints.txt"'
 
 
 def test_startup_script_change_omitted_when_already_configured():
@@ -174,7 +180,7 @@ def test_startup_script_change_omitted_when_already_configured():
             "openlineage-python==1.24.2\n"
             "openlineage-sql==1.24.2\n"
         ),
-        constraints_text=(
+        base_constraints=local_base(
             "apache-airflow-providers-openlineage==1.14.0\n"
             "apache-airflow-providers-common-sql==1.20.0\n"
             "apache-airflow-providers-common-compat==1.2.1\n"
@@ -195,6 +201,95 @@ def test_startup_script_change_omitted_when_already_configured():
     assert plan.file_changes == []
 
 
+UPSTREAM_URL = "https://raw.githubusercontent.com/apache/airflow/constraints-2.8.1/constraints-3.11.txt"
+UPSTREAM_TEXT = (
+    "apache-airflow-providers-amazon==8.16.0\n"
+    "apache-airflow-providers-common-sql==1.10.0\n"
+    "apache-airflow-providers-openlineage==1.4.0\n"
+    "boto3==1.33.13\n"
+)
+
+
+def test_url_constraint_line_is_replaced_and_pins_are_diffed_against_that_file():
+    url_line = f'--constraint "{UPSTREAM_URL}"'
+    plan = compute_plan(
+        airflow_version="2.8.1",
+        requirements_text=f"{url_line}\napache-airflow-providers-amazon==8.16.0\n",
+        base_constraints=BaseConstraints(source=UPSTREAM_URL, text=UPSTREAM_TEXT),
+        startup_script_text=None,
+        dd_site="datadoghq.com",
+        environment_name="my-env",
+    )
+
+    directives = [fc for fc in plan.file_changes if isinstance(fc, ConstraintDirectiveChange)]
+    assert directives == [
+        ConstraintDirectiveChange(path="requirements.txt", from_line=url_line, to_line='--constraint "/usr/local/airflow/dags/constraints.txt"')
+    ]
+    constraint_pins = {fc.package: fc for fc in plan.file_changes if isinstance(fc, PinChange) and fc.path == "dags/constraints.txt"}
+    assert constraint_pins["apache-airflow-providers-openlineage"].from_version == "1.4.0"
+    assert constraint_pins["apache-airflow-providers-common-sql"].from_version == "1.10.0"
+    assert constraint_pins["openlineage-python"].from_version is None  # upstream doesn't pin it at all
+    assert UPSTREAM_URL in plan.rationale
+
+
+def test_constraints_from_version_comes_from_the_base_file_not_requirements():
+    plan = compute_plan(
+        airflow_version="2.8.1",
+        requirements_text="apache-airflow-providers-openlineage==1.6.0\n",
+        base_constraints=BaseConstraints(source=UPSTREAM_URL, text=UPSTREAM_TEXT),
+        startup_script_text=None,
+        dd_site="datadoghq.com",
+        environment_name="my-env",
+    )
+
+    ol_changes = {fc.path: fc for fc in plan.file_changes if isinstance(fc, PinChange) and fc.package == "apache-airflow-providers-openlineage"}
+    assert ol_changes["dags/constraints.txt"].from_version == "1.4.0"
+    assert ol_changes["requirements.txt"].from_version == "1.6.0"
+
+
+def test_custom_named_local_constraints_file_is_patched_in_place_with_no_directive_change():
+    plan = compute_plan(
+        airflow_version="2.8.1",
+        requirements_text='--constraint "/usr/local/airflow/dags/deps/my-constraints.txt"\napache-airflow-providers-openlineage==1.4.0\n',
+        base_constraints=BaseConstraints(source="s3://my-bucket/dags/deps/my-constraints.txt", text=UPSTREAM_TEXT),
+        startup_script_text=None,
+        dd_site="datadoghq.com",
+        environment_name="my-env",
+    )
+
+    assert not any(isinstance(fc, ConstraintDirectiveChange) for fc in plan.file_changes)
+    assert any(isinstance(fc, PinChange) and fc.path == "dags/constraints.txt" for fc in plan.file_changes)
+
+
+def test_unreadable_base_constraints_leaves_out_every_package_change():
+    plan = compute_plan(
+        airflow_version="2.8.1",
+        requirements_text="apache-airflow-providers-openlineage==1.4.0\n",
+        base_constraints=BaseConstraints(source=UPSTREAM_URL, text=None, error="could not download it: timed out"),
+        startup_script_text=None,
+        dd_site="datadoghq.com",
+        environment_name="my-env",
+    )
+
+    assert plan.upgrade_needed is True
+    assert all(isinstance(fc, EnvVarChange) for fc in plan.file_changes)
+    assert plan.file_changes  # startup.sh changes are still planned
+    assert "timed out" in plan.rationale
+
+
+def test_flagged_version_without_any_base_constraints_also_fails_safe():
+    plan = compute_plan(
+        airflow_version="2.8.1",
+        requirements_text="",
+        base_constraints=None,
+        startup_script_text=None,
+        dd_site="datadoghq.com",
+        environment_name="my-env",
+    )
+
+    assert all(isinstance(fc, EnvVarChange) for fc in plan.file_changes)
+
+
 # --- startup.sh env var diffing ------------------------------------------------
 
 
@@ -202,7 +297,7 @@ def test_env_var_change_proposed_when_url_points_at_the_wrong_site():
     plan = compute_plan(
         airflow_version="3.0.6",
         requirements_text="apache-airflow-providers-openlineage==2.18.0\n",
-        constraints_text=None,
+        base_constraints=None,
         startup_script_text=(
             "export OPENLINEAGE_URL=https://data-obs-intake.datad0g.com\n"
             "export OPENLINEAGE_API_KEY=some-real-key\n"
@@ -225,7 +320,7 @@ def test_env_var_change_never_proposed_for_a_secret_that_already_has_a_value():
     plan = compute_plan(
         airflow_version="3.0.6",
         requirements_text="apache-airflow-providers-openlineage==2.18.0\n",
-        constraints_text=None,
+        base_constraints=None,
         startup_script_text=(
             "export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n"
             "export OPENLINEAGE_API_KEY=some-real-key-that-might-even-be-wrong\n"
@@ -241,7 +336,7 @@ def test_env_var_change_proposed_for_a_missing_secret_variable():
     plan = compute_plan(
         airflow_version="3.0.6",
         requirements_text="apache-airflow-providers-openlineage==2.18.0\n",
-        constraints_text=None,
+        base_constraints=None,
         startup_script_text=(
             "export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n"
             'export AIRFLOW__OPENLINEAGE__NAMESPACE="my-env"\n'
@@ -274,7 +369,10 @@ def test_plan_from_dict_round_trips_every_file_change_variant():
         file_changes=[
             PinChange(path="requirements.txt", package="apache-airflow-providers-openlineage", from_version="1.4.0", to_version="1.14.0"),
             PinChange(path="requirements.txt", package="apache-airflow-providers-openlineage", from_version=None, to_version=None),
-            ConstraintDirectiveAdded(path="requirements.txt", line='--constraint "/usr/local/airflow/dags/constraints.txt"'),
+            ConstraintDirectiveChange(path="requirements.txt", from_line=None, to_line='--constraint "/usr/local/airflow/dags/constraints.txt"'),
+            ConstraintDirectiveChange(
+                path="requirements.txt", from_line='--constraint "https://example.invalid/c.txt"', to_line='--constraint "/usr/local/airflow/dags/constraints.txt"'
+            ),
             EnvVarChange(path="dags/startup.sh", name="OPENLINEAGE_API_KEY", from_value=None, to_value=DD_API_KEY_PLACEHOLDER, secret=True),
         ],
     )

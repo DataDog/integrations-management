@@ -10,7 +10,7 @@ import re
 # the S3 prefix (dag_s3_path) the environment is configured with.
 DAGS_MOUNT_PREFIX = "/usr/local/airflow/dags/"
 
-CONSTRAINT_LINE = re.compile(r'^\s*--constraint\s+"?([^"\s]+)"?', re.MULTILINE)
+CONSTRAINT_LINE = re.compile(r'^\s*(?:--constraint|-c)(?:\s+|=)"?([^"\s]+)"?', re.MULTILINE)
 WHEEL_REFERENCE = re.compile(r"(\S+\.whl)")
 _PIN_LINE = re.compile(r"^\s*([A-Za-z0-9_.\-]+)\s*==\s*([A-Za-z0-9_.\-]+)", re.MULTILINE)
 _REQUIREMENT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.\-]*")
@@ -70,6 +70,11 @@ def find_constraint_path(requirements_text: str) -> "str | None":
     """Return the raw --constraint path from requirements.txt, if present."""
     match = CONSTRAINT_LINE.search(requirements_text)
     return match.group(1) if match else None
+
+
+def find_constraint_line(requirements_text: str) -> "str | None":
+    """Return requirements.txt's whole --constraint line, stripped, if present."""
+    return next((line.strip() for line in requirements_text.splitlines() if CONSTRAINT_LINE.match(line)), None)
 
 
 def find_wheel_references(requirements_text: str) -> list[str]:

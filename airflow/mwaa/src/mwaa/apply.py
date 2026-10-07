@@ -29,9 +29,19 @@ from typing import Any
 from airflow_shared.mwaa_client import MwaaClient
 
 from .checks import ProbeContext, resolve_constraint_key
-from .patch import ensure_constraint_line, patch_env_vars, patch_pins
+from .patch import patch_env_vars, patch_pins, set_constraint_line
 from .pins import resolve_constraint_s3_key
-from .plan import CONSTRAINTS_PATH, EXPECTED_CONSTRAINT_LINE_TARGET, REQUIREMENTS_PATH, STARTUP_SCRIPT_PATH, ConstraintDirectiveAdded, EnvVarChange, Plan, PinChange
+from .plan import (
+    CONSTRAINTS_PATH,
+    EXPECTED_CONSTRAINT_LINE,
+    EXPECTED_CONSTRAINT_LINE_TARGET,
+    REQUIREMENTS_PATH,
+    STARTUP_SCRIPT_PATH,
+    ConstraintDirectiveChange,
+    EnvVarChange,
+    PinChange,
+    Plan,
+)
 from .startup_script import interpolate_api_key as _substitute_api_key
 
 
@@ -78,13 +88,10 @@ def real_key_for_path(ctx: ProbeContext, path: str) -> str:
     if path == REQUIREMENTS_PATH:
         return ctx.environment.get("RequirementsS3Path") or _default_requirements_key(dag_s3_path)
     if path == CONSTRAINTS_PATH:
-        existing_key = resolve_constraint_key(ctx.requirements_text, dag_s3_path)
-        if existing_key:
-            return existing_key
-        # No --constraint line yet (first-time "create"): resolve the same
-        # target path compute_plan's ensure_constraint_line writes into
-        # requirements.txt, so the two agree on where constraints.txt lives.
-        return resolve_constraint_s3_key(EXPECTED_CONSTRAINT_LINE_TARGET, dag_s3_path) or f"{dag_s3_path}/constraints.txt"
+        # a --constraint already under the dags mount is patched in place; anything
+        # else (none yet, or a URL) gets replaced by the line set_constraint_line
+        # writes, so resolve that same target and the two agree on the key.
+        return resolve_constraint_key(ctx.requirements_text, dag_s3_path) or resolve_constraint_s3_key(EXPECTED_CONSTRAINT_LINE_TARGET, dag_s3_path)
     if path == STARTUP_SCRIPT_PATH:
         return ctx.environment.get("StartupScriptS3Path") or f"{dag_s3_path}/startup.sh"
     raise ValueError(f"don't know the real S3 key for {path!r}")
@@ -96,6 +103,11 @@ def compute_apply_actions(ctx: ProbeContext, plan: Plan) -> list[FileUpload]:
     plan.file_changes is a flat list of per-package/per-directive/per-variable
     changes, possibly several sharing the same path (e.g. six PinChanges all
     for dags/constraints.txt) -- group by path first, then patch once per file.
+
+    constraints.txt pins are patched into ctx.base_constraints, the full base
+    file (see base_constraints.py), never into whatever's at the target key
+    or an empty file -- if the base can't be read now, this raises rather
+    than produce a pins-only constraints file.
     """
     by_path: dict[str, list] = {}
     for change in plan.file_changes:
@@ -105,12 +117,15 @@ def compute_apply_actions(ctx: ProbeContext, plan: Plan) -> list[FileUpload]:
     for path, changes in by_path.items():
         old_content = current_text_for_path(ctx, path)
         if path == CONSTRAINTS_PATH:
-            content = patch_pins(old_content, [c for c in changes if isinstance(c, PinChange)])
+            base = ctx.base_constraints
+            if base is None or base.text is None:
+                raise RuntimeError(f"can't write {path} without its full base constraints file: {base.error if base else 'not resolved'}")
+            content = patch_pins(base.text, [c for c in changes if isinstance(c, PinChange)])
             action = "update" if ctx.constraints_text else "create"
         elif path == REQUIREMENTS_PATH:
             content = patch_pins(old_content, [c for c in changes if isinstance(c, PinChange)])
-            if any(isinstance(c, ConstraintDirectiveAdded) for c in changes):
-                content = ensure_constraint_line(content, EXPECTED_CONSTRAINT_LINE_TARGET)
+            if any(isinstance(c, ConstraintDirectiveChange) for c in changes):
+                content = set_constraint_line(content, EXPECTED_CONSTRAINT_LINE)
             action = "update"
         else:  # STARTUP_SCRIPT_PATH -- current_text_for_path already validated the path
             content = patch_env_vars(old_content, [c for c in changes if isinstance(c, EnvVarChange)])

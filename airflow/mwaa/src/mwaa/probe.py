@@ -12,11 +12,19 @@ same checks as each environment's `issues` (see session.py).
 
 from airflow_shared.mwaa_client import MwaaClient, ObjectNotFoundError
 
+from .base_constraints import resolve_base_constraints
 from .checks import ProbeContext, resolve_constraint_key
+from .fetch import fetch_bytes
+from .version_table import FLAGGED_VERSION_TABLE
 
 
 def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
-    """Fetch everything the checks (and plan computation) need from AWS, once, up front."""
+    """Fetch everything the checks (and plan computation) need, once, up front.
+
+    Everything comes from AWS except a flagged version's base constraints
+    file when it isn't already a local S3 object (see base_constraints.py) --
+    that's a plain HTTPS GET.
+    """
     environment = client.get_environment(environment_name)
     bucket = environment["SourceBucketArn"].rsplit(":", 1)[-1]
 
@@ -48,10 +56,18 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
         except ObjectNotFoundError:
             startup_script_text = None
 
+    base_constraints = None
+    airflow_version = environment.get("AirflowVersion", "")
+    if airflow_version in FLAGGED_VERSION_TABLE:
+        base_constraints = resolve_base_constraints(
+            airflow_version, requirements_text, constraints_text, f"s3://{bucket}/{constraints_key}", fetch_bytes
+        )
+
     return ProbeContext(
         environment=environment,
         requirements_text=requirements_text,
         constraints_text=constraints_text,
         startup_script_text=startup_script_text,
         client=client,
+        base_constraints=base_constraints,
     )

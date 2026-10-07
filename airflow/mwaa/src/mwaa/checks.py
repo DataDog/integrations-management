@@ -32,6 +32,7 @@ from botocore.exceptions import ClientError
 from airflow_shared.mwaa_client import MwaaClient
 from airflow_shared.reporter import Finding, FindingStatus
 
+from .base_constraints import BaseConstraints
 from .pins import CONSTRAINT_LINE, DAGS_MOUNT_PREFIX, find_wheel_references, resolve_constraint_s3_key
 from .startup_script import parse_exports
 
@@ -44,6 +45,8 @@ class ProbeContext:
     constraints_text: Optional[str]
     startup_script_text: Optional[str]
     client: MwaaClient
+    # only resolved for flagged versions -- the only ones whose plan writes a constraints file
+    base_constraints: Optional[BaseConstraints] = None
 
 
 def resolve_constraint_key(requirements_text: str, dag_s3_path: str) -> Optional[str]:
@@ -90,6 +93,24 @@ def check_constraint_path(ctx: ProbeContext) -> Finding:
         FindingStatus.FAIL,
         "requirements.txt references a constraints file that does not exist",
         f"expected s3://{bucket}/{resolved_key} (from --constraint {constraint_path})",
+    )
+
+
+def check_base_constraints(ctx: ProbeContext) -> Finding:
+    """A flagged version's full base constraints file has to be readable to plan its package changes.
+
+    See base_constraints.py: without it the only file this tool could write is
+    a pins-only constraints.txt, which unconstrains everything else, so the
+    plan leaves the package changes out instead and this records why.
+    """
+    base = ctx.base_constraints
+    if base is None or base.text is not None:
+        return Finding("base_constraints", FindingStatus.PASS, "base constraints file read" if base else "no base constraints file needed")
+    return Finding(
+        "base_constraints",
+        FindingStatus.FAIL,
+        "could not read the base constraints file, so the plan leaves out every OpenLineage package change",
+        f"{base.error}\nRe-run scan once {base.source or 'it'} is reachable.",
     )
 
 

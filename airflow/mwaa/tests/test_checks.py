@@ -7,8 +7,10 @@ from unittest.mock import MagicMock
 from botocore.exceptions import ClientError
 
 from airflow_shared.reporter import FindingStatus
+from mwaa.base_constraints import BaseConstraints
 from mwaa.checks import (
     ProbeContext,
+    check_base_constraints,
     check_constraint_path,
     check_execution_role_s3_access,
     check_openlineage_precedence,
@@ -165,3 +167,22 @@ def test_wheel_references_warns_when_path_outside_dags_mount():
     ctx = make_context(requirements_text="/opt/other/datadog_provider-1.0.0-py3-none-any.whl\n")
     finding = check_wheel_references(ctx)
     assert finding.status == FindingStatus.WARN
+
+
+# --- check_base_constraints --------------------------------------------------
+
+
+def test_base_constraints_passes_when_not_needed_or_readable():
+    assert check_base_constraints(make_context()).status == FindingStatus.PASS
+    readable = make_context(base_constraints=BaseConstraints(source="https://example.invalid/c.txt", text="boto3==1.33.13\n"))
+    assert check_base_constraints(readable).status == FindingStatus.PASS
+
+
+def test_base_constraints_fails_when_unreadable():
+    ctx = make_context(base_constraints=BaseConstraints(source="https://example.invalid/c.txt", text=None, error="timed out"))
+
+    finding = check_base_constraints(ctx)
+
+    assert finding.status == FindingStatus.FAIL
+    assert "timed out" in finding.detail
+    assert "https://example.invalid/c.txt" in finding.detail
