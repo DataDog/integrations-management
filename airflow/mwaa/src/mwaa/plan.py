@@ -43,7 +43,7 @@ from dataclasses import dataclass
 from typing import Optional, Union
 
 from .base_constraints import BaseConstraints
-from .pins import DAGS_MOUNT_PREFIX, find_constraint_line, find_constraint_path, find_wheel_references, mentions_package, parse_pins, resolve_constraint_s3_key
+from .pins import DAGS_MOUNT_PREFIX, find_constraint_line, find_constraint_path, mentions_package, parse_pins, resolve_constraint_s3_key
 from .startup_script import SECRET_VAR_NAMES, parse_exports, target_values
 from .version_table import DATADOG_WHEEL_BASE_URL, FLAGGED_VERSION_TABLE, SOURCE_DOC, FlaggedVersionEntry, datadog_wheel_filename
 
@@ -88,8 +88,8 @@ class WheelReference:
 
     `line` is the wheel's path under the DAGs mount; apply downloads
     `wheel_url` and uploads it to the matching key under DagS3Path first.
-    Replaces whatever line already installs `package` (a pin, or a
-    different wheel), else is appended.
+    Replaces whatever line already installs `package` (a pin, a different
+    wheel, or this same line when its S3 object is missing), else is appended.
     """
 
     path: str
@@ -171,7 +171,7 @@ def plan_from_dict(data: dict) -> Plan:
 
 
 def _plan_flagged_version(
-    entry: FlaggedVersionEntry, requirements_text: str, base_constraints: Optional[BaseConstraints]
+    entry: FlaggedVersionEntry, requirements_text: str, base_constraints: Optional[BaseConstraints], present_wheel_files: frozenset[str]
 ) -> tuple[bool, str, list[FileChange]]:
     default_ol_version = entry.default_versions.get(OPENLINEAGE_PROVIDER, "an old version")
     rationale = (
@@ -203,11 +203,11 @@ def _plan_flagged_version(
             changes.append(
                 ConstraintDirectiveChange(path=REQUIREMENTS_PATH, from_line=find_constraint_line(requirements_text), to_line=EXPECTED_CONSTRAINT_LINE)
             )
-    referenced_wheels = {ref.rsplit("/", 1)[-1] for ref in find_wheel_references(requirements_text)}
     for package, target in entry.target_versions.items():
         if package in entry.wheel_only_packages:
             filename = datadog_wheel_filename(package, target)
-            if filename not in referenced_wheels:
+            # a reference line whose object is missing still gets one, so apply uploads it
+            if filename not in present_wheel_files:
                 changes.append(
                     WheelReference(
                         path=REQUIREMENTS_PATH,
@@ -267,14 +267,16 @@ def compute_plan(
     startup_script_text: Optional[str],
     dd_site: str,
     environment_name: str,
+    present_wheel_files: frozenset[str] = frozenset(),
 ) -> Plan:
     """Compute the onboarding plan for one environment from its real current files.
 
-    base_constraints is only consulted for flagged versions (see ProbeContext).
+    base_constraints and present_wheel_files are only consulted for flagged
+    versions (see ProbeContext).
     """
     flagged_entry = FLAGGED_VERSION_TABLE.get(airflow_version)
     if flagged_entry:
-        upgrade_needed, rationale, file_changes = _plan_flagged_version(flagged_entry, requirements_text, base_constraints)
+        upgrade_needed, rationale, file_changes = _plan_flagged_version(flagged_entry, requirements_text, base_constraints, present_wheel_files)
         source = "flagged_version_table"
     else:
         upgrade_needed, rationale, file_changes = _plan_unflagged_version(airflow_version, requirements_text)

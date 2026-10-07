@@ -10,11 +10,14 @@ environment, no session involved), retired once `scan` started recording the
 same checks as each environment's `issues` (see session.py).
 """
 
+from botocore.exceptions import ClientError
+
 from airflow_shared.mwaa_client import MwaaClient, ObjectNotFoundError
 
 from .base_constraints import resolve_base_constraints
 from .checks import ProbeContext, resolve_constraint_key
 from .fetch import fetch_bytes
+from .pins import find_wheel_references, resolve_constraint_s3_key
 from .version_table import FLAGGED_VERSION_TABLE
 
 
@@ -57,11 +60,22 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
             startup_script_text = None
 
     base_constraints = None
-    airflow_version = environment.get("AirflowVersion", "")
-    if airflow_version in FLAGGED_VERSION_TABLE:
+    present_wheel_files: set[str] = set()
+    flagged_entry = FLAGGED_VERSION_TABLE.get(environment.get("AirflowVersion", ""))
+    if flagged_entry:
         base_constraints = resolve_base_constraints(
-            airflow_version, requirements_text, constraints_text, f"s3://{bucket}/{constraints_key}", fetch_bytes
+            flagged_entry.airflow_version, requirements_text, constraints_text, f"s3://{bucket}/{constraints_key}", fetch_bytes
         )
+    if flagged_entry and flagged_entry.wheel_only_packages:
+        for ref in find_wheel_references(requirements_text):
+            key = resolve_constraint_s3_key(ref, environment.get("DagS3Path", "dags"))
+            try:
+                if key and client.object_exists(bucket, key):
+                    present_wheel_files.add(ref.rsplit("/", 1)[-1])
+            except ClientError:
+                # e.g. a 403 for a missing key without s3:ListBucket -- treat it as
+                # missing, so the plan re-uploads it rather than trust it's there
+                pass
 
     return ProbeContext(
         environment=environment,
@@ -70,4 +84,5 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
         startup_script_text=startup_script_text,
         client=client,
         base_constraints=base_constraints,
+        present_wheel_files=frozenset(present_wheel_files),
     )

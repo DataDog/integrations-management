@@ -155,6 +155,7 @@ def _environment_entry(ctx: ProbeContext, dd_site: str) -> EnvironmentEntry:
         startup_script_text=ctx.startup_script_text,
         dd_site=dd_site,
         environment_name=environment_name,
+        present_wheel_files=ctx.present_wheel_files,
     )
     return EnvironmentEntry(
         name=environment_name,

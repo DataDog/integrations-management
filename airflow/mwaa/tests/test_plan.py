@@ -350,9 +350,24 @@ def test_2_7_2_recognizes_existing_wheel_references():
         startup_script_text=None,
         dd_site="datadoghq.com",
         environment_name="my-env",
+        present_wheel_files=frozenset({OPENLINEAGE_WHEEL, COMMON_COMPAT_WHEEL}),
     )
 
     assert all(isinstance(fc, EnvVarChange) for fc in plan.file_changes)
+
+
+def test_2_7_2_still_plans_a_wheel_whose_reference_exists_but_object_is_missing():
+    plan = compute_plan(
+        airflow_version="2.7.2",
+        requirements_text=f"/usr/local/airflow/dags/{OPENLINEAGE_WHEEL}\n/usr/local/airflow/dags/{COMMON_COMPAT_WHEEL}\n",
+        base_constraints=local_base(UPSTREAM_2_7_2_TEXT),
+        startup_script_text=None,
+        dd_site="datadoghq.com",
+        environment_name="my-env",
+        present_wheel_files=frozenset({COMMON_COMPAT_WHEEL}),
+    )
+
+    assert [fc.package for fc in plan.file_changes if isinstance(fc, WheelReference)] == ["apache-airflow-providers-openlineage"]
 
 
 # --- startup.sh env var diffing ------------------------------------------------

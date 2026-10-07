@@ -6,13 +6,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from airflow_shared.mwaa_client import ObjectNotFoundError
+from airflow_shared.reporter import FindingStatus
 from mwaa.apply import compute_apply_actions, apply_to_environment, interpolate_api_key, real_key_for_path
 from mwaa.base_constraints import BaseConstraints
 from mwaa.checks import ProbeContext, check_wheel_references
-from mwaa.plan import compute_plan
-from mwaa.plan import ConstraintDirectiveChange, WheelReference
+from mwaa.plan import ConstraintDirectiveChange, WheelReference, compute_plan
+from mwaa.probe import build_context
 from mwaa.startup_script import DD_API_KEY_PLACEHOLDER
-from airflow_shared.reporter import FindingStatus
 
 from .conftest import FAKE_WHEEL_BYTES, OPENLINEAGE_WHEEL_URL, UPSTREAM_2_7_2_TEXT
 
@@ -343,11 +344,20 @@ def test_real_key_for_path_falls_back_for_never_configured_requirements():
 
 
 class FakeS3Client:
-    """Just enough of MwaaClient to apply against and then re-check, backed by a dict."""
+    """Just enough of MwaaClient to build a context from, apply against and re-check, backed by a dict."""
 
-    def __init__(self, objects: dict):
+    def __init__(self, environment: dict, objects: dict):
+        self.environment = environment
         self.objects = dict(objects)
         self.update_environment = MagicMock()
+
+    def get_environment(self, name):
+        return self.environment
+
+    def get_object_text(self, bucket, key, version_id=None):
+        if key not in self.objects:
+            raise ObjectNotFoundError(key)
+        return self.objects[key]
 
     def put_object_text(self, bucket, key, content):
         self.objects[key] = content
@@ -361,26 +371,32 @@ class FakeS3Client:
         return key in self.objects
 
 
-def test_2_7_2_apply_uploads_wheels_references_them_and_rescans_clean():
-    environment = {**ENVIRONMENT, "AirflowVersion": "2.7.2", "DagS3Path": "dags", "RequirementsS3Path": "requirements.txt"}
-    requirements = "apache-airflow-providers-openlineage==1.1.0\npandas==2.1.4\n"
-    client = FakeS3Client({"requirements.txt": requirements})
-    ctx = make_context(
-        environment=environment,
-        requirements_text=requirements,
-        constraints_text=None,
-        base_constraints=BaseConstraints(source="https://example.invalid/c.txt", text=UPSTREAM_2_7_2_TEXT),
-        client=client,
-    )
-    plan = compute_plan("2.7.2", ctx.requirements_text, ctx.base_constraints, None, "datadoghq.com", "my-env")
-    wheels = [fc for fc in plan.file_changes if isinstance(fc, WheelReference)]
+WHEEL_ENVIRONMENT = {**ENVIRONMENT, "AirflowVersion": "2.7.2", "DagS3Path": "dags", "RequirementsS3Path": "requirements.txt"}
 
+
+def scan_and_apply(client: FakeS3Client):
+    ctx = build_context(client, "my-env")
+    plan = compute_plan("2.7.2", ctx.requirements_text, ctx.base_constraints, None, "datadoghq.com", "my-env", ctx.present_wheel_files)
+    wheels = [fc for fc in plan.file_changes if isinstance(fc, WheelReference)]
     apply_to_environment(client, ctx, compute_apply_actions(ctx, plan), wheels)
+    return wheels
+
+
+def assert_rescans_clean(client: FakeS3Client):
+    ctx = build_context(client, "my-env")
+    assert check_wheel_references(ctx).status == FindingStatus.PASS
+    replan = compute_plan("2.7.2", ctx.requirements_text, ctx.base_constraints, None, "datadoghq.com", "my-env", ctx.present_wheel_files)
+    assert not any(fc.path in ("requirements.txt", "dags/constraints.txt") for fc in replan.file_changes)
+
+
+def test_2_7_2_apply_uploads_wheels_references_them_and_rescans_clean():
+    client = FakeS3Client(WHEEL_ENVIRONMENT, {"requirements.txt": "apache-airflow-providers-openlineage==1.1.0\npandas==2.1.4\n"})
+
+    scan_and_apply(client)
 
     assert client.objects["dags/apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl"] == FAKE_WHEEL_BYTES
     assert client.objects["dags/apache_airflow_providers_common_compat-1.2.2-py3-none-any.whl"] == FAKE_WHEEL_BYTES
-    new_requirements = client.objects["requirements.txt"]
-    assert new_requirements.splitlines() == [
+    assert client.objects["requirements.txt"].splitlines() == [
         '--constraint "/usr/local/airflow/dags/constraints.txt"',
         "/usr/local/airflow/dags/apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl",
         "pandas==2.1.4",
@@ -389,13 +405,26 @@ def test_2_7_2_apply_uploads_wheels_references_them_and_rescans_clean():
         "openlineage-sql==1.24.2",
         "/usr/local/airflow/dags/apache_airflow_providers_common_compat-1.2.2-py3-none-any.whl",
     ]
+    assert_rescans_clean(client)
 
-    rescanned = make_context(
-        environment=environment, requirements_text=new_requirements, constraints_text=client.objects["dags/constraints.txt"], client=client
+
+def test_2_7_2_apply_uploads_wheels_that_are_referenced_but_missing_from_s3():
+    requirements = (
+        "/usr/local/airflow/dags/apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl\n"
+        "/usr/local/airflow/dags/apache_airflow_providers_common_compat-1.2.2-py3-none-any.whl\n"
+        "pandas==2.1.4\n"
     )
-    assert check_wheel_references(rescanned).status == FindingStatus.PASS
-    replan = compute_plan("2.7.2", rescanned.requirements_text, rescanned.base_constraints, None, "datadoghq.com", "my-env")
-    assert not any(fc.path in ("requirements.txt", "dags/constraints.txt") for fc in replan.file_changes)
+    client = FakeS3Client(WHEEL_ENVIRONMENT, {"requirements.txt": requirements})
+    assert check_wheel_references(build_context(client, "my-env")).status == FindingStatus.FAIL
+
+    wheels = scan_and_apply(client)
+
+    assert len(wheels) == 2
+    assert client.objects["dags/apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl"] == FAKE_WHEEL_BYTES
+    new_requirements = client.objects["requirements.txt"]
+    assert new_requirements.count("apache_airflow_providers_openlineage-1.14.0") == 1  # no duplicate reference line
+    assert new_requirements.count("apache_airflow_providers_common_compat-1.2.2") == 1
+    assert_rescans_clean(client)
 
 
 def test_apply_to_environment_writes_nothing_if_a_wheel_download_isnt_a_wheel(fake_fetch):

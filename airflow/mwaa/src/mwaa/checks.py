@@ -47,6 +47,9 @@ class ProbeContext:
     client: MwaaClient
     # only resolved for flagged versions -- the only ones whose plan writes a constraints file
     base_constraints: Optional[BaseConstraints] = None
+    # filenames of wheels requirements.txt references whose S3 objects exist -- only
+    # resolved for versions that install from wheels (2.7.2)
+    present_wheel_files: frozenset[str] = frozenset()
 
 
 def resolve_constraint_key(requirements_text: str, dag_s3_path: str) -> Optional[str]:

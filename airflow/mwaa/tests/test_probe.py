@@ -4,6 +4,8 @@
 
 from unittest.mock import MagicMock
 
+from botocore.exceptions import ClientError
+
 from airflow_shared.mwaa_client import ObjectNotFoundError
 from mwaa.probe import build_context
 
@@ -138,3 +140,24 @@ def test_build_context_skips_base_constraints_for_unflagged_versions(fake_fetch)
     client.get_environment.return_value = {**ENVIRONMENT, "AirflowVersion": "2.10.3"}
 
     assert build_context(client, "my-env").base_constraints is None
+
+
+def test_build_context_treats_an_unreadable_wheel_object_as_missing():
+    wheel = "apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl"
+    client = make_client()
+    client.get_environment.return_value = {**ENVIRONMENT, "AirflowVersion": "2.7.2"}
+    client.get_object_text.side_effect = lambda bucket, key, version_id=None: {
+        "requirements.txt": f"/usr/local/airflow/dags/{wheel}\n/usr/local/airflow/dags/other-1.0-py3-none-any.whl\n",
+        "startup/mwaa-startup.sh": "",
+    }[key]
+
+    def object_exists(bucket, key):
+        if key == "dags/other-1.0-py3-none-any.whl":
+            return True
+        raise ClientError({"Error": {"Code": "403"}}, "HeadObject")
+
+    client.object_exists.side_effect = object_exists
+
+    ctx = build_context(client, "my-env")
+
+    assert ctx.present_wheel_files == frozenset({"other-1.0-py3-none-any.whl"})
