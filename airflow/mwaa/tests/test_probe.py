@@ -27,6 +27,7 @@ ENVIRONMENT = {
 
 def make_client() -> MagicMock:
     client = MagicMock()
+    client.latest_version_id.return_value = None
     client.get_environment.return_value = ENVIRONMENT
     client.get_object_text.side_effect = lambda bucket, key, version_id=None: {
         "requirements.txt": (

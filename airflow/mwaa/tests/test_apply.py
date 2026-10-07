@@ -6,7 +6,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from airflow_shared.mwaa_client import ObjectNotFoundError
 from airflow_shared.reporter import FindingStatus
 from mwaa.apply import compute_apply_actions, apply_to_environment, interpolate_api_key, real_key_for_path
 from mwaa.base_constraints import BaseConstraints
@@ -15,7 +14,7 @@ from mwaa.plan import ConstraintDirectiveChange, EnvVarChange, WheelReference, c
 from mwaa.probe import build_context
 from mwaa.startup_script import DD_API_KEY_PLACEHOLDER
 
-from .conftest import FAKE_WHEEL_BYTES, OPENLINEAGE_WHEEL_URL, UPSTREAM_2_7_2_TEXT
+from .conftest import FAKE_WHEEL_BYTES, OPENLINEAGE_WHEEL_URL, UPSTREAM_2_7_2_TEXT, FakeS3Client
 
 ENVIRONMENT = {"Name": "my-env", "AirflowVersion": "2.8.1", "SourceBucketArn": "arn:aws:s3:::my-bucket"}
 
@@ -385,34 +384,6 @@ def test_real_key_for_path_falls_back_for_never_configured_requirements():
     from mwaa.plan import REQUIREMENTS_PATH
 
     assert real_key_for_path(ctx, REQUIREMENTS_PATH) == "setup-probe/probe-env/requirements.txt"
-
-
-class FakeS3Client:
-    """Just enough of MwaaClient to build a context from, apply against and re-check, backed by a dict."""
-
-    def __init__(self, environment: dict, objects: dict):
-        self.environment = environment
-        self.objects = dict(objects)
-        self.update_environment = MagicMock()
-
-    def get_environment(self, name):
-        return self.environment
-
-    def get_object_text(self, bucket, key, version_id=None):
-        if key not in self.objects:
-            raise ObjectNotFoundError(key)
-        return self.objects[key]
-
-    def put_object_text(self, bucket, key, content):
-        self.objects[key] = content
-        return None
-
-    def put_object_bytes(self, bucket, key, content):
-        self.objects[key] = content
-        return None
-
-    def object_exists(self, bucket, key):
-        return key in self.objects
 
 
 WHEEL_ENVIRONMENT = {**ENVIRONMENT, "AirflowVersion": "2.7.2", "DagS3Path": "dags", "RequirementsS3Path": "requirements.txt"}

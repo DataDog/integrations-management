@@ -49,9 +49,10 @@ from .version_table import DATADOG_WHEEL_BASE_URL, FLAGGED_VERSION_TABLE, SOURCE
 
 REQUIREMENTS_PATH = "requirements.txt"
 CONSTRAINTS_PATH = "dags/constraints.txt"
+# written instead of CONSTRAINTS_PATH when an unreferenced dags/constraints.txt already
+# exists -- it may well be another environment's, so it's never overwritten
+DATADOG_CONSTRAINTS_PATH = "dags/constraints-datadog.txt"
 STARTUP_SCRIPT_PATH = "dags/startup.sh"
-EXPECTED_CONSTRAINT_LINE_TARGET = "/usr/local/airflow/dags/constraints.txt"
-EXPECTED_CONSTRAINT_LINE = f'--constraint "{EXPECTED_CONSTRAINT_LINE_TARGET}"'
 OPENLINEAGE_PROVIDER = "apache-airflow-providers-openlineage"
 
 
@@ -134,6 +135,11 @@ class Plan:
     file_changes: list[FileChange]
 
 
+def constraint_line_for(constraints_path: str) -> str:
+    """The --constraint line pointing at a `dags/...` constraints label's file under the DAGs mount."""
+    return f'--constraint "{DAGS_MOUNT_PREFIX}{constraints_path.removeprefix("dags/")}"'
+
+
 def _file_change_from_dict(data: dict) -> FileChange:
     change_type = data["type"]
     if change_type == "pin_change":
@@ -171,7 +177,11 @@ def plan_from_dict(data: dict) -> Plan:
 
 
 def _plan_flagged_version(
-    entry: FlaggedVersionEntry, requirements_text: str, base_constraints: Optional[BaseConstraints], present_wheel_files: frozenset[str]
+    entry: FlaggedVersionEntry,
+    requirements_text: str,
+    base_constraints: Optional[BaseConstraints],
+    present_wheel_files: frozenset[str],
+    constraints_path: str,
 ) -> tuple[bool, str, list[FileChange]]:
     default_ol_version = entry.default_versions.get(OPENLINEAGE_PROVIDER, "an old version")
     rationale = (
@@ -203,16 +213,21 @@ def _plan_flagged_version(
     base_pins = parse_pins(base_constraints.text)
     current_req_pins = parse_pins(requirements_text)
     changes: list[FileChange] = [
-        PinChange(path=CONSTRAINTS_PATH, package=package, from_version=base_pins.get(package), to_version=target)
+        PinChange(path=constraints_path, package=package, from_version=base_pins.get(package), to_version=target)
         for package, target in entry.target_versions.items()
         if base_pins.get(package) != target
     ]
     if changes:
-        rationale += f" {CONSTRAINTS_PATH} is the full constraints file from {base_constraints.source}, with these pins patched in."
+        rationale += f" {constraints_path} is the full constraints file from {base_constraints.source}, with these pins patched in."
+        if constraints_path == DATADOG_CONSTRAINTS_PATH:
+            rationale += (
+                f" {CONSTRAINTS_PATH} already exists but isn't referenced by requirements.txt, so the patched "
+                f"constraints are written to {DATADOG_CONSTRAINTS_PATH.removeprefix('dags/')} instead of overwriting it."
+            )
         # a --constraint already under the dags mount is the file being patched in place
         if resolve_constraint_s3_key(find_constraint_path(requirements_text) or "", "dags") is None:
             changes.append(
-                ConstraintDirectiveChange(path=REQUIREMENTS_PATH, from_line=constraint_lines[0] if constraint_lines else None, to_line=EXPECTED_CONSTRAINT_LINE)
+                ConstraintDirectiveChange(path=REQUIREMENTS_PATH, from_line=constraint_lines[0] if constraint_lines else None, to_line=constraint_line_for(constraints_path))
             )
     for package, target in entry.target_versions.items():
         if package in entry.wheel_only_packages:
@@ -282,15 +297,16 @@ def compute_plan(
     startup_script_text: Optional[str],
     dd_site: str,
     present_wheel_files: frozenset[str] = frozenset(),
+    constraints_path: str = CONSTRAINTS_PATH,
 ) -> Plan:
     """Compute the onboarding plan for one environment from its real current files.
 
-    base_constraints and present_wheel_files are only consulted for flagged
-    versions (see ProbeContext).
+    base_constraints, present_wheel_files and constraints_path are only
+    consulted for flagged versions (see ProbeContext).
     """
     flagged_entry = FLAGGED_VERSION_TABLE.get(airflow_version)
     if flagged_entry:
-        upgrade_needed, rationale, file_changes = _plan_flagged_version(flagged_entry, requirements_text, base_constraints, present_wheel_files)
+        upgrade_needed, rationale, file_changes = _plan_flagged_version(flagged_entry, requirements_text, base_constraints, present_wheel_files, constraints_path)
         source = "flagged_version_table"
     else:
         upgrade_needed, rationale, file_changes = _plan_unflagged_version(airflow_version, requirements_text)

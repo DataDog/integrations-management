@@ -28,6 +28,7 @@ ENVIRONMENTS = {
 
 def make_client() -> MagicMock:
     client = MagicMock()
+    client.latest_version_id.return_value = None
     client.list_environment_names.return_value = list(ENVIRONMENTS)
     client.get_environment.side_effect = lambda name: ENVIRONMENTS[name]
     client.get_object_text.return_value = "pandas==2.1.4\n"

@@ -33,6 +33,7 @@ from airflow_shared.mwaa_client import MwaaClient
 from airflow_shared.reporter import Finding, FindingStatus
 
 from .base_constraints import BaseConstraints
+from .plan import CONSTRAINTS_PATH
 from .pins import CONSTRAINT_LINE, DAGS_MOUNT_PREFIX, find_constraint_lines, find_wheel_references, resolve_constraint_s3_key
 from .version_table import FLAGGED_VERSION_TABLE
 from .startup_script import parse_exports
@@ -43,6 +44,7 @@ class ProbeContext:
 
     environment: dict
     requirements_text: str
+    # current content of the constraints file at constraints_path (None if it doesn't exist)
     constraints_text: Optional[str]
     startup_script_text: Optional[str]
     client: MwaaClient
@@ -51,6 +53,10 @@ class ProbeContext:
     # filenames of wheels requirements.txt references whose S3 objects exist -- only
     # resolved for versions that install from wheels (2.7.2)
     present_wheel_files: frozenset[str] = frozenset()
+    # the `dags/...` label of the constraints file a flagged plan writes: the file
+    # requirements.txt references under the DAGs mount, else dags/constraints.txt,
+    # or dags/constraints-datadog.txt when an unreferenced dags/constraints.txt exists
+    constraints_path: str = CONSTRAINTS_PATH
 
 
 def resolve_constraint_key(requirements_text: str, dag_s3_path: str) -> Optional[str]:

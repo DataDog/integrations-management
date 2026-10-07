@@ -11,7 +11,7 @@ captured during a scan may be stale by the time a plan is reviewed and
 applied, and patching against stale content risks clobbering a concurrent
 edit. Nothing here is ever printed or persisted outside this process.
 
-REQUIREMENTS_PATH/CONSTRAINTS_PATH/STARTUP_SCRIPT_PATH (plan.py) are internal
+REQUIREMENTS_PATH/STARTUP_SCRIPT_PATH and the `dags/...` constraints labels (plan.py) are internal
 labels for what KIND of file a FileChange touches -- never literal S3 keys.
 Reading (current_text_for_path) always went through ctx's already-correctly-
 fetched content, so it never cared. Writing didn't used to make that
@@ -33,9 +33,6 @@ from .fetch import fetch_bytes
 from .patch import patch_env_vars, patch_pins, patch_wheel_references, set_constraint_line
 from .pins import find_constraint_lines, resolve_constraint_s3_key
 from .plan import (
-    CONSTRAINTS_PATH,
-    EXPECTED_CONSTRAINT_LINE,
-    EXPECTED_CONSTRAINT_LINE_TARGET,
     REQUIREMENTS_PATH,
     STARTUP_SCRIPT_PATH,
     ConstraintDirectiveChange,
@@ -43,6 +40,7 @@ from .plan import (
     PinChange,
     Plan,
     WheelReference,
+    constraint_line_for,
 )
 from .startup_script import interpolate_api_key as _substitute_api_key
 
@@ -62,9 +60,14 @@ class FileUpload:
     action: str  # "create" | "update"
 
 
+def _is_constraints_path(path: str) -> bool:
+    """Every `dags/...` label a plan uses other than startup.sh names its constraints file."""
+    return path != STARTUP_SCRIPT_PATH and path.startswith("dags/")
+
+
 def current_text_for_path(ctx: ProbeContext, path: str) -> str:
-    """The real current content for one of the three paths a plan ever touches."""
-    if path == CONSTRAINTS_PATH:
+    """The real current content for one of the three files a plan ever touches."""
+    if _is_constraints_path(path):
         return ctx.constraints_text or ""
     if path == REQUIREMENTS_PATH:
         return ctx.requirements_text
@@ -89,13 +92,13 @@ def real_key_for_path(ctx: ProbeContext, path: str) -> str:
 
     if path == REQUIREMENTS_PATH:
         return ctx.environment.get("RequirementsS3Path") or _default_requirements_key(dag_s3_path)
-    if path == CONSTRAINTS_PATH:
-        # a --constraint already under the dags mount is patched in place; anything
-        # else (none yet, or a URL) gets replaced by the line set_constraint_line
-        # writes, so resolve that same target and the two agree on the key.
-        return resolve_constraint_key(ctx.requirements_text, dag_s3_path) or resolve_constraint_s3_key(EXPECTED_CONSTRAINT_LINE_TARGET, dag_s3_path)
     if path == STARTUP_SCRIPT_PATH:
         return ctx.environment.get("StartupScriptS3Path") or f"{dag_s3_path}/startup.sh"
+    if _is_constraints_path(path):
+        # a --constraint already under the dags mount is patched in place; anything
+        # else (none yet, or a URL) gets replaced by the line set_constraint_line
+        # writes for this same label, so the two agree on the key.
+        return resolve_constraint_key(ctx.requirements_text, dag_s3_path) or f"{dag_s3_path.rstrip('/')}/{path.removeprefix('dags/')}"
     raise ValueError(f"don't know the real S3 key for {path!r}")
 
 
@@ -126,17 +129,17 @@ def compute_apply_actions(ctx: ProbeContext, plan: Plan) -> list[FileUpload]:
     # --constraint line -- see plan.py; recheck against the fresh text, since a
     # line can be added between scan and apply
     constraint_lines = find_constraint_lines(ctx.requirements_text)
-    has_package_changes = CONSTRAINTS_PATH in by_path or REQUIREMENTS_PATH in by_path
-    if plan.source == "flagged_version_table" and has_package_changes and len(constraint_lines) > 1:
+    constraints_path = next((path for path in by_path if _is_constraints_path(path)), None)
+    if plan.source == "flagged_version_table" and (constraints_path or REQUIREMENTS_PATH in by_path) and len(constraint_lines) > 1:
         raise RuntimeError(f"requirements.txt now has {len(constraint_lines)} --constraint lines; consolidate them into one and re-run scan")
-    needs_directive = CONSTRAINTS_PATH in by_path and resolve_constraint_key(ctx.requirements_text, ctx.environment.get("DagS3Path", "dags")) is None
+    needs_directive = constraints_path is not None and resolve_constraint_key(ctx.requirements_text, ctx.environment.get("DagS3Path", "dags")) is None
     if needs_directive:
         by_path.setdefault(REQUIREMENTS_PATH, [])
 
     uploads = []
     for path, changes in by_path.items():
         old_content = current_text_for_path(ctx, path)
-        if path == CONSTRAINTS_PATH:
+        if path == constraints_path:
             base = ctx.base_constraints
             if base is None or base.text is None:
                 raise RuntimeError(f"can't write {path} without its full base constraints file: {base.error if base else 'not resolved'}")
@@ -146,7 +149,7 @@ def compute_apply_actions(ctx: ProbeContext, plan: Plan) -> list[FileUpload]:
             content = patch_pins(old_content, [c for c in changes if isinstance(c, PinChange)])
             content = patch_wheel_references(content, [c for c in changes if isinstance(c, WheelReference)])
             if needs_directive:
-                content = set_constraint_line(content, EXPECTED_CONSTRAINT_LINE)
+                content = set_constraint_line(content, constraint_line_for(constraints_path))
             action = "update"
         else:  # STARTUP_SCRIPT_PATH -- current_text_for_path already validated the path
             content = patch_env_vars(old_content, [c for c in changes if isinstance(c, EnvVarChange)])

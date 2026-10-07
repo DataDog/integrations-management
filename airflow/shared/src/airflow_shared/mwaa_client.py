@@ -24,6 +24,10 @@ class ObjectNotFoundError(Exception):
     """The requested S3 object does not exist."""
 
 
+class VersionIdUnavailable(Exception):
+    """An S3 object exists but HeadObject returned no VersionId (bucket versioning is off)."""
+
+
 class ReadOnlyViolation(RuntimeError):
     """A read-only MwaaClient attempted an operation outside its allowlist.
 
@@ -159,6 +163,25 @@ class MwaaClient:
             if e.response["Error"]["Code"] in ("404", "NoSuchKey"):
                 return False
             raise
+
+    def latest_version_id(self, bucket: str, key: str) -> Optional[str]:
+        """Return the latest VersionId of an S3 object, or None if it doesn't exist.
+
+        Only a real 404 means "doesn't exist" -- a 403 (what S3 returns for a
+        missing key when the caller lacks s3:ListBucket) is ambiguous and
+        propagates as a ClientError. MWAA requires bucket versioning, so an
+        existing object with no VersionId raises VersionIdUnavailable.
+        """
+        try:
+            response = self._s3.head_object(Bucket=bucket, Key=key)
+        except ClientError as e:
+            if e.response["Error"]["Code"] in ("404", "NoSuchKey"):
+                return None
+            raise
+        version_id = response.get("VersionId")
+        if not version_id or version_id == "null":
+            raise VersionIdUnavailable(f"s3://{bucket}/{key} has no VersionId -- is bucket versioning enabled?")
+        return version_id
 
     def simulate_s3_read_access(self, role_arn: str, bucket_arn: str) -> dict[str, bool]:
         """Simulate whether an IAM role can read from a bucket, per action.

@@ -156,6 +156,7 @@ def _environment_entry(ctx: ProbeContext, dd_site: str) -> EnvironmentEntry:
         startup_script_text=ctx.startup_script_text,
         dd_site=dd_site,
         present_wheel_files=ctx.present_wheel_files,
+        constraints_path=ctx.constraints_path,
     )
     return EnvironmentEntry(
         name=ctx.environment.get("Name"),

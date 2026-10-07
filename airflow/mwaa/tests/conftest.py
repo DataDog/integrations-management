@@ -2,8 +2,12 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-import pytest
+from unittest.mock import MagicMock
 
+import pytest
+from botocore.exceptions import ClientError
+
+from airflow_shared.mwaa_client import ObjectNotFoundError
 from mwaa.fetch import FetchError
 
 UPSTREAM_2_8_1_URL = "https://raw.githubusercontent.com/apache/airflow/constraints-2.8.1/constraints-3.11.txt"
@@ -58,3 +62,46 @@ def fake_fetch(monkeypatch) -> dict[str, bytes]:
     monkeypatch.setattr("mwaa.probe.fetch_bytes", fetch)
     monkeypatch.setattr("mwaa.apply.fetch_bytes", fetch)
     return responses
+
+
+class FakeS3Client:
+    """Just enough of MwaaClient to build a context from, apply against and re-check.
+
+    Backed by a dict of key -> content, with a fresh VersionId per write.
+    Keys in `unreadable` answer HeadObject with a 403, like a missing key
+    without s3:ListBucket.
+    """
+
+    def __init__(self, environment: dict, objects: dict, unreadable: frozenset = frozenset()):
+        self.environment = environment
+        self.objects = dict(objects)
+        self.versions = {key: f"v-{key}-0" for key in objects}
+        self.unreadable = unreadable
+        self.update_environment = MagicMock()
+
+    def get_environment(self, name):
+        return self.environment
+
+    def get_object_text(self, bucket, key, version_id=None):
+        if key not in self.objects:
+            raise ObjectNotFoundError(key)
+        return self.objects[key]
+
+    def put_object_text(self, bucket, key, content):
+        return self.put_object_bytes(bucket, key, content)
+
+    def put_object_bytes(self, bucket, key, content):
+        self.objects[key] = content
+        self.versions[key] = f"v-{key}-{int(self.versions.get(key, 'v--1').rsplit('-', 1)[-1]) + 1}"
+        return self.versions[key]
+
+    def object_exists(self, bucket, key):
+        return key in self.objects
+
+    def latest_version_id(self, bucket, key):
+        if key in self.unreadable:
+            raise ClientError({"Error": {"Code": "403", "Message": "Forbidden"}}, "HeadObject")
+        return self.versions.get(key)
+
+    def simulate_s3_read_access(self, role_arn, bucket_arn):
+        return {"s3:GetObject": True, "s3:ListBucket": True}

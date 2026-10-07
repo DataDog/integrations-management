@@ -238,6 +238,7 @@ def test_an_empty_namespace_still_means_not_already_configured():
 
 def test_build_session_records_a_url_version_mismatch_and_keeps_only_env_var_changes():
     client = MagicMock()
+    client.latest_version_id.return_value = None
     client.get_environment.return_value = {**ENVIRONMENT, "RequirementsS3Path": "requirements.txt"}
     client.get_object_text.return_value = '--constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.7.2/constraints-3.11.txt"\n'
     ctx = build_context(client, "my-mwaa-prod")

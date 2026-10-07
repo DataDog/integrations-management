@@ -44,6 +44,7 @@ ALREADY_CONFIGURED_PLAN = Plan(
 
 def make_client() -> MagicMock:
     client = MagicMock()
+    client.latest_version_id.return_value = None
     client.get_environment.return_value = ENVIRONMENT
     client.get_object_text.return_value = "apache-airflow-providers-openlineage==1.4.0\n"
     client.put_object_text.return_value = "v2"

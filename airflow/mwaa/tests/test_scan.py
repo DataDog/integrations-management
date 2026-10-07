@@ -39,6 +39,7 @@ ENVIRONMENT_ALREADY_CONFIGURED = {
 
 def make_client() -> MagicMock:
     client = MagicMock()
+    client.latest_version_id.return_value = None
     client.list_environment_names.return_value = ["my-mwaa-prod", "my-mwaa-staging"]
     client.get_environment.side_effect = lambda name: {
         "my-mwaa-prod": ENVIRONMENT_NEEDS_UPGRADE,

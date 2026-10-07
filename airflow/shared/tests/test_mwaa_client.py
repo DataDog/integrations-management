@@ -5,7 +5,9 @@
 import pytest
 from botocore.stub import ANY, Stubber
 
-from airflow_shared.mwaa_client import MwaaClient, ObjectNotFoundError, ReadOnlyViolation
+from botocore.exceptions import ClientError
+
+from airflow_shared.mwaa_client import MwaaClient, ObjectNotFoundError, ReadOnlyViolation, VersionIdUnavailable
 
 
 @pytest.fixture
@@ -161,3 +163,27 @@ def test_put_object_bytes_writes_the_body_unchanged(client: MwaaClient):
     stubber.add_response("put_object", {"VersionId": "v9"}, {"Bucket": "my-bucket", "Key": "dags/x.whl", "Body": b"PK\x03\x04"})
     with stubber:
         assert client.put_object_bytes("my-bucket", "dags/x.whl", b"PK\x03\x04") == "v9"
+
+
+def test_latest_version_id_returns_the_version(client: MwaaClient):
+    stubber = Stubber(client._s3)
+    stubber.add_response("head_object", {"VersionId": "v7"}, {"Bucket": "my-bucket", "Key": "dags/constraints.txt"})
+    with stubber:
+        assert client.latest_version_id("my-bucket", "dags/constraints.txt") == "v7"
+
+
+def test_latest_version_id_is_none_only_for_a_real_404(client: MwaaClient):
+    stubber = Stubber(client._s3)
+    stubber.add_client_error("head_object", service_error_code="404", http_status_code=404)
+    stubber.add_client_error("head_object", service_error_code="403", http_status_code=403)
+    with stubber:
+        assert client.latest_version_id("my-bucket", "missing.txt") is None
+        with pytest.raises(ClientError):
+            client.latest_version_id("my-bucket", "unknowable.txt")
+
+
+def test_latest_version_id_raises_when_the_bucket_is_unversioned(client: MwaaClient):
+    stubber = Stubber(client._s3)
+    stubber.add_response("head_object", {}, {"Bucket": "my-bucket", "Key": "requirements.txt"})
+    with stubber, pytest.raises(VersionIdUnavailable):
+        client.latest_version_id("my-bucket", "requirements.txt")

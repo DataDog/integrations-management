@@ -32,6 +32,13 @@ unconstrain every other package, Airflow included. The same goes for a requireme
 with more than one `--constraint` line (a `constraint_directives` issue): pip enforces
 all of them, so repointing just one would leave the others' old pins in force.
 
+When requirements.txt doesn't reference a local constraints file, the patched one is
+written to `dags/constraints.txt` -- unless that already exists, unreferenced (it may be
+another environment's), in which case it's left alone and the plan writes
+`dags/constraints-datadog.txt` instead. Telling those apart needs `s3:ListBucket` on the
+bucket: without it S3 answers a missing key with a 403, and the plan leaves out the
+package changes with a `base_constraints` issue rather than guess.
+
 Airflow 2.7.2 can't use the upstream 1.14.0 provider, so for it the guide swaps two
 requirements.txt pins for Datadog-patched wheels (`wheel_reference` changes in the plan):
 `apply` downloads each one from docs.datadoghq.com and uploads it under `DagS3Path` before
