@@ -36,7 +36,7 @@ display as-is.
 from dataclasses import dataclass
 from typing import Optional, Union
 
-from .pins import OPENLINEAGE_PACKAGES, find_constraint_path, parse_bare_packages, parse_pins, resolve_constraint_s3_key
+from .pins import find_constraint_path, mentions_package, parse_pins, resolve_constraint_s3_key
 from .startup_script import SECRET_VAR_NAMES, parse_exports, target_values
 from .version_table import FLAGGED_VERSION_TABLE, SOURCE_DOC, FlaggedVersionEntry
 
@@ -44,6 +44,7 @@ REQUIREMENTS_PATH = "requirements.txt"
 CONSTRAINTS_PATH = "dags/constraints.txt"
 STARTUP_SCRIPT_PATH = "dags/startup.sh"
 EXPECTED_CONSTRAINT_LINE_TARGET = "/usr/local/airflow/dags/constraints.txt"
+OPENLINEAGE_PROVIDER = "apache-airflow-providers-openlineage"
 
 
 @dataclass(frozen=True)
@@ -142,7 +143,7 @@ def _plan_flagged_version(entry: FlaggedVersionEntry, current_req_pins: dict, cu
         for package, target in entry.target_versions.items()
         if (current_con_pins.get(package) or current_req_pins.get(package)) != target
     ]
-    default_ol_version = entry.default_versions.get("apache-airflow-providers-openlineage", "an old version")
+    default_ol_version = entry.default_versions.get(OPENLINEAGE_PROVIDER, "an old version")
     rationale = (
         f"Airflow {entry.airflow_version} is flagged by Datadog's MWAA upgrade guide: its MWAA-default "
         f"constraints pin apache-airflow-providers-openlineage {default_ol_version}, which has known "
@@ -151,12 +152,12 @@ def _plan_flagged_version(entry: FlaggedVersionEntry, current_req_pins: dict, cu
     return bool(diffs), rationale, diffs
 
 
-def _plan_unflagged_version(airflow_version: str, mentioned_packages: set) -> tuple[bool, str, list[tuple]]:
-    if any(pkg in mentioned_packages for pkg in OPENLINEAGE_PACKAGES):
+def _plan_unflagged_version(airflow_version: str, requirements_text: str) -> tuple[bool, str, list[tuple]]:
+    if mentions_package(requirements_text, OPENLINEAGE_PROVIDER):
         return (
             False,
             f"Airflow {airflow_version} is not one of the flagged versions (2.7.2/2.8.1/2.9.2), "
-            "and the OpenLineage provider is already pinned in requirements.txt.",
+            "and the OpenLineage provider is already in requirements.txt.",
             [],
         )
     return (
@@ -164,7 +165,7 @@ def _plan_unflagged_version(airflow_version: str, mentioned_packages: set) -> tu
         f"Airflow {airflow_version} is not one of the flagged versions, so MWAA's own default constraints "
         "should already resolve a healthy OpenLineage provider version -- only the package itself needs to "
         "be added, with no constraints.txt change.",
-        [("apache-airflow-providers-openlineage", None, None)],
+        [(OPENLINEAGE_PROVIDER, None, None)],
     )
 
 
@@ -206,8 +207,7 @@ def compute_plan(
         upgrade_needed, rationale, diffs = _plan_flagged_version(flagged_entry, current_req_pins, current_con_pins)
         source = "flagged_version_table"
     else:
-        mentioned_packages = set(current_req_pins) | parse_bare_packages(requirements_text)
-        upgrade_needed, rationale, diffs = _plan_unflagged_version(airflow_version, mentioned_packages)
+        upgrade_needed, rationale, diffs = _plan_unflagged_version(airflow_version, requirements_text)
         flagged_entry = None
         source = "unflagged_version"
 

@@ -113,7 +113,7 @@ def test_unflagged_version_with_provider_already_pinned_and_startup_configured_n
 def test_unflagged_version_recognizes_a_previously_added_bare_package_line():
     """apply's own output for this exact path (see patch.py's to_version=None branch) is a bare
     `apache-airflow-providers-openlineage` line, no `==version` -- parse_pins alone can't see
-    it, so without parse_bare_packages this would propose adding a duplicate on every re-scan."""
+    it, so without mentions_package this would propose adding a duplicate on every re-scan."""
     plan = compute_plan(
         airflow_version="2.10.1",
         requirements_text="pandas==2.1.4\napache-airflow-providers-openlineage\n",
@@ -128,6 +128,20 @@ def test_unflagged_version_recognizes_a_previously_added_bare_package_line():
     )
     assert plan.upgrade_needed is False
     assert plan.file_changes == []
+
+
+def test_unflagged_version_with_only_common_sql_still_proposes_the_provider():
+    """common-sql is a dependency of lots of providers, not a sign OpenLineage is installed."""
+    plan = compute_plan(
+        airflow_version="2.10.3",
+        requirements_text="apache-airflow-providers-common-sql==1.20.0\n",
+        constraints_text=None,
+        startup_script_text=None,
+        dd_site="datadoghq.com",
+        environment_name="my-env",
+    )
+    assert plan.upgrade_needed is True
+    assert PinChange(path="requirements.txt", package="apache-airflow-providers-openlineage", from_version=None, to_version=None) in plan.file_changes
 
 
 def test_requirements_txt_gets_constraint_directive_when_missing():

@@ -22,10 +22,7 @@ COMMON_COMPAT_PACKAGE = "apache-airflow-providers-common-compat"
 CONSTRAINT_LINE = re.compile(r'^\s*--constraint\s+"?([^"\s]+)"?', re.MULTILINE)
 WHEEL_REFERENCE = re.compile(r"(\S+\.whl)")
 _PIN_LINE = re.compile(r"^\s*([A-Za-z0-9_.\-]+)\s*==\s*([A-Za-z0-9_.\-]+)", re.MULTILINE)
-# patch_pins' to_version=None append format (see patch.py) -- a package name alone on its
-# line, no version. Anchored at both ends so a `package==version` line's package name
-# (which has trailing content after it) never double-matches here too.
-_BARE_PACKAGE_LINE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9_.\-]*)\s*$", re.MULTILINE)
+_REQUIREMENT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.\-]*")
 
 
 def parse_pins(text: str) -> dict[str, str]:
@@ -33,15 +30,37 @@ def parse_pins(text: str) -> dict[str, str]:
     return {name.lower(): version for name, version in _PIN_LINE.findall(text)}
 
 
-def parse_bare_packages(text: str) -> set[str]:
-    """Package names mentioned on their own line with no version pin -- lowercase, like parse_pins.
+def _normalize_package_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
 
-    Needed alongside parse_pins wherever "is this package already present"
-    matters: once patch_pins appends a package unpinned (the unflagged-version
-    plan path's target), a plain parse_pins lookup would never find it again,
-    and would propose adding it a second time on every subsequent scan.
+
+def requirement_line_package(line: str) -> "str | None":
+    """The package one requirements.txt line installs, normalized (lowercase, `-` separators).
+
+    Covers every form a line can name a package in -- `pkg==1.0`, `pkg>=1.0`,
+    a bare `pkg` (patch_pins' to_version=None output), or a wheel file path,
+    whose filename starts with the distribution name. None for comments,
+    blank lines and `--flag` lines.
     """
-    return {name.lower() for name in _BARE_PACKAGE_LINE.findall(text)}
+    stripped = line.split("#", 1)[0].strip()
+    if not stripped or stripped.startswith("-"):
+        return None
+    wheel = WHEEL_REFERENCE.search(stripped)
+    if wheel:
+        return _normalize_package_name(wheel.group(1).rsplit("/", 1)[-1].split("-", 1)[0])
+    match = _REQUIREMENT_NAME.match(stripped)
+    return _normalize_package_name(match.group(0)) if match else None
+
+
+def mentions_package(requirements_text: str, package: str) -> bool:
+    """Whether any requirements.txt line installs `package`, in any of requirement_line_package's forms.
+
+    parse_pins alone isn't enough wherever "is this package already present"
+    matters: once patch_pins appends a package unpinned (the unflagged-version
+    plan path's target), a `==` lookup would never find it again, and would
+    propose adding it a second time on every subsequent scan.
+    """
+    return any(requirement_line_package(line) == package for line in requirements_text.splitlines())
 
 
 def resolve_constraint_s3_key(constraint_path: str, dag_s3_path: str) -> "str | None":
