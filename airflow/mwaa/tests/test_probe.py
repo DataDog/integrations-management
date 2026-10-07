@@ -6,7 +6,6 @@ from unittest.mock import MagicMock
 
 from botocore.exceptions import ClientError
 
-from airflow_shared.mwaa_client import ObjectNotFoundError
 from mwaa.probe import build_context
 
 from .conftest import UPSTREAM_2_8_1_TEXT, UPSTREAM_2_8_1_URL
@@ -27,7 +26,7 @@ ENVIRONMENT = {
 
 def make_client() -> MagicMock:
     client = MagicMock()
-    client.latest_version_id.return_value = None
+    client.latest_version_id.side_effect = lambda bucket, key: f"v-{key}" if key == "dags/constraints.txt" else None
     client.get_environment.return_value = ENVIRONMENT
     client.get_object_text.side_effect = lambda bucket, key, version_id=None: {
         "requirements.txt": (
@@ -54,20 +53,14 @@ def test_build_context_fetches_requirements_and_constraints():
 
 def test_build_context_tolerates_missing_constraints_object():
     client = make_client()
-
-    def get_object_text(bucket, key, version_id=None):
-        if key == "dags/constraints.txt":
-            raise ObjectNotFoundError(key)
-        return {
-            "requirements.txt": '--constraint "/usr/local/airflow/dags/constraints.txt"\n',
-            "startup/mwaa-startup.sh": "",
-        }[key]
-
-    client.get_object_text.side_effect = get_object_text
+    client.latest_version_id.side_effect = None
+    client.latest_version_id.return_value = None  # HeadObject: 404 for everything
 
     ctx = build_context(client, "my-env")
 
     assert ctx.constraints_text is None
+    assert ctx.file_versions["dags/constraints.txt"] is None
+    assert all(call.args[1] != "dags/constraints.txt" for call in client.get_object_text.call_args_list)
 
 
 def test_build_context_tolerates_environment_with_no_requirements_configured():
@@ -143,7 +136,7 @@ def test_build_context_skips_base_constraints_for_unflagged_versions(fake_fetch)
     assert build_context(client, "my-env").base_constraints is None
 
 
-def test_build_context_treats_an_unreadable_wheel_object_as_missing():
+def test_build_context_fingerprints_referenced_wheels_and_derives_presence_from_that():
     wheel = "apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl"
     client = make_client()
     client.get_environment.return_value = {**ENVIRONMENT, "AirflowVersion": "2.7.2"}
@@ -152,13 +145,17 @@ def test_build_context_treats_an_unreadable_wheel_object_as_missing():
         "startup/mwaa-startup.sh": "",
     }[key]
 
-    def object_exists(bucket, key):
+    def latest_version_id(bucket, key):
         if key == "dags/other-1.0-py3-none-any.whl":
-            return True
-        raise ClientError({"Error": {"Code": "403"}}, "HeadObject")
+            return "v-other"
+        if key == f"dags/{wheel}":
+            raise ClientError({"Error": {"Code": "403"}}, "HeadObject")
+        return None
 
-    client.object_exists.side_effect = object_exists
+    client.latest_version_id.side_effect = latest_version_id
 
     ctx = build_context(client, "my-env")
 
     assert ctx.present_wheel_files == frozenset({"other-1.0-py3-none-any.whl"})
+    assert ctx.file_versions["dags/other-1.0-py3-none-any.whl"] == "v-other"
+    assert f"dags/{wheel}" in ctx.file_version_errors  # an unknowable wheel blocks the package changes instead

@@ -108,7 +108,8 @@ Each environment in a session also records `file_versions`: the latest S3 `Versi
 re-reads them first and, if any changed, writes nothing and exits non-zero -- re-run
 `scan`. That's what lets `apply` trust the plan as-is instead of re-deriving it. Scan
 also refuses to plan changes to requirements.txt or startup.sh when its latest upload
-isn't the version the environment is configured with (an `unapplied_uploads` issue):
+isn't the version the environment is configured with -- including a file already at the
+default key when the environment has none configured (an `unapplied_uploads` issue):
 apply or discard that upload first. A `SESSION_OVERRIDE_PATH` session without
 `file_versions` only gets a warning.
 

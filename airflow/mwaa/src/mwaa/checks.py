@@ -156,20 +156,24 @@ def unapplied_uploads(ctx: ProbeContext) -> list[str]:
 
     Someone uploaded a newer file without updating the environment. A plan
     computed from the configured version would silently discard their
-    upload; one computed from the newer one would silently apply it.
+    upload; one computed from the newer one would silently apply it. When
+    the environment has no S3 path configured for the file at all, the
+    configured version is "none", so a file already sitting at the fallback
+    key counts too. A configured path with no pinned version means MWAA
+    uses the latest, so it never does.
     """
     configured = (
         (REQUIREMENTS_PATH, "RequirementsS3Path", "RequirementsS3ObjectVersion"),
         (STARTUP_SCRIPT_PATH, "StartupScriptS3Path", "StartupScriptS3ObjectVersion"),
     )
-    return [
-        label
-        for label, path_key, version_key in configured
-        if ctx.environment.get(path_key)
-        and ctx.environment.get(version_key)
-        and label in ctx.file_versions
-        and ctx.file_versions[label] != ctx.environment[version_key]
-    ]
+    labels = []
+    for label, path_key, version_key in configured:
+        if ctx.environment.get(path_key) and not ctx.environment.get(version_key):
+            continue
+        configured_version = ctx.environment.get(version_key) if ctx.environment.get(path_key) else None
+        if label in ctx.file_versions and ctx.file_versions[label] != configured_version:
+            labels.append(label)
+    return labels
 
 
 def check_unapplied_uploads(ctx: ProbeContext) -> Finding:

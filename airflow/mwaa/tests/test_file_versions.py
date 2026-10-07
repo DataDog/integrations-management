@@ -129,3 +129,78 @@ def test_file_versions_round_trip_and_default_to_empty_for_older_sessions(with_f
     loaded = session_from_dict(data)
 
     assert loaded.environments[0].file_versions == (entry.file_versions if with_file_versions else {})
+
+
+def test_an_existing_fallback_requirements_txt_the_environment_isnt_configured_with_is_an_unapplied_upload():
+    client = FakeS3Client(
+        environment(RequirementsS3Path=None, RequirementsS3ObjectVersion=None),
+        {"requirements.txt": "pandas==2.1.4\n", "dags/startup.sh": STARTUP},
+    )
+
+    _, entry = scan(client)
+
+    assert failed_checks(entry) == ["unapplied_uploads"]
+    assert entry.issues[0].message.startswith("requirements.txt has a newer upload")
+    assert entry.plan.file_changes and all(isinstance(fc, EnvVarChange) for fc in entry.plan.file_changes)
+
+
+def test_an_existing_fallback_startup_sh_the_environment_isnt_configured_with_is_an_unapplied_upload():
+    client = FakeS3Client(
+        environment(StartupScriptS3Path=None, StartupScriptS3ObjectVersion=None),
+        {"requirements.txt": "pandas==2.1.4\n", "dags/startup.sh": STARTUP},
+    )
+
+    _, entry = scan(client)
+
+    assert failed_checks(entry) == ["unapplied_uploads"]
+    assert entry.issues[0].message.startswith("dags/startup.sh has a newer upload")
+    assert entry.plan.file_changes and not any(isinstance(fc, EnvVarChange) for fc in entry.plan.file_changes)
+
+
+def test_a_configured_path_without_a_pinned_version_is_never_an_unapplied_upload():
+    client = FakeS3Client(environment(RequirementsS3ObjectVersion=None), {"requirements.txt": "pandas==2.1.4\n", "dags/startup.sh": STARTUP})
+
+    _, entry = scan(client)
+
+    assert "unapplied_uploads" not in failed_checks(entry)
+
+
+class OrphanAppearsAfterFirstLook(FakeS3Client):
+    """dags/constraints.txt is missing for the first HeadObject and exists from then on."""
+
+    def latest_version_id(self, bucket, key):
+        version = super().latest_version_id(bucket, key)
+        if key == "dags/constraints.txt" and "dags/constraints.txt" not in self.objects:
+            self.put_object_text(bucket, key, "someone-elses==1.0\n")
+        return version
+
+
+def test_an_orphan_appearing_during_scan_is_caught_by_the_fingerprint_its_decision_came_from():
+    client = OrphanAppearsAfterFirstLook(environment(), {"requirements.txt": "pandas==2.1.4\n", "dags/startup.sh": STARTUP})
+
+    ctx, entry = scan(client)
+
+    assert ctx.constraints_path == "dags/constraints.txt"
+    assert entry.file_versions["dags/constraints.txt"] is None  # the same look that chose constraints.txt
+    with pytest.raises(StaleSessionError, match=r"dags/constraints.txt \(missing at scan"):
+        check_files_unchanged(client, ctx.environment, entry.plan, entry.file_versions)
+
+
+def test_a_differently_spelled_referenced_wheel_that_disappears_before_apply_is_caught():
+    wheel_key = "dags/wheels/Apache_Airflow_Providers_OpenLineage-1.14.0-py3-none-any.whl"
+    client = FakeS3Client(
+        environment("2.7.2"),
+        {
+            "requirements.txt": f"/usr/local/airflow/{wheel_key}\n",
+            "dags/startup.sh": STARTUP,
+            wheel_key: b"PK wheel",
+        },
+    )
+    ctx, entry = scan(client)
+    assert not any(isinstance(fc, WheelReference) and fc.package == "apache-airflow-providers-openlineage" for fc in entry.plan.file_changes)
+    assert entry.file_versions[wheel_key] == f"v-{wheel_key}-0"
+
+    del client.objects[wheel_key], client.versions[wheel_key]
+
+    with pytest.raises(StaleSessionError, match="Apache_Airflow_Providers_OpenLineage"):
+        check_files_unchanged(client, ctx.environment, entry.plan, entry.file_versions)
