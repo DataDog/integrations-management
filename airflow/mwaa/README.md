@@ -85,6 +85,11 @@ real value in, immediately before a file is previewed or written. Nothing persis
 displayed upstream of that point -- including anything that would eventually be sent to
 a backend -- ever contains the real key.
 
+An existing non-empty `AIRFLOW__OPENLINEAGE__NAMESPACE` in startup.sh is never changed,
+whatever its value: it's the `env` tag in Datadog and part of every job's identity, so
+renaming it would fork job history. Only a missing or empty one gets set, to
+`"${AIRFLOW_ENV_NAME}"` (the docs' own value; MWAA sets `AIRFLOW_ENV_NAME` at runtime).
+
 AWS credentials are picked up the normal boto3 way (CloudShell's assumed role, an
 environment profile, `~/.aws/credentials`, etc.) -- this tool does not manage credentials
 itself.

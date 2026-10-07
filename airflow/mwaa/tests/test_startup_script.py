@@ -13,24 +13,28 @@ from mwaa.startup_script import (
 
 
 def test_target_values_includes_config_path_workaround_for_2_8_1():
-    values = dict(target_values("2.8.1", "datadoghq.com", "my-mwaa-prod"))
+    values = dict(target_values("2.8.1", "datadoghq.com"))
     assert values["AIRFLOW__OPENLINEAGE__CONFIG_PATH"] == ""
     assert values["AIRFLOW__OPENLINEAGE__DISABLED_FOR_OPERATORS"] == ""
 
 
 def test_target_values_omits_workaround_for_newer_versions():
-    values = dict(target_values("2.10.1", "datadoghq.com", "my-mwaa-prod"))
+    values = dict(target_values("2.10.1", "datadoghq.com"))
     assert "AIRFLOW__OPENLINEAGE__CONFIG_PATH" not in values
     assert "AIRFLOW__OPENLINEAGE__DISABLED_FOR_OPERATORS" not in values
 
 
-def test_target_values_interpolates_the_real_environment_name():
-    values = dict(target_values("2.10.1", "datadoghq.com", "my-mwaa-prod"))
-    assert values["AIRFLOW__OPENLINEAGE__NAMESPACE"] == "my-mwaa-prod"
+def test_target_values_namespace_is_the_env_name_mwaa_sets_at_runtime():
+    values = dict(target_values("2.10.1", "datadoghq.com"))
+    assert values["AIRFLOW__OPENLINEAGE__NAMESPACE"] == "${AIRFLOW_ENV_NAME}"
+
+
+def test_namespace_renders_double_quoted_so_the_shell_expands_it():
+    assert render_export_line("AIRFLOW__OPENLINEAGE__NAMESPACE", "${AIRFLOW_ENV_NAME}") == 'export AIRFLOW__OPENLINEAGE__NAMESPACE="${AIRFLOW_ENV_NAME}"'
 
 
 def test_target_values_never_carries_a_real_api_key():
-    values = dict(target_values("2.10.1", "datadoghq.com", "my-mwaa-prod"))
+    values = dict(target_values("2.10.1", "datadoghq.com"))
     assert values["OPENLINEAGE_API_KEY"] == DD_API_KEY_PLACEHOLDER
 
 

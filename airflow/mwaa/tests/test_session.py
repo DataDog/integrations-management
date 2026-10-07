@@ -194,3 +194,41 @@ def test_build_session_records_an_issue_for_more_than_one_constraint_line():
 
     assert [i.check_id for i in entry.issues] == ["constraint_directives"]
     assert not any(fc.path in ("requirements.txt", "dags/constraints.txt") for fc in entry.plan.file_changes)
+
+
+DOCS_CONFIGURED_STARTUP_SCRIPT = (
+    "#!/bin/sh\n"
+    "export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n"
+    "export OPENLINEAGE_API_KEY=some-real-key\n"
+    "export AIRFLOW__OPENLINEAGE__NAMESPACE=${AIRFLOW_ENV_NAME}\n"
+    'export AIRFLOW__OPENLINEAGE__CONFIG_PATH=""\n'
+    'export AIRFLOW__OPENLINEAGE__DISABLED_FOR_OPERATORS=""\n'
+)
+
+
+def test_a_docs_configured_unflagged_environment_is_already_configured_with_nothing_to_change():
+    ctx = make_context(
+        environment={**ENVIRONMENT, "AirflowVersion": "2.10.3"},
+        requirements_text="apache-airflow-providers-openlineage\n",
+        constraints_text=None,
+        startup_script_text=DOCS_CONFIGURED_STARTUP_SCRIPT,
+    )
+
+    entry = build_session("session-1", "us-east-1", "datadoghq.com", [ctx]).environments[0]
+
+    assert entry.already_configured is True
+    assert entry.plan.file_changes == []
+
+
+def test_an_empty_namespace_still_means_not_already_configured():
+    ctx = make_context(
+        environment={**ENVIRONMENT, "AirflowVersion": "2.10.3"},
+        requirements_text="apache-airflow-providers-openlineage\n",
+        constraints_text=None,
+        startup_script_text=DOCS_CONFIGURED_STARTUP_SCRIPT.replace("${AIRFLOW_ENV_NAME}", '""'),
+    )
+
+    entry = build_session("session-1", "us-east-1", "datadoghq.com", [ctx]).environments[0]
+
+    assert entry.already_configured is False
+    assert [fc.name for fc in entry.plan.file_changes] == ["AIRFLOW__OPENLINEAGE__NAMESPACE"]

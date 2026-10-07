@@ -149,18 +149,16 @@ def _compute_issues(ctx: ProbeContext) -> list[Finding]:
 
 def _environment_entry(ctx: ProbeContext, dd_site: str) -> EnvironmentEntry:
     airflow_version = ctx.environment.get("AirflowVersion", "")
-    environment_name = ctx.environment.get("Name")
     plan = compute_plan(
         airflow_version=airflow_version,
         requirements_text=ctx.requirements_text,
         base_constraints=ctx.base_constraints,
         startup_script_text=ctx.startup_script_text,
         dd_site=dd_site,
-        environment_name=environment_name,
         present_wheel_files=ctx.present_wheel_files,
     )
     return EnvironmentEntry(
-        name=environment_name,
+        name=ctx.environment.get("Name"),
         airflow_version=airflow_version,
         already_configured=not any(isinstance(fc, EnvVarChange) for fc in plan.file_changes),
         plan=plan,

@@ -44,7 +44,7 @@ from typing import Optional, Union
 
 from .base_constraints import BaseConstraints
 from .pins import DAGS_MOUNT_PREFIX, find_constraint_lines, find_constraint_path, mentions_package, parse_pins, resolve_constraint_s3_key, wheel_identity
-from .startup_script import SECRET_VAR_NAMES, parse_exports, target_values
+from .startup_script import KEEP_EXISTING_VAR_NAMES, SECRET_VAR_NAMES, parse_exports, target_values
 from .version_table import DATADOG_WHEEL_BASE_URL, FLAGGED_VERSION_TABLE, SOURCE_DOC, FlaggedVersionEntry, datadog_wheel_filename
 
 REQUIREMENTS_PATH = "requirements.txt"
@@ -250,20 +250,24 @@ def _plan_unflagged_version(airflow_version: str, requirements_text: str) -> tup
     )
 
 
-def _plan_env_var_changes(airflow_version: str, dd_site: str, environment_name: str, startup_script_text: Optional[str]) -> list[EnvVarChange]:
+def _plan_env_var_changes(airflow_version: str, dd_site: str, startup_script_text: Optional[str]) -> list[EnvVarChange]:
     """Diff startup.sh variable-by-variable instead of treating the whole file as one blob.
 
     A secret variable that already has *some* value is left alone even if we
     can't verify it's the right one -- we have nothing real to compare it
     against, and proposing to overwrite a customer's working key on every
-    scan would be worse than occasionally missing a wrong one.
+    scan would be worse than occasionally missing a wrong one. The namespace
+    is left alone whenever it's non-empty, since it's the customer's `env`
+    identity (see startup_script.py).
     """
     existing = parse_exports(startup_script_text or "")
     changes = []
-    for name, to_value in target_values(airflow_version, dd_site, environment_name):
+    for name, to_value in target_values(airflow_version, dd_site):
         from_value = existing.get(name)
         secret = name in SECRET_VAR_NAMES
         if secret and from_value is not None:
+            continue
+        if name in KEEP_EXISTING_VAR_NAMES and from_value:
             continue
         if not secret and from_value == to_value:
             continue
@@ -277,7 +281,6 @@ def compute_plan(
     base_constraints: Optional[BaseConstraints],
     startup_script_text: Optional[str],
     dd_site: str,
-    environment_name: str,
     present_wheel_files: frozenset[str] = frozenset(),
 ) -> Plan:
     """Compute the onboarding plan for one environment from its real current files.
@@ -293,7 +296,7 @@ def compute_plan(
         upgrade_needed, rationale, file_changes = _plan_unflagged_version(airflow_version, requirements_text)
         source = "unflagged_version"
 
-    file_changes += _plan_env_var_changes(airflow_version, dd_site, environment_name, startup_script_text)
+    file_changes += _plan_env_var_changes(airflow_version, dd_site, startup_script_text)
 
     return Plan(
         upgrade_needed=upgrade_needed,

@@ -22,7 +22,6 @@ def test_flagged_version_with_stale_pins_needs_upgrade():
         base_constraints=local_base("apache-airflow-providers-openlineage==1.4.0\napache-airflow-providers-common-sql==1.10.0\n"),
         startup_script_text=None,
         dd_site="datadoghq.com",
-        environment_name="my-env",
     )
     assert plan.upgrade_needed is True
     assert plan.source == "flagged_version_table"
@@ -76,7 +75,6 @@ def test_flagged_version_already_upgraded_needs_no_package_or_directive_changes(
             'export AIRFLOW__OPENLINEAGE__DISABLED_FOR_OPERATORS=""\n'
         ),
         dd_site="datadoghq.com",
-        environment_name="my-env",
     )
     assert plan.upgrade_needed is False
     assert plan.file_changes == []
@@ -89,7 +87,6 @@ def test_unflagged_version_without_provider_needs_addition_only():
         base_constraints=None,
         startup_script_text=None,
         dd_site="datadoghq.com",
-        environment_name="my-env",
     )
     assert plan.upgrade_needed is True
     assert plan.source == "unflagged_version"
@@ -111,7 +108,6 @@ def test_unflagged_version_with_provider_already_pinned_and_startup_configured_n
             'export AIRFLOW__OPENLINEAGE__NAMESPACE="my-env"\n'
         ),
         dd_site="datadoghq.com",
-        environment_name="my-env",
     )
     assert plan.upgrade_needed is False
     assert plan.file_changes == []
@@ -131,7 +127,6 @@ def test_unflagged_version_recognizes_a_previously_added_bare_package_line():
             'export AIRFLOW__OPENLINEAGE__NAMESPACE="my-env"\n'
         ),
         dd_site="datadoghq.com",
-        environment_name="my-env",
     )
     assert plan.upgrade_needed is False
     assert plan.file_changes == []
@@ -145,7 +140,6 @@ def test_unflagged_version_with_only_common_sql_still_proposes_the_provider():
         base_constraints=None,
         startup_script_text=None,
         dd_site="datadoghq.com",
-        environment_name="my-env",
     )
     assert plan.upgrade_needed is True
     assert PinChange(path="requirements.txt", package="apache-airflow-providers-openlineage", from_version=None, to_version=None) in plan.file_changes
@@ -162,7 +156,6 @@ def test_requirements_txt_gets_constraint_directive_when_missing():
             'export AIRFLOW__OPENLINEAGE__NAMESPACE="my-env"\n'
         ),
         dd_site="datadoghq.com",
-        environment_name="my-env",
     )
     directive = next(fc for fc in plan.file_changes if isinstance(fc, ConstraintDirectiveChange))
     assert directive.path == "requirements.txt"
@@ -198,7 +191,6 @@ def test_startup_script_change_omitted_when_already_configured():
             'export AIRFLOW__OPENLINEAGE__DISABLED_FOR_OPERATORS=""\n'
         ),
         dd_site="datadoghq.com",
-        environment_name="my-env",
     )
     assert plan.file_changes == []
 
@@ -220,7 +212,6 @@ def test_url_constraint_line_is_replaced_and_pins_are_diffed_against_that_file()
         base_constraints=BaseConstraints(source=UPSTREAM_URL, text=UPSTREAM_TEXT),
         startup_script_text=None,
         dd_site="datadoghq.com",
-        environment_name="my-env",
     )
 
     directives = [fc for fc in plan.file_changes if isinstance(fc, ConstraintDirectiveChange)]
@@ -241,7 +232,6 @@ def test_constraints_from_version_comes_from_the_base_file_not_requirements():
         base_constraints=BaseConstraints(source=UPSTREAM_URL, text=UPSTREAM_TEXT),
         startup_script_text=None,
         dd_site="datadoghq.com",
-        environment_name="my-env",
     )
 
     ol_changes = {fc.path: fc for fc in plan.file_changes if isinstance(fc, PinChange) and fc.package == "apache-airflow-providers-openlineage"}
@@ -256,7 +246,6 @@ def test_from_versions_match_underscore_spelled_pins_in_both_files():
         base_constraints=BaseConstraints(source=UPSTREAM_URL, text="openlineage_sql==1.7.0\nopenlineage-python==1.7.0\n"),
         startup_script_text=None,
         dd_site="datadoghq.com",
-        environment_name="my-env",
     )
 
     changes = {(fc.path, fc.package): fc.from_version for fc in plan.file_changes if isinstance(fc, PinChange)}
@@ -271,7 +260,6 @@ def test_2_7_2_recognizes_a_present_wheel_under_a_different_spelling():
         base_constraints=local_base(UPSTREAM_2_7_2_TEXT),
         startup_script_text=None,
         dd_site="datadoghq.com",
-        environment_name="my-env",
         present_wheel_files=frozenset({"Apache_Airflow_Providers_OpenLineage-1.14.0-py3-none-any.whl"}),
     )
 
@@ -285,7 +273,6 @@ def test_custom_named_local_constraints_file_is_patched_in_place_with_no_directi
         base_constraints=BaseConstraints(source="s3://my-bucket/dags/deps/my-constraints.txt", text=UPSTREAM_TEXT),
         startup_script_text=None,
         dd_site="datadoghq.com",
-        environment_name="my-env",
     )
 
     assert not any(isinstance(fc, ConstraintDirectiveChange) for fc in plan.file_changes)
@@ -299,7 +286,6 @@ def test_unreadable_base_constraints_leaves_out_every_package_change():
         base_constraints=BaseConstraints(source=UPSTREAM_URL, text=None, error="could not download it: timed out"),
         startup_script_text=None,
         dd_site="datadoghq.com",
-        environment_name="my-env",
     )
 
     assert plan.upgrade_needed is True
@@ -323,7 +309,6 @@ def test_more_than_one_constraint_line_leaves_out_every_package_change(constrain
         base_constraints=BaseConstraints(source=UPSTREAM_URL, text=UPSTREAM_TEXT),
         startup_script_text=None,
         dd_site="datadoghq.com",
-        environment_name="my-env",
     )
 
     assert plan.upgrade_needed is True
@@ -338,7 +323,6 @@ def test_flagged_version_without_any_base_constraints_also_fails_safe():
         base_constraints=None,
         startup_script_text=None,
         dd_site="datadoghq.com",
-        environment_name="my-env",
     )
 
     assert all(isinstance(fc, EnvVarChange) for fc in plan.file_changes)
@@ -356,7 +340,6 @@ def test_2_7_2_references_datadog_wheels_instead_of_pinning_those_packages():
         base_constraints=BaseConstraints(source="https://example.invalid/c.txt", text=UPSTREAM_2_7_2_TEXT),
         startup_script_text=None,
         dd_site="datadoghq.com",
-        environment_name="my-env",
     )
 
     wheels = [fc for fc in plan.file_changes if isinstance(fc, WheelReference)]
@@ -403,7 +386,6 @@ def test_2_7_2_recognizes_existing_wheel_references():
         ),
         startup_script_text=None,
         dd_site="datadoghq.com",
-        environment_name="my-env",
         present_wheel_files=frozenset({OPENLINEAGE_WHEEL, COMMON_COMPAT_WHEEL}),
     )
 
@@ -417,7 +399,6 @@ def test_2_7_2_still_plans_a_wheel_whose_reference_exists_but_object_is_missing(
         base_constraints=local_base(UPSTREAM_2_7_2_TEXT),
         startup_script_text=None,
         dd_site="datadoghq.com",
-        environment_name="my-env",
         present_wheel_files=frozenset({COMMON_COMPAT_WHEEL}),
     )
 
@@ -438,7 +419,6 @@ def test_env_var_change_proposed_when_url_points_at_the_wrong_site():
             'export AIRFLOW__OPENLINEAGE__NAMESPACE="my-env"\n'
         ),
         dd_site="datadoghq.com",  # customer's real site differs from what's exported
-        environment_name="my-env",
     )
     env_changes = [fc for fc in plan.file_changes if isinstance(fc, EnvVarChange)]
     assert len(env_changes) == 1
@@ -461,7 +441,6 @@ def test_env_var_change_never_proposed_for_a_secret_that_already_has_a_value():
             'export AIRFLOW__OPENLINEAGE__NAMESPACE="my-env"\n'
         ),
         dd_site="datadoghq.com",
-        environment_name="my-env",
     )
     assert not any(isinstance(fc, EnvVarChange) and fc.name == "OPENLINEAGE_API_KEY" for fc in plan.file_changes)
 
@@ -476,12 +455,54 @@ def test_env_var_change_proposed_for_a_missing_secret_variable():
             'export AIRFLOW__OPENLINEAGE__NAMESPACE="my-env"\n'
         ),
         dd_site="datadoghq.com",
-        environment_name="my-env",
     )
     change = next(fc for fc in plan.file_changes if isinstance(fc, EnvVarChange) and fc.name == "OPENLINEAGE_API_KEY")
     assert change.from_value is None
     assert change.to_value == DD_API_KEY_PLACEHOLDER
     assert change.secret is True
+
+
+def namespace_change(startup_script_text):
+    plan = compute_plan(
+        airflow_version="3.0.6",
+        requirements_text="apache-airflow-providers-openlineage==2.18.0\n",
+        base_constraints=None,
+        startup_script_text=(
+            "export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n"
+            "export OPENLINEAGE_API_KEY=some-real-key\n"
+            f"{startup_script_text}"
+        ),
+        dd_site="datadoghq.com",
+    )
+    return next((fc for fc in plan.file_changes if isinstance(fc, EnvVarChange) and fc.name == "AIRFLOW__OPENLINEAGE__NAMESPACE"), None)
+
+
+@pytest.mark.parametrize(
+    "export_line",
+    [
+        "export AIRFLOW__OPENLINEAGE__NAMESPACE=prod\n",
+        "export AIRFLOW__OPENLINEAGE__NAMESPACE='prod'\n",
+        "export AIRFLOW__OPENLINEAGE__NAMESPACE=default\n",
+        "export AIRFLOW__OPENLINEAGE__NAMESPACE=${AIRFLOW_ENV_NAME}\n",
+        'export AIRFLOW__OPENLINEAGE__NAMESPACE="$AIRFLOW_ENV_NAME"\n',
+    ],
+)
+def test_an_existing_non_empty_namespace_is_never_overridden(export_line):
+    """The namespace is the job's `env` identity in Datadog -- renaming it forks job history."""
+    assert namespace_change(export_line) is None
+
+
+def test_a_missing_namespace_is_set_to_the_env_name_mwaa_sets_at_runtime():
+    assert namespace_change("") == EnvVarChange(
+        path="dags/startup.sh", name="AIRFLOW__OPENLINEAGE__NAMESPACE", from_value=None, to_value="${AIRFLOW_ENV_NAME}", secret=False
+    )
+
+
+def test_an_empty_namespace_is_treated_as_unset():
+    change = namespace_change('export AIRFLOW__OPENLINEAGE__NAMESPACE=""\n')
+
+    assert change.from_value == ""
+    assert change.to_value == "${AIRFLOW_ENV_NAME}"
 
 
 # --- serialization --------------------------------------------------------------

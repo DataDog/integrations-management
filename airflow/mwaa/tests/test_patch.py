@@ -192,3 +192,12 @@ def test_patch_env_vars_quotes_namespace_value():
     patched = patch_env_vars("#!/bin/sh\n", [change])
 
     assert 'export AIRFLOW__OPENLINEAGE__NAMESPACE="my-env"' in patched
+
+
+def test_patch_env_vars_rewrites_an_empty_namespace_line_in_place():
+    text = '#!/bin/sh\nexport AIRFLOW__OPENLINEAGE__NAMESPACE=""\necho done\n'
+    change = EnvVarChange(path="dags/startup.sh", name="AIRFLOW__OPENLINEAGE__NAMESPACE", from_value="", to_value="${AIRFLOW_ENV_NAME}", secret=False)
+
+    patched = patch_env_vars(text, [change])
+
+    assert patched == '#!/bin/sh\nexport AIRFLOW__OPENLINEAGE__NAMESPACE="${AIRFLOW_ENV_NAME}"\necho done\n'

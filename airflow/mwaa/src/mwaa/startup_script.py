@@ -23,15 +23,13 @@ substituted in by interpolate_api_key, called by apply.py right before a
 file actually gets written to S3 (or previewed at the terminal) -- the only
 two places the real key is used, and neither of those persists anything.
 
-The doc's own snippet uses `AIRFLOW__OPENLINEAGE__NAMESPACE=${AIRFLOW_ENV_NAME}`
-as if AIRFLOW_ENV_NAME is already set, but it isn't one of MWAA's reserved or
-commonly-set variables (see AWS's own startup-script docs) -- nothing defines
-it, so that line would silently resolve to an empty namespace. Since a real
-MWAA deployment is typically one of several (dev/staging/prod are usually
-separate environments, not one Airflow instance switching contexts), and each
-environment's own Name is already the natural, unique way to tell them apart,
-this substitutes the real environment name directly into the namespace value
-instead -- no intermediate variable, no indirection.
+AIRFLOW__OPENLINEAGE__NAMESPACE becomes the `env` tag in Datadog and is part
+of every OpenLineage job's identity, so an existing non-empty value is never
+overridden (see KEEP_EXISTING_VAR_NAMES) -- renaming it would fork job history
+and break env-scoped monitors. When it's missing or empty (the provider treats
+empty as unset and falls back to `default`), the target is the doc's own
+`${AIRFLOW_ENV_NAME}`, which MWAA sets at runtime to the environment's name;
+double-quoted so the shell expands it then.
 """
 
 import re
@@ -66,12 +64,17 @@ def parse_exports(text: str) -> dict[str, str]:
     return {name: _strip_matching_quotes(value) for name, value in _EXPORT_LINE.findall(text)}
 
 
-def target_values(airflow_version: str, dd_site: str, environment_name: str) -> list[tuple[str, str]]:
+#: Variables left alone whenever they already have a non-empty value, whatever
+#: it is -- see the module docstring.
+KEEP_EXISTING_VAR_NAMES = frozenset({"AIRFLOW__OPENLINEAGE__NAMESPACE"})
+
+
+def target_values(airflow_version: str, dd_site: str) -> list[tuple[str, str]]:
     """The (name, value) pairs startup.sh needs for this environment, in the order they should appear."""
     values = [
         ("OPENLINEAGE_URL", f"https://data-obs-intake.{dd_site}"),
         ("OPENLINEAGE_API_KEY", DD_API_KEY_PLACEHOLDER),
-        ("AIRFLOW__OPENLINEAGE__NAMESPACE", environment_name),
+        ("AIRFLOW__OPENLINEAGE__NAMESPACE", "${AIRFLOW_ENV_NAME}"),
     ]
     if airflow_version in VERSIONS_NEEDING_CONFIG_PATH_WORKAROUND:
         values += [

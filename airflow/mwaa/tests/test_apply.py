@@ -37,7 +37,7 @@ def make_context(**overrides) -> ProbeContext:
 
 def test_compute_apply_actions_patches_requirements_and_constraints():
     ctx = make_context()
-    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com", "my-env")
+    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com")
 
     uploads = compute_apply_actions(ctx, plan)
 
@@ -68,7 +68,7 @@ def test_compute_apply_actions_uses_prerendered_startup_script_content():
             "openlineage-sql==1.24.2\n"
         ),
     )
-    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com", "my-env")
+    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com")
 
     uploads = compute_apply_actions(ctx, plan)
 
@@ -79,7 +79,7 @@ def test_compute_apply_actions_uses_prerendered_startup_script_content():
 
 def test_interpolate_api_key_substitutes_only_the_startup_script_upload():
     ctx = make_context()
-    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com", "my-env")
+    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com")
     uploads = compute_apply_actions(ctx, plan)
 
     interpolated = interpolate_api_key(uploads, "real-dd-api-key")
@@ -102,7 +102,7 @@ def test_url_constraint_writes_the_full_base_and_replaces_the_url_line():
         constraints_text=None,
         base_constraints=BaseConstraints(source=UPSTREAM_URL, text=UPSTREAM_TEXT),
     )
-    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com", "my-env")
+    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com")
 
     by_path = {u.path: u for u in compute_apply_actions(ctx, plan)}
 
@@ -126,7 +126,7 @@ def test_custom_named_local_constraints_file_is_patched_in_place():
         requirements_text='--constraint "/usr/local/airflow/dags/deps/my-constraints.txt"\napache-airflow-providers-openlineage==1.4.0\n',
         constraints_text=local_text,
     )
-    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com", "my-env")
+    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com")
 
     by_path = {u.path: u for u in compute_apply_actions(ctx, plan)}
 
@@ -153,7 +153,7 @@ def test_constraint_line_that_moved_from_url_to_a_local_file_after_scan_is_left_
         constraints_text=None,
         base_constraints=BaseConstraints(source=UPSTREAM_URL, text=UPSTREAM_TEXT),
     )
-    plan = compute_plan("2.8.1", at_scan.requirements_text, at_scan.base_constraints, None, "datadoghq.com", "my-env")
+    plan = compute_plan("2.8.1", at_scan.requirements_text, at_scan.base_constraints, None, "datadoghq.com")
     assert any(isinstance(fc, ConstraintDirectiveChange) for fc in plan.file_changes)
 
     at_apply = make_context(
@@ -173,7 +173,7 @@ def test_constraint_line_that_moved_from_a_local_file_to_a_url_after_scan_gets_r
         requirements_text='--constraint "/usr/local/airflow/dags/deps/custom.txt"\n' + FULLY_PINNED_2_8_1,
         constraints_text=UPSTREAM_TEXT,
     )
-    plan = compute_plan("2.8.1", at_scan.requirements_text, at_scan.base_constraints, None, "datadoghq.com", "my-env")
+    plan = compute_plan("2.8.1", at_scan.requirements_text, at_scan.base_constraints, None, "datadoghq.com")
     assert not any(fc.path == "requirements.txt" for fc in plan.file_changes)
 
     at_apply = make_context(
@@ -191,7 +191,7 @@ def test_constraint_line_that_moved_from_a_local_file_to_a_url_after_scan_gets_r
 
 def test_compute_apply_actions_refuses_constraints_if_requirements_gained_a_second_constraint_line():
     at_scan = make_context(constraints_text=None, base_constraints=BaseConstraints(source=UPSTREAM_URL, text=UPSTREAM_TEXT))
-    plan = compute_plan("2.8.1", at_scan.requirements_text, at_scan.base_constraints, None, "datadoghq.com", "my-env")
+    plan = compute_plan("2.8.1", at_scan.requirements_text, at_scan.base_constraints, None, "datadoghq.com")
     at_apply = make_context(
         requirements_text=f'--constraint "{UPSTREAM_URL}"\n-c https://example.invalid/c.txt\n',
         constraints_text=None,
@@ -207,7 +207,7 @@ def test_compute_apply_actions_refuses_requirements_only_flagged_changes_under_a
     those pins still can't take effect once a second --constraint line shows up."""
     local = '--constraint "/usr/local/airflow/dags/constraints.txt"\n'
     at_scan = make_context(requirements_text=local + "apache-airflow-providers-openlineage==1.4.0\n", constraints_text=FULLY_PINNED_2_8_1)
-    plan = compute_plan("2.8.1", at_scan.requirements_text, at_scan.base_constraints, None, "datadoghq.com", "my-env")
+    plan = compute_plan("2.8.1", at_scan.requirements_text, at_scan.base_constraints, None, "datadoghq.com")
     assert {fc.path for fc in plan.file_changes if not isinstance(fc, EnvVarChange)} == {"requirements.txt"}
 
     at_apply = make_context(
@@ -225,7 +225,7 @@ def test_compute_apply_actions_allows_an_unflagged_bare_provider_under_several_c
         requirements_text="-c https://example.invalid/a.txt\n-c https://example.invalid/b.txt\n",
         constraints_text=None,
     )
-    plan = compute_plan("2.10.3", ctx.requirements_text, None, None, "datadoghq.com", "my-env")
+    plan = compute_plan("2.10.3", ctx.requirements_text, None, None, "datadoghq.com")
 
     by_path = {u.path: u for u in compute_apply_actions(ctx, plan)}
 
@@ -235,7 +235,7 @@ def test_compute_apply_actions_allows_an_unflagged_bare_provider_under_several_c
 def test_compute_apply_actions_refuses_to_write_constraints_without_a_base():
     """Scan read the base fine, but apply's fresh fetch didn't -- never fall back to a pins-only file."""
     readable = make_context(constraints_text=None, base_constraints=BaseConstraints(source=UPSTREAM_URL, text=UPSTREAM_TEXT))
-    plan = compute_plan("2.8.1", readable.requirements_text, readable.base_constraints, None, "datadoghq.com", "my-env")
+    plan = compute_plan("2.8.1", readable.requirements_text, readable.base_constraints, None, "datadoghq.com")
     unreadable = make_context(constraints_text=None, base_constraints=BaseConstraints(source=UPSTREAM_URL, text=None, error="timed out"))
 
     with pytest.raises(RuntimeError, match="timed out"):
@@ -273,7 +273,7 @@ def test_compute_apply_actions_handles_unflagged_version_missing_provider():
             'export AIRFLOW__OPENLINEAGE__NAMESPACE="my-env"\n'
         ),
     )
-    plan = compute_plan("3.0.6", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com", "my-env")
+    plan = compute_plan("3.0.6", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com")
     assert plan.upgrade_needed is True
     assert plan.source == "unflagged_version"
 
@@ -291,7 +291,7 @@ def test_apply_to_environment_uploads_and_calls_update():
     client = MagicMock()
     client.put_object_text.side_effect = ["v-con", "v-req", "v-startup"]
     ctx = make_context()
-    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com", "my-env")
+    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com")
     uploads = compute_apply_actions(ctx, plan)
 
     result = apply_to_environment(client, ctx, uploads, [])
@@ -336,7 +336,7 @@ def test_apply_to_environment_writes_to_the_environments_real_prefixed_keys():
             "StartupScriptS3Path": "setup-probe/probe-env/startup/startup.sh",
         },
     )
-    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com", "my-env")
+    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com")
     uploads = compute_apply_actions(ctx, plan)
 
     result = apply_to_environment(client, ctx, uploads, [])
@@ -420,7 +420,7 @@ WHEEL_ENVIRONMENT = {**ENVIRONMENT, "AirflowVersion": "2.7.2", "DagS3Path": "dag
 
 def scan_and_apply(client: FakeS3Client):
     ctx = build_context(client, "my-env")
-    plan = compute_plan("2.7.2", ctx.requirements_text, ctx.base_constraints, None, "datadoghq.com", "my-env", ctx.present_wheel_files)
+    plan = compute_plan("2.7.2", ctx.requirements_text, ctx.base_constraints, None, "datadoghq.com", ctx.present_wheel_files)
     wheels = [fc for fc in plan.file_changes if isinstance(fc, WheelReference)]
     apply_to_environment(client, ctx, compute_apply_actions(ctx, plan), wheels)
     return wheels
@@ -429,7 +429,7 @@ def scan_and_apply(client: FakeS3Client):
 def assert_rescans_clean(client: FakeS3Client):
     ctx = build_context(client, "my-env")
     assert check_wheel_references(ctx).status == FindingStatus.PASS
-    replan = compute_plan("2.7.2", ctx.requirements_text, ctx.base_constraints, None, "datadoghq.com", "my-env", ctx.present_wheel_files)
+    replan = compute_plan("2.7.2", ctx.requirements_text, ctx.base_constraints, None, "datadoghq.com", ctx.present_wheel_files)
     assert not any(fc.path in ("requirements.txt", "dags/constraints.txt") for fc in replan.file_changes)
 
 
@@ -475,7 +475,7 @@ def test_apply_to_environment_writes_nothing_if_a_wheel_download_isnt_a_wheel(fa
     fake_fetch[OPENLINEAGE_WHEEL_URL] = b"<html>not found</html>"
     client = MagicMock()
     ctx = make_context(environment={**ENVIRONMENT, "AirflowVersion": "2.7.2"}, constraints_text=None, base_constraints=BaseConstraints(source="x", text=UPSTREAM_2_7_2_TEXT))
-    plan = compute_plan("2.7.2", ctx.requirements_text, ctx.base_constraints, None, "datadoghq.com", "my-env")
+    plan = compute_plan("2.7.2", ctx.requirements_text, ctx.base_constraints, None, "datadoghq.com")
     wheels = [fc for fc in plan.file_changes if isinstance(fc, WheelReference)]
 
     with pytest.raises(RuntimeError, match="didn't return a wheel"):
@@ -483,3 +483,24 @@ def test_apply_to_environment_writes_nothing_if_a_wheel_download_isnt_a_wheel(fa
 
     client.put_object_bytes.assert_not_called()
     client.put_object_text.assert_not_called()
+
+
+def test_apply_rewrites_an_empty_namespace_line_and_nothing_else_in_startup_sh():
+    startup = (
+        "#!/bin/sh\n"
+        "export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n"
+        "export OPENLINEAGE_API_KEY=some-real-key\n"
+        'export AIRFLOW__OPENLINEAGE__NAMESPACE=""\n'
+    )
+    ctx = make_context(
+        environment={**ENVIRONMENT, "AirflowVersion": "2.10.3"},
+        requirements_text="apache-airflow-providers-openlineage\n",
+        constraints_text=None,
+        startup_script_text=startup,
+    )
+    plan = compute_plan("2.10.3", ctx.requirements_text, None, ctx.startup_script_text, "datadoghq.com")
+
+    uploads = compute_apply_actions(ctx, plan)
+
+    assert [u.path for u in uploads] == ["dags/startup.sh"]
+    assert uploads[0].content == startup.replace('NAMESPACE=""', 'NAMESPACE="${AIRFLOW_ENV_NAME}"')
