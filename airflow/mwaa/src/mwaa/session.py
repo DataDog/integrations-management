@@ -29,10 +29,12 @@ Each environment also carries `issues`: findings from the subset of probe
 checks.py checks that matter for whether it's *safe* to apply this plan --
 a conflicting AirflowConfigurationOptions value, a referenced constraints/
 wheel file that doesn't exist, an execution role that can't read what the
-plan would write, a base constraints file that couldn't be downloaded. Recorded at scan time so `apply` can surface them right
-before acting, without recomputing anything -- and without blocking apply
-outright, since the person running it may already know and want to proceed
-anyway.
+plan would write, a base constraints file that couldn't be downloaded.
+Recorded at scan time so `apply` can surface them right before acting,
+without recomputing anything. A WARN issue doesn't block apply, since the
+person running it may already know and want to proceed anyway; a FAIL one
+does (see blocking_issues), matching the UI, which won't continue past
+review while one exists.
 
 Each environment also carries `file_versions` (see probe.py): the latest
 S3 VersionId of every file its plan reads or might write, so apply can
@@ -127,6 +129,15 @@ class Session:
 
     def find(self, name: str) -> "EnvironmentEntry | None":
         return next((e for e in self.environments if e.name == name), None)
+
+
+class BlockingIssuesError(RuntimeError):
+    """The environment has FAIL issues, so its plan won't be applied until they're fixed and `scan` re-run."""
+
+
+def blocking_issues(entry: EnvironmentEntry) -> list[Finding]:
+    """The issues that stop `apply` (and interactive `scan`) from applying this environment's plan."""
+    return [issue for issue in entry.issues if issue.status == FindingStatus.FAIL]
 
 
 def seal_applied(session: Session, environment_name: str) -> Session:

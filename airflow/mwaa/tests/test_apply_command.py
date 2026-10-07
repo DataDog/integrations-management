@@ -4,17 +4,17 @@
 
 import json
 import uuid
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from airflow_shared.reporter import Reporter
+from airflow_shared.reporter import Finding, FindingStatus, Reporter
 from mwaa.apply import StaleSessionError
 from mwaa.apply_command import run_apply
 from mwaa.apply_config import ApplyConfig
 from mwaa.plan import PinChange, Plan
-from mwaa.session import AppliedStatus, EnvironmentEntry, ScannedStatus, Session
+from mwaa.session import AppliedStatus, BlockingIssuesError, EnvironmentEntry, ScannedStatus, Session
 from mwaa.session_override import SESSION_OVERRIDE_ENV_VAR
 from mwaa.session_store import SessionStore
 
@@ -211,6 +211,54 @@ def test_run_apply_refuses_a_plan_that_writes_a_file_with_no_recorded_version():
 
     with pytest.raises(StaleSessionError, match="no recorded version for requirements.txt"):
         run_confirmed_apply(make_session(file_versions={"dags/startup.sh": None}), client)
+
+    client.put_object_text.assert_not_called()
+
+
+def session_with_issue(status: FindingStatus) -> Session:
+    entry = make_session().environments[0]
+    return Session(
+        session_id=SESSION_ID,
+        region="us-east-1",
+        environments=[replace(entry, issues=[Finding("unapplied_uploads", status, "requirements.txt has a newer upload")])],
+    )
+
+
+@pytest.mark.parametrize("confirmed", [True, False], ids=["--yes", "dry-run"])
+def test_run_apply_refuses_an_environment_with_a_fail_issue_and_writes_nothing(confirmed, capsys):
+    client = make_client()
+    config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", dd_api_key="fake-dd-api-key", confirmed=confirmed)
+
+    with (
+        patch("mwaa.apply_command.MwaaClient", return_value=client),
+        patch("mwaa.apply_command.select_session_store", return_value=(make_store(session_with_issue(FindingStatus.FAIL)), False)),
+        pytest.raises(BlockingIssuesError, match="re-run scan"),
+    ):
+        run_apply(config, Reporter(workflow_type="mwaa-setup"))
+
+    out = capsys.readouterr().out
+    assert "requirements.txt has a newer upload" in out  # the issue itself was shown
+    assert "Planned changes" not in out
+    client.put_object_text.assert_not_called()
+    client.put_object_bytes.assert_not_called()
+    client.update_environment.assert_not_called()
+
+
+def test_run_apply_still_applies_with_only_warn_issues(capsys):
+    result = run_confirmed_apply(session_with_issue(FindingStatus.WARN), make_client())
+
+    assert result["applied"] is True
+    assert "These warnings don't block applying" in capsys.readouterr().out
+
+
+def test_run_apply_refuses_a_fail_issue_in_an_override_session_too(tmp_path, monkeypatch):
+    override_path = tmp_path / "override.json"
+    override_path.write_text(json.dumps(asdict(session_with_issue(FindingStatus.FAIL))))
+    monkeypatch.setenv(SESSION_OVERRIDE_ENV_VAR, str(override_path))
+    client = make_client()
+
+    with pytest.raises(BlockingIssuesError):
+        run_confirmed_apply(make_session(), client)
 
     client.put_object_text.assert_not_called()
 

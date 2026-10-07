@@ -44,7 +44,7 @@ from .diff_preview import render_unified_diff
 from .discovery import discover_environments
 from .plan import Plan, WheelReference
 from .scan_config import ScanConfig
-from .session import Session, build_session, seal_applied
+from .session import Session, blocking_issues, build_session, seal_applied
 from .session_store import FilesystemSessionStore, SessionStore
 from .session_store_selection import select_session_store
 
@@ -156,7 +156,12 @@ def _run_interactive(
         print(f"\n{len(entry.issues)} issue(s) were found when this session was scanned:")
         for issue in entry.issues:
             reporter.report_finding(issue)
-        print("\nThese don't block applying -- review them before continuing.")
+    if blocking_issues(entry):
+        # same rule as `apply`, --dry-run included: no preview of a plan that can't be applied
+        print("\nThe FAIL issue(s) above block applying this environment. No changes made -- resolve them and re-run scan.")
+        return {"applied": False, "session": session, "environment": entry.name}
+    if entry.issues:
+        print("\nThese warnings don't block applying -- review them before continuing.")
 
     if not entry.plan.file_changes:
         print("This environment is already fully configured for Data Observability. Nothing to do.")

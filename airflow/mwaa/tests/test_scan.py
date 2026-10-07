@@ -317,6 +317,39 @@ def test_run_scan_interactive_apply_replaces_an_upstream_url_constraint_with_a_f
     assert "apache-airflow-providers-openlineage==1.14.0" in requirements
 
 
+def client_with_a_fail_issue_on_prod() -> MagicMock:
+    """Two --constraint lines on flagged 2.8.1 -- a constraint_directives FAIL."""
+    client = make_client()
+    objects = {
+        ("my-bucket", "requirements.txt"): "-c https://example.com/a.txt\n-c https://example.com/b.txt\n",
+        ("my-bucket-2", "requirements.txt"): "apache-airflow-providers-openlineage==2.18.0\n",
+        ("my-bucket-2", "dags/startup.sh"): "",
+    }
+    client.get_object_text.side_effect = lambda bucket, key, version_id=None: objects[(bucket, key)]
+    return client
+
+
+@pytest.mark.parametrize("dry_run", [False, True], ids=["interactive", "interactive --dry-run"])
+def test_run_scan_interactive_refuses_an_environment_with_a_fail_issue(dry_run, capsys):
+    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key", interactive=True, dry_run=dry_run)
+    client = client_with_a_fail_issue_on_prod()
+
+    # only the environment selection is answered -- an apply prompt would raise StopIteration
+    with (
+        patch("mwaa.scan.MwaaClient", return_value=client),
+        patch("mwaa.scan.select_session_store", return_value=(make_store(), False)),
+    ):
+        result = run_scan(config, Reporter(workflow_type="mwaa-setup"), input_func=fake_input("1"))
+
+    assert result["applied"] is False
+    out = capsys.readouterr().out
+    assert "2 --constraint lines" in out  # the FAIL issue was shown
+    assert "block applying this environment" in out
+    assert "Proposed changes" not in out
+    client.put_object_text.assert_not_called()
+    client.update_environment.assert_not_called()
+
+
 def test_run_scan_interactive_no_environments_found(capsys):
     config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key", interactive=True)
     reporter = Reporter(workflow_type="mwaa-setup")

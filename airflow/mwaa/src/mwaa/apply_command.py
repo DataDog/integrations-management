@@ -9,7 +9,8 @@ SessionStore select_session_store picks for this run (network by default,
 local file under --offline or if the network's unreachable), or under
 SESSION_OVERRIDE_PATH, a hand-authored one instead -- see session_override.py.
 Pulls out the plan for --name, then always fetches that environment fresh,
-refuses to go on if any file the plan was computed from has changed since
+refuses to go on if the environment has a FAIL issue (session.blocking_issues)
+or any file the plan was computed from has changed since
 (check_files_unchanged -- a hand-authored override session without
 file_versions only gets a warning), and previews before doing anything
 mutating -- without --yes (see apply_config.py), this only prints what it
@@ -32,7 +33,7 @@ from .apply_config import ApplyConfig
 from .diff_preview import render_unified_diff
 from .plan import WheelReference
 from .probe import build_context
-from .session import seal_applied
+from .session import BlockingIssuesError, blocking_issues, seal_applied
 from .session_override import SESSION_OVERRIDE_ENV_VAR, load_session_override
 from .session_store_selection import select_session_store
 
@@ -63,7 +64,13 @@ def run_apply(config: ApplyConfig, reporter: Reporter) -> dict[str, Any]:
         print(f"\n{len(entry.issues)} issue(s) were found when this session was scanned:")
         for issue in entry.issues:
             reporter.report_finding(issue)
-        print("\nThese don't block applying -- review them before continuing.")
+    blocking = blocking_issues(entry)
+    if blocking:
+        raise BlockingIssuesError(
+            f"{len(blocking)} FAIL issue(s) above block applying '{entry.name}'. Nothing was written -- resolve them and re-run scan."
+        )
+    if entry.issues:
+        print("\nThese warnings don't block applying -- review them before continuing.")
 
     client = MwaaClient(region=config.region)
 

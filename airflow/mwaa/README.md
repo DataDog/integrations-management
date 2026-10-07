@@ -115,7 +115,10 @@ apply or discard that upload first. A `SESSION_OVERRIDE_PATH` session without
 
 If `scan` recorded any `issues` for the environment you `apply` (a conflicting OpenLineage
 config, a missing constraints/wheel file, an execution role that can't read what the plan
-would write), they're printed before the diff. They don't block applying.
+would write), they're printed before the diff. A WARN issue doesn't block applying; a
+FAIL issue does -- `apply` (with or without `--yes`) and interactive `scan` (with or
+without `--dry-run`) refuse, write nothing, and ask you to resolve it and re-run `scan`.
+That holds for `SESSION_OVERRIDE_PATH` sessions too.
 
 ---
 
