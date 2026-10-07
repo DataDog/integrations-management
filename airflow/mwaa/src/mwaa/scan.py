@@ -93,6 +93,17 @@ def _apply_hint(session: Session, environment_name: str, region: str, offline: b
     return f"{cmd} --offline" if offline else f"{cmd} --dd-site <DD_SITE>"
 
 
+def _app_url(dd_site: str) -> str:
+    """The Datadog web app's base URL for a site.
+
+    Bare sites (datadoghq.com, datadoghq.eu, ddog-gov.com, datad0g.com) serve
+    the app from `app.<site>`; sites that already carry a subdomain
+    (us3.datadoghq.com, ap1.datadoghq.com, us2.ddog-gov.com, ...) serve it
+    from the site itself.
+    """
+    return f"https://{dd_site}" if dd_site.count(".") > 1 else f"https://app.{dd_site}"
+
+
 def _print_ui_handoff(session: Session, region: str, dd_site: str, offline: bool) -> None:
     print(f"\nSession persisted: {session.session_id}")
     flagged = [e for e in session.environments if e.issues]
@@ -105,7 +116,7 @@ def _print_ui_handoff(session: Session, region: str, dd_site: str, offline: bool
         print(f"  {_apply_hint(session, '<ENVIRONMENT_NAME>', region, offline)}")
     else:
         print("Continue in the Configure Airflow UI:")
-        print(f"  https://app.{dd_site}/data-obs/configure/airflow?session_id={session.session_id}")
+        print(f"  {_app_url(dd_site)}/data-obs/configure/airflow?session_id={session.session_id}")
 
 
 def _run_interactive(
@@ -184,7 +195,7 @@ def _run_interactive(
         print("UpdateEnvironment called -- the environment will restart (usually 20-30 minutes).")
         print()
         print("Next: once it's back, trigger a DAG run in the Airflow UI, then check")
-        print(f"Data Observability: Jobs Monitoring in Datadog (https://app.{config.dd_site}/data-jobs/)")
+        print(f"Data Observability: Jobs Monitoring in Datadog ({_app_url(config.dd_site)}/data-jobs/)")
         print("to confirm lineage events are arriving. This CLI does not trigger a DAG run for you.")
 
     return {"applied": True, "session": session, "environment": entry.name, "uploads": uploads, "result": result}

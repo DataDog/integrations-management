@@ -5,8 +5,10 @@
 import uuid
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from airflow_shared.reporter import Reporter
-from mwaa.scan import run_scan
+from mwaa.scan import _app_url, run_scan
 from mwaa.scan_config import ScanConfig
 from mwaa.session import AppliedStatus, ScannedStatus
 from mwaa.session_store import SessionStore
@@ -96,6 +98,37 @@ def test_run_scan_without_interactive_prints_ui_link_and_does_not_prompt(capsys)
     out = capsys.readouterr().out
     assert SESSION_ID in out
     assert "Configure Airflow UI" in out
+
+
+@pytest.mark.parametrize(
+    "dd_site, expected",
+    [
+        ("datadoghq.com", "https://app.datadoghq.com"),
+        ("datadoghq.eu", "https://app.datadoghq.eu"),
+        ("datad0g.com", "https://app.datad0g.com"),
+        ("ddog-gov.com", "https://app.ddog-gov.com"),
+        ("us3.datadoghq.com", "https://us3.datadoghq.com"),
+        ("us5.datadoghq.com", "https://us5.datadoghq.com"),
+        ("ap1.datadoghq.com", "https://ap1.datadoghq.com"),
+        ("ap2.datadoghq.com", "https://ap2.datadoghq.com"),
+        ("us2.ddog-gov.com", "https://us2.ddog-gov.com"),
+    ],
+)
+def test_app_url_only_adds_app_subdomain_to_bare_sites(dd_site, expected):
+    assert _app_url(dd_site) == expected
+
+
+def test_run_scan_ui_link_uses_the_sites_own_host_for_subdomained_sites(capsys):
+    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="us3.datadoghq.com", dd_api_key="fake-dd-api-key")
+    reporter = Reporter(workflow_type="mwaa-setup")
+
+    with (
+        patch("mwaa.scan.MwaaClient", return_value=make_client()),
+        patch("mwaa.scan.select_session_store", return_value=(make_store(), False)),
+    ):
+        run_scan(config, reporter, input_func=fake_input())
+
+    assert f"https://us3.datadoghq.com/data-obs/configure/airflow?session_id={SESSION_ID}" in capsys.readouterr().out
 
 
 def test_run_scan_without_interactive_offline_skips_ui_link(capsys):
@@ -236,6 +269,7 @@ def test_run_scan_interactive_confirming_apply_uploads_and_updates(capsys):
     out = capsys.readouterr().out
     assert "UpdateEnvironment called" in out
     assert "This CLI does not trigger a DAG run for you" in out
+    assert "(https://app.datadoghq.com/data-jobs/)" in out
 
     session = result["session"]
     assert session.find("my-mwaa-prod").status == AppliedStatus()
