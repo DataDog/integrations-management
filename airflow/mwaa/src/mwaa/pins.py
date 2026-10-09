@@ -27,6 +27,11 @@ def normalize_package_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
+def pinned_versions(text: str, package: str) -> list[str]:
+    """Every `==` version `text` pins `package` to, in order, matching any spelling of its name."""
+    return [version for name, version in _PIN_LINE.findall(text) if normalize_package_name(name) == package]
+
+
 def stale_pin(text: str, package: str, target: str) -> "tuple[bool, str | None]":
     """(needs a change, the version to show it changing from) for one package's pins in `text`.
 
@@ -34,7 +39,7 @@ def stale_pin(text: str, package: str, target: str) -> "tuple[bool, str | None]"
     with underscores, so a patched file can end up with both) only counts as
     at `target` if every one of its pins is -- pip enforces them all.
     """
-    versions = [version for name, version in _PIN_LINE.findall(text) if normalize_package_name(name) == package]
+    versions = pinned_versions(text, package)
     stale = [version for version in versions if version != target]
     if versions and not stale:
         return False, None

@@ -8,6 +8,7 @@ AirflowConfigurationOptions, following the provider's and openlineage-python's o
 import pytest
 
 from airflow_shared.reporter import FindingStatus
+from mwaa.base_constraints import BaseConstraints
 from mwaa.checks import ProbeContext
 from mwaa.plan import EnvVarChange
 from mwaa.session import build_session
@@ -26,7 +27,14 @@ WORKAROUND = 'export AIRFLOW__OPENLINEAGE__CONFIG_PATH=""\nexport AIRFLOW__OPENL
 NAMESPACE = "export AIRFLOW__OPENLINEAGE__NAMESPACE=${AIRFLOW_ENV_NAME}\n"
 
 
-def entry_for(startup: "str | None", *, airflow_version: str = "2.10.3", requirements: str = PROVIDER, config_options: "dict | None" = None):
+def entry_for(
+    startup: "str | None",
+    *,
+    airflow_version: str = "2.10.3",
+    requirements: str = PROVIDER,
+    config_options: "dict | None" = None,
+    constraints: "str | None" = None,
+):
     ctx = ProbeContext(
         environment={
             "Name": "my-env",
@@ -39,6 +47,7 @@ def entry_for(startup: "str | None", *, airflow_version: str = "2.10.3", require
         constraints_text=None,
         startup_script_text=startup,
         client=None,
+        base_constraints=BaseConstraints(source="s3://example-bucket/dags/constraints.txt", text=constraints) if constraints else None,
     )
     return build_session("s", "us-east-1", SITE, [ctx]).environments[0]
 
@@ -356,3 +365,55 @@ def test_disabling_openlineage_fails(variable):
     status, message = check(entry, "openlineage_transport")
     assert status == FindingStatus.FAIL
     assert variable in message
+
+
+# --- version-specific capabilities ---------------------------------------------------
+
+
+def airflow_transport(transport: str) -> str:
+    return f"export AIRFLOW__OPENLINEAGE__TRANSPORT='{transport}'\n" + NAMESPACE
+
+
+ASYNC_HTTP = airflow_transport(f'{{"type": "async_http", "url": "{INTAKE}", "auth": {{"type": "api_key", "apiKey": "k"}}}}')
+LOWERCASE_APIKEY = airflow_transport(f'{{"type": "http", "url": "{INTAKE}", "auth": {{"type": "api_key", "apikey": "k"}}}}')
+
+
+@pytest.mark.parametrize(
+    "startup, boundary",
+    [(ASYNC_HTTP, "1.35.0"), (LOWERCASE_APIKEY, "1.38.0")],
+    ids=["async_http", "apikey-spelling"],
+)
+def test_openlineage_python_capabilities_count_only_from_the_version_that_has_them(startup, boundary):
+    at_boundary = entry_for(startup, requirements=PROVIDER + f"openlineage-python=={boundary}\n")
+    before = entry_for(startup, requirements=PROVIDER + "openlineage-python==1.24.2\n")
+    unknown = entry_for(startup)
+
+    assert at_boundary.already_configured is True
+    assert before.already_configured is False
+    assert check(before, "openlineage_transport")[0] == FindingStatus.FAIL
+    assert unknown.already_configured is False
+    status, message = check(unknown, "openlineage_transport")
+    assert status == FindingStatus.WARN
+    assert boundary in message
+
+
+def test_the_openlineage_python_version_can_come_from_the_constraints_file():
+    entry = entry_for(ASYNC_HTTP, constraints="openlineage-python==1.24.2\n")
+
+    assert check(entry, "openlineage_transport")[0] == FindingStatus.FAIL
+
+
+def test_config_conn_id_only_counts_on_providers_that_read_it():
+    startup = DOCS_RECIPE + "export AIRFLOW__OPENLINEAGE__CONFIG_CONN_ID=openlineage_default\n"
+
+    ignored = entry_for(startup, requirements="apache-airflow-providers-openlineage==2.17.0\n")
+    read = entry_for(startup, requirements="apache-airflow-providers-openlineage==2.18.0\n")
+    unknown = entry_for(startup)
+
+    assert ignored.already_configured is True
+    for entry in (read, unknown):
+        assert entry.already_configured is False
+        status, message = check(entry, "openlineage_transport")
+        assert status == FindingStatus.WARN
+        assert "AIRFLOW__OPENLINEAGE__CONFIG_CONN_ID" in message
+    assert "2.18.0" in check(unknown, "openlineage_transport")[1]

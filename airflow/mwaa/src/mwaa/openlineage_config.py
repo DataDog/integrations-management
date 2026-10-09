@@ -37,6 +37,12 @@ _alias_env_vars, _load_config_from_env_variables):
   5. Otherwise OPENLINEAGE_URL (+ OPENLINEAGE_API_KEY) is an HTTP transport.
   6. Otherwise events go to the console.
 
+Capabilities that only exist from some release on (config_conn_id, the
+async_http transport, the lowercase `apikey` auth spelling, env-style-only
+config -- see the version constants below) only count when the installed
+version is known to have them: pinned in requirements.txt, else in the
+constraints file in effect. When it isn't pinned, that's a can't-verify WARN.
+
 A config file or connection can't be read statically, so either one winning is
 a WARN ("can't verify"), never a guess. When the transport that wins goes
 somewhere other than the intake and setting OPENLINEAGE_URL wouldn't change
@@ -52,11 +58,15 @@ from typing import Any, Optional
 
 from airflow_shared.reporter import Finding, FindingStatus
 
-from .pins import OPENLINEAGE_PROVIDER, mentions_package, requirement_line_package
+from .pins import OPENLINEAGE_PROVIDER, mentions_package, pinned_versions, requirement_line_package
 from .shell_env import Variables, exported_environment
 from .startup_script import DD_API_KEY_PLACEHOLDER, VERSIONS_NEEDING_CONFIG_PATH_WORKAROUND
 
-PROVIDER_ENV_STYLE_TRANSPORT_VERSION = (2, 6, 0)
+# version boundaries, from the provider/openlineage-python source at each release
+PROVIDER_ENV_STYLE_TRANSPORT_VERSION = (2, 6, 0)  # conf.is_disabled counts OPENLINEAGE__TRANSPORT* env vars
+PROVIDER_CONFIG_CONN_ID_VERSION = (2, 18, 0)  # adapter.get_openlineage_config reads config_conn_id
+CLIENT_ASYNC_HTTP_VERSION = (1, 35, 0)  # transport/__init__.py registers async_http
+CLIENT_LOWERCASE_APIKEY_VERSION = (1, 38, 0)  # transport/http.py accepts auth "apikey"
 _TRUE = ("true", "1", "t")
 _UNKNOWN = object()  # a value set to something that can't be known statically
 _PROVIDER_MENTION = re.compile(r"apache[-_.]airflow[-_.]providers[-_.]openlineage", re.IGNORECASE)
@@ -103,7 +113,8 @@ def is_intake_url(url: Any, dd_site: str) -> bool:
     return parsed.scheme == "https" and (parsed.hostname or "").lower() == f"data-obs-intake.{dd_site}"
 
 
-def _has_api_key(auth: Any) -> bool:
+def _api_key(auth: Any, client_version: Optional[tuple]) -> Optional[bool]:
+    """Whether an http transport's auth carries an API key openlineage-python will use; None if that can't be told."""
     if isinstance(auth, str):
         try:
             auth = json.loads(auth)
@@ -111,26 +122,37 @@ def _has_api_key(auth: Any) -> bool:
             return False
     if not isinstance(auth, dict) or auth.get("type") != "api_key":
         return False
-    key = next((auth[k] for k in ("apiKey", "apikey", "api_key") if k in auth), None)
+    key = next((auth[k] for k in ("apiKey", "api_key") if k in auth), None)
+    if key is None and "apikey" in auth:
+        if client_version is None:
+            return None
+        key = auth["apikey"] if client_version >= CLIENT_LOWERCASE_APIKEY_VERSION else None
     return key is _UNKNOWN or bool(key)
 
 
-def _evaluate(transport: dict, dd_site: str, winner: str) -> _Resolution:
+def _evaluate(transport: dict, dd_site: str, winner: str, client_version: Optional[tuple]) -> _Resolution:
     kind = transport.get("type")
     if kind is _UNKNOWN:
         return _Resolution(ok=False, winner=winner, unknown="its transport type")
+    if kind == "async_http" and (client_version is None or client_version < CLIENT_ASYNC_HTTP_VERSION):
+        if client_version is None:
+            return _Resolution(ok=False, winner=winner, unknown="whether the installed openlineage-python has the async_http transport (1.35.0+)")
+        return _Resolution(ok=False, winner=winner, destinations=("an async_http transport, which the pinned openlineage-python doesn't have",))
     if kind in ("http", "async_http"):
         url = transport.get("url")
         if url is _UNKNOWN:
             return _Resolution(ok=False, winner=winner, unknown="the URL it sends to")
-        if is_intake_url(url, dd_site) and _has_api_key(transport.get("auth")):
+        api_key = _api_key(transport.get("auth"), client_version)
+        if is_intake_url(url, dd_site) and api_key is None:
+            return _Resolution(ok=False, winner=winner, unknown="whether the installed openlineage-python accepts the `apikey` spelling (1.38.0+)")
+        if is_intake_url(url, dd_site) and api_key:
             return _Resolution(ok=True, winner=winner)
         destination = f"{url} without an API key" if is_intake_url(url, dd_site) else str(url)
         return _Resolution(ok=False, winner=winner, destinations=(destination,))
     if kind == "composite":
         transports = transport.get("transports") or {}
         children = list(transports.values()) if isinstance(transports, dict) else list(transports)
-        results = [_evaluate(child, dd_site, winner) for child in children if isinstance(child, dict)]
+        results = [_evaluate(child, dd_site, winner, client_version) for child in children if isinstance(child, dict)]
         if any(r.ok for r in results):
             return _Resolution(ok=True, winner=winner)
         unknown = next((r.unknown for r in results if r.unknown), None)
@@ -184,19 +206,19 @@ def is_set(environment: Variables, name: str) -> bool:
     return name in environment and environment[name] != ""
 
 
-def _resolve(environment: Variables, dd_site: str, provider_version: Optional[tuple]) -> _Resolution:
+def _resolve(environment: Variables, dd_site: str, provider_version: Optional[tuple], client_version: Optional[tuple]) -> _Resolution:
     for name in ("AIRFLOW__OPENLINEAGE__DISABLED", "OPENLINEAGE_DISABLED"):
         if name in environment and environment[name] is None:
             return _Resolution(ok=False, winner=name, unknown=f"whether {name} disables it")
         if (environment.get(name) or "").strip().lower() in _TRUE:
             return _Resolution(ok=False, winner=name, disables=True)
 
-    for name, what in (
-        ("AIRFLOW__OPENLINEAGE__CONFIG_CONN_ID", "the Airflow connection it names"),
-        ("AIRFLOW__OPENLINEAGE__CONFIG_PATH", "the config file it points at"),
-    ):
-        if is_set(environment, name):
-            return _Resolution(ok=False, winner=name, unknown=what)
+    conn_id_read = provider_version is None or provider_version >= PROVIDER_CONFIG_CONN_ID_VERSION
+    if is_set(environment, "AIRFLOW__OPENLINEAGE__CONFIG_CONN_ID") and conn_id_read:
+        what = "the Airflow connection it names" if provider_version else "whether the installed provider reads it (2.18.0+), or that connection"
+        return _Resolution(ok=False, winner="AIRFLOW__OPENLINEAGE__CONFIG_CONN_ID", unknown=what)
+    if is_set(environment, "AIRFLOW__OPENLINEAGE__CONFIG_PATH"):
+        return _Resolution(ok=False, winner="AIRFLOW__OPENLINEAGE__CONFIG_PATH", unknown="the config file it points at")
 
     user_config: dict = {}
     winner = None
@@ -213,7 +235,7 @@ def _resolve(environment: Variables, dd_site: str, provider_version: Optional[tu
         # the client merges that file *below* the config passed from 3., so it can only fill
         # in what that config leaves out: a decisive Airflow transport still decides
         if user_config:
-            decided = _evaluate(user_config["transport"], dd_site, winner)
+            decided = _evaluate(user_config["transport"], dd_site, winner, client_version)
             transport = user_config["transport"]
             wrong_url = transport.get("type") in ("http", "async_http") and isinstance(transport.get("url"), str) and not is_intake_url(transport["url"], dd_site)
             if decided.ok or wrong_url:
@@ -234,29 +256,42 @@ def _resolve(environment: Variables, dd_site: str, provider_version: Optional[tu
 
     transport = _deep_merge(env_config, user_config).get("transport")
     if isinstance(transport, dict) and transport.get("type"):
-        return _evaluate(transport, dd_site, winner or "OPENLINEAGE__TRANSPORT__TYPE")
+        return _evaluate(transport, dd_site, winner or "OPENLINEAGE__TRANSPORT__TYPE", client_version)
     if is_set(environment, "OPENLINEAGE_URL"):
         url = environment["OPENLINEAGE_URL"]
         api_key = environment.get("OPENLINEAGE_API_KEY")
         auth = {"type": "api_key", "apiKey": _UNKNOWN if api_key is None else api_key} if "OPENLINEAGE_API_KEY" in environment else None
-        return _evaluate({"type": "http", "url": _UNKNOWN if url is None else url, "auth": auth}, dd_site, "OPENLINEAGE_URL")
+        return _evaluate({"type": "http", "url": _UNKNOWN if url is None else url, "auth": auth}, dd_site, "OPENLINEAGE_URL", client_version)
     return _Resolution(ok=False, destinations=("the console -- no transport is configured",))
 
 
-def _provider_version(requirements_text: str) -> Optional[tuple]:
+def _installed_version(package: str, requirements_text: str, constraints_text: Optional[str]) -> Optional[tuple]:
+    """The version pip will install, when it's pinned: requirements.txt (a pin or a wheel) first, else the constraints file."""
     for line in requirements_text.splitlines():
-        if requirement_line_package(line) != OPENLINEAGE_PROVIDER:
+        if requirement_line_package(line) != package:
             continue
         pinned = re.search(r"==\s*([0-9][0-9.]*)", line) or re.search(r"-([0-9][0-9.]*)-py3-none-any\.whl", line)
         if pinned:
             return tuple(int(part) for part in pinned.group(1).strip(".").split("."))
+    constrained = pinned_versions(constraints_text or "", package)
+    if constrained and re.fullmatch(r"[0-9][0-9.]*", constrained[0]):
+        return tuple(int(part) for part in constrained[0].strip(".").split("."))
     return None
 
 
-def analyze(airflow_version: str, requirements_text: str, startup_script_text: Optional[str], configuration_options: dict, dd_site: str) -> OpenLineageState:
+def analyze(
+    airflow_version: str,
+    requirements_text: str,
+    startup_script_text: Optional[str],
+    configuration_options: dict,
+    dd_site: str,
+    constraints_text: Optional[str] = None,
+) -> OpenLineageState:
+    """constraints_text is the constraints file in effect, if known -- it pins what requirements.txt doesn't."""
     environment = effective_environment(startup_script_text, configuration_options)
-    provider_version = _provider_version(requirements_text)
-    resolution = _resolve(environment, dd_site, provider_version)
+    provider_version = _installed_version(OPENLINEAGE_PROVIDER, requirements_text, constraints_text)
+    client_version = _installed_version("openlineage-python", requirements_text, constraints_text)
+    resolution = _resolve(environment, dd_site, provider_version, client_version)
     issues: list[Finding] = []
 
     fixed = dict(environment)
@@ -264,7 +299,7 @@ def analyze(airflow_version: str, requirements_text: str, startup_script_text: O
         fixed["OPENLINEAGE_URL"] = f"https://data-obs-intake.{dd_site}"
     if not is_set(fixed, "OPENLINEAGE_API_KEY"):
         fixed["OPENLINEAGE_API_KEY"] = DD_API_KEY_PLACEHOLDER
-    fixable = not resolution.ok and resolution.unknown is None and _resolve(fixed, dd_site, provider_version).ok
+    fixable = not resolution.ok and resolution.unknown is None and _resolve(fixed, dd_site, provider_version, client_version).ok
 
     if resolution.unknown:
         issues.append(

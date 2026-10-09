@@ -332,7 +332,8 @@ def compute_plan(
         upgrade_needed, rationale, file_changes = _plan_unflagged_version(airflow_version, requirements_text)
         source = "unflagged_version"
 
-    state = analyze(airflow_version, requirements_text, startup_script_text, configuration_options or {}, dd_site)
+    effective_constraints = base_constraints.text if base_constraints else None
+    state = analyze(airflow_version, requirements_text, startup_script_text, configuration_options or {}, dd_site, effective_constraints)
     file_changes += _plan_env_var_changes(airflow_version, dd_site, startup_script_text, state)
 
     relabel = {REQUIREMENTS_PATH: requirements_path, STARTUP_SCRIPT_PATH: startup_script_path}

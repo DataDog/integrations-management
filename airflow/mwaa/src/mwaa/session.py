@@ -213,7 +213,14 @@ def _environment_entry(ctx: ProbeContext, dd_site: str) -> EnvironmentEntry:
         startup_script_path=ctx.startup_script_path,
         configuration_options=configuration_options,
     )
-    openlineage = analyze(airflow_version, ctx.requirements_text, ctx.startup_script_text, configuration_options, dd_site)
+    openlineage = analyze(
+        airflow_version,
+        ctx.requirements_text,
+        ctx.startup_script_text,
+        configuration_options,
+        dd_site,
+        ctx.base_constraints.text if ctx.base_constraints else None,
+    )
     issues = _compute_issues(ctx) + openlineage.issues
     if any(isinstance(fc, ConstraintDirectiveChange) and fc.from_line is None for fc in plan.file_changes):
         # "no --constraint line" is exactly what the plan is about to add
