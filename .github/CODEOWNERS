@@ -1,5 +1,5 @@
 # Default Code Owners
-* @DataDog/gcp-integrations @DataDog/azure-integrations
+* @DataDog/integrations-experience
 
 # Azure
 azure/ @DataDog/azure-integrations
