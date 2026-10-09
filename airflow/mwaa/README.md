@@ -105,6 +105,21 @@ whatever its value: it's the `env` tag in Datadog and part of every job's identi
 renaming it would fork job history. Only a missing or empty one gets set, to
 `"${AIRFLOW_ENV_NAME}"` (the docs' own value; MWAA sets `AIRFLOW_ENV_NAME` at runtime).
 
+An environment's `already_configured` means its *effective* OpenLineage configuration is
+right, judged statically from requirements.txt, the startup script and
+`AirflowConfigurationOptions` -- the provider is in requirements.txt, a namespace is set
+(plus the two 2.7/2.8 workaround variables), and the transport the provider would
+actually resolve is HTTP to `https://data-obs-intake.<site>` with an API key. Datadog's
+docs recipe is the canonical case, but a composite transport, `AIRFLOW__OPENLINEAGE__TRANSPORT`,
+shell defaults like `${OPENLINEAGE_URL:-https://...}` and secret lookups for the key all
+count. Precedence follows the provider and openlineage-python source -- see
+`openlineage_config.py` (and `shell_env.py` for how the startup script is read). When
+something higher-precedence than `OPENLINEAGE_URL` sends elsewhere, that's an
+`openlineage_transport` FAIL and no `OPENLINEAGE_URL` change is proposed, since it
+wouldn't take effect; when it can't be told statically (a config file, a URL from a
+command) it's a WARN, and likewise nothing is proposed. A provider that only the startup
+script installs is an `openlineage_provider` WARN.
+
 AWS credentials are picked up the normal boto3 way (CloudShell's assumed role, an
 environment profile, `~/.aws/credentials`, etc.) -- this tool does not manage credentials
 itself.

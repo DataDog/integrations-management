@@ -247,15 +247,36 @@ def test_a_config_path_wins_over_the_airflow_transport_and_cant_be_verified():
     assert not env_var_names(entry) & {"OPENLINEAGE_URL", "OPENLINEAGE_API_KEY", "AIRFLOW__OPENLINEAGE__CONFIG_PATH"}
 
 
-def test_an_env_style_http_transport_to_the_intake_is_configured():
-    startup = (
-        "export OPENLINEAGE__TRANSPORT__TYPE=http\n"
-        f"export OPENLINEAGE__TRANSPORT__URL={INTAKE}\n"
-        "export OPENLINEAGE__TRANSPORT__AUTH__TYPE=api_key\n"
-        "export OPENLINEAGE__TRANSPORT__AUTH__API_KEY=k\n" + NAMESPACE
-    )
+ENV_STYLE_HTTP = (
+    "export OPENLINEAGE__TRANSPORT__TYPE=http\n"
+    f"export OPENLINEAGE__TRANSPORT__URL={INTAKE}\n"
+    "export OPENLINEAGE__TRANSPORT__AUTH__TYPE=api_key\n"
+    "export OPENLINEAGE__TRANSPORT__AUTH__API_KEY=k\n" + NAMESPACE
+)
 
-    assert entry_for(startup).already_configured is True
+
+def test_an_env_style_http_transport_to_the_intake_is_configured_on_provider_2_6_or_later():
+    assert entry_for(ENV_STYLE_HTTP, requirements="apache-airflow-providers-openlineage==2.18.0\n").already_configured is True
+
+
+def test_an_env_style_only_transport_on_an_unknown_provider_version_cant_be_verified():
+    """conf.is_disabled only started counting OPENLINEAGE__TRANSPORT__* env vars in provider 2.6.0."""
+    entry = entry_for(ENV_STYLE_HTTP)
+
+    assert entry.already_configured is False
+    status, message = check(entry, "openlineage_transport")
+    assert status == FindingStatus.WARN
+    assert "2.6.0" in message
+
+
+def test_an_env_style_only_transport_on_a_provider_before_2_6_is_re_enabled_by_openlineage_url():
+    """Before 2.6.0 the provider disables itself here; OPENLINEAGE_URL re-enables it, and the env-style
+    transport -- which still wins over OPENLINEAGE_URL -- then sends to the intake."""
+    entry = entry_for(ENV_STYLE_HTTP, requirements="apache-airflow-providers-openlineage==1.14.0\n")
+
+    assert entry.already_configured is False
+    assert check(entry, "openlineage_transport") is None
+    assert "OPENLINEAGE_URL" in env_var_names(entry)
 
 
 def test_a_composite_picks_up_openlineage_url_through_its_default_http_alias():
@@ -269,21 +290,35 @@ def test_a_composite_picks_up_openlineage_url_through_its_default_http_alias():
     assert entry_for(startup).already_configured is True
 
 
-def test_a_composite_with_no_http_transport_to_the_intake_fails():
+def test_a_composite_without_the_intake_is_fixed_through_the_openlineage_url_alias():
+    """openlineage-python aliases OPENLINEAGE_URL into the composite as default_http, so setting it takes effect."""
     startup = (
         "export OPENLINEAGE__TRANSPORT__TYPE=composite\n"
-        "export OPENLINEAGE__TRANSPORT__TRANSPORTS__CONSOLE__TYPE=console\n"
-        "export OPENLINEAGE__TRANSPORT__TRANSPORTS__OTHER__TYPE=http\n"
-        "export OPENLINEAGE__TRANSPORT__TRANSPORTS__OTHER__URL=https://elsewhere.invalid\n" + NAMESPACE
+        "export OPENLINEAGE__TRANSPORT__TRANSPORTS__CONSOLE__TYPE=console\n" + NAMESPACE
     )
 
-    entry = entry_for(startup)
+    entry = entry_for(startup, requirements="apache-airflow-providers-openlineage==2.18.0\n")
+
+    assert entry.already_configured is False
+    assert check(entry, "openlineage_transport") is None
+    assert {"OPENLINEAGE_URL", "OPENLINEAGE_API_KEY"} <= env_var_names(entry)
+
+
+def test_a_composite_whose_explicit_default_http_goes_elsewhere_fails():
+    startup = (
+        "export OPENLINEAGE__TRANSPORT__TYPE=composite\n"
+        "export OPENLINEAGE__TRANSPORT__TRANSPORTS__DEFAULT_HTTP__TYPE=http\n"
+        "export OPENLINEAGE__TRANSPORT__TRANSPORTS__DEFAULT_HTTP__URL=https://elsewhere.invalid\n" + NAMESPACE
+    )
+
+    entry = entry_for(startup, requirements="apache-airflow-providers-openlineage==2.18.0\n")
 
     assert entry.already_configured is False
     status, message = check(entry, "openlineage_transport")
     assert status == FindingStatus.FAIL
     assert "OPENLINEAGE__TRANSPORT__TYPE" in message
     assert "https://elsewhere.invalid" in message
+    assert not env_var_names(entry) & {"OPENLINEAGE_URL", "OPENLINEAGE_API_KEY"}
 
 
 @pytest.mark.parametrize("variable", ["OPENLINEAGE_DISABLED", "AIRFLOW__OPENLINEAGE__DISABLED"])

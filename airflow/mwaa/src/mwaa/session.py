@@ -69,6 +69,7 @@ from .checks import (
     check_wheel_references,
     unapplied_uploads,
 )
+from .openlineage_config import analyze
 from .plan import STARTUP_SCRIPT_PATHS, ConstraintDirectiveChange, EnvVarChange, Plan, compute_plan, plan_from_dict
 
 #: The subset of probe checks worth recording at scan time and re-surfacing
@@ -111,7 +112,7 @@ class EnvironmentEntry:
 
     name: str
     airflow_version: str
-    already_configured: bool
+    already_configured: bool  # OpenLineage is effectively configured -- see openlineage_config.py
     plan: Plan
     issues: list[Finding] = field(default_factory=list)
     status: "ScannedStatus | AppliedStatus" = field(default_factory=ScannedStatus)
@@ -199,6 +200,7 @@ def _without_blocked_changes(plan: Plan, ctx: ProbeContext) -> Plan:
 
 def _environment_entry(ctx: ProbeContext, dd_site: str) -> EnvironmentEntry:
     airflow_version = ctx.environment.get("AirflowVersion", "")
+    configuration_options = ctx.environment.get("AirflowConfigurationOptions") or {}
     plan = compute_plan(
         airflow_version=airflow_version,
         requirements_text=ctx.requirements_text,
@@ -209,16 +211,17 @@ def _environment_entry(ctx: ProbeContext, dd_site: str) -> EnvironmentEntry:
         constraints_path=ctx.constraints_path,
         requirements_path=ctx.requirements_path,
         startup_script_path=ctx.startup_script_path,
+        configuration_options=configuration_options,
     )
-    issues = _compute_issues(ctx)
+    openlineage = analyze(airflow_version, ctx.requirements_text, ctx.startup_script_text, configuration_options, dd_site)
+    issues = _compute_issues(ctx) + openlineage.issues
     if any(isinstance(fc, ConstraintDirectiveChange) and fc.from_line is None for fc in plan.file_changes):
         # "no --constraint line" is exactly what the plan is about to add
         issues = [i for i in issues if i.check_id != "constraint_path"]
     return EnvironmentEntry(
         name=ctx.environment.get("Name"),
         airflow_version=airflow_version,
-        # transport configured or not -- decided before any blocked changes are dropped
-        already_configured=not any(isinstance(fc, EnvVarChange) for fc in plan.file_changes),
+        already_configured=openlineage.configured,
         plan=_without_blocked_changes(plan, ctx),
         issues=issues,
         file_versions=ctx.file_versions,

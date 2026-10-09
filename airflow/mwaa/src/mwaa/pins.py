@@ -9,6 +9,7 @@ import re
 # MWAA mounts the DAGs folder at this path inside the container regardless of
 # the S3 prefix (dag_s3_path) the environment is configured with.
 DAGS_MOUNT_PREFIX = "/usr/local/airflow/dags/"
+OPENLINEAGE_PROVIDER = "apache-airflow-providers-openlineage"
 
 CONSTRAINT_LINE = re.compile(r'^\s*(?:--constraint|-c)(?:\s+|=)"?([^"\s]+)"?', re.MULTILINE)
 WHEEL_REFERENCE = re.compile(r"(\S+\.whl)")

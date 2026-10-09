@@ -43,7 +43,8 @@ from dataclasses import dataclass, replace
 from typing import Optional, Union
 
 from .base_constraints import BaseConstraints
-from .pins import DAGS_MOUNT_PREFIX, find_constraint_lines, find_constraint_path, mentions_package, resolve_constraint_s3_key, stale_pin, wheel_identity
+from .pins import DAGS_MOUNT_PREFIX, OPENLINEAGE_PROVIDER, find_constraint_lines, find_constraint_path, mentions_package, resolve_constraint_s3_key, stale_pin, wheel_identity
+from .openlineage_config import OpenLineageState, analyze, is_intake_url, is_set
 from .startup_script import KEEP_EXISTING_VAR_NAMES, SECRET_VAR_NAMES, parse_exports, target_values
 from .version_table import DATADOG_WHEEL_BASE_URL, FLAGGED_VERSION_TABLE, SOURCE_DOC, FlaggedVersionEntry, datadog_wheel_filename
 
@@ -58,7 +59,6 @@ DATADOG_REQUIREMENTS_PATH = "requirements-datadog.txt"
 DATADOG_STARTUP_SCRIPT_PATH = "dags/startup-datadog.sh"
 REQUIREMENTS_PATHS = (REQUIREMENTS_PATH, DATADOG_REQUIREMENTS_PATH)
 STARTUP_SCRIPT_PATHS = (STARTUP_SCRIPT_PATH, DATADOG_STARTUP_SCRIPT_PATH)
-OPENLINEAGE_PROVIDER = "apache-airflow-providers-openlineage"
 
 
 @dataclass(frozen=True)
@@ -270,28 +270,37 @@ def _plan_unflagged_version(airflow_version: str, requirements_text: str) -> tup
     )
 
 
-def _plan_env_var_changes(airflow_version: str, dd_site: str, startup_script_text: Optional[str]) -> list[EnvVarChange]:
-    """Diff startup.sh variable-by-variable instead of treating the whole file as one blob.
+def _plan_env_var_changes(airflow_version: str, dd_site: str, startup_script_text: Optional[str], state: OpenLineageState) -> list[EnvVarChange]:
+    """Diff startup.sh variable-by-variable against the *effective* configuration (openlineage_config.py).
 
-    A secret variable that already has *some* value is left alone even if we
-    can't verify it's the right one -- we have nothing real to compare it
-    against, and proposing to overwrite a customer's working key on every
-    scan would be worse than occasionally missing a wrong one. The namespace
-    is left alone whenever it's non-empty, since it's the customer's `env`
-    identity (see startup_script.py).
+    OPENLINEAGE_URL/OPENLINEAGE_API_KEY are only proposed when setting them
+    would actually make the transport resolve to the intake -- never when it
+    already does, when something higher-precedence wins anyway, or when it
+    can't be told statically. An API key that's already set to anything (a
+    secret lookup, another variable) is left alone: there's nothing real to
+    compare it against, and proposing to overwrite a customer's working key
+    on every scan would be worse than occasionally missing a wrong one. The
+    namespace is left alone whenever it's non-empty, since it's the
+    customer's `env` identity (see startup_script.py), and the 2.7/2.8
+    workaround variables whenever they're defined at all (a non-empty
+    CONFIG_PATH is a config file, not something to blank out).
     """
-    existing = parse_exports(startup_script_text or "")
+    environment = state.environment
+    written = parse_exports(startup_script_text or "")
     changes = []
     for name, to_value in target_values(airflow_version, dd_site):
-        from_value = existing.get(name)
-        secret = name in SECRET_VAR_NAMES
-        if secret and from_value is not None:
-            continue
-        if name in KEEP_EXISTING_VAR_NAMES and from_value:
-            continue
-        if not secret and from_value == to_value:
-            continue
-        changes.append(EnvVarChange(path=STARTUP_SCRIPT_PATH, name=name, from_value=from_value, to_value=to_value, secret=secret))
+        if name == "OPENLINEAGE_URL":
+            skip = not state.transport_fixable or is_intake_url(environment.get(name), dd_site)
+        elif name == "OPENLINEAGE_API_KEY":
+            skip = not state.transport_fixable or is_set(environment, name)
+        elif name in KEEP_EXISTING_VAR_NAMES:
+            skip = is_set(environment, name)
+        else:
+            skip = name in environment
+        if not skip:
+            changes.append(
+                EnvVarChange(path=STARTUP_SCRIPT_PATH, name=name, from_value=written.get(name), to_value=to_value, secret=name in SECRET_VAR_NAMES)
+            )
     return changes
 
 
@@ -305,12 +314,15 @@ def compute_plan(
     constraints_path: str = CONSTRAINTS_PATH,
     requirements_path: str = REQUIREMENTS_PATH,
     startup_script_path: str = STARTUP_SCRIPT_PATH,
+    configuration_options: Optional[dict] = None,
 ) -> Plan:
     """Compute the onboarding plan for one environment from its real current files.
 
     base_constraints, present_wheel_files and constraints_path are only
     consulted for flagged versions (see ProbeContext). requirements_path/
     startup_script_path are the labels of the files written (see ProbeContext).
+    configuration_options is the environment's AirflowConfigurationOptions,
+    which count the same as startup.sh exports (openlineage_config.py).
     """
     flagged_entry = FLAGGED_VERSION_TABLE.get(airflow_version)
     if flagged_entry:
@@ -320,7 +332,8 @@ def compute_plan(
         upgrade_needed, rationale, file_changes = _plan_unflagged_version(airflow_version, requirements_text)
         source = "unflagged_version"
 
-    file_changes += _plan_env_var_changes(airflow_version, dd_site, startup_script_text)
+    state = analyze(airflow_version, requirements_text, startup_script_text, configuration_options or {}, dd_site)
+    file_changes += _plan_env_var_changes(airflow_version, dd_site, startup_script_text, state)
 
     relabel = {REQUIREMENTS_PATH: requirements_path, STARTUP_SCRIPT_PATH: startup_script_path}
     file_changes = [replace(fc, path=relabel.get(fc.path, fc.path)) for fc in file_changes]
