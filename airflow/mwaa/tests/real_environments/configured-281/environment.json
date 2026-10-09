@@ -1,0 +1,12 @@
+{
+  "Name": "configured-281",
+  "AirflowVersion": "2.8.1",
+  "SourceBucketArn": "arn:aws:s3:::example-mwaa-bucket",
+  "DagS3Path": "configured/281/dags",
+  "RequirementsS3Path": "configured/281/requirements.txt",
+  "RequirementsS3ObjectVersion": "<latest>",
+  "StartupScriptS3Path": "configured/281/startup/startup.sh",
+  "StartupScriptS3ObjectVersion": "<latest>",
+  "ExecutionRoleArn": "arn:aws:iam::123456789012:role/example-mwaa-role",
+  "AirflowConfigurationOptions": {"scheduler.catchup_by_default": "false"}
+}

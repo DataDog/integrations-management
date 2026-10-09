@@ -12,5 +12,9 @@ directory is one environment:
   object that exists. Keys not listed don't exist.
 - the content files themselves.
 
+`configured-281` isn't one of the five: it's probe-281 with the transport and the
+stale constraints pin fixed, the reference for what a correctly configured flagged
+environment looks like.
+
 `test_real_environments.py` loads each into a `FakeS3Client` and asserts the
 outcome the real environment should get. The site for all of them is datad0g.com.

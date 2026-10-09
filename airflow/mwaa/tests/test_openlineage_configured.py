@@ -62,11 +62,12 @@ def test_the_docs_recipe_is_configured():
     assert check(entry, "openlineage_transport") is None
 
 
-def test_the_docs_recipe_for_2_8_1_with_its_workaround_variables_is_configured():
+def test_the_docs_recipe_for_2_8_1_with_only_a_bare_provider_is_not_configured():
+    """2.8.1 has to follow the upgrade guide too: target pins under a local, full constraints file."""
     entry = entry_for(DOCS_RECIPE + WORKAROUND, airflow_version="2.8.1")
 
-    assert entry.already_configured is True
-    assert env_var_names(entry) == set()
+    assert entry.already_configured is False
+    assert env_var_names(entry) == set()  # the transport side is fine; it's the packages
 
 
 @pytest.mark.parametrize(

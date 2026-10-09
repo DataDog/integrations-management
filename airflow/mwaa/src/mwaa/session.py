@@ -221,7 +221,10 @@ def _environment_entry(ctx: ProbeContext, dd_site: str) -> EnvironmentEntry:
     return EnvironmentEntry(
         name=ctx.environment.get("Name"),
         airflow_version=airflow_version,
-        already_configured=openlineage.configured,
+        # a flagged version also has to be on the upgrade guide's packages (its plan, before
+        # blocked changes are dropped, needs none -- upgrade_needed is also set when that
+        # can't be determined, e.g. an unreadable base constraints file)
+        already_configured=openlineage.configured and not (plan.source == "flagged_version_table" and plan.upgrade_needed),
         plan=_without_blocked_changes(plan, ctx),
         issues=issues,
         file_versions=ctx.file_versions,

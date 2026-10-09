@@ -128,3 +128,11 @@ def test_blank_321_writes_requirements_datadog_txt_beside_an_existing_unconfigur
     kwargs = client.update_environment.call_args.kwargs
     assert kwargs["RequirementsS3Path"] == "requirements-datadog.txt"
     assert kwargs["StartupScriptS3Path"] == "dags/startup.sh"
+
+
+def test_configured_281_on_the_upgrade_guides_packages_and_the_docs_recipe_is_configured():
+    _, entry = scan(load("configured-281"))
+
+    assert entry.already_configured is True
+    assert entry.plan.file_changes == []
+    assert not issues(entry, FindingStatus.FAIL)
