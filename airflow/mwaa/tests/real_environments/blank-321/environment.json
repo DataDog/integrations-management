@@ -1,0 +1,12 @@
+{
+  "Name": "blank-321",
+  "AirflowVersion": "3.2.1",
+  "SourceBucketArn": "arn:aws:s3:::example-mwaa-bucket",
+  "DagS3Path": "dags/",
+  "RequirementsS3Path": null,
+  "RequirementsS3ObjectVersion": null,
+  "StartupScriptS3Path": null,
+  "StartupScriptS3ObjectVersion": null,
+  "ExecutionRoleArn": "arn:aws:iam::123456789012:role/example-mwaa-role",
+  "AirflowConfigurationOptions": {}
+}

@@ -1,0 +1,3 @@
+pandas==2.1.4
+boto3==1.34.11
+apache-airflow-providers-snowflake==5.2.1

@@ -1,0 +1,12 @@
+{
+  "Name": "lakehouse-v3",
+  "AirflowVersion": "3.0.6",
+  "SourceBucketArn": "arn:aws:s3:::example-mwaa-bucket",
+  "DagS3Path": "dags",
+  "RequirementsS3Path": "requirements.txt",
+  "RequirementsS3ObjectVersion": "<latest>",
+  "StartupScriptS3Path": "startup/mwaa-startup.sh",
+  "StartupScriptS3ObjectVersion": "<latest>",
+  "ExecutionRoleArn": "arn:aws:iam::123456789012:role/example-mwaa-role",
+  "AirflowConfigurationOptions": {"core.default_timezone": "utc", "logging.logging_level": "DEBUG"}
+}

@@ -1,0 +1,1 @@
+# Most packages are installed in mwaa-startup.sh with --no-deps to bypass constraints

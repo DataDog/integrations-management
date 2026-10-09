@@ -1,0 +1,7 @@
+--constraint "/usr/local/airflow/dags/constraints.txt"
+apache-airflow-providers-openlineage==1.14.0
+apache-airflow-providers-common-sql==1.20.0
+apache-airflow-providers-common-compat==1.2.1
+openlineage-integration-common==1.24.2
+openlineage-python==1.24.2
+openlineage-sql==1.24.2

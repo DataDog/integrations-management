@@ -131,7 +131,7 @@ def test_file_versions_round_trip_and_default_to_empty_for_older_sessions(with_f
     assert loaded.environments[0].file_versions == (entry.file_versions if with_file_versions else {})
 
 
-def test_an_existing_fallback_requirements_txt_the_environment_isnt_configured_with_is_an_unapplied_upload():
+def test_an_existing_default_requirements_txt_the_environment_isnt_configured_with_is_an_orphan():
     client = FakeS3Client(
         environment(RequirementsS3Path=None, RequirementsS3ObjectVersion=None),
         {"requirements.txt": "pandas==2.1.4\n", "dags/startup.sh": STARTUP},
@@ -139,12 +139,14 @@ def test_an_existing_fallback_requirements_txt_the_environment_isnt_configured_w
 
     _, entry = scan(client)
 
-    assert failed_checks(entry) == ["unapplied_uploads"]
-    assert entry.issues[0].message.startswith("requirements.txt has a newer upload")
-    assert entry.plan.file_changes and all(isinstance(fc, EnvVarChange) for fc in entry.plan.file_changes)
+    assert failed_checks(entry) == []
+    assert {fc.path for fc in entry.plan.file_changes if not isinstance(fc, EnvVarChange)} == {"requirements-datadog.txt"}
+    # the orphan check is fingerprinted, so apply refuses if it changes
+    assert entry.file_versions["requirements.txt"] == "v-requirements.txt-0"
+    assert entry.file_versions["requirements-datadog.txt"] is None
 
 
-def test_an_existing_fallback_startup_sh_the_environment_isnt_configured_with_is_an_unapplied_upload():
+def test_an_existing_default_startup_sh_the_environment_isnt_configured_with_is_an_orphan():
     client = FakeS3Client(
         environment(StartupScriptS3Path=None, StartupScriptS3ObjectVersion=None),
         {"requirements.txt": "pandas==2.1.4\n", "dags/startup.sh": STARTUP},
@@ -152,9 +154,10 @@ def test_an_existing_fallback_startup_sh_the_environment_isnt_configured_with_is
 
     _, entry = scan(client)
 
-    assert failed_checks(entry) == ["unapplied_uploads"]
-    assert entry.issues[0].message.startswith("dags/startup.sh has a newer upload")
-    assert entry.plan.file_changes and not any(isinstance(fc, EnvVarChange) for fc in entry.plan.file_changes)
+    assert failed_checks(entry) == []
+    assert {fc.path for fc in entry.plan.file_changes if isinstance(fc, EnvVarChange)} == {"dags/startup-datadog.sh"}
+    assert entry.file_versions["dags/startup.sh"] == "v-dags/startup.sh-0"
+    assert entry.file_versions["dags/startup-datadog.sh"] is None
 
 
 def test_a_configured_path_without_a_pinned_version_is_never_an_unapplied_upload():

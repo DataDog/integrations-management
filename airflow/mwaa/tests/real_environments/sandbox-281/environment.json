@@ -1,0 +1,12 @@
+{
+  "Name": "sandbox-281",
+  "AirflowVersion": "2.8.1",
+  "SourceBucketArn": "arn:aws:s3:::example-mwaa-bucket",
+  "DagS3Path": "probe/sandbox/dags",
+  "RequirementsS3Path": "probe/sandbox/requirements.txt",
+  "RequirementsS3ObjectVersion": "<latest>",
+  "StartupScriptS3Path": null,
+  "StartupScriptS3ObjectVersion": null,
+  "ExecutionRoleArn": "arn:aws:iam::123456789012:role/example-mwaa-role",
+  "AirflowConfigurationOptions": {}
+}

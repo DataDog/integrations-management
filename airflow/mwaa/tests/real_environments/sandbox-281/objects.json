@@ -1,0 +1,5 @@
+{
+  "probe/sandbox/requirements.txt": "requirements.txt",
+  "probe/sandbox/dags/startup.sh": "someone-elses-startup.sh",
+  "probe/sandbox/dags/constraints.txt": "someone-elses-constraints.txt"
+}

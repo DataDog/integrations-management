@@ -1,0 +1,4 @@
+{
+  "requirements.txt": "someone-elses-requirements.txt",
+  "dags/constraints.txt": "someone-elses-constraints.txt"
+}

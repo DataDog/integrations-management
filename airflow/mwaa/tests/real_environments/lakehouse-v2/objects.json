@@ -1,0 +1,4 @@
+{
+  "requirements.txt": "requirements.txt",
+  "startup/mwaa-startup.sh": "startup.sh"
+}

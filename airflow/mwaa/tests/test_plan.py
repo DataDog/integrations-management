@@ -266,6 +266,24 @@ def test_2_7_2_recognizes_a_present_wheel_under_a_different_spelling():
     assert [fc.package for fc in plan.file_changes if isinstance(fc, WheelReference)] == ["apache-airflow-providers-common-compat"]
 
 
+@pytest.mark.parametrize(
+    "constraints",
+    ["openlineage-sql==1.24.2\nopenlineage_sql==1.7.0\n", "openlineage_sql==1.7.0\nopenlineage-sql==1.24.2\n"],
+    ids=["stale-pin-last", "stale-pin-first"],
+)
+def test_a_project_pinned_twice_counts_as_differing_whichever_line_comes_last(constraints):
+    plan = compute_plan(
+        airflow_version="2.8.1",
+        requirements_text='--constraint "/usr/local/airflow/dags/constraints.txt"\n',
+        base_constraints=local_base(constraints),
+        startup_script_text=None,
+        dd_site="datadoghq.com",
+    )
+
+    sql = next(fc for fc in plan.file_changes if isinstance(fc, PinChange) and fc.path == "dags/constraints.txt" and fc.package == "openlineage-sql")
+    assert (sql.from_version, sql.to_version) == ("1.7.0", "1.24.2")
+
+
 def test_custom_named_local_constraints_file_is_patched_in_place_with_no_directive_change():
     plan = compute_plan(
         airflow_version="2.8.1",
