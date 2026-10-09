@@ -54,11 +54,11 @@ class AppRegistration:
 APP_REGISTRATION_NAME_PREFIX = "datadog-azure-integration"
 APP_REGISTRATION_CLIENT_SECRET_TTL_YEARS = 2
 APP_REGISTRATION_ROLE = "Monitoring Reader"
-APP_REGISTRATION_UNSTORED_FIELDS = {"external_id"}
+APP_REGISTRATION_UNSTORED_FIELDS = {"external_id", "issuer_url"}
 
 FEDERATED_AUTH_SECRET_PLACEHOLDER = "SECRETLESS_AUTH"
 FEDERATED_CREDENTIAL_NAME = "datadog"
-FEDERATED_AUTH_ISSUER = "https://jjmc4r9f5i.execute-api.us-east-1.amazonaws.com/pine"
+DEFAULT_FEDERATED_AUTH_ISSUER = "https://oidc.datadoghq.com"
 FEDERATED_AUTH_SUBJECT_PREFIX = "datadog-oidc:external-auth-id:"
 FEDERATED_CREDENTIAL_DESCRIPTION = (
     "Federated credential that permits Datadog to authenticate without storing a client secret"
@@ -81,7 +81,11 @@ def run_app_reg_create_cmd(cmd: Cmd):
 
 
 def create_app_registration_with_permissions(
-    scopes: Iterable[Scope], display_name: Optional[str], use_secretless_auth: bool, external_id: Optional[str]
+    scopes: Iterable[Scope],
+    display_name: Optional[str],
+    use_secretless_auth: bool,
+    external_id: Optional[str],
+    issuer_url: Optional[str] = None,
 ) -> AppRegistration:
     """Create an app registration with the necessary permissions for Datadog to function over the given scopes."""
     if not display_name or not display_name.strip():
@@ -107,7 +111,7 @@ def create_app_registration_with_permissions(
                     "--parameters",
                     f"""{{
                         "name": "{FEDERATED_CREDENTIAL_NAME}",
-                        "issuer": "{FEDERATED_AUTH_ISSUER}",
+                        "issuer": "{issuer_url or DEFAULT_FEDERATED_AUTH_ISSUER}",
                         "subject": "{FEDERATED_AUTH_SUBJECT_PREFIX}{external_id}",
                         "description": "{FEDERATED_CREDENTIAL_DESCRIPTION}",
                         "audiences": ["{FEDERATED_AUTH_AUDIENCE}"]
@@ -194,6 +198,7 @@ def main():
             selections.display_name,
             selections.app_registration_config.get("secretless_auth_enabled", False),
             selections.app_registration_config.get("external_id"),
+            issuer_url=selections.app_registration_config.get("issuer_url"),
         )
     with status.report_step("integration_config", "Submitting new configuration to Datadog"):
         submit_integration_config(app_registration, selections.app_registration_config)
