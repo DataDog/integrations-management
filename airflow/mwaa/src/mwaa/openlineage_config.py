@@ -249,7 +249,10 @@ def _resolve(environment: Variables, dd_site: str, provider_version: Optional[tu
             for file_config in ({}, _helpful_config_file(dd_site), _HARMFUL_CONFIG_FILE)
         ]
         if len({outcome.ok for outcome in outcomes}) == 1 and not any(outcome.unknown for outcome in outcomes):
-            return outcomes[0]
+            # all failing with no file means the console fallback, which names nothing; the
+            # Datadog-favouring file always yields a typed transport, so its outcome names the
+            # explicit fragment (a URL, an auth) that no file could make work
+            return outcomes[0] if outcomes[0].ok or outcomes[0].winner else outcomes[1]
         return _Resolution(ok=False, winner="OPENLINEAGE_CONFIG", unknown="the config file it points at")
 
     if winner is None and not is_set(environment, "OPENLINEAGE_URL") and any(is_set(environment, k) for k in environment if k.startswith("OPENLINEAGE__TRANSPORT")):

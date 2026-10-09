@@ -466,3 +466,18 @@ def test_conflicting_api_key_aliases_follow_each_client_generation():
 def test_aliases_both_generations_agree_on_count_without_a_known_client_version():
     for requirements in (PROVIDER, PROVIDER + "openlineage-python==1.24.2\n", PROVIDER + "openlineage-python==1.49.0\n"):
         assert entry_for(EMPTY_APIKEY_ALIAS, requirements=requirements).already_configured is True
+
+
+@pytest.mark.parametrize(
+    "fragment, named",
+    [('{"url": "https://elsewhere.invalid"}', "https://elsewhere.invalid"), ('{"auth": {"type": "none"}}', "without an API key")],
+    ids=["explicit-bad-url", "explicit-non-api-key-auth"],
+)
+def test_an_untyped_airflow_transport_fragment_no_config_file_could_fix_fails(fragment, named):
+    """The file can supply the missing type, but never override the fragment's own URL or auth."""
+    entry = entry_for(airflow_transport(fragment) + LEGACY_CONFIG_FILE)
+
+    status, message = check(entry, "openlineage_transport")
+    assert status == FindingStatus.FAIL
+    assert "AIRFLOW__OPENLINEAGE__TRANSPORT" in message
+    assert named in message
