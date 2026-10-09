@@ -115,7 +115,7 @@ def test_unflagged_version_with_provider_already_pinned_and_startup_configured_n
 
 def test_unflagged_version_recognizes_a_previously_added_bare_package_line():
     """apply's own output for this exact path (see patch.py's to_version=None branch) is a bare
-    `apache-airflow-providers-openlineage` line, no `==version` -- parse_pins alone can't see
+    `apache-airflow-providers-openlineage` line, no `==version` -- a `==` lookup alone can't see
     it, so without mentions_package this would propose adding a duplicate on every re-scan."""
     plan = compute_plan(
         airflow_version="2.10.1",

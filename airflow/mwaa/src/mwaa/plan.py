@@ -43,7 +43,7 @@ from dataclasses import dataclass
 from typing import Optional, Union
 
 from .base_constraints import BaseConstraints
-from .pins import DAGS_MOUNT_PREFIX, find_constraint_lines, find_constraint_path, mentions_package, parse_pins, resolve_constraint_s3_key, wheel_identity
+from .pins import DAGS_MOUNT_PREFIX, find_constraint_lines, find_constraint_path, mentions_package, resolve_constraint_s3_key, stale_pin, wheel_identity
 from .startup_script import KEEP_EXISTING_VAR_NAMES, SECRET_VAR_NAMES, parse_exports, target_values
 from .version_table import DATADOG_WHEEL_BASE_URL, FLAGGED_VERSION_TABLE, SOURCE_DOC, FlaggedVersionEntry, datadog_wheel_filename
 
@@ -210,13 +210,11 @@ def _plan_flagged_version(
             [],
         )
 
-    base_pins = parse_pins(base_constraints.text)
-    current_req_pins = parse_pins(requirements_text)
-    changes: list[FileChange] = [
-        PinChange(path=constraints_path, package=package, from_version=base_pins.get(package), to_version=target)
-        for package, target in entry.target_versions.items()
-        if base_pins.get(package) != target
-    ]
+    changes: list[FileChange] = []
+    for package, target in entry.target_versions.items():
+        needs_change, from_version = stale_pin(base_constraints.text, package, target)
+        if needs_change:
+            changes.append(PinChange(path=constraints_path, package=package, from_version=from_version, to_version=target))
     if changes:
         rationale += f" {constraints_path} is the full constraints file from {base_constraints.source}, with these pins patched in."
         if constraints_path == DATADOG_CONSTRAINTS_PATH:
@@ -243,8 +241,10 @@ def _plan_flagged_version(
                         line=f"{DAGS_MOUNT_PREFIX}{filename}",
                     )
                 )
-        elif current_req_pins.get(package) != target:
-            changes.append(PinChange(path=REQUIREMENTS_PATH, package=package, from_version=current_req_pins.get(package), to_version=target))
+        else:
+            needs_change, from_version = stale_pin(requirements_text, package, target)
+            if needs_change:
+                changes.append(PinChange(path=REQUIREMENTS_PATH, package=package, from_version=from_version, to_version=target))
     return bool(changes), rationale, changes
 
 

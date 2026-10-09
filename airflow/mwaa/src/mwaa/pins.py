@@ -26,9 +26,18 @@ def normalize_package_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def parse_pins(text: str) -> dict[str, str]:
-    """Parse `package==version` lines into a dict keyed by normalize_package_name. Ignores comments and flags."""
-    return {normalize_package_name(name): version for name, version in _PIN_LINE.findall(text)}
+def stale_pin(text: str, package: str, target: str) -> "tuple[bool, str | None]":
+    """(needs a change, the version to show it changing from) for one package's pins in `text`.
+
+    A project pinned on more than one line (upstream constraints spell some
+    with underscores, so a patched file can end up with both) only counts as
+    at `target` if every one of its pins is -- pip enforces them all.
+    """
+    versions = [version for name, version in _PIN_LINE.findall(text) if normalize_package_name(name) == package]
+    stale = [version for version in versions if version != target]
+    if versions and not stale:
+        return False, None
+    return True, stale[0] if stale else None
 
 
 def wheel_identity(filename: str) -> tuple[str, str]:
@@ -58,10 +67,10 @@ def requirement_line_package(line: str) -> "str | None":
 def mentions_package(requirements_text: str, package: str) -> bool:
     """Whether any requirements.txt line installs `package`, in any of requirement_line_package's forms.
 
-    parse_pins alone isn't enough wherever "is this package already present"
+    A `==` lookup alone isn't enough wherever "is this package already present"
     matters: once patch_pins appends a package unpinned (the unflagged-version
-    plan path's target), a `==` lookup would never find it again, and would
-    propose adding it a second time on every subsequent scan.
+    plan path's target), it would never find it again, and would propose
+    adding it a second time on every subsequent scan.
     """
     return any(requirement_line_package(line) == normalize_package_name(package) for line in requirements_text.splitlines())
 
