@@ -30,7 +30,7 @@ _alias_env_vars, _load_config_from_env_variables):
   3. [openlineage] transport -- JSON, passed to the client as its config.
   4. openlineage-python then merges, lowest to highest precedence, the
      OPENLINEAGE__* env-style config, the OPENLINEAGE_CONFIG YAML file, and the
-     config from 3. If that config's transport has a type, that's the transport.
+     config from 3. -- so that file only matters for what 3. leaves unset. If that config's transport has a type, that's the transport.
      OPENLINEAGE_URL/OPENLINEAGE_API_KEY are always aliased into the env-style
      config as a `default_http` sub-transport first (unless one is already
      defined there), so they also reach a composite transport.
@@ -210,6 +210,14 @@ def _resolve(environment: Variables, dd_site: str, provider_version: Optional[tu
             return _Resolution(ok=False, winner="AIRFLOW__OPENLINEAGE__TRANSPORT", unknown="its value, which isn't valid JSON")
         winner = "AIRFLOW__OPENLINEAGE__TRANSPORT"
     if is_set(environment, "OPENLINEAGE_CONFIG"):
+        # the client merges that file *below* the config passed from 3., so it can only fill
+        # in what that config leaves out: a decisive Airflow transport still decides
+        if user_config:
+            decided = _evaluate(user_config["transport"], dd_site, winner)
+            transport = user_config["transport"]
+            wrong_url = transport.get("type") in ("http", "async_http") and isinstance(transport.get("url"), str) and not is_intake_url(transport["url"], dd_site)
+            if decided.ok or wrong_url:
+                return decided
         return _Resolution(ok=False, winner="OPENLINEAGE_CONFIG", unknown="the config file it points at")
 
     env_config = _env_style_config(environment)

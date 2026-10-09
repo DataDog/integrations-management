@@ -256,6 +256,32 @@ ENV_STYLE_HTTP = (
 )
 
 
+COMPLETE_AIRFLOW_TRANSPORT = f"""export AIRFLOW__OPENLINEAGE__TRANSPORT='{{"type": "http", "url": "{INTAKE}", "auth": {{"type": "api_key", "apiKey": "k"}}}}'\n"""
+LEGACY_CONFIG_FILE = "export OPENLINEAGE_CONFIG=/usr/local/airflow/dags/openlineage.yml\n"
+
+
+def test_a_complete_airflow_transport_still_decides_with_a_legacy_config_file_set():
+    """openlineage-python merges the OPENLINEAGE_CONFIG file *below* the config the provider passes in."""
+    assert entry_for(COMPLETE_AIRFLOW_TRANSPORT + LEGACY_CONFIG_FILE + NAMESPACE).already_configured is True
+
+
+def test_an_airflow_transport_elsewhere_still_fails_with_a_legacy_config_file_set():
+    startup = """export AIRFLOW__OPENLINEAGE__TRANSPORT='{"type": "http", "url": "https://elsewhere.invalid"}'\n""" + LEGACY_CONFIG_FILE + NAMESPACE
+
+    assert check(entry_for(startup), "openlineage_transport")[0] == FindingStatus.FAIL
+
+
+def test_a_legacy_config_file_that_could_supply_a_missing_api_key_cant_be_verified():
+    startup = f"""export AIRFLOW__OPENLINEAGE__TRANSPORT='{{"type": "http", "url": "{INTAKE}"}}'\n""" + LEGACY_CONFIG_FILE + NAMESPACE
+
+    entry = entry_for(startup)
+
+    assert entry.already_configured is False
+    status, message = check(entry, "openlineage_transport")
+    assert status == FindingStatus.WARN
+    assert "OPENLINEAGE_CONFIG" in message
+
+
 def test_an_env_style_http_transport_to_the_intake_is_configured_on_provider_2_6_or_later():
     assert entry_for(ENV_STYLE_HTTP, requirements="apache-airflow-providers-openlineage==2.18.0\n").already_configured is True
 
