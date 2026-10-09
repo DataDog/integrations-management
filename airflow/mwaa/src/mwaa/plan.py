@@ -39,7 +39,7 @@ DD_API_KEY_PLACEHOLDER -- so a Plan is always safe to persist, log, or
 display as-is.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional, Union
 
 from .base_constraints import BaseConstraints
@@ -49,10 +49,15 @@ from .version_table import DATADOG_WHEEL_BASE_URL, FLAGGED_VERSION_TABLE, SOURCE
 
 REQUIREMENTS_PATH = "requirements.txt"
 CONSTRAINTS_PATH = "dags/constraints.txt"
-# written instead of CONSTRAINTS_PATH when an unreferenced dags/constraints.txt already
-# exists -- it may well be another environment's, so it's never overwritten
-DATADOG_CONSTRAINTS_PATH = "dags/constraints-datadog.txt"
 STARTUP_SCRIPT_PATH = "dags/startup.sh"
+# written instead of CONSTRAINTS_PATH/REQUIREMENTS_PATH/STARTUP_SCRIPT_PATH when a file the
+# environment doesn't use already sits there -- it may well be another environment's, so
+# it's never overwritten
+DATADOG_CONSTRAINTS_PATH = "dags/constraints-datadog.txt"
+DATADOG_REQUIREMENTS_PATH = "requirements-datadog.txt"
+DATADOG_STARTUP_SCRIPT_PATH = "dags/startup-datadog.sh"
+REQUIREMENTS_PATHS = (REQUIREMENTS_PATH, DATADOG_REQUIREMENTS_PATH)
+STARTUP_SCRIPT_PATHS = (STARTUP_SCRIPT_PATH, DATADOG_STARTUP_SCRIPT_PATH)
 OPENLINEAGE_PROVIDER = "apache-airflow-providers-openlineage"
 
 
@@ -298,11 +303,14 @@ def compute_plan(
     dd_site: str,
     present_wheel_files: frozenset[str] = frozenset(),
     constraints_path: str = CONSTRAINTS_PATH,
+    requirements_path: str = REQUIREMENTS_PATH,
+    startup_script_path: str = STARTUP_SCRIPT_PATH,
 ) -> Plan:
     """Compute the onboarding plan for one environment from its real current files.
 
     base_constraints, present_wheel_files and constraints_path are only
-    consulted for flagged versions (see ProbeContext).
+    consulted for flagged versions (see ProbeContext). requirements_path/
+    startup_script_path are the labels of the files written (see ProbeContext).
     """
     flagged_entry = FLAGGED_VERSION_TABLE.get(airflow_version)
     if flagged_entry:
@@ -313,6 +321,15 @@ def compute_plan(
         source = "unflagged_version"
 
     file_changes += _plan_env_var_changes(airflow_version, dd_site, startup_script_text)
+
+    relabel = {REQUIREMENTS_PATH: requirements_path, STARTUP_SCRIPT_PATH: startup_script_path}
+    file_changes = [replace(fc, path=relabel.get(fc.path, fc.path)) for fc in file_changes]
+    for default, datadog in ((REQUIREMENTS_PATH, DATADOG_REQUIREMENTS_PATH), (STARTUP_SCRIPT_PATH, DATADOG_STARTUP_SCRIPT_PATH)):
+        if datadog in (requirements_path, startup_script_path) and any(fc.path == datadog for fc in file_changes):
+            rationale += (
+                f" {default} already exists but the environment isn't configured to use it, so the plan writes "
+                f"{datadog.removeprefix('dags/')} instead of overwriting it."
+            )
 
     return Plan(
         upgrade_needed=upgrade_needed,

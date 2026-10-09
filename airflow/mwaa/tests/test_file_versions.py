@@ -140,7 +140,7 @@ def test_an_existing_default_requirements_txt_the_environment_isnt_configured_wi
     _, entry = scan(client)
 
     assert failed_checks(entry) == []
-    assert {fc.path for fc in entry.plan.file_changes if not isinstance(fc, EnvVarChange)} == {"requirements-datadog.txt"}
+    assert {fc.path for fc in entry.plan.file_changes if fc.path.startswith("requirements")} == {"requirements-datadog.txt"}
     # the orphan check is fingerprinted, so apply refuses if it changes
     assert entry.file_versions["requirements.txt"] == "v-requirements.txt-0"
     assert entry.file_versions["requirements-datadog.txt"] is None

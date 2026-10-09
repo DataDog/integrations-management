@@ -69,7 +69,7 @@ from .checks import (
     check_wheel_references,
     unapplied_uploads,
 )
-from .plan import STARTUP_SCRIPT_PATH, EnvVarChange, Plan, compute_plan, plan_from_dict
+from .plan import STARTUP_SCRIPT_PATHS, ConstraintDirectiveChange, EnvVarChange, Plan, compute_plan, plan_from_dict
 
 #: The subset of probe checks worth recording at scan time and re-surfacing
 #: at apply time -- each one is a way applying this environment's plan could
@@ -184,8 +184,8 @@ def _without_blocked_changes(plan: Plan, ctx: ProbeContext) -> Plan:
     check_unapplied_uploads/check_file_versions for the issues that say why.
     """
     blocked = set(unapplied_uploads(ctx)) | set(ctx.file_version_errors)
-    drop_packages = any(label != STARTUP_SCRIPT_PATH for label in blocked)
-    drop_env_vars = STARTUP_SCRIPT_PATH in blocked
+    drop_packages = any(label not in STARTUP_SCRIPT_PATHS for label in blocked)
+    drop_env_vars = any(label in STARTUP_SCRIPT_PATHS for label in blocked)
     if not drop_packages and not drop_env_vars:
         return plan
     kept = [fc for fc in plan.file_changes if (isinstance(fc, EnvVarChange) and not drop_env_vars) or (not isinstance(fc, EnvVarChange) and not drop_packages)]
@@ -207,14 +207,20 @@ def _environment_entry(ctx: ProbeContext, dd_site: str) -> EnvironmentEntry:
         dd_site=dd_site,
         present_wheel_files=ctx.present_wheel_files,
         constraints_path=ctx.constraints_path,
+        requirements_path=ctx.requirements_path,
+        startup_script_path=ctx.startup_script_path,
     )
+    issues = _compute_issues(ctx)
+    if any(isinstance(fc, ConstraintDirectiveChange) and fc.from_line is None for fc in plan.file_changes):
+        # "no --constraint line" is exactly what the plan is about to add
+        issues = [i for i in issues if i.check_id != "constraint_path"]
     return EnvironmentEntry(
         name=ctx.environment.get("Name"),
         airflow_version=airflow_version,
         # transport configured or not -- decided before any blocked changes are dropped
         already_configured=not any(isinstance(fc, EnvVarChange) for fc in plan.file_changes),
         plan=_without_blocked_changes(plan, ctx),
-        issues=_compute_issues(ctx),
+        issues=issues,
         file_versions=ctx.file_versions,
     )
 

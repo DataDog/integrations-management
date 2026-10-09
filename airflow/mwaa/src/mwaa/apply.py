@@ -34,8 +34,11 @@ from .fetch import fetch_bytes
 from .patch import patch_env_vars, patch_pins, patch_wheel_references, set_constraint_line
 from .pins import DAGS_MOUNT_PREFIX
 from .plan import (
+    DATADOG_REQUIREMENTS_PATH,
     REQUIREMENTS_PATH,
+    REQUIREMENTS_PATHS,
     STARTUP_SCRIPT_PATH,
+    STARTUP_SCRIPT_PATHS,
     ConstraintDirectiveChange,
     EnvVarChange,
     PinChange,
@@ -62,16 +65,16 @@ class FileUpload:
 
 def _is_constraints_path(path: str) -> bool:
     """Every `dags/...` label a plan uses other than startup.sh names its constraints file."""
-    return path != STARTUP_SCRIPT_PATH and path.startswith("dags/")
+    return path not in STARTUP_SCRIPT_PATHS and path.startswith("dags/")
 
 
 def current_text_for_path(ctx: ProbeContext, path: str) -> str:
     """The real current content for one of the three files a plan ever touches."""
     if _is_constraints_path(path):
         return ctx.constraints_text or ""
-    if path == REQUIREMENTS_PATH:
+    if path in REQUIREMENTS_PATHS:
         return ctx.requirements_text
-    if path == STARTUP_SCRIPT_PATH:
+    if path in STARTUP_SCRIPT_PATHS:
         return ctx.startup_script_text or ""
     raise ValueError(f"don't know how to apply a change to {path!r}")
 
@@ -96,6 +99,8 @@ def real_key_for_path(environment: dict, path: str) -> str:
 
     if path == REQUIREMENTS_PATH:
         return environment.get("RequirementsS3Path") or _default_requirements_key(dag_s3_path)
+    if path == DATADOG_REQUIREMENTS_PATH:
+        return _default_requirements_key(dag_s3_path).removesuffix("requirements.txt") + "requirements-datadog.txt"
     if path == STARTUP_SCRIPT_PATH:
         return environment.get("StartupScriptS3Path") or f"{dag_s3_path}/startup.sh"
     if path.startswith("dags/"):
@@ -167,13 +172,13 @@ def compute_apply_actions(ctx: ProbeContext, plan: Plan) -> list[FileUpload]:
                 raise RuntimeError(f"can't write {path} without its full base constraints file: {base.error if base else 'not resolved'}")
             content = patch_pins(base.text, [c for c in changes if isinstance(c, PinChange)])
             action = "update" if ctx.constraints_text else "create"
-        elif path == REQUIREMENTS_PATH:
+        elif path in REQUIREMENTS_PATHS:
             content = patch_pins(old_content, [c for c in changes if isinstance(c, PinChange)])
             content = patch_wheel_references(content, [c for c in changes if isinstance(c, WheelReference)])
             for directive in (c for c in changes if isinstance(c, ConstraintDirectiveChange)):
                 content = set_constraint_line(content, directive.to_line)
             action = "update"
-        else:  # STARTUP_SCRIPT_PATH -- current_text_for_path already validated the path
+        else:  # a startup.sh label -- current_text_for_path already validated the path
             content = patch_env_vars(old_content, [c for c in changes if isinstance(c, EnvVarChange)])
             action = "update" if ctx.startup_script_text else "create"
         uploads.append(FileUpload(path=path, old_content=old_content, content=content, action=action))
@@ -191,7 +196,7 @@ def interpolate_api_key(uploads: list[FileUpload], dd_api_key: str) -> list[File
     """
     return [
         FileUpload(path=u.path, old_content=u.old_content, content=_substitute_api_key(u.content, dd_api_key), action=u.action)
-        if u.path == STARTUP_SCRIPT_PATH
+        if u.path in STARTUP_SCRIPT_PATHS
         else u
         for u in uploads
     ]
@@ -228,11 +233,11 @@ def apply_to_environment(client: MwaaClient, ctx: ProbeContext, uploads: list[Fi
         real_key = real_key_for_path(environment, upload.path)
         version_id = client.put_object_text(bucket, real_key, upload.content)
         uploaded.append({"path": real_key, "version_id": version_id, "action": upload.action})
-        if upload.path == REQUIREMENTS_PATH:
+        if upload.path in REQUIREMENTS_PATHS:
             update_kwargs["RequirementsS3Path"] = real_key
             if version_id:
                 update_kwargs["RequirementsS3ObjectVersion"] = version_id
-        elif upload.path == STARTUP_SCRIPT_PATH:
+        elif upload.path in STARTUP_SCRIPT_PATHS:
             update_kwargs["StartupScriptS3Path"] = real_key
             if version_id:
                 update_kwargs["StartupScriptS3ObjectVersion"] = version_id

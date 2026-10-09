@@ -10,7 +10,7 @@ environment, no session involved), retired once `scan` started recording the
 same checks as each environment's `issues` (see session.py).
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 from botocore.exceptions import ClientError
 
@@ -21,8 +21,34 @@ from .base_constraints import BaseConstraints, resolve_base_constraints
 from .checks import ProbeContext, resolve_constraint_key
 from .fetch import fetch_bytes
 from .pins import DAGS_MOUNT_PREFIX, find_wheel_references
-from .plan import CONSTRAINTS_PATH, DATADOG_CONSTRAINTS_PATH, REQUIREMENTS_PATH, STARTUP_SCRIPT_PATH
+from .plan import (
+    CONSTRAINTS_PATH,
+    DATADOG_CONSTRAINTS_PATH,
+    DATADOG_REQUIREMENTS_PATH,
+    DATADOG_STARTUP_SCRIPT_PATH,
+    REQUIREMENTS_PATH,
+    STARTUP_SCRIPT_PATH,
+)
 from .version_table import FLAGGED_VERSION_TABLE, datadog_wheel_filename
+
+
+def _unconfigured_file(
+    default_label: str, default_version: Optional[str], datadog_label: str, fingerprint: Any, client: MwaaClient, bucket: str, environment: dict
+) -> tuple[str, Optional[str]]:
+    """(label to write, current content) for requirements.txt/startup.sh when the environment has no S3 path for it.
+
+    A file already at the default key (default_version) is an orphan -- it may
+    be another environment's -- so the plan writes datadog_label beside it
+    instead, patching that file if a previous apply left one. With nothing at
+    the default key, the default label is written as before. An unreadable
+    default key was already recorded as a file_versions error by fingerprint.
+    """
+    if not default_version:
+        return default_label, None
+    _, version = fingerprint(datadog_label)
+    if not version:
+        return datadog_label, None
+    return datadog_label, client.get_object_text(bucket, real_key_for_path(environment, datadog_label), version)
 
 
 def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
@@ -61,26 +87,33 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
     # compares them with the latest ones fingerprinted here
     # a configured path with no pinned version means MWAA uses the latest, so read
     # exactly the latest version fingerprinted, not whatever's latest a moment later
+    requirements_label = REQUIREMENTS_PATH
     _, requirements_version = fingerprint(REQUIREMENTS_PATH)
-    requirements_path = environment.get("RequirementsS3Path")
-    if requirements_path:
+    if environment.get("RequirementsS3Path"):
         requirements_text = client.get_object_text(
-            bucket, requirements_path, environment.get("RequirementsS3ObjectVersion") or requirements_version
+            bucket, environment["RequirementsS3Path"], environment.get("RequirementsS3ObjectVersion") or requirements_version
         )
     else:
-        # optional in the MWAA API -- never configured
-        requirements_text = ""
+        # never configured; a file already at the default key isn't this environment's
+        requirements_label, requirements_text = _unconfigured_file(
+            REQUIREMENTS_PATH, requirements_version, DATADOG_REQUIREMENTS_PATH, fingerprint, client, bucket, environment
+        )
+        requirements_text = requirements_text or ""
 
+    startup_script_label = STARTUP_SCRIPT_PATH
     _, startup_script_version = fingerprint(STARTUP_SCRIPT_PATH)
     startup_script_text = None
-    startup_script_path = environment.get("StartupScriptS3Path")
-    if startup_script_path:
+    if environment.get("StartupScriptS3Path"):
         try:
             startup_script_text = client.get_object_text(
-                bucket, startup_script_path, environment.get("StartupScriptS3ObjectVersion") or startup_script_version
+                bucket, environment["StartupScriptS3Path"], environment.get("StartupScriptS3ObjectVersion") or startup_script_version
             )
         except ObjectNotFoundError:
             startup_script_text = None
+    else:
+        startup_script_label, startup_script_text = _unconfigured_file(
+            STARTUP_SCRIPT_PATH, startup_script_version, DATADOG_STARTUP_SCRIPT_PATH, fingerprint, client, bucket, environment
+        )
 
     base_constraints = None
     constraints_path = CONSTRAINTS_PATH
@@ -132,6 +165,8 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
         base_constraints=base_constraints,
         present_wheel_files=frozenset(present_wheel_files),
         constraints_path=constraints_path,
+        requirements_path=requirements_label,
+        startup_script_path=startup_script_label,
         file_versions=file_versions,
         file_version_errors=file_version_errors,
     )

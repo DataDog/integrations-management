@@ -113,7 +113,8 @@ def test_build_session_records_client_dependent_issues_when_a_client_is_present(
     client = MagicMock()
     client.object_exists.return_value = True
     client.simulate_s3_read_access.return_value = {"s3:GetObject": True, "s3:ListBucket": False}
-    ctx = make_context(client=client, requirements_text="apache-airflow-providers-openlineage==1.4.0\n")
+    # unflagged, so the plan doesn't add a --constraint line itself (which would make the warning moot)
+    ctx = make_context(client=client, environment={**ENVIRONMENT, "AirflowVersion": "2.10.3"}, requirements_text="apache-airflow-providers-openlineage\n")
 
     session = build_session("session-1", "us-east-1", "datadoghq.com", [ctx])
 

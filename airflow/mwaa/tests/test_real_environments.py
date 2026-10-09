@@ -27,7 +27,7 @@ def load(name: str) -> FakeS3Client:
     client = FakeS3Client(environment, objects)
     for path_key, version_key in (("RequirementsS3Path", "RequirementsS3ObjectVersion"), ("StartupScriptS3Path", "StartupScriptS3ObjectVersion")):
         if environment.get(version_key) == "<latest>":
-            environment[version_key] = client.versions[environment[path_key]]
+            client.environment[version_key] = client.versions[environment[path_key]]
     return client
 
 

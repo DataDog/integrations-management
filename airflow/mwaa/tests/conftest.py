@@ -73,11 +73,12 @@ class FakeS3Client:
     """
 
     def __init__(self, environment: dict, objects: dict, unreadable: frozenset = frozenset()):
-        self.environment = environment
+        self.environment = dict(environment)
         self.objects = dict(objects)
         self.versions = {key: f"v-{key}-0" for key in objects}
         self.unreadable = unreadable
-        self.update_environment = MagicMock()
+        # like MWAA, UpdateEnvironment repoints the environment at the files it names
+        self.update_environment = MagicMock(side_effect=lambda name, **kwargs: self.environment.update(kwargs))
 
     def get_environment(self, name):
         return self.environment

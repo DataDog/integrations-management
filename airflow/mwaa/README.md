@@ -39,6 +39,12 @@ another environment's), in which case it's left alone and the plan writes
 bucket: without it S3 answers a missing key with a 403, and the plan leaves out the
 package changes with a `base_constraints` issue rather than guess.
 
+The same goes for requirements.txt and the startup script: when the environment has no
+S3 path configured for one but its default key (`requirements.txt` beside the DAGs
+prefix, `<DagS3Path>/startup.sh`) is already taken, that file is left alone and the plan
+writes `requirements-datadog.txt` / `dags/startup-datadog.sh` and points the
+environment at it.
+
 Airflow 2.7.2 can't use the upstream 1.14.0 provider, so for it the guide swaps two
 requirements.txt pins for Datadog-patched wheels (`wheel_reference` changes in the plan):
 `apply` downloads each one from docs.datadoghq.com and uploads it under `DagS3Path` before
@@ -108,8 +114,7 @@ Each environment in a session also records `file_versions`: the latest S3 `Versi
 re-reads them first and, if any changed, writes nothing and exits non-zero -- re-run
 `scan`. That's what lets `apply` trust the plan as-is instead of re-deriving it. Scan
 also refuses to plan changes to requirements.txt or startup.sh when its latest upload
-isn't the version the environment is configured with -- including a file already at the
-default key when the environment has none configured (an `unapplied_uploads` issue):
+isn't the version the environment is configured with (an `unapplied_uploads` issue):
 apply or discard that upload first. A `SESSION_OVERRIDE_PATH` session without
 `file_versions` only gets a warning.
 
