@@ -2,8 +2,10 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
+import json
+import shlex
 from datetime import datetime
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from az_shared.errors import MissingExternalIdError
 from azure_integration_quickstart.app_registration_quickstart import (
@@ -11,10 +13,12 @@ from azure_integration_quickstart.app_registration_quickstart import (
     FEDERATED_AUTH_SUBJECT_PREFIX,
     AppRegistration,
     create_app_registration_with_permissions,
+    main,
     submit_integration_config,
 )
 
 from integration_quickstart.tests.dd_test_case import DDTestCase
+from integration_quickstart.tests.test_data import SUBSCRIPTION_SELECTION_RESPONSE
 
 _APP_REG = AppRegistration(
     tenant_id="tenant-1",
@@ -64,6 +68,52 @@ class TestCreateAppRegistrationWithPermissions(DDTestCase):
         )
         self.execute.assert_not_called()
 
+    @patch.dict("os.environ", {"WORKFLOW_ID": "workflow-1"})
+    def test_workflow_issuer_used_in_federated_credential(self):
+        for name in (
+            "validate_environment_variables",
+            "StatusReporter",
+            "setup_cancellation_handlers",
+            "login",
+            "can_current_user_create_applications",
+            "report_available_scopes",
+            "submit_integration_config",
+        ):
+            self.patch(f"azure_integration_quickstart.app_registration_quickstart.{name}")
+        self.patch(
+            "azure_integration_quickstart.app_registration_quickstart.report_existing_log_forwarders",
+            return_value=None,
+        )
+        dd_request = self.patch("azure_integration_quickstart.user_selections.dd_request")
+        for issuer_config, expected_issuer in (
+            (
+                {"issuer_url": "https://jjmc4r9f5i.execute-api.us-east-1.amazonaws.com/pine"},
+                "https://jjmc4r9f5i.execute-api.us-east-1.amazonaws.com/pine",
+            ),
+            ({"issuer_url": "https://oidc.datadoghq.com"}, "https://oidc.datadoghq.com"),
+            ({}, "https://oidc.datadoghq.com"),
+            ({"issuer_url": None}, "https://oidc.datadoghq.com"),
+            ({"issuer_url": ""}, "https://oidc.datadoghq.com"),
+        ):
+            with self.subTest(issuer_config=issuer_config):
+                response = json.loads(SUBSCRIPTION_SELECTION_RESPONSE)
+                selections = response["data"]["attributes"]["metadata"]["selections"]
+                selections["config_options"] = json.dumps(
+                    {
+                        "secretless_auth_enabled": True,
+                        "external_id": "ext-abc",
+                        **issuer_config,
+                    }
+                )
+                dd_request.return_value = (json.dumps(response), 200)
+
+                main()
+
+                cmd_args = shlex.split(" ".join(self.execute.call_args[0][0]))
+                credential = json.loads(cmd_args[cmd_args.index("--parameters") + 1])
+                self.assertEqual(credential["issuer"], expected_issuer)
+                self.assertEqual(credential["subject"], f"{FEDERATED_AUTH_SUBJECT_PREFIX}ext-abc")
+
     def test_selected_display_name_is_used_for_azure_and_returned(self):
         app_registration = create_app_registration_with_permissions(
             [_SCOPE], _DISPLAY_NAME, use_secretless_auth=True, external_id="ext-abc"
@@ -74,6 +124,10 @@ class TestCreateAppRegistrationWithPermissions(DDTestCase):
 
 
     def test_absent_display_name_uses_original_timestamped_default(self):
+        self.patch(
+            "azure_integration_quickstart.app_registration_quickstart.execute_json",
+            side_effect=RuntimeError("Requested secret TTL unavailable"),
+        )
         mock_datetime = self.patch("azure_integration_quickstart.app_registration_quickstart.datetime")
         mock_datetime.now.return_value = datetime(2026, 9, 30, 12, 34, 56)
         expected_name = "datadog-azure-integration-2026-09-30-12-34-56"
@@ -92,8 +146,13 @@ class TestSubmitIntegrationConfig(DDTestCase):
     def setUp(self):
         self.dd_request = self.patch("azure_integration_quickstart.app_registration_quickstart.dd_request")
 
-    def test_external_id_stripped_from_payload(self):
-        config = {"tenant_name": "tenant-1", "external_id": "ext-abc", "host_filters": "env:prod"}
+    def test_credential_fields_stripped_from_payload(self):
+        config = {
+            "tenant_name": "tenant-1",
+            "external_id": "ext-abc",
+            "issuer_url": "https://oidc.datadoghq.com",
+            "host_filters": "env:prod",
+        }
         submit_integration_config(_APP_REG, config)
 
         posted = self.dd_request.call_args[0][2]
