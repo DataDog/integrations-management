@@ -207,3 +207,47 @@ def test_a_differently_spelled_referenced_wheel_that_disappears_before_apply_is_
 
     with pytest.raises(StaleSessionError, match="Apache_Airflow_Providers_OpenLineage"):
         check_files_unchanged(client, ctx.environment, entry.plan, entry.file_versions)
+
+
+# --- an earlier apply that wrote a -datadog sibling but never attached it -------------
+
+CONFIGURED_STARTUP = (
+    "#!/bin/sh\n"
+    "export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n"
+    "export OPENLINEAGE_API_KEY=some-real-key\n"
+    "export AIRFLOW__OPENLINEAGE__NAMESPACE=${AIRFLOW_ENV_NAME}\n"
+)
+
+
+def rescan_after_apply(client: FakeS3Client):
+    ctx, entry = scan(client)
+    check_files_unchanged(client, ctx.environment, entry.plan, entry.file_versions)
+    apply_to_environment(client, ctx, compute_apply_actions(ctx, entry.plan), [])
+    return entry, scan(client)[1]
+
+
+@pytest.mark.parametrize("unattached", ["requirements", "startup", "both"])
+def test_a_correct_but_unattached_datadog_sibling_is_attached_not_counted_as_configured(unattached):
+    environment_overrides = {}
+    objects = {"requirements.txt": "apache-airflow-providers-openlineage\n", "dags/startup.sh": CONFIGURED_STARTUP}
+    if unattached in ("requirements", "both"):
+        environment_overrides.update(RequirementsS3Path=None, RequirementsS3ObjectVersion=None)
+        objects["requirements-datadog.txt"] = "apache-airflow-providers-openlineage\n"
+    if unattached in ("startup", "both"):
+        environment_overrides.update(StartupScriptS3Path=None, StartupScriptS3ObjectVersion=None)
+        objects["dags/startup-datadog.sh"] = CONFIGURED_STARTUP
+    client = FakeS3Client(environment("2.10.3", **environment_overrides), objects)
+
+    before, after = rescan_after_apply(client)
+
+    assert before.already_configured is False  # the environment uses neither sibling yet
+    kwargs = client.update_environment.call_args.kwargs
+    if unattached in ("requirements", "both"):
+        assert client.objects["requirements-datadog.txt"] == "apache-airflow-providers-openlineage\n"  # no duplicate line
+        assert kwargs["RequirementsS3Path"] == "requirements-datadog.txt"
+    if unattached in ("startup", "both"):
+        assert kwargs["StartupScriptS3Path"] == "dags/startup-datadog.sh"
+    assert client.objects["requirements.txt"] == "apache-airflow-providers-openlineage\n"  # orphans untouched
+    assert client.objects["dags/startup.sh"] == CONFIGURED_STARTUP
+    assert after.already_configured is True
+    assert after.plan.file_changes == []

@@ -61,6 +61,12 @@ class ProbeContext:
     # when the environment has no S3 path configured for one but its default key is taken
     requirements_path: str = REQUIREMENTS_PATH
     startup_script_path: str = STARTUP_SCRIPT_PATH
+    # requirements_text/startup_script_text are what the environment actually uses (and
+    # all that's analyzed); these are the current content of a -datadog sibling the plan
+    # writes instead, when an earlier apply left one that was never attached. None: nothing
+    # there, or the target is the file in use
+    requirements_target_text: Optional[str] = None
+    startup_script_target_text: Optional[str] = None
     # label -> latest S3 VersionId (None = doesn't exist) of every file the plan reads
     # or might write; labels whose version couldn't be read are in file_version_errors
     file_versions: dict[str, Optional[str]] = field(default_factory=dict)

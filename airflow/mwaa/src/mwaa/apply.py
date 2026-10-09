@@ -73,9 +73,9 @@ def current_text_for_path(ctx: ProbeContext, path: str) -> str:
     if _is_constraints_path(path):
         return ctx.constraints_text or ""
     if path in REQUIREMENTS_PATHS:
-        return ctx.requirements_text
+        return ctx.requirements_target_text if ctx.requirements_target_text is not None else ctx.requirements_text
     if path in STARTUP_SCRIPT_PATHS:
-        return ctx.startup_script_text or ""
+        return (ctx.startup_script_target_text if ctx.startup_script_target_text is not None else ctx.startup_script_text) or ""
     raise ValueError(f"don't know how to apply a change to {path!r}")
 
 
@@ -180,7 +180,7 @@ def compute_apply_actions(ctx: ProbeContext, plan: Plan) -> list[FileUpload]:
             action = "update"
         else:  # a startup.sh label -- current_text_for_path already validated the path
             content = patch_env_vars(old_content, [c for c in changes if isinstance(c, EnvVarChange)])
-            action = "update" if ctx.startup_script_text else "create"
+            action = "update" if old_content else "create"
         uploads.append(FileUpload(path=path, old_content=old_content, content=content, action=action))
     return uploads
 

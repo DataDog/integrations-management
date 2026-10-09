@@ -35,13 +35,16 @@ from .version_table import FLAGGED_VERSION_TABLE, datadog_wheel_filename
 def _unconfigured_file(
     default_label: str, default_version: Optional[str], datadog_label: str, fingerprint: Any, client: MwaaClient, bucket: str, environment: dict
 ) -> tuple[str, Optional[str]]:
-    """(label to write, current content) for requirements.txt/startup.sh when the environment has no S3 path for it.
+    """(label to write, that file's current content) for requirements.txt/startup.sh when the environment has no S3 path for it.
 
     A file already at the default key (default_version) is an orphan -- it may
     be another environment's -- so the plan writes datadog_label beside it
-    instead, patching that file if a previous apply left one. With nothing at
-    the default key, the default label is written as before. An unreadable
-    default key was already recorded as a file_versions error by fingerprint.
+    instead, patching that file if a previous apply left one there (e.g. one
+    whose UpdateEnvironment never happened). Either way it's only the *target*
+    content: the environment uses neither file, so its effective content is
+    empty. With nothing at the default key, the default label is written as
+    before. An unreadable default key was already recorded as a file_versions
+    error by fingerprint.
     """
     if not default_version:
         return default_label, None
@@ -88,6 +91,7 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
     # a configured path with no pinned version means MWAA uses the latest, so read
     # exactly the latest version fingerprinted, not whatever's latest a moment later
     requirements_label = REQUIREMENTS_PATH
+    requirements_target_text = None
     _, requirements_version = fingerprint(REQUIREMENTS_PATH)
     if environment.get("RequirementsS3Path"):
         requirements_text = client.get_object_text(
@@ -95,12 +99,13 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
         )
     else:
         # never configured; a file already at the default key isn't this environment's
-        requirements_label, requirements_text = _unconfigured_file(
+        requirements_text = ""
+        requirements_label, requirements_target_text = _unconfigured_file(
             REQUIREMENTS_PATH, requirements_version, DATADOG_REQUIREMENTS_PATH, fingerprint, client, bucket, environment
         )
-        requirements_text = requirements_text or ""
 
     startup_script_label = STARTUP_SCRIPT_PATH
+    startup_script_target_text = None
     _, startup_script_version = fingerprint(STARTUP_SCRIPT_PATH)
     startup_script_text = None
     if environment.get("StartupScriptS3Path"):
@@ -111,7 +116,7 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
         except ObjectNotFoundError:
             startup_script_text = None
     else:
-        startup_script_label, startup_script_text = _unconfigured_file(
+        startup_script_label, startup_script_target_text = _unconfigured_file(
             STARTUP_SCRIPT_PATH, startup_script_version, DATADOG_STARTUP_SCRIPT_PATH, fingerprint, client, bucket, environment
         )
 
@@ -167,6 +172,8 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
         constraints_path=constraints_path,
         requirements_path=requirements_label,
         startup_script_path=startup_script_label,
+        requirements_target_text=requirements_target_text,
+        startup_script_target_text=startup_script_target_text,
         file_versions=file_versions,
         file_version_errors=file_version_errors,
     )

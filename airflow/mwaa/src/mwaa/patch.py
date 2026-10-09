@@ -16,7 +16,7 @@ patch_pins already used for package pins.
 
 import re
 
-from .pins import CONSTRAINT_LINE, normalize_package_name, requirement_line_package
+from .pins import CONSTRAINT_LINE, mentions_package, normalize_package_name, requirement_line_package
 from .plan import EnvVarChange, PinChange, WheelReference
 from .startup_script import render_export_line
 
@@ -52,7 +52,12 @@ def patch_pins(text: str, pin_changes: list[PinChange]) -> str:
             lines.append(f"{indent}{_render_pin(changes[name])}{trailing}")
             patched.add(name)
 
-    lines += [_render_pin(change) for name, change in changes.items() if name not in patched]
+    # a bare target only needs the package installed somehow -- any existing line for it will do
+    lines += [
+        _render_pin(change)
+        for name, change in changes.items()
+        if name not in patched and not (change.to_version is None and mentions_package(text, name))
+    ]
     return "\n".join(lines) + "\n"
 
 
