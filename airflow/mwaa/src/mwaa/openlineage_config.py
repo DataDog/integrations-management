@@ -114,7 +114,13 @@ def is_intake_url(url: Any, dd_site: str) -> bool:
 
 
 def _api_key(auth: Any, client_version: Optional[tuple]) -> Optional[bool]:
-    """Whether an http transport's auth carries an API key openlineage-python will use; None if that can't be told."""
+    """Whether an http transport's auth carries a non-empty API key openlineage-python will use; None if that can't be told.
+
+    The two parser generations pick differently (transport/http.py
+    ApiKeyTokenProvider): before 1.38.0, `api_key` whenever it's present, else
+    `apiKey`; from 1.38.0, the first non-empty of `apiKey`, `apikey`, `api_key`.
+    With the client version unknown, only an answer both agree on counts.
+    """
     if isinstance(auth, str):
         try:
             auth = json.loads(auth)
@@ -122,12 +128,11 @@ def _api_key(auth: Any, client_version: Optional[tuple]) -> Optional[bool]:
             return False
     if not isinstance(auth, dict) or auth.get("type") != "api_key":
         return False
-    key = next((auth[k] for k in ("apiKey", "api_key") if k in auth), None)
-    if key is None and "apikey" in auth:
-        if client_version is None:
-            return None
-        key = auth["apikey"] if client_version >= CLIENT_LOWERCASE_APIKEY_VERSION else None
-    return key is _UNKNOWN or bool(key)
+    before = bool(auth["api_key"] if "api_key" in auth else auth.get("apiKey"))
+    from_1_38 = bool(auth.get("apiKey") or auth.get("apikey") or auth.get("api_key"))
+    if client_version is None:
+        return before if before == from_1_38 else None
+    return from_1_38 if client_version >= CLIENT_LOWERCASE_APIKEY_VERSION else before
 
 
 def _evaluate(transport: dict, dd_site: str, winner: str, client_version: Optional[tuple]) -> _Resolution:
@@ -144,7 +149,9 @@ def _evaluate(transport: dict, dd_site: str, winner: str, client_version: Option
             return _Resolution(ok=False, winner=winner, unknown="the URL it sends to")
         api_key = _api_key(transport.get("auth"), client_version)
         if is_intake_url(url, dd_site) and api_key is None:
-            return _Resolution(ok=False, winner=winner, unknown="whether the installed openlineage-python accepts the `apikey` spelling (1.38.0+)")
+            return _Resolution(
+                ok=False, winner=winner, unknown="which API key alias the installed openlineage-python picks (it changed in 1.38.0)"
+            )
         if is_intake_url(url, dd_site) and api_key:
             return _Resolution(ok=True, winner=winner)
         destination = f"{url} without an API key" if is_intake_url(url, dd_site) else str(url)
@@ -231,18 +238,20 @@ def _resolve(environment: Variables, dd_site: str, provider_version: Optional[tu
         except json.JSONDecodeError:
             return _Resolution(ok=False, winner="AIRFLOW__OPENLINEAGE__TRANSPORT", unknown="its value, which isn't valid JSON")
         winner = "AIRFLOW__OPENLINEAGE__TRANSPORT"
+    env_config = _env_style_config(environment)
     if is_set(environment, "OPENLINEAGE_CONFIG"):
-        # the client merges that file *below* the config passed from 3., so it can only fill
-        # in what that config leaves out: a decisive Airflow transport still decides
-        if user_config:
-            decided = _evaluate(user_config["transport"], dd_site, winner, client_version)
-            transport = user_config["transport"]
-            wrong_url = transport.get("type") in ("http", "async_http") and isinstance(transport.get("url"), str) and not is_intake_url(transport["url"], dd_site)
-            if decided.ok or wrong_url:
-                return decided
+        # the client merges that file between the env-style config and the config from 3.,
+        # so it can only fill in keys 3. leaves unset. When the outcome is the same with no
+        # file, a file filling every gap in Datadog's favour, and one filling every gap
+        # against it, the file can't matter
+        outcomes = [
+            _select(_deep_merge(env_config, _deep_merge(file_config, user_config)), environment, dd_site, winner, client_version)
+            for file_config in ({}, _helpful_config_file(dd_site), _HARMFUL_CONFIG_FILE)
+        ]
+        if len({outcome.ok for outcome in outcomes}) == 1 and not any(outcome.unknown for outcome in outcomes):
+            return outcomes[0]
         return _Resolution(ok=False, winner="OPENLINEAGE_CONFIG", unknown="the config file it points at")
 
-    env_config = _env_style_config(environment)
     if winner is None and not is_set(environment, "OPENLINEAGE_URL") and any(is_set(environment, k) for k in environment if k.startswith("OPENLINEAGE__TRANSPORT")):
         # provider < 2.6.0 disables itself without transport/config_path/OPENLINEAGE_URL (conf.is_disabled)
         if provider_version is None:
@@ -254,7 +263,22 @@ def _resolve(environment: Variables, dd_site: str, provider_version: Optional[tu
         if provider_version < PROVIDER_ENV_STYLE_TRANSPORT_VERSION:
             return _Resolution(ok=False, winner="OPENLINEAGE__TRANSPORT__*", destinations=("nowhere -- the pinned provider is before 2.6.0, which ignores it",))
 
-    transport = _deep_merge(env_config, user_config).get("transport")
+    return _select(_deep_merge(env_config, user_config), environment, dd_site, winner, client_version)
+
+
+def _helpful_config_file(dd_site: str) -> dict:
+    """A config file filling every gap with a transport to the intake -- the best a file could do."""
+    http = {"type": "http", "url": f"https://data-obs-intake.{dd_site}", "auth": {"type": "api_key", "apiKey": "k", "apikey": "k", "api_key": "k"}}
+    return {"transport": {**http, "transports": {"from_config_file": http}}}
+
+
+#: A config file filling every gap against sending anywhere -- the worst a file could do.
+_HARMFUL_CONFIG_FILE = {"transport": {"type": "console", "url": "https://from-config-file.invalid", "auth": {"type": "none"}, "transports": {}}}
+
+
+def _select(config: dict, environment: Variables, dd_site: str, winner: Optional[str], client_version: Optional[tuple]) -> _Resolution:
+    """openlineage-python's _resolve_transport steps 3, 5 and 6 on an already-merged config."""
+    transport = config.get("transport")
     if isinstance(transport, dict) and transport.get("type"):
         return _evaluate(transport, dd_site, winner or "OPENLINEAGE__TRANSPORT__TYPE", client_version)
     if is_set(environment, "OPENLINEAGE_URL"):

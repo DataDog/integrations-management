@@ -417,3 +417,52 @@ def test_config_conn_id_only_counts_on_providers_that_read_it():
         assert status == FindingStatus.WARN
         assert "AIRFLOW__OPENLINEAGE__CONFIG_CONN_ID" in message
     assert "2.18.0" in check(unknown, "openlineage_transport")[1]
+
+
+@pytest.mark.parametrize("kind", ["console", "noop", "kafka", "file"])
+def test_a_non_http_airflow_transport_still_fails_with_a_legacy_config_file_set(kind):
+    """The file merges below the Airflow transport, so it can't replace that transport's type."""
+    entry = entry_for(airflow_transport(f'{{"type": "{kind}"}}') + LEGACY_CONFIG_FILE)
+
+    status, message = check(entry, "openlineage_transport")
+    assert status == FindingStatus.FAIL
+    assert "AIRFLOW__OPENLINEAGE__TRANSPORT" in message
+
+
+def test_an_explicitly_non_api_key_auth_still_fails_with_a_legacy_config_file_set():
+    entry = entry_for(airflow_transport(f'{{"type": "http", "url": "{INTAKE}", "auth": {{"type": "none"}}}}') + LEGACY_CONFIG_FILE)
+
+    assert check(entry, "openlineage_transport")[0] == FindingStatus.FAIL
+
+
+def test_a_composite_airflow_transport_the_legacy_config_file_could_extend_cant_be_verified():
+    entry = entry_for(airflow_transport('{"type": "composite", "transports": {"console": {"type": "console"}}}') + LEGACY_CONFIG_FILE)
+
+    status, message = check(entry, "openlineage_transport")
+    assert status == FindingStatus.WARN
+    assert "OPENLINEAGE_CONFIG" in message
+
+
+def test_openlineage_url_alone_cant_be_verified_with_a_legacy_config_file_that_could_set_a_transport():
+    entry = entry_for(DOCS_RECIPE + LEGACY_CONFIG_FILE)
+
+    assert check(entry, "openlineage_transport")[0] == FindingStatus.WARN
+
+
+# api_key and apiKey both set: before 1.38.0 the client takes api_key whenever it's present;
+# from 1.38.0, the first non-empty of apiKey, apikey, api_key.
+EMPTY_API_KEY_ALIAS = airflow_transport(f'{{"type": "http", "url": "{INTAKE}", "auth": {{"type": "api_key", "apiKey": "good", "api_key": ""}}}}')
+EMPTY_APIKEY_ALIAS = airflow_transport(f'{{"type": "http", "url": "{INTAKE}", "auth": {{"type": "api_key", "apiKey": "", "api_key": "good"}}}}')
+
+
+def test_conflicting_api_key_aliases_follow_each_client_generation():
+    assert entry_for(EMPTY_API_KEY_ALIAS, requirements=PROVIDER + "openlineage-python==1.37.0\n").already_configured is False
+    assert entry_for(EMPTY_API_KEY_ALIAS, requirements=PROVIDER + "openlineage-python==1.38.0\n").already_configured is True
+    unknown = entry_for(EMPTY_API_KEY_ALIAS)
+    assert unknown.already_configured is False
+    assert check(unknown, "openlineage_transport")[0] == FindingStatus.WARN
+
+
+def test_aliases_both_generations_agree_on_count_without_a_known_client_version():
+    for requirements in (PROVIDER, PROVIDER + "openlineage-python==1.24.2\n", PROVIDER + "openlineage-python==1.49.0\n"):
+        assert entry_for(EMPTY_APIKEY_ALIAS, requirements=requirements).already_configured is True
