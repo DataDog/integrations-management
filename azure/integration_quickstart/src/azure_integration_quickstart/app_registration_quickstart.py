@@ -48,6 +48,7 @@ class AppRegistration:
     tenant_id: str
     client_id: str
     client_secret: str
+    display_name: str
 
 
 APP_REGISTRATION_NAME_PREFIX = "datadog-azure-integration"
@@ -80,12 +81,15 @@ def run_app_reg_create_cmd(cmd: Cmd):
 
 
 def create_app_registration_with_permissions(
-    scopes: Iterable[Scope], use_secretless_auth: bool, external_id: Optional[str]
+    scopes: Iterable[Scope], display_name: Optional[str], use_secretless_auth: bool, external_id: Optional[str]
 ) -> AppRegistration:
     """Create an app registration with the necessary permissions for Datadog to function over the given scopes."""
+    if not display_name or not display_name.strip():
+        display_name = get_app_registration_name()
+
     cmd = (
         Cmd(["az", "ad", "sp", "create-for-rbac"])
-        .param("--name", get_app_registration_name())
+        .param("--name", display_name)
         .param("--role", APP_REGISTRATION_ROLE)
         .param_list("--scopes", [s.scope for s in scopes])
     )
@@ -126,6 +130,7 @@ def create_app_registration_with_permissions(
         result["appId"],
         # replace client secret with a placeholder if the user has opted for secretless auth
         FEDERATED_AUTH_SECRET_PLACEHOLDER if use_secretless_auth else result["password"],
+        display_name,
     )
 
 
@@ -140,6 +145,7 @@ def submit_integration_config(app_registration: AppRegistration, config: dict) -
                 "client_id": app_registration.client_id,
                 "client_secret": app_registration.client_secret,
                 "tenant_name": app_registration.tenant_id,
+                "display_name": app_registration.display_name,
                 "source": "quickstart",
             },
         )
@@ -185,6 +191,7 @@ def main():
     with status.report_step("app_registration", "Creating app registration in Azure"):
         app_registration = create_app_registration_with_permissions(
             selections.scopes,
+            selections.display_name,
             selections.app_registration_config.get("secretless_auth_enabled", False),
             selections.app_registration_config.get("external_id"),
         )
