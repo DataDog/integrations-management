@@ -4,6 +4,8 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from botocore.exceptions import ClientError
 
 from airflow_shared.reporter import FindingStatus
@@ -45,10 +47,17 @@ def make_context(**overrides) -> ProbeContext:
 # --- check_constraint_path ---------------------------------------------------
 
 
-def test_constraint_path_warns_when_no_constraint_line():
+def test_constraint_path_warns_when_no_constraint_line_on_a_flagged_version():
     ctx = make_context(requirements_text="apache-airflow-providers-openlineage==2.18.0\n")
     finding = check_constraint_path(ctx)
     assert finding.status == FindingStatus.WARN
+
+
+@pytest.mark.parametrize("airflow_version", ["2.10.3", "2.11.0", "3.2.1"])
+def test_constraint_path_passes_without_a_constraint_line_on_unflagged_versions(airflow_version):
+    """MWAA's own default constraints are fine away from 2.7.2/2.8.1/2.9.2."""
+    ctx = make_context(environment={"AirflowVersion": airflow_version}, requirements_text="pandas==2.1.4\n")
+    assert check_constraint_path(ctx).status == FindingStatus.PASS
 
 
 def test_constraint_path_passes_when_object_exists():

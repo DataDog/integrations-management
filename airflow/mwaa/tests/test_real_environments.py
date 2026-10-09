@@ -58,7 +58,7 @@ def test_lakehouse_v2_with_the_provider_only_installed_by_its_startup_script_is_
 
     assert entry.already_configured is False
     warnings = issues(entry, FindingStatus.WARN)
-    assert "openlineage_provider" in warnings
+    assert set(warnings) == {"openlineage_provider"}  # no constraint_path noise on an unflagged version
     assert "startup script" in warnings["openlineage_provider"]
     assert not issues(entry, FindingStatus.FAIL)
     # the transport itself resolves to data-obs-intake.datad0g.com -- nothing to change there
@@ -116,6 +116,7 @@ def test_blank_321_writes_requirements_datadog_txt_beside_an_existing_unconfigur
 
     assert entry.already_configured is False
     assert not issues(entry, FindingStatus.FAIL)
+    assert not issues(entry, FindingStatus.WARN)  # MWAA's default constraints are fine on 3.2.1
     assert {fc.path for fc in entry.plan.file_changes if isinstance(fc, PinChange)} == {"requirements-datadog.txt"}
     assert {fc.path for fc in entry.plan.file_changes if isinstance(fc, EnvVarChange)} == {"dags/startup.sh"}
     assert "requirements-datadog.txt" in entry.plan.rationale

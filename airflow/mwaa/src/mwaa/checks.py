@@ -87,8 +87,14 @@ def resolve_constraint_key(requirements_text: str, dag_s3_path: str) -> Optional
 
 
 def check_constraint_path(ctx: ProbeContext) -> Finding:
-    """The --constraint line in requirements.txt must resolve to a real S3 object."""
+    """The --constraint line in requirements.txt must resolve to a real S3 object.
+
+    Having no --constraint line at all is only worth a warning on a flagged
+    version: anywhere else, MWAA's own default constraints are fine.
+    """
     match = CONSTRAINT_LINE.search(ctx.requirements_text)
+    if not match and ctx.environment.get("AirflowVersion", "") not in FLAGGED_VERSION_TABLE:
+        return Finding("constraint_path", FindingStatus.PASS, "no --constraint line, so MWAA's default constraints apply")
     if not match:
         return Finding(
             "constraint_path",
