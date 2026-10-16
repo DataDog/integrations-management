@@ -98,8 +98,6 @@ def create_app_registration_with_permissions(
             raise MissingExternalIdError(
                 "Secretless auth is enabled, but no external id was provided so we cannot create a properly scoped federated credential."
             )
-        # create-for-rbac creates a client secret by default; Datadog authenticates via the
-        # federated credential, so don't create an unused secret on the app registration.
         result = run_app_reg_create_cmd(cmd.param("--create-password", "false"))
         try:
             execute(
