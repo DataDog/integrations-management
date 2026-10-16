@@ -98,7 +98,7 @@ def create_app_registration_with_permissions(
             raise MissingExternalIdError(
                 "Secretless auth is enabled, but no external id was provided so we cannot create a properly scoped federated credential."
             )
-        result = run_app_reg_create_cmd(cmd)
+        result = run_app_reg_create_cmd(cmd.param("--create-password", "false"))
         try:
             execute(
                 Cmd(["az", "ad", "app", "federated-credential", "create"])

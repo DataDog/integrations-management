@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 from az_shared.errors import MissingExternalIdError
 from azure_integration_quickstart.app_registration_quickstart import (
     APP_REGISTRATION_UNSTORED_FIELDS,
+    FEDERATED_AUTH_SECRET_PLACEHOLDER,
     FEDERATED_AUTH_SUBJECT_PREFIX,
     AppRegistration,
     create_app_registration_with_permissions,
@@ -53,6 +54,26 @@ class TestCreateAppRegistrationWithPermissions(DDTestCase):
 
         cmd_args = " ".join(self.execute.call_args[0][0])
         self.assertIn(f"{FEDERATED_AUTH_SUBJECT_PREFIX}ext-abc", cmd_args)
+
+    def test_secretless_auth_does_not_create_client_secret(self):
+        app_registration = create_app_registration_with_permissions(
+            [_SCOPE], _DISPLAY_NAME, use_secretless_auth=True, external_id="ext-abc"
+        )
+
+        self.assertIn("--create-password false", " ".join(self.run_cmd.call_args[0][0]))
+        self.assertEqual(app_registration.client_secret, FEDERATED_AUTH_SECRET_PLACEHOLDER)
+
+    def test_non_secretless_auth_creates_client_secret(self):
+        execute_json = self.patch(
+            "azure_integration_quickstart.app_registration_quickstart.execute_json",
+            return_value={"appId": "app-1", "tenant": "tenant-1", "password": "pw"},
+        )
+        app_registration = create_app_registration_with_permissions(
+            [_SCOPE], _DISPLAY_NAME, use_secretless_auth=False, external_id=None
+        )
+
+        self.assertNotIn("--create-password", " ".join(execute_json.call_args[0][0]))
+        self.assertEqual(app_registration.client_secret, "pw")
 
     def test_non_secretless_auth_does_not_call_federated_credential(self):
         self.patch(
