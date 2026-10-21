@@ -639,7 +639,8 @@ except Exception:
     # Detect legacy / unexpected Fusion audiences. Modern Fusion apps expose an
     # audience of the form urn:opc:resource:faaas:fa:<SYSTEM_NAME>, which yields a
     # working OAuth scope. Older ("legacy") instances may expose a different
-    # audience (e.g. urn:opc:resource:fusion:wls:monitoring), whose derived scope
+    # audience (e.g. urn:opc:resource:fusion:wls:monitoring, or the legacy
+    # instance-ID form urn:opc:resource:fa:instanceid=...), whose derived scope
     # typically fails to authenticate against the Fusion REST API. When we detect
     # that, warn the user and offer to rebuild the scope from the instance's
     # System Name. We check the derived scope directly (it starts with
@@ -647,6 +648,33 @@ except Exception:
     if [[ "$FUSION_SCOPE" != urn:opc:resource:faaas:fa:* ]]; then
         FUSION_LEGACY_AUDIENCE=true
         FUSION_DERIVED_SCOPE="$FUSION_SCOPE"
+
+        # Legacy instance-ID form: the audience is
+        # urn:opc:resource:fa:instanceid=<INSTANCE_ID> and the derived scope
+        # (audience + consumer::all) is typically rejected by OCI with
+        # error.application.app.allowedScopeMismatch when added to the
+        # confidential app, because it must match a scope the app actually
+        # exposes. The instance-ID value alone cannot be used to reconstruct
+        # the correct scope, so ask the customer for the documented full scope
+        # string (Oracle: Fusion Application Information →
+        # IDCS_CONNECTOR_CLIENT_SCOPE).
+        if [[ "$FUSION_SCOPE" == urn:opc:resource:fa:instanceid=* ]]; then
+            warn "Legacy instance-ID OAuth scope '${FUSION_SCOPE}'."
+            echo ""
+            echo -e "  ${YELLOW}${BOLD}Provide the full OAuth scope for this Fusion instance.${NC}"
+            echo -e "  ${YELLOW}  Find it at: OCI Console → Domains → Oracle Cloud Services → your Fusion app →${NC}"
+            echo -e "  ${YELLOW}  Application Information → copy the IDCS_CONNECTOR_CLIENT_SCOPE value${NC}"
+            echo -e "  ${YELLOW}  (e.g. urn:opc:resource:fa:instanceid=630113349urn:opc:resource:consumer::all).${NC}"
+            echo -e "  ${YELLOW}  Press Enter to continue with the derived scope '${FUSION_SCOPE}'.${NC}"
+            echo ""
+            read -r -p "  Full OAuth scope: " _pasted_scope || _pasted_scope=""
+            if [[ -n "$_pasted_scope" ]]; then
+                FUSION_SCOPE="$_pasted_scope"
+                success "Using provided OAuth scope"
+            else
+                warn "Continuing with derived scope '${FUSION_SCOPE}' — onboarding may fail."
+            fi
+        else
         warn "Unexpected OAuth scope '${FUSION_SCOPE}', likely due to an older Fusion instance."
         echo ""
         echo -e "  ${YELLOW}${BOLD}You can:${NC}"
@@ -672,6 +700,7 @@ except Exception:
                 warn "Continuing with derived scope '${FUSION_SCOPE}' — onboarding may fail."
                 ;;
         esac
+        fi
     fi
     success "Fusion app found: '${fusion_app_name}' — scope: ${FUSION_SCOPE}"
 fi
