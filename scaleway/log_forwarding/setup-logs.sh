@@ -172,16 +172,15 @@ DD_API_BASE_URL="${DD_API_BASE_URL:-https://api.${DD_SITE}}"
 SCW_PROJECT_ID="${SCW_PROJECT_ID:-$(scw_config_get default-project-id)}"
 # Parses supported Cockpit regions from the scw CLI help text so new regions
 # are picked up automatically when the CLI is updated, without needing changes
-# here.  Relies on the "(fr-par | nl-ams | ...)" format of the help output —
-# if Scaleway changes that format the parse silently falls back to the
-# hardcoded list below.
+# here.  Relies on the "(fr-par | nl-ams | ...)" format of the help output.
+# Always unioned with the hardcoded list below, since the CLI can lag regions
+# that already have Cockpit (it-mil is absent from scw 2.55 help).
 _scw_cockpit_regions() {
-  local regions
-  regions=$(scw cockpit data-source list --help 2>&1 \
-    | grep 'region=' | sed 's/.*(\(.*\))/\1/' \
-    | tr '|' '\n' | tr -d ' ' | grep -Ev '^$|^all$' \
-    | paste -sd ',') || true
-  echo "${regions:-fr-par,nl-ams,pl-waw}"
+  { scw cockpit data-source list --help 2>&1 \
+      | grep 'region=' | sed 's/.*(\(.*\))/\1/' \
+      | tr '|' '\n' | tr -d ' ' | grep -Ev '^$|^all$' || true
+    printf '%s\n' fr-par nl-ams pl-waw it-mil
+  } | awk '!seen[$0]++' | paste -sd ','
 }
 SCALEWAY_REGIONS="${SCALEWAY_REGIONS:-$(_scw_cockpit_regions)}"
 SCALEWAY_PRODUCTS="${SCALEWAY_PRODUCTS:-all}"            # "all" or CSV of Cockpit product names (e.g. "kubernetes,rdb")
