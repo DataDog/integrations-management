@@ -88,6 +88,7 @@ jobs:
           check_package gcp   agentless                "agentless/src/ agentless/build.sh shared/src/ dev_requirements.txt"
           check_package gcp   integration_quickstart   "integration_quickstart/src/ integration_quickstart/build.sh shared/src/ dev_requirements.txt"
           check_package gcp   log_forwarding_quickstart "log_forwarding_quickstart/src/ log_forwarding_quickstart/build.sh shared/src/ dev_requirements.txt"
+          check_package gcp   issue_resolver            "issue_resolver/src/ issue_resolver/build.sh shared/src/ dev_requirements.txt"
 
           if [ ${#MATRIX_ENTRIES[@]} -eq 0 ]; then
             MATRIX="[]"
