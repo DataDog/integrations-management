@@ -58,6 +58,19 @@ jobs:
         working-directory: ${{ matrix.cloud }}
         run: python -m pytest ${{ matrix.package }}/tests
 
+  oracle-fusion:
+    name: Oracle Fusion quickstart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - run: pip install -r azure/dev_requirements.txt
+      - run: ruff check oracle_fusion
+      - run: python -m unittest discover -s oracle_fusion/integration_quickstart/tests -v
+      - run: bash oracle_fusion/integration_quickstart/setup.sh --help
+
   build-check:
     name: dist drift (${{ matrix.cloud }})
     runs-on: ubuntu-latest
