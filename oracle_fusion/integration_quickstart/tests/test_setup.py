@@ -144,6 +144,37 @@ class SetupTests(unittest.TestCase):
         with patch.object(io, 'command', side_effect=s.SetupError('no credentials')), patch.object(s.configparser.ConfigParser, 'read'), patch.object(io, 'prompt', return_value='n'), self.assertRaises(s.SetupError):
             io.authenticate()
 
+    def test_legacy_scope_override(self):
+        io = FakeExternal()
+        flow = s.Onboarding(args(), io)
+        with patch.object(io, 'prompt', side_effect=['2', 'Case-Sensitive']):
+            self.assertEqual(flow.confirm_fusion_scope('legacy'),
+                             'urn:opc:resource:faaas:fa:Case-Sensitive' + s.CONSUMER_SCOPE)
+        with patch.object(io, 'prompt', return_value='1'):
+            self.assertEqual(flow.confirm_fusion_scope('legacy'), 'legacy')
+
+    def test_registration_is_last_and_failure_stops_flow(self):
+        io = FakeExternal()
+        flow = s.Onboarding(args(), io)
+        with patch.object(flow, 'ensure_user', side_effect=s.SetupError('user creation failed')), self.assertRaises(s.SetupError):
+            flow.run()
+        self.assertFalse(any(c[0] in ('POST', 'PATCH') and s.ACCOUNTS in c[1] for c in io.calls))
+        self.assertFalse(any(c[:2] == ('user-password-changer', 'put') for c in io.calls))
+
+    def test_existing_application_with_scopes_is_reconciled_in_repair(self):
+        io = FakeExternal(existing=True)
+        a = args()
+        a.fix = True
+        a.fusion_scope, a.epm_scope = '', 'epm-scope'
+        flow = s.Onboarding(a, io)
+        current = {'name': 'client', 'ocid': 'app-ocid', 'allowed-scopes': [{'fqs': 'epm-scope'}]}
+        with patch.object(flow, 'lookup', return_value=[current]):
+            app_id, reused = flow.ensure_application()
+        self.assertEqual((app_id, reused), ('app-ocid', True))
+        operations = next(c[2]['operations'] for c in io.calls if c[:2] == ('app', 'patch'))
+        self.assertEqual(operations[0]['value'], [{'fqs': 'epm-scope'}])
+        self.assertNotIn('clientSecret', [op['path'] for op in operations])
+
     def test_scope(self):
         for audience, expected in [('', s.CONSUMER_SCOPE), ('prefix', 'prefix' + s.CONSUMER_SCOPE),
                                    (s.CONSUMER_SCOPE, s.CONSUMER_SCOPE)]:

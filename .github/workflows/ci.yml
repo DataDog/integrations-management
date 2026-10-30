@@ -70,6 +70,12 @@ jobs:
       - run: ruff check oracle_fusion
       - run: python -m unittest discover -s oracle_fusion/integration_quickstart/tests -v
       - run: bash oracle_fusion/integration_quickstart/setup.sh --help
+      - name: Verify legacy Python 3.6 compatibility
+        # Python 3.6 is EOL and unavailable through setup-python on current Ubuntu.
+        run: >-
+          docker run --rm -v "$PWD:/workspace:ro" -w /workspace
+          python:3.6@sha256:f8652afaf88c25f0d22354d547d892591067aa4026a7fa9a6819df9f300af6fc
+          python -m unittest discover -s oracle_fusion/integration_quickstart/tests -v
 
   build-check:
     name: dist drift (${{ matrix.cloud }})

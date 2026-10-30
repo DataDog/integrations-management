@@ -9,7 +9,7 @@ assigns the required Fusion role, and grants EPM Service Administrator access.
 - [OCI CLI](https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm#configfile) configured with Identity Domain Administrator permissions, using **either** of these auth methods:
   - **API key** (default): run `oci setup config`. The configured tenancy must match the identity domain you pass to `--identity-domain-url`. Check the `tenancy` value in `~/.oci/config`.
   - **Browser-based session** (for tenants that enforce SSO / restrict API signing keys): run `oci session authenticate` once. The script will detect and reuse the session across runs.
-- Python **3.9+**, `oci`, and `openssl` available on your PATH. No Python packages or `curl` are required.
+- Python **3.6+**, `oci`, and `openssl` available on your PATH. No Python packages or `curl` are required.
 - Datadog API and application keys with `integrations_read` and `integrations_write` permissions
 
 ## Usage
@@ -22,6 +22,12 @@ python3 setup.py [OPTIONS]
 Keep `setup.py` alongside it if downloading the scripts individually. All existing
 flags and environment variables are supported. Credentials are never printed;
 the JWT private key and certificate are generated in memory via OpenSSL.
+
+Python 3.6 matches the minimum needed by the original Bash script's embedded
+EPM password generator (`secrets` was introduced in Python 3.6). The port avoids
+`subprocess.run(capture_output=...)` (3.7) and `str.removesuffix` (3.9). CI runs
+the full test suite on Python 3.6 as well as the normal CI Python version.
+This is compatibility support, not a recommendation to use an end-of-life Python.
 
 ### Required Fusion role
 
@@ -44,7 +50,10 @@ Run this from the repository root. Tests cover input validation, scopes, passwor
 policies, payloads, and mocked fresh Fusion/EPM, add-EPM, and repair flows. They do
 not provision cloud resources. An OpenSSL smoke test checks in-memory key and
 certificate generation. The Python entry point separates pure helpers from the
-`External` effects adapter and the `Onboarding` orchestration.
+`External` effects adapter and the `Onboarding` orchestration. The orchestrator
+uses named phases for loading accounts, resolving scopes, checking services,
+reconciling apps/users/grants, rotating credentials, and registering with Datadog.
+Each phase can be tested independently using the same effects adapter.
 
 Reruns reuse existing apps/users/grants. Repair reasserts app configuration even
 when scopes are already present. Existing app secrets and EPM credentials rotate
