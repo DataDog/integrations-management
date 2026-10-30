@@ -9,14 +9,55 @@ assigns the required Fusion role, and grants EPM Service Administrator access.
 - [OCI CLI](https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm#configfile) configured with Identity Domain Administrator permissions, using **either** of these auth methods:
   - **API key** (default): run `oci setup config`. The configured tenancy must match the identity domain you pass to `--identity-domain-url`. Check the `tenancy` value in `~/.oci/config`.
   - **Browser-based session** (for tenants that enforce SSO / restrict API signing keys): run `oci session authenticate` once. The script will detect and reuse the session across runs.
-- `python3` and `curl` available on your PATH
+- Python **3.6+**, `oci`, and `openssl` available on your PATH. No Python packages or `curl` are required.
 - Datadog API and application keys with `integrations_read` and `integrations_write` permissions
 
 ## Usage
 
 ```
-./setup.sh [OPTIONS]
+python3 setup.py [OPTIONS]
 ```
+
+`setup.sh` remains a compatibility entry point and forwards arguments to Python.
+Keep `setup.py` alongside it if downloading the scripts individually. All existing
+flags and environment variables are supported. Credentials are never printed;
+the JWT private key and certificate are generated in memory via OpenSSL.
+
+Python 3.6 matches the minimum needed by the original Bash script's embedded
+EPM password generator (`secrets` was introduced in Python 3.6). The port avoids
+`subprocess.run(capture_output=...)` (3.7) and `str.removesuffix` (3.9). CI runs
+the full test suite on Python 3.6 as well as the normal CI Python version.
+This is compatibility support, not a recommendation to use an end-of-life Python.
+
+### Required Fusion role
+
+Before Fusion onboarding or repair, create a custom role in **Security Console →
+Roles → Create Role**, with code **DD_INTEGRATION_ROLE** and category Default.
+Under Role Hierarchy, add `ESSMonitor`, `ORA_FND_INTEGRATION_SPECIALIST_JOB`, and
+`ORA_FND_INTERNAL_AUDITOR_JOB`, keeping their automatically included sub-roles.
+In **Setup and Maintenance → Manage Role Provisioning Rules**, add a mapping
+starting today with blank conditions. Add the custom role as an Associated Role,
+check **Requestable**, and leave other checkboxes unchecked. Save and Close.
+The script verifies this role; it cannot create it through the Fusion API.
+
+### Development and tests
+
+```bash
+python3 -m unittest discover -s oracle_fusion/integration_quickstart/tests -v
+```
+
+Run this from the repository root. Tests cover input validation, scopes, password
+policies, payloads, and mocked fresh Fusion/EPM, add-EPM, and repair flows. They do
+not provision cloud resources. An OpenSSL smoke test checks in-memory key and
+certificate generation. The Python entry point separates pure helpers from the
+`External` effects adapter and the `Onboarding` orchestration. The orchestrator
+uses named phases for loading accounts, resolving scopes, checking services,
+reconciling apps/users/grants, rotating credentials, and registering with Datadog.
+Each phase can be tested independently using the same effects adapter.
+
+Reruns reuse existing apps/users/grants. Repair reasserts app configuration even
+when scopes are already present. Existing app secrets and EPM credentials rotate
+on reruns; if registration fails after rotation, rerun to complete registration.
 
 ## Options
 
@@ -31,7 +72,7 @@ assigns the required Fusion role, and grants EPM Service Administrator access.
 | `--fusion-admin-password PASS` | Fusion admin password (required for Fusion; not used with `--account-name`; not stored)                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `--user-email EMAIL`           | Email address to attach to the created integration user.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `--account-name NAME`          | Name of an existing Datadog Fusion account to add EPM to. Requires `--fusion-app-id` and `--epm-app-id`. Cannot be used with `--identity-domain-url`, `--fusion-base-url`, `--fusion-admin-username`, `--fusion-admin-password`, or `--user-email`.                                                                                                                                                                                                                                                                                        |
-| `--fix`                        | Diagnose and repair drift on an existing Datadog Fusion/EPM account named by `--account-name`. Reruns onboarding to recreate missing OCI app scopes, the Fusion/OCI IAM integration user, and EPM grants; always rotates and re-registers the OCI client secret. Requires `--account-name` (and, if the account has Fusion configured, `--fusion-admin-username`/`--fusion-admin-password`, plus `--fusion-app-id` if the account does not already have one on record); no other flags are allowed. Cannot recover a deleted OCI confidential app — reinstall from scratch in that case (run without `--account-name`). |
+| `--fix`                        | Diagnose and repair drift on an existing Datadog Fusion/EPM account named by `--account-name`. Reruns onboarding to recreate missing OCI app scopes, the Fusion/OCI IAM integration user, and EPM grants; always rotates and re-registers the OCI client secret. Requires `--account-name` (and, if the account has Fusion configured, `--fusion-admin-username`/`--fusion-admin-password`, plus `--fusion-app-id` if the account does not already have one on record); `--user-email` is also supported for recreated users. Cannot recover a deleted OCI confidential app — reinstall from scratch in that case (run without `--account-name`). |
 
 ## Environment Variables
 
