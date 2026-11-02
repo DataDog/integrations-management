@@ -5,7 +5,7 @@
 import os
 import sys
 
-from gcp_agentless_setup.config import Config, parse_config
+from gcp_agentless_setup.config import MISSING_CONFIGURATION_MESSAGE, Config, parse_config
 from gcp_agentless_setup.errors import SetupError
 from gcp_agentless_setup.main import (
     TOTAL_STEPS,
@@ -32,9 +32,15 @@ def is_agentless_requested() -> bool:
 def prepare_agentless_setup() -> tuple[Config, Reporter]:
     """Validate agentless inputs and credentials before the integration is set up, exiting on failure."""
     try:
-        config = parse_config(workflow_id_var=AGENTLESS_WORKFLOW_ID_VAR)
+        config = parse_config(workflow_id_var=AGENTLESS_WORKFLOW_ID_VAR, include_usage=False)
     except SetupError as e:
         print_setup_error(e)
+        if e.message == MISSING_CONFIGURATION_MESSAGE:
+            print(
+                "Agentless Scanning setup requires all of: "
+                f"{', '.join(AGENTLESS_ENVIRONMENT_VARS)}. "
+                "Unset them all to only set up the GCP integration."
+            )
         sys.exit(1)
     reporter = Reporter(TOTAL_STEPS, workflow_id=config.workflow_id)
     validate_credentials_and_workflow(config, reporter)

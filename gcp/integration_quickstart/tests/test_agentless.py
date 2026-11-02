@@ -2,6 +2,7 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
+import io
 import os
 import unittest
 from unittest.mock import Mock, patch
@@ -57,11 +58,30 @@ class TestPrepareAgentlessSetup(unittest.TestCase):
     @patch("gcp_integration_quickstart.agentless.validate_credentials_and_workflow")
     @patch.dict(os.environ, {**BASE_ENV, "SCANNER_PROJECT": "scanner-project"}, clear=True)
     def test_partial_config_exits_before_validation(self, mock_validate):
-        with self.assertRaises(SystemExit) as ctx:
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout, self.assertRaises(SystemExit) as ctx:
             prepare_agentless_setup()
 
         self.assertEqual(ctx.exception.code, 1)
         mock_validate.assert_not_called()
+        output = stdout.getvalue()
+        self.assertIn("AGENTLESS_WORKFLOW_ID is required", output)
+        self.assertIn("Agentless Scanning setup requires all of", output)
+        self.assertNotIn("gcp_agentless_setup.pyz", output)
+
+    @patch("gcp_integration_quickstart.agentless.validate_credentials_and_workflow")
+    @patch.dict(
+        os.environ,
+        {**BASE_ENV, **AGENTLESS_ENV, "SCANNER_REGIONS": "r1,r2,r3,r4,r5"},
+        clear=True,
+    )
+    def test_invalid_config_exits_without_partial_hint(self, mock_validate):
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout, self.assertRaises(SystemExit) as ctx:
+            prepare_agentless_setup()
+
+        self.assertEqual(ctx.exception.code, 1)
+        mock_validate.assert_not_called()
+        self.assertIn("cannot exceed 4 regions", stdout.getvalue())
+        self.assertNotIn("requires all of", stdout.getvalue())
 
 
 class TestRunAgentlessSetup(unittest.TestCase):

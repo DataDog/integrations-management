@@ -17,6 +17,8 @@ MAX_SCANNER_REGIONS = 4
 # Base directory for agentless setup configs (Terraform state, etc.)
 CONFIG_BASE_DIR = Path.home() / ".datadog-agentless-setup"
 
+MISSING_CONFIGURATION_MESSAGE = "Missing required configuration"
+
 
 def get_config_dir(scanner_project: str) -> Path:
     """Get the configuration directory for a scanner project."""
@@ -71,7 +73,7 @@ class Config:
         )
 
 
-def parse_config(workflow_id_var: str = "WORKFLOW_ID") -> Config:
+def parse_config(workflow_id_var: str = "WORKFLOW_ID", include_usage: bool = True) -> Config:
     """Parse configuration from environment variables.
 
     Raises:
@@ -118,9 +120,10 @@ Usage:
   PROJECTS_TO_SCAN=proj1,proj2,proj3 \\
   python gcp_agentless_setup.pyz deploy"""
 
+        detail = "\n".join(f"  - {e}" for e in errors)
         raise ConfigurationError(
-            "Missing required configuration",
-            "\n".join(f"  - {e}" for e in errors) + "\n" + usage,
+            MISSING_CONFIGURATION_MESSAGE,
+            detail + "\n" + usage if include_usage else detail,
         )
 
     # Parse and deduplicate regions list
