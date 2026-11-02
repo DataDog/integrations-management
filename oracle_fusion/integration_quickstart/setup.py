@@ -101,7 +101,7 @@ def validate_input_urls(a):
 
 def derive_scope(app):
     """Append the consumer scope exactly once to the SaaS app audience."""
-    audience = app.get('audience', '')
+    audience = app.get('audience') or ''
     return audience if audience.endswith('consumer::all') else audience + CONSUMER_SCOPE
 
 
@@ -120,7 +120,10 @@ def password_for_policy(policies):
     policy = next((p for p in policies if 'default' in p.get('name', '').lower()), first(policies))
 
     def value(camel, kebab, default):
-        return int(policy.get(camel, policy.get(kebab, default)))
+        for name in (camel, kebab):
+            if policy.get(name) is not None:
+                return int(policy[name])
+        return default
 
     minimum = value('minLength', 'min-length', 14)
     maximum = value('maxLength', 'max-length', 20)
@@ -185,8 +188,8 @@ class External:
         raw = self.command(args)
         return json.loads(raw) if raw.strip() else {}
 
-    def http(self, method, url, headers=None, body=None, auth=None, allowed=(200, 201, 204)):
-        """Issue a bounded request, rejecting unexpected statuses without dumping secrets."""
+    def http(self, method, url, headers=None, body=None, auth=None, allowed=(200, 201, 204), *, parse_json=True):
+        """Check status and optionally decode JSON; reachability probes ignore the body."""
         headers = dict(headers or {})
         if auth:
             headers['Authorization'] = 'Basic ' + base64.b64encode((':'.join(auth)).encode()).decode()
@@ -197,9 +200,12 @@ class External:
                           headers=headers, method=method)
         try:
             with self.opener.open(request, timeout=60) as response:
-                status, raw = response.status, response.read()
+                status = response.status
+                raw = response.read() if parse_json else b''
         except HTTPError as error:
-            status, raw = error.code, error.read()
+            with error:
+                status = error.code
+                raw = error.read() if parse_json else b''
         except URLError:
             raise SetupError('Cannot reach service. Check the configured URL and connectivity.') from None
         require(status in allowed, f'{method} {urlsplit(url).path} failed (HTTP {status}). Check permissions and rerun.')
@@ -382,7 +388,8 @@ class Onboarding:
             role_id = first(roles.get('Resources', [])).get('id')
             require(role_id, 'Create DD_INTEGRATION_ROLE in Fusion Security Console and mark it Requestable in Manage Role Provisioning Rules; see README.md')
         if a.epm_app_id:
-            self.io.http('GET', a.epm_base_url + '/HyperionPlanning/rest/v3/applications', allowed=range(200, 600))
+            self.io.http('GET', a.epm_base_url + '/HyperionPlanning/rest/v3/applications',
+                         allowed=range(200, 600), parse_json=False)
         return role_id
 
     def ensure_application(self):

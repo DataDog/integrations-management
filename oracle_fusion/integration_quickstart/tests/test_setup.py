@@ -1,9 +1,12 @@
 # Copyright 2026 Datadog, Inc. Licensed under the Apache-2 License.
 import importlib.util
+import io
+import json
 import subprocess
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError
 
 spec = importlib.util.spec_from_file_location('fusion_setup', Path(__file__).parents[1] / 'setup.py')
 s = importlib.util.module_from_spec(spec)
@@ -176,9 +179,66 @@ class SetupTests(unittest.TestCase):
         self.assertNotIn('clientSecret', [op['path'] for op in operations])
 
     def test_scope(self):
-        for audience, expected in [('', s.CONSUMER_SCOPE), ('prefix', 'prefix' + s.CONSUMER_SCOPE),
+        for audience, expected in [('', s.CONSUMER_SCOPE), (None, s.CONSUMER_SCOPE),
+                                   ('prefix', 'prefix' + s.CONSUMER_SCOPE),
                                    (s.CONSUMER_SCOPE, s.CONSUMER_SCOPE)]:
-            self.assertEqual(s.derive_scope({'audience': audience}), expected)
+            with self.subTest(audience=audience):
+                self.assertEqual(s.derive_scope({'audience': audience}), expected)
+        self.assertEqual(s.derive_scope({}), s.CONSUMER_SCOPE)
+
+    def test_null_password_policy_fields(self):
+        cases = [
+            ({'minLength': None, 'min-length': 30, 'maxLength': 40}, 30),
+            ({'minLength': None, 'min-length': None}, 14),
+            ({'min-length': None, 'max-length': None}, 14),
+            ({'minLength': None, 'maxLength': None, 'minLowerCase': None,
+              'minUpperCase': None, 'minNumerals': None, 'minSpecialChars': None}, 14),
+        ]
+        for policy, minimum in cases:
+            with self.subTest(policy=policy):
+                password = s.password_for_policy([policy])
+                self.assertGreaterEqual(len(password), minimum)
+                self.assertLessEqual(len(password), policy.get('maxLength') or 20)
+                self.assertTrue(any(c.islower() for c in password))
+                self.assertTrue(any(c.isupper() for c in password))
+                self.assertTrue(any(c.isdigit() for c in password))
+                self.assertTrue(any(c in '!@#$%^*_-+=' for c in password))
+
+    def test_zero_password_policy_minima_are_not_replaced(self):
+        # A zero special-character minimum must not be treated as a missing value.
+        password = s.password_for_policy([{'minSpecialChars': 0, 'min-special-chars': 5}])
+        self.assertFalse(any(c in '!@#$%^*_-+=' for c in password))
+
+    def test_epm_reachability_does_not_parse_response_body(self):
+        for status, body in [(200, b'<html>Sign in</html>'),
+                             (200, b'{"applications":[]}'), (401, b'<html>Sign in</html>')]:
+            with self.subTest(status=status, body=body):
+                ext = s.External()
+                response = MagicMock()
+                response.__enter__.return_value.status = status
+                response.__enter__.return_value.read.return_value = body
+                error = HTTPError('https://epm.example', status, 'Unauthorized', {}, io.BytesIO(body))
+                with patch.object(ext.opener, 'open', return_value=response,
+                                  side_effect=error if status == 401 else None):
+                    self.assertEqual(s.Onboarding(args(), ext).check_services(False), '')
+                response.__enter__.return_value.read.assert_not_called()
+
+    def test_http_still_decodes_json_by_default(self):
+        ext = s.External()
+        response = MagicMock()
+        response.__enter__.return_value.status = 200
+        response.__enter__.return_value.read.return_value = b'{"data": []}'
+        with patch.object(ext.opener, 'open', return_value=response):
+            self.assertEqual(ext.http('GET', 'https://api.example/accounts'), {'data': []})
+            response.__enter__.return_value.read.return_value = b'<html>Sign in</html>'
+            with self.assertRaises(json.JSONDecodeError):
+                ext.http('GET', 'https://api.example/accounts')
+
+    def test_status_only_http_still_checks_allowed_statuses(self):
+        ext = s.External()
+        error = HTTPError('https://api.example', 403, 'Forbidden', {}, io.BytesIO(b'forbidden'))
+        with patch.object(ext.opener, 'open', side_effect=error), self.assertRaises(s.SetupError):
+            ext.http('GET', 'https://api.example/accounts', parse_json=False)
 
     def test_password_policy(self):
         for style in ({'minLength': 30, 'maxLength': 40, 'minNumerals': 5},
