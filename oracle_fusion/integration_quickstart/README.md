@@ -9,7 +9,7 @@ assigns the required Fusion role, and grants EPM Service Administrator access.
 - [OCI CLI](https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm#configfile) configured with Identity Domain Administrator permissions, using **either** of these auth methods:
   - **API key** (default): run `oci setup config`. The configured tenancy must match the identity domain you pass to `--identity-domain-url`. Check the `tenancy` value in `~/.oci/config`.
   - **Browser-based session** (for tenants that enforce SSO / restrict API signing keys): run `oci session authenticate` once. The script will detect and reuse the session across runs.
-- Python **3.6+**, `oci`, and `openssl` available on your PATH. No Python packages or `curl` are required.
+- Python **3.11+** recommended, with `oci` and `openssl` available on your PATH. No Python packages or `curl` are required.
 - Datadog API and application keys with `integrations_read` and `integrations_write` permissions
 
 ## Usage
@@ -23,11 +23,11 @@ Keep `setup.py` alongside it if downloading the scripts individually. All existi
 flags and environment variables are supported. Credentials are never printed;
 the JWT private key and certificate are generated in memory via OpenSSL.
 
-Python 3.6 matches the minimum needed by the original Bash script's embedded
-EPM password generator (`secrets` was introduced in Python 3.6). The port avoids
-`subprocess.run(capture_output=...)` (3.7) and `str.removesuffix` (3.9). CI runs
-the full test suite on Python 3.6 as well as the normal CI Python version.
-This is compatibility support, not a recommendation to use an end-of-life Python.
+CI runs the full test suite and shell entry-point smoke test on Python
+**3.11, 3.12, 3.13, and 3.14**. Use a maintained Python release.
+The implementation retains Python 3.6 compatibility to avoid raising the original
+Bash script's embedded-Python requirement, but end-of-life releases are not part
+of the CI matrix.
 
 ### Required Fusion role
 
