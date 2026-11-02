@@ -71,7 +71,7 @@ class Config:
         )
 
 
-def parse_config() -> Config:
+def parse_config(workflow_id_var: str = "WORKFLOW_ID") -> Config:
     """Parse configuration from environment variables.
 
     Raises:
@@ -92,9 +92,9 @@ def parse_config() -> Config:
     if not site:
         errors.append("DD_SITE is required (e.g., datadoghq.com, datadoghq.eu, us5.datadoghq.com). See https://docs.datadoghq.com/getting_started/site/")
 
-    workflow_id = os.environ.get("WORKFLOW_ID", "").strip()
+    workflow_id = os.environ.get(workflow_id_var, "").strip()
     if not workflow_id:
-        errors.append("WORKFLOW_ID is required")
+        errors.append(f"{workflow_id_var} is required")
 
     # Required: GCP configuration
     scanner_project = os.environ.get("SCANNER_PROJECT", "").strip()
