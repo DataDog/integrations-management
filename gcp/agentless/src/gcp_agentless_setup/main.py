@@ -8,7 +8,7 @@ import signal
 import sys
 import threading
 
-from .config import parse_config
+from .config import Config, parse_config
 from .destroy import cmd_destroy
 from .errors import DatadogCredentialsError, SetupError
 from .metadata import read_metadata, write_metadata, merge_with_config, terraform_state_exists
@@ -143,6 +143,115 @@ def validate_credentials_and_workflow(config, reporter: Reporter) -> None:
     reporter.handle_login_step()
 
 
+def print_setup_error(e: SetupError) -> None:
+    print()
+    print(f"❌ Setup failed: {e.message}")
+    if e.detail:
+        print()
+        for line in e.detail.strip().split("\n"):
+            print(f"   {line}")
+    print()
+
+
+def deploy(config: Config, reporter: Reporter) -> None:
+    """Deploy the scanner infrastructure for an already validated config.
+
+    Raises SetupError on failure instead of exiting, so it can be embedded in
+    other setup flows (e.g. the GCP integration quickstart).
+    """
+    # Show current run inputs
+    print()
+    print("Current run inputs:")
+    print(f"  Datadog Site:     {config.site}")
+    print(f"  Scanner Project:  {config.scanner_project}")
+    if len(config.regions) == 1:
+        print(f"  Region:           {config.regions[0]}")
+    else:
+        print(f"  Regions:          {len(config.regions)}")
+        for r in config.regions:
+            print(f"    - {r}")
+    if config.state_bucket:
+        print(f"  State Bucket:     {config.state_bucket} (custom)")
+    print(f"  Projects to Scan: {len(config.all_projects)}")
+    for p in config.all_projects:
+        marker = " (scanner)" if p == config.scanner_project else ""
+        print(f"    - {p}{marker}")
+
+    # Step 1: Preflight checks (on current run inputs first)
+    run_preflight_checks(config, reporter)
+
+    # Step 2: Ensure state bucket exists
+    state_bucket = ensure_state_bucket(config, reporter)
+
+    # Read existing metadata and merge with current inputs
+    existing_metadata, metadata_generation = read_metadata(state_bucket)
+
+    if existing_metadata is None and terraform_state_exists(state_bucket):
+        raise SetupError(
+            "Existing Terraform state found but no deployment metadata",
+            "This usually means the deployment was created with an older version\n"
+            "of this script. You must destroy the existing deployment first,\n"
+            "then redeploy with the current script.\n"
+            "\n"
+            "To destroy:\n"
+            f"  SCANNER_PROJECT={config.scanner_project} \\\n"
+            "  DD_API_KEY=xxx DD_APP_KEY=xxx DD_SITE=... \\\n"
+            "  python gcp_agentless_setup.pyz destroy\n"
+            "\n"
+            "Then run deploy again with your desired configuration.",
+        )
+
+    merged_metadata = merge_with_config(existing_metadata, config)
+    merged_config = config.with_merged(
+        regions=merged_metadata.regions,
+        projects_to_scan=merged_metadata.projects_to_scan,
+    )
+
+    if existing_metadata:
+        new_regions = set(config.regions) - set(existing_metadata.regions)
+        new_projects = set(config.all_projects) - set(existing_metadata.projects_to_scan)
+        print()
+        print("Merged with existing deployment:")
+        print(f"  Total regions:    {len(merged_config.regions)}")
+        for r in merged_config.regions:
+            marker = " (new)" if r in new_regions else ""
+            print(f"    - {r}{marker}")
+        print(f"  Total projects:   {len(merged_config.all_projects)}")
+        for p in merged_config.all_projects:
+            marker = " (new)" if p in new_projects else ""
+            if p == config.scanner_project:
+                marker += " (scanner)"
+            print(f"    - {p}{marker}")
+
+    # Step 3: Store API key in Secret Manager
+    api_key_secret_id = ensure_api_key_secret(
+        reporter, config.scanner_project, config.api_key
+    )
+
+    # Steps 4-6: Run Terraform (with merged config)
+    tf_runner = TerraformRunner(merged_config, state_bucket, api_key_secret_id, reporter)
+    tf_runner.run()
+
+    # Write metadata only after successful apply
+    write_metadata(state_bucket, merged_metadata, metadata_generation, config)
+
+    # Done!
+    reporter.complete()
+    reporter.summary(merged_config.scanner_project, merged_config.regions, merged_config.all_projects)
+
+    print()
+    print("Next Steps:")
+    print("  1. Go to Datadog Security → Cloud Security → Vulnerabilities")
+    print("  2. Your GCP resources should appear shortly")
+    print()
+    print("Tip: To view only vulnerabilities detected by Agentless Scanning,")
+    print('     use the filter: origin:"Agentless scanner" in the search bar.')
+    print()
+    print("To update or destroy this deployment, run Terraform commands in:")
+    print(f"  {tf_runner.work_dir}")
+    print()
+
+
 def cmd_deploy() -> None:
     """Deploy the Agentless Scanner infrastructure."""
     # Set up SIGINT handler for graceful Ctrl+C handling
@@ -162,112 +271,13 @@ def cmd_deploy() -> None:
         reporter = Reporter(TOTAL_STEPS, workflow_id=config.workflow_id)
 
         validate_credentials_and_workflow(config, reporter)
-
-        # Show current run inputs
-        print()
-        print("Current run inputs:")
-        print(f"  Datadog Site:     {config.site}")
-        print(f"  Scanner Project:  {config.scanner_project}")
-        if len(config.regions) == 1:
-            print(f"  Region:           {config.regions[0]}")
-        else:
-            print(f"  Regions:          {len(config.regions)}")
-            for r in config.regions:
-                print(f"    - {r}")
-        if config.state_bucket:
-            print(f"  State Bucket:     {config.state_bucket} (custom)")
-        print(f"  Projects to Scan: {len(config.all_projects)}")
-        for p in config.all_projects:
-            marker = " (scanner)" if p == config.scanner_project else ""
-            print(f"    - {p}{marker}")
-
-        # Step 1: Preflight checks (on current run inputs first)
-        run_preflight_checks(config, reporter)
-
-        # Step 2: Ensure state bucket exists
-        state_bucket = ensure_state_bucket(config, reporter)
-
-        # Read existing metadata and merge with current inputs
-        existing_metadata, metadata_generation = read_metadata(state_bucket)
-
-        if existing_metadata is None and terraform_state_exists(state_bucket):
-            print()
-            print("❌ Existing Terraform state found but no deployment metadata.")
-            print()
-            print("This usually means the deployment was created with an older version")
-            print("of this script. You must destroy the existing deployment first,")
-            print("then redeploy with the current script.")
-            print()
-            print("To destroy:")
-            print(f"  SCANNER_PROJECT={config.scanner_project} \\")
-            print("  DD_API_KEY=xxx DD_APP_KEY=xxx DD_SITE=... \\")
-            print("  python gcp_agentless_setup.pyz destroy")
-            print()
-            print("Then run deploy again with your desired configuration.")
-            print()
-            sys.exit(1)
-
-        merged_metadata = merge_with_config(existing_metadata, config)
-        merged_config = config.with_merged(
-            regions=merged_metadata.regions,
-            projects_to_scan=merged_metadata.projects_to_scan,
-        )
-
-        if existing_metadata:
-            new_regions = set(config.regions) - set(existing_metadata.regions)
-            new_projects = set(config.all_projects) - set(existing_metadata.projects_to_scan)
-            print()
-            print("Merged with existing deployment:")
-            print(f"  Total regions:    {len(merged_config.regions)}")
-            for r in merged_config.regions:
-                marker = " (new)" if r in new_regions else ""
-                print(f"    - {r}{marker}")
-            print(f"  Total projects:   {len(merged_config.all_projects)}")
-            for p in merged_config.all_projects:
-                marker = " (new)" if p in new_projects else ""
-                if p == config.scanner_project:
-                    marker += " (scanner)"
-                print(f"    - {p}{marker}")
-
-        # Step 3: Store API key in Secret Manager
-        api_key_secret_id = ensure_api_key_secret(
-            reporter, config.scanner_project, config.api_key
-        )
-
-        # Steps 4-6: Run Terraform (with merged config)
-        tf_runner = TerraformRunner(merged_config, state_bucket, api_key_secret_id, reporter)
-        tf_runner.run()
-
-        # Write metadata only after successful apply
-        write_metadata(state_bucket, merged_metadata, metadata_generation, config)
-
-        # Done!
-        reporter.complete()
-        reporter.summary(merged_config.scanner_project, merged_config.regions, merged_config.all_projects)
-
-        print()
-        print("Next Steps:")
-        print("  1. Go to Datadog Security → Cloud Security → Vulnerabilities")
-        print("  2. Your GCP resources should appear shortly")
-        print()
-        print("Tip: To view only vulnerabilities detected by Agentless Scanning,")
-        print('     use the filter: origin:"Agentless scanner" in the search bar.')
-        print()
-        print("To update or destroy this deployment, run Terraform commands in:")
-        print(f"  {tf_runner.work_dir}")
-        print()
+        deploy(config, reporter)
 
         # Cancel session timer on success
         timer.cancel()
 
     except SetupError as e:
-        print()
-        print(f"❌ Setup failed: {e.message}")
-        if e.detail:
-            print()
-            for line in e.detail.strip().split("\n"):
-                print(f"   {line}")
-        print()
+        print_setup_error(e)
         sys.exit(1)
 
     except Exception as e:

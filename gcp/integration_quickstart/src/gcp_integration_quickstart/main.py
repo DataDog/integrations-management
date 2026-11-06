@@ -18,6 +18,12 @@ from gcp_shared.scopes import collect_configuration_scopes
 from gcp_shared.service_accounts import find_or_create_service_account
 from .models import LogsForwardingConfiguration
 
+from .agentless import (
+    is_agentless_requested,
+    prepare_agentless_setup,
+    run_agentless_setup,
+)
+
 from .integration_configuration import (
     assign_delegate_permissions,
     create_logs_forwarding_integration,
@@ -67,6 +73,8 @@ def main():
         exit(1)
 
     workflow_reporter.handle_login_step()
+
+    agentless_setup = prepare_agentless_setup() if is_agentless_requested() else None
 
     with workflow_reporter.report_step(OnboardingStep.SCOPES) as step_reporter:
         if not workflow_reporter.is_scopes_step_already_completed():
@@ -143,6 +151,9 @@ def main():
                 default_project_id,
                 configuration_scope,
             )
+
+    if agentless_setup is not None:
+        run_agentless_setup(*agentless_setup)
 
     print("Script succeeded. You may exit this shell.")
 
