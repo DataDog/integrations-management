@@ -77,7 +77,7 @@ jobs:
 
   build-check:
     name: dist drift (${{ matrix.cloud }})
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
