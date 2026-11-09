@@ -38,7 +38,7 @@ Scaleway credentials are read from your `scw` CLI config. Run `scw init` if you 
 | `SCW_SECRET_KEY` | Scaleway IAM secret key | from `scw` config |
 | `SCW_ACCESS_KEY` | Scaleway IAM access key | from `scw` config |
 | `SCW_PROJECT_ID` | Scaleway project to configure exports for | from `scw` config |
-| `SCALEWAY_REGIONS` | Comma-separated Cockpit regions | `fr-par,nl-ams,pl-waw` |
+| `SCALEWAY_REGIONS` | Comma-separated Cockpit regions | `fr-par,nl-ams,pl-waw,it-mil` |
 | `SCALEWAY_PRODUCTS` | Comma-separated products to export, or `all` | `all` |
 | `SCW_AUDIT_TRAIL_ENABLED` | Enable audit trail collector | `true` |
 | `SCW_INSTANCE_IP` | IP of an existing instance to deploy the collector to (skips provisioning) | auto-provision |
