@@ -301,6 +301,67 @@ class SetupTests(unittest.TestCase):
             self.assertEqual(len(patches), 2)  # desired state plus secret rotation
             self.assertTrue(any(c[:2] == ('o-auth-partner-certificate', 'delete') for c in io.calls))
 
+    def test_fusion_only_rerun_does_not_rotate_backfilled_epm(self):
+        account = existing_account()
+        account['attributes']['name'] = 'fusion.example'
+        io = FakeExternal(account, existing=True)
+        a = s.parse_args(['--identity-domain-url', 'https://id.example', '--fusion-app-id', 'fusion',
+                          '--fusion-base-url', 'https://fusion.example', '--fusion-admin-username', 'admin',
+                          '--fusion-admin-password', 'password'])
+        s.Onboarding(a, io).run()
+        self.assertFalse(any(c[:2] == ('user-password-changer', 'put') for c in io.calls))
+        self.assertFalse(any(c[0].startswith('o-auth-partner-certificate') for c in io.calls))
+        payload = io.calls[-1][2]['data']['attributes']
+        self.assertEqual(io.calls[-1][0], 'PATCH')
+        self.assertEqual(payload['settings']['epm_application_id'], 'epm')
+        self.assertEqual(sorted(payload['secrets']), ['client_secret'])
+
+    def test_reconcile_keeps_scopes_for_other_products(self):
+        io = FakeExternal(existing=True)
+        a = args()
+        a.fusion_scope, a.epm_scope = '', 'epm-scope'
+        flow = s.Onboarding(a, io)
+        current = {'name': 'client', 'ocid': 'app-ocid', 'allowed-scopes': [{'fqs': 'fusion-scope'}]}
+        with patch.object(flow, 'lookup', return_value=[current]):
+            flow.ensure_application()
+        operations = next(c[2]['operations'] for c in io.calls if c[:2] == ('app', 'patch'))
+        self.assertEqual(operations[0]['value'], [{'fqs': 'fusion-scope'}, {'fqs': 'epm-scope'}])
+
+    def test_empty_dd_site_uses_default(self):
+        io = FakeExternal()
+        io.env['DD_SITE'] = ''
+        s.Onboarding(args(), io).dd('GET', s.ACCOUNTS)
+        self.assertEqual(io.calls[-1][1], 'https://api.datadoghq.com' + s.ACCOUNTS)
+
+    def test_prompt_strips_whitespace_like_read(self):
+        with patch('builtins.input', return_value='  y \n'):
+            self.assertEqual(s.External().prompt('?'), 'y')
+
+    def test_command_failure_names_subcommand(self):
+        with patch.object(s.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, b'', b'')), \
+                self.assertRaisesRegex(s.SetupError, '^oci identity-domains app create failed'):
+            s.External().command(['oci', 'identity-domains', 'app', 'create', '--display-name', 'x'])
+
+    def test_legacy_scope_hint_on_app_failure(self):
+        io = FakeExternal()
+        a = args()
+        flow = s.Onboarding(a, io)
+        with patch.object(io, 'prompt', return_value='1'):
+            a.fusion_scope = flow.confirm_fusion_scope('legacy')
+        with patch.object(io, 'oci', side_effect=s.SetupError('oci identity-domains app create failed.')), \
+                self.assertRaisesRegex(s.SetupError, 'option 2'):
+            flow.create_application([], [])
+
+    def test_http_failure_includes_service_error_description(self):
+        ext = s.External()
+        body = json.dumps({'Errors': [{'description': 'User name already exists'}]}).encode()
+        error = HTTPError('https://fusion.example', 409, 'Conflict', {}, io.BytesIO(body))
+        with patch.object(ext.opener, 'open', side_effect=error), \
+                self.assertRaisesRegex(s.SetupError, 'HTTP 409\\): User name already exists'):
+            ext.http('POST', 'https://fusion.example/hcmRestApi/scim/Users', body={}, allowed=(201,))
+        self.assertEqual(s.scim_error(b'<html>'), '')
+        self.assertEqual(s.scim_error(b'{"errors": ["Forbidden"]}'), ': Forbidden')
+
     def test_deleted_app_fails_before_writes(self):
         io = FakeExternal(existing_account(False), existing=False)
         with self.assertRaisesRegex(s.SetupError, 'deleted'):

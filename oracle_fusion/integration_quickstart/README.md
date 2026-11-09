@@ -56,8 +56,9 @@ reconciling apps/users/grants, rotating credentials, and registering with Datado
 Each phase can be tested independently using the same effects adapter.
 
 Reruns reuse existing apps/users/grants. Repair reasserts app configuration even
-when scopes are already present. Existing app secrets and EPM credentials rotate
-on reruns; if registration fails after rotation, rerun to complete registration.
+when scopes are already present, keeping scopes for products the run does not
+manage. Existing app secrets rotate on reruns, and EPM credentials rotate only
+when the run manages EPM; if registration fails after rotation, rerun to complete registration.
 
 ## Options
 

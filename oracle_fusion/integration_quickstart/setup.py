@@ -6,6 +6,7 @@
 import argparse
 import base64
 import configparser
+import itertools
 import json
 import os
 import secrets
@@ -141,6 +142,20 @@ def password_for_policy(policies):
     return ''.join(chars)
 
 
+def scim_error(raw):
+    """Return a short service error description (Fusion SCIM or Datadog), never the raw body."""
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        return ''
+    if not isinstance(body, dict):
+        return ''
+    errors = body.get('Errors') or body.get('errors') or []
+    error = errors[0] if isinstance(errors, list) and errors else {}
+    text = (error.get('description') or error.get('detail')) if isinstance(error, dict) else error
+    return ': ' + text[:200] if isinstance(text, str) and text else ''
+
+
 def account_payload(a, client_id, token_url, credentials):
     """Construct a Datadog account payload, omitting absent settings and secrets."""
     settings = {'client_id': client_id, 'token_url': token_url, 'version': '1.1'}
@@ -172,7 +187,9 @@ class External:
         """Run a process without exposing secret arguments or output on failure."""
         result = subprocess.run(args, input=input, stdout=None if interactive else subprocess.PIPE,
                                 stderr=None if interactive else subprocess.PIPE, env=self.env, check=False)
-        require(result.returncode == 0, f'{args[0]} {args[1]} failed. Check credentials and administrator permissions, then rerun.')
+        # Only the leading subcommand words are reported; option values may be secrets.
+        name = ' '.join(itertools.takewhile(lambda arg: not arg.startswith('-'), args))
+        require(result.returncode == 0, f'{name} failed. Check credentials and administrator permissions, then rerun.')
         return result.stdout or b''
 
     def oci(self, group, action, endpoint='', **options):
@@ -208,13 +225,14 @@ class External:
                 raw = error.read() if parse_json else b''
         except URLError:
             raise SetupError('Cannot reach service. Check the configured URL and connectivity.') from None
-        require(status in allowed, f'{method} {urlsplit(url).path} failed (HTTP {status}). Check permissions and rerun.')
+        detail = scim_error(raw) if status not in allowed else ''
+        require(status in allowed, f'{method} {urlsplit(url).path} failed (HTTP {status}){detail}. Check permissions and rerun.')
         return json.loads(raw) if raw.strip() and status in (200, 201) else {}
 
     def prompt(self, message):
         """Prompt interactively, treating closed input as a declined choice."""
         try:
-            return input(message)
+            return input(message).strip()
         except EOFError:
             return ''
 
@@ -267,11 +285,12 @@ class Onboarding:
         self.credentials = {}
         self.client_id = ''
         self.token_url = ''
+        self.legacy_scope = ''
 
     def dd(self, method, path, body=None):
         """Call the selected Datadog site using the supplied API credentials."""
         env = self.io.env
-        return self.io.http(method, 'https://api.' + env.get('DD_SITE', 'datadoghq.com') + path,
+        return self.io.http(method, 'https://api.' + (env.get('DD_SITE') or 'datadoghq.com') + path,
                             {'DD-API-KEY': env['DD_API_KEY'], 'DD-APPLICATION-KEY': env['DD_APP_KEY']}, body)
 
     def oci(self, group, action, **options):
@@ -301,7 +320,11 @@ class Onboarding:
         a = self.a
         validate_args(a)
         require(self.io.env.get('DD_API_KEY') and self.io.env.get('DD_APP_KEY'), 'DD_API_KEY and DD_APP_KEY are required')
-        accounts = self.dd('GET', ACCOUNTS).get('data', [])
+        try:
+            accounts = self.dd('GET', ACCOUNTS).get('data', [])
+        except SetupError as error:
+            raise SetupError(f'{error} Verify DD_API_KEY, DD_APP_KEY (integrations_read) and DD_SITE '
+                             f'(e.g. datadoghq.com, datadoghq.eu, us3.datadoghq.com).') from None
         account = first(x for x in accounts if x.get('attributes', {}).get('name') == a.account_name)
         already_fusion = False
         a.fusion_scope = a.epm_scope = ''
@@ -315,10 +338,13 @@ class Onboarding:
         role_id = self.check_services(provision_fusion)
         app_id, reused = self.ensure_application()
         self.ensure_user(provision_fusion, role_id)
-        user_id = self.grant_epm_access() if a.epm_app_id else ''
+        # Decide EPM work before registration_target() may backfill a stored EPM app ID
+        # that this run did not provision.
+        manage_epm = bool(a.epm_app_id)
+        user_id = self.grant_epm_access() if manage_epm else ''
         account = self.registration_target(accounts, account)
         self.ensure_client_secret(app_id, reused)
-        if a.epm_app_id:
+        if manage_epm:
             self.rotate_epm_credentials(user_id)
         self.register_account(account)
         self.print_summary()
@@ -373,17 +399,33 @@ class Onboarding:
         if scope.startswith('urn:opc:resource:faaas:fa:'):
             return scope
         print('Unexpected Fusion audience. Find System Name in OCI Console → Fusion Applications → Environments.')
+        self.legacy_scope = scope
         if self.io.prompt('Continue derived scope [1] or supply System Name [2]? ') != '2':
             return scope
         system = self.io.prompt('Fusion instance System Name (case sensitive): ')
         return 'urn:opc:resource:faaas:fa:' + system + CONSUMER_SCOPE if system else scope
+
+    def write_application(self, *args, **options):
+        """Create or patch the app, pointing failures on legacy audiences at the System Name override."""
+        try:
+            return self.oci(*args, **options)
+        except SetupError as error:
+            if self.legacy_scope and self.a.fusion_scope == self.legacy_scope:
+                raise SetupError(f'{error} The derived Fusion scope {self.legacy_scope!r} is not in the '
+                                 'urn:opc:resource:faaas:fa: form; rerun and choose option 2 to supply '
+                                 'the System Name with exact casing.') from None
+            raise
 
     def check_services(self, provision_fusion):
         """Validate connectivity and return the manually configured Fusion role ID."""
         a = self.a
         role_id = ''
         if provision_fusion:
-            self.fusion('GET', 'Users?count=1')
+            try:
+                self.fusion('GET', 'Users?count=1')
+            except SetupError as error:
+                raise SetupError(f'{error} Verify --fusion-base-url and that the Fusion admin has HCM '
+                                 'user management permissions.') from None
             roles = self.fusion('GET', 'Roles?' + urlencode({'filter': 'name eq "DD_INTEGRATION_ROLE"'}))
             role_id = first(roles.get('Resources', [])).get('id')
             require(role_id, 'Create DD_INTEGRATION_ROLE in Fusion Security Console and mark it Requestable in Manage Role Provisioning Rules; see README.md')
@@ -406,21 +448,24 @@ class Onboarding:
             self.client_id = app.get('name', '')
             app_id = app.get('ocid', '')
             require(self.client_id and app_id, 'Existing confidential app has no name or OCID')
-            present = {s.get('fqs') for s in app.get('allowed-scopes', [])}
-            if a.fix or any(s['fqs'] not in present for s in scopes):
-                self.oci('app', 'patch', app_id=app_id, schemas=[PATCH_SCHEMA],
-                         operations=[{'op': 'replace', 'path': k, 'value': v} for k, v in desired.items()])
+            present = [s.get('fqs') for s in app.get('allowed-scopes', []) if s.get('fqs')]
+            missing = [s for s in scopes if s['fqs'] not in present]
+            if a.fix or missing:
+                # Keep scopes for products this run does not manage.
+                desired['allowedScopes'] = [{'fqs': s} for s in present] + missing
+                self.write_application('app', 'patch', app_id=app_id, schemas=[PATCH_SCHEMA],
+                                       operations=[{'op': 'replace', 'path': k, 'value': v} for k, v in desired.items()])
         else:
             app_id = self.create_application(scopes, desired['allowedGrants'])
         return app_id, bool(app)
 
     def create_application(self, scopes, grants):
         """Create a confidential app and retrieve its initial secret before proceeding."""
-        result = self.oci('app', 'create', schemas=[IDCS_SCHEMA + 'App'], display_name=APP_NAME,
-                          description='Datadog integration for Oracle Fusion and Fusion EPM monitoring',
-                          based_on_template={'value': 'CustomWebAppTemplateId', 'wellKnownId': 'CustomWebAppTemplateId'},
-                          is_o_auth_client=True, allowed_grants=grants, client_type='confidential',
-                          client_ip_checking='anywhere', bypass_consent=True, active=True, allowed_scopes=scopes)['data']
+        result = self.write_application('app', 'create', schemas=[IDCS_SCHEMA + 'App'], display_name=APP_NAME,
+                                        description='Datadog integration for Oracle Fusion and Fusion EPM monitoring',
+                                        based_on_template={'value': 'CustomWebAppTemplateId', 'wellKnownId': 'CustomWebAppTemplateId'},
+                                        is_o_auth_client=True, allowed_grants=grants, client_type='confidential',
+                                        client_ip_checking='anywhere', bypass_consent=True, active=True, allowed_scopes=scopes)['data']
         self.client_id, app_id = result.get('name', ''), result.get('ocid', '')
         self.credentials['client_secret'] = result.get('client-secret', '')
         require(self.client_id and app_id, 'Created app response has no client ID or OCID')
@@ -524,7 +569,7 @@ class Onboarding:
         """Report completion and remaining manual EPM steps without credentials."""
         a = self.a
         print(('Repair' if a.fix else 'Onboarding') + ' complete: ' + a.account_name)
-        if a.epm_app_id:
+        if a.epm_base_url:
             print('In EPM: Tools → Access Control → Role Assignment Report: verify the Datadog Integration user.')
             print('In OCI: Domains → Oracle Cloud Services → EPM → OAuth Configuration: add secondary audience ' + a.epm_base_url)
 
