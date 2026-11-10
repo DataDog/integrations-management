@@ -26,7 +26,7 @@ from gcp_integration_quickstart.models import (
 )
 
 from gcp_shared.dataflow_models import DataflowConfiguration, ExclusionFilter
-from gcp_shared.gcloud import GcloudCmd
+from gcp_shared.gcloud import CommandResult, GcloudCmd
 from gcp_shared.models import (
     ConfigurationScope,
     Folder,
@@ -284,16 +284,17 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             is_org_folder_resource_collection_enabled=False,
         )
 
+    @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
     @patch("gcp_integration_quickstart.integration_configuration.gcloud")
     @patch("gcp_integration_quickstart.integration_configuration.dd_request")
     def test_create_integration_with_permissions_success(
-        self, mock_dd_request, mock_gcloud
+        self, mock_dd_request, mock_gcloud, mock_try_gcloud
     ):
         """Test create_integration_with_permissions when successful."""
 
         mock_dd_request.return_value = ('{"status": "ok"}', 201)
 
-        mock_gcloud.return_value = None
+        actual_commands = _record_commands(mock_gcloud, mock_try_gcloud)
 
         step_reporter = Mock()
 
@@ -326,8 +327,6 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             self.integration_configuration,
             configuration_scope,
         )
-
-        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
 
         expected_commands = []
 
@@ -377,16 +376,17 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             },
         )
 
+    @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
     @patch("gcp_integration_quickstart.integration_configuration.gcloud")
     @patch("gcp_integration_quickstart.integration_configuration.dd_request")
     def test_create_integration_with_permissions_with_product_requirements(
-        self, mock_dd_request, mock_gcloud
+        self, mock_dd_request, mock_gcloud, mock_try_gcloud
     ):
         """Test create_integration_with_permissions with additional product requirements."""
 
         mock_dd_request.return_value = ('{"status": "ok"}', 201)
 
-        mock_gcloud.return_value = None
+        actual_commands = _record_commands(mock_gcloud, mock_try_gcloud)
 
         step_reporter = Mock()
 
@@ -414,8 +414,6 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             configuration_scope,
             product_requirements,
         )
-
-        actual_commands = [str(call[0][0]) for call in mock_gcloud.call_args_list]
 
         expected_commands = []
 
@@ -461,6 +459,218 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             )
 
         self.assertIn("failed to create service account", str(context.exception))
+
+    @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
+    def test_create_integration_with_permissions_skips_unbilled_folder_child(
+        self, mock_dd_request, mock_gcloud, mock_try_gcloud
+    ):
+        """An unbilled child project is skipped; the folder roles and the integration are still created."""
+
+        mock_dd_request.return_value = ('{"data": {"id": "sa-id"}}', 201)
+        actual_commands = _record_commands(
+            mock_gcloud,
+            mock_try_gcloud,
+            failing_projects={"unbilled-project": BILLING_NOT_FOUND_STDERR},
+        )
+        step_reporter = Mock()
+
+        folder = Folder(
+            parent_id="parent123",
+            id="folder123",
+            name="Test Folder",
+            child_scopes=[
+                _project("unbilled-project", "folder123"),
+                _project("billed-project", "folder123"),
+            ],
+        )
+
+        create_integration_with_permissions(
+            step_reporter,
+            self.service_account,
+            self.integration_configuration,
+            ConfigurationScope(projects=[], folders=[folder]),
+        )
+
+        services_str = " ".join(REQUIRED_APIS)
+        expected_commands = [
+            f"services enable {services_str} --project unbilled-project --quiet",
+            f"services enable {services_str} --project billed-project --quiet",
+        ] + [
+            f"resource-manager folders add-iam-policy-binding folder123 --member serviceAccount:{self.service_account} --role {role} --condition None --quiet"
+            for role in REQUIRED_ROLES
+        ]
+        self.assertEqual(expected_commands, actual_commands)
+        step_reporter.report.assert_any_call(
+            message="Skipping project 'unbilled-project': it has no billing account, so the required APIs cannot be enabled"
+        )
+        step_reporter.report.assert_any_call(
+            message="Skipped 1 project(s) without a billing account",
+            metadata={"skipped_unbilled_projects": ["unbilled-project"]},
+        )
+        mock_dd_request.assert_called_once()
+
+    @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
+    def test_create_integration_with_permissions_skips_unbilled_selected_project(
+        self, mock_dd_request, mock_gcloud, mock_try_gcloud
+    ):
+        """An unbilled selected project gets no role bindings; later projects and the integration still proceed."""
+
+        mock_dd_request.return_value = ('{"data": {"id": "sa-id"}}', 201)
+        actual_commands = _record_commands(
+            mock_gcloud,
+            mock_try_gcloud,
+            failing_projects={"unbilled-project": BILLING_NOT_FOUND_STDERR},
+        )
+        step_reporter = Mock()
+
+        create_integration_with_permissions(
+            step_reporter,
+            self.service_account,
+            self.integration_configuration,
+            ConfigurationScope(
+                projects=[
+                    _project("unbilled-project", "parent456"),
+                    _project("billed-project", "parent456"),
+                ],
+                folders=[],
+            ),
+        )
+
+        services_str = " ".join(REQUIRED_APIS)
+        expected_commands = [
+            f"services enable {services_str} --project unbilled-project --quiet",
+            f"services enable {services_str} --project billed-project --quiet",
+        ] + [
+            f"projects add-iam-policy-binding billed-project --member serviceAccount:{self.service_account} --role {role} --condition None --quiet"
+            for role in REQUIRED_ROLES
+        ]
+        self.assertEqual(expected_commands, actual_commands)
+        step_reporter.report.assert_any_call(
+            message="Skipped 1 project(s) without a billing account",
+            metadata={"skipped_unbilled_projects": ["unbilled-project"]},
+        )
+        mock_dd_request.assert_called_once()
+
+    @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
+    def test_create_integration_with_permissions_fails_when_every_selected_project_is_skipped(
+        self, mock_dd_request, mock_gcloud, mock_try_gcloud
+    ):
+        """With no folders, skipping every selected project fails the run instead of creating an empty integration."""
+
+        _record_commands(
+            mock_gcloud,
+            mock_try_gcloud,
+            failing_projects={
+                "unbilled-a": BILLING_NOT_FOUND_STDERR,
+                "unbilled-b": BILLING_NOT_FOUND_STDERR,
+            },
+        )
+        step_reporter = Mock()
+
+        with self.assertRaises(RuntimeError) as context:
+            create_integration_with_permissions(
+                step_reporter,
+                self.service_account,
+                self.integration_configuration,
+                ConfigurationScope(
+                    projects=[
+                        _project("unbilled-a", "parent456"),
+                        _project("unbilled-b", "parent456"),
+                    ],
+                    folders=[],
+                ),
+            )
+
+        self.assertEqual(
+            "none of the selected projects has a billing account, so there is nothing to monitor",
+            str(context.exception),
+        )
+        step_reporter.report.assert_any_call(
+            message="Skipped 2 project(s) without a billing account",
+            metadata={"skipped_unbilled_projects": ["unbilled-a", "unbilled-b"]},
+        )
+        mock_dd_request.assert_not_called()
+
+    @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
+    def test_create_integration_with_permissions_fails_on_other_enable_errors(
+        self, mock_dd_request, mock_gcloud, mock_try_gcloud
+    ):
+        """Errors other than a missing billing account still stop the run before the integration is created."""
+
+        _record_commands(
+            mock_gcloud,
+            mock_try_gcloud,
+            failing_projects={"denied-project": PERMISSION_DENIED_STDERR},
+        )
+
+        with self.assertRaises(RuntimeError) as context:
+            create_integration_with_permissions(
+                Mock(),
+                self.service_account,
+                self.integration_configuration,
+                ConfigurationScope(
+                    projects=[_project("denied-project", "parent456")], folders=[]
+                ),
+            )
+
+        self.assertIn("PERMISSION_DENIED", str(context.exception))
+        mock_dd_request.assert_not_called()
+
+
+# Mirrors the error the customer hit in CLOUDS-9037.
+BILLING_NOT_FOUND_STDERR = (
+    "ERROR: (gcloud.services.enable) FAILED_PRECONDITION: Billing account for project "
+    "'658790394830' is not found. Billing must be enabled for activation of service(s) "
+    "'compute.googleapis.com' to proceed.\n"
+    "- '@type': type.googleapis.com/google.rpc.ErrorInfo\n"
+    "  reason: UREQ_PROJECT_BILLING_NOT_FOUND\n"
+)
+
+PERMISSION_DENIED_STDERR = (
+    "ERROR: (gcloud.services.enable) PERMISSION_DENIED: Permission denied to enable "
+    "service [compute.googleapis.com]\n"
+)
+
+
+def _project(project_id, parent_id):
+    return Project(
+        parent_id=parent_id,
+        id=project_id,
+        name=project_id,
+        is_already_monitored=False,
+    )
+
+
+def _record_commands(mock_gcloud, mock_try_gcloud, failing_projects=None):
+    """Record gcloud and try_gcloud calls in one ordered list.
+
+    try_gcloud fails with the mapped stderr for commands targeting a project in failing_projects.
+    """
+    commands = []
+    failing_projects = failing_projects or {}
+
+    def run_gcloud(cmd, *keys):
+        commands.append(str(cmd))
+
+    def run_try_gcloud(cmd, *keys, **kwargs):
+        commands.append(str(cmd))
+        for project_id, stderr in failing_projects.items():
+            if f"--project {project_id} " in str(cmd):
+                return CommandResult(returncode=1, data=None, error=stderr)
+        return CommandResult(returncode=0, data=None, error="")
+
+    mock_gcloud.side_effect = run_gcloud
+    mock_try_gcloud.side_effect = run_try_gcloud
+    return commands
+
 
 @contextmanager
 def _step_ctx(step_reporter):
