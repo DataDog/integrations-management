@@ -8,6 +8,7 @@ set -e
 rm -rf integration_quickstart/dist/tmp
 mkdir -p integration_quickstart/dist/tmp
 cp -r shared/src/. integration_quickstart/dist/tmp
+cp -r agentless/src/. integration_quickstart/dist/tmp
 cp -r integration_quickstart/src/. integration_quickstart/dist/tmp
 find integration_quickstart/dist/tmp \( -name __pycache__ -o -name .ruff_cache \) -type d -exec rm -rf {} +
 find integration_quickstart/dist/tmp -name .DS_Store -delete
