@@ -81,6 +81,21 @@ class TestGrantContainerAppJobPermissionsStep(TestCase):
         self.assertIn("Container Apps Jobs Contributor", description)
         self.grant_permissions_mock.assert_not_called()
 
+    def test_describe_reports_subscriptions_that_cannot_be_checked_and_continues(self):
+        def rg_exists(rg, sub_id):
+            if sub_id == "sub-1":
+                raise RuntimeError("Subscription 'sub-1' not found")
+            return True
+
+        self.patch("azure_lfo_container_app_migration.grant_permissions.resource_group_exists", side_effect=rg_exists)
+        step = GrantContainerAppJobPermissionsStep(self.config)
+
+        description = step.describe()
+
+        self.assertIn("Subscription sub-1: resource group 'test-rg' could not be checked", description)
+        self.assertIn("Subscription 'sub-1' not found", description)
+        self.assertIn(f"Subscription sub-2: resource group '{RESOURCE_GROUP}' exists", description)
+
 
 class TestResourceGroupExists(TestCase):
     def test_parses_az_group_exists_output(self):

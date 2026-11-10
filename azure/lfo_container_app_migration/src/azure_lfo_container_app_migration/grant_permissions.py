@@ -46,7 +46,11 @@ class GrantContainerAppJobPermissionsStep(Step):
         ]
         for sub_id in sorted(self.config.all_subscriptions):
             label = " (control plane)" if sub_id == control_plane.sub_id else ""
-            rg_status = "exists" if resource_group_exists(rg, sub_id) else "does not exist, would be created"
+            try:
+                rg_status = "exists" if resource_group_exists(rg, sub_id) else "does not exist, would be created"
+            except Exception as e:
+                # Keep describing the rest of the plan; the real migration would fail at this step and roll back
+                rg_status = f"could not be checked, so the migration would likely fail here and roll back ({e})"
             lines += [
                 f"  - Subscription {sub_id}{label}: resource group '{rg}' {rg_status}",
                 f"      '{control_plane.resources_task_name}': Monitoring Reader on the subscription",
