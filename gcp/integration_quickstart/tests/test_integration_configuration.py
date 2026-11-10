@@ -505,6 +505,10 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
         step_reporter.report.assert_any_call(
             message="Skipping project 'unbilled-project': it has no billing account, so the required APIs cannot be enabled"
         )
+        step_reporter.report.assert_any_call(
+            message="Skipped 1 project(s) without a billing account",
+            metadata={"skipped_unbilled_projects": ["unbilled-project"]},
+        )
         mock_dd_request.assert_called_once()
 
     @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
@@ -545,7 +549,53 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             for role in REQUIRED_ROLES
         ]
         self.assertEqual(expected_commands, actual_commands)
+        step_reporter.report.assert_any_call(
+            message="Skipped 1 project(s) without a billing account",
+            metadata={"skipped_unbilled_projects": ["unbilled-project"]},
+        )
         mock_dd_request.assert_called_once()
+
+    @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
+    def test_create_integration_with_permissions_fails_when_every_selected_project_is_skipped(
+        self, mock_dd_request, mock_gcloud, mock_try_gcloud
+    ):
+        """With no folders, skipping every selected project fails the run instead of creating an empty integration."""
+
+        _record_commands(
+            mock_gcloud,
+            mock_try_gcloud,
+            failing_projects={
+                "unbilled-a": BILLING_NOT_FOUND_STDERR,
+                "unbilled-b": BILLING_NOT_FOUND_STDERR,
+            },
+        )
+        step_reporter = Mock()
+
+        with self.assertRaises(RuntimeError) as context:
+            create_integration_with_permissions(
+                step_reporter,
+                self.service_account,
+                self.integration_configuration,
+                ConfigurationScope(
+                    projects=[
+                        _project("unbilled-a", "parent456"),
+                        _project("unbilled-b", "parent456"),
+                    ],
+                    folders=[],
+                ),
+            )
+
+        self.assertEqual(
+            "none of the selected projects has a billing account, so there is nothing to monitor",
+            str(context.exception),
+        )
+        step_reporter.report.assert_any_call(
+            message="Skipped 2 project(s) without a billing account",
+            metadata={"skipped_unbilled_projects": ["unbilled-a", "unbilled-b"]},
+        )
+        mock_dd_request.assert_not_called()
 
     @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
     @patch("gcp_integration_quickstart.integration_configuration.gcloud")

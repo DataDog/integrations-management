@@ -256,11 +256,16 @@ def create_integration_with_permissions(
             ]
         )
 
+    skipped_project_ids: list[str] = []
+    configured_project_count = 0
+
     for folder in configuration_scope.folders:
         for child_project in filter(
             lambda c: c.resource_container_type == "project", folder.child_scopes
         ):
-            enable_required_apis(step_reporter, child_project, required_services)
+            # A skipped child still inherits the folder's role bindings below, so it is still discovered.
+            if not enable_required_apis(step_reporter, child_project, required_services):
+                skipped_project_ids.append(child_project.id)
 
         for role in required_roles:
             step_reporter.report(
@@ -278,8 +283,10 @@ def create_integration_with_permissions(
 
     for project in configuration_scope.projects:
         if not enable_required_apis(step_reporter, project, required_services):
+            skipped_project_ids.append(project.id)
             continue
 
+        configured_project_count += 1
         for role in required_roles:
             step_reporter.report(
                 message=f"Assigning role [{role}] to service account '{service_account_email}' in project '{project.name}'"
@@ -293,6 +300,18 @@ def create_integration_with_permissions(
                 .param("--condition", "None")
                 .flag("--quiet")
             )
+
+    if skipped_project_ids:
+        report_skipped_projects(step_reporter, skipped_project_ids)
+
+    if (
+        configuration_scope.projects
+        and not configuration_scope.folders
+        and configured_project_count == 0
+    ):
+        raise RuntimeError(
+            "none of the selected projects has a billing account, so there is nothing to monitor"
+        )
 
     step_reporter.report(message="Creating GCP integration in Datadog...")
 
@@ -351,3 +370,13 @@ def enable_required_apis(
         )
         return False
     raise RuntimeError(f"could not execute gcloud command '{enable_api_cmd}': {result.error}")
+
+
+def report_skipped_projects(
+    step_reporter: StepStatusReporter, skipped_project_ids: list[str]
+) -> None:
+    """Report the projects skipped for having no billing account, once for the whole run."""
+    step_reporter.report(
+        message=f"Skipped {len(skipped_project_ids)} project(s) without a billing account",
+        metadata={"skipped_unbilled_projects": skipped_project_ids},
+    )
