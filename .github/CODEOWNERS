@@ -1,5 +1,5 @@
 # Default Code Owners
-* @DataDog/integrations-experience
+* @DataDog/azure-integrations @DataDog/gcp-integrations @DataDog/new-workloads @DataDog/k9-agentless @DataDog/emerging-cloud-integrations
 
 # Azure
 azure/ @DataDog/azure-integrations
