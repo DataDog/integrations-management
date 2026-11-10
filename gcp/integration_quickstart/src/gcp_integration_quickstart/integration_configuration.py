@@ -6,8 +6,8 @@ import json
 from dataclasses import asdict
 from typing import Optional
 
-from gcp_shared.gcloud import GcloudCmd, gcloud
-from gcp_shared.models import ConfigurationScope
+from gcp_shared.gcloud import GcloudCmd, gcloud, try_gcloud
+from gcp_shared.models import ConfigurationScope, Project
 from gcp_shared.reporter import StepStatusReporter
 from gcp_shared.requests import dd_request
 from gcp_shared.dataflow_configuration import (
@@ -32,6 +32,10 @@ REQUIRED_APIS: list[str] = [
     "monitoring.googleapis.com",
     "cloudresourcemanager.googleapis.com",
 ]
+
+# Reason GCP returns when an API that needs billing (compute) is enabled on a
+# project with no billing account.
+BILLING_NOT_FOUND_REASON = "UREQ_PROJECT_BILLING_NOT_FOUND"
 
 REQUIRED_ROLES: list[str] = [
     "roles/cloudasset.viewer",
@@ -256,15 +260,7 @@ def create_integration_with_permissions(
         for child_project in filter(
             lambda c: c.resource_container_type == "project", folder.child_scopes
         ):
-            step_reporter.report(
-                message=f"Enabling required APIs [{', '.join(required_services)}] for project '{child_project.name}'"
-            )
-
-            enable_api_cmd = GcloudCmd("services", "enable")
-            for service in required_services:
-                enable_api_cmd.arg(service)
-            enable_api_cmd.param("--project", child_project.id).flag("--quiet")
-            gcloud(enable_api_cmd)
+            enable_required_apis(step_reporter, child_project, required_services)
 
         for role in required_roles:
             step_reporter.report(
@@ -281,15 +277,8 @@ def create_integration_with_permissions(
             )
 
     for project in configuration_scope.projects:
-        step_reporter.report(
-            message=f"Enabling required APIs [{', '.join(required_services)}] for project '{project.name}'"
-        )
-
-        enable_api_cmd = GcloudCmd("services", "enable")
-        for service in required_services:
-            enable_api_cmd.arg(service)
-        enable_api_cmd.param("--project", project.id).flag("--quiet")
-        gcloud(enable_api_cmd)
+        if not enable_required_apis(step_reporter, project, required_services):
+            continue
 
         for role in required_roles:
             step_reporter.report(
@@ -334,3 +323,31 @@ def create_integration_with_permissions(
     step_reporter.report(
         metadata={"created_service_account_id": data.get("data", {}).get("id")}
     )
+
+
+def enable_required_apis(
+    step_reporter: StepStatusReporter, project: Project, required_services: list[str]
+) -> bool:
+    """Enable the required APIs on a project.
+
+    Return False when the project has no billing account, so the caller can skip it.
+    Raise on any other failure.
+    """
+    step_reporter.report(
+        message=f"Enabling required APIs [{', '.join(required_services)}] for project '{project.name}'"
+    )
+
+    enable_api_cmd = GcloudCmd("services", "enable")
+    for service in required_services:
+        enable_api_cmd.arg(service)
+    enable_api_cmd.param("--project", project.id).flag("--quiet")
+
+    result = try_gcloud(enable_api_cmd)
+    if result.success:
+        return True
+    if BILLING_NOT_FOUND_REASON in result.error:
+        step_reporter.report(
+            message=f"Skipping project '{project.name}': it has no billing account, so the required APIs cannot be enabled"
+        )
+        return False
+    raise RuntimeError(f"could not execute gcloud command '{enable_api_cmd}': {result.error}")
