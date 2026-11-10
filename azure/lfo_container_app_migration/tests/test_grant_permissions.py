@@ -8,7 +8,7 @@ from unittest.mock import patch as mock_patch
 from azure_logging_install.configuration import Configuration, ControlPlane, ControlPlaneType
 from azure_logging_install.constants import CONTAINER_APPS_JOBS_CONTRIBUTOR
 
-from azure_lfo_container_app_migration.grant_permissions import GrantContainerAppJobPermissionsStep
+from azure_lfo_container_app_migration.grant_permissions import GrantContainerAppJobPermissionsStep, resource_group_exists
 
 CONTROL_PLANE_ID = "abcdef123456"
 SUBSCRIPTION_ID = "test-sub"
@@ -65,3 +65,28 @@ class TestGrantContainerAppJobPermissionsStep(TestCase):
         self.revoke_subscriptions_role_assignments_mock.assert_called_once_with(
             self.config.control_plane, self.config.all_subscriptions
         )
+
+    def test_describe_lists_every_subscription_and_missing_resource_groups_without_granting(self):
+        self.patch(
+            "azure_lfo_container_app_migration.grant_permissions.resource_group_exists",
+            side_effect=lambda rg, sub_id: sub_id != "sub-2",
+        )
+        step = GrantContainerAppJobPermissionsStep(self.config)
+
+        description = step.describe()
+
+        self.assertIn(f"Subscription {SUBSCRIPTION_ID} (control plane): resource group '{RESOURCE_GROUP}' exists", description)
+        self.assertIn(f"Subscription sub-1: resource group '{RESOURCE_GROUP}' exists", description)
+        self.assertIn(f"Subscription sub-2: resource group '{RESOURCE_GROUP}' does not exist, would be created", description)
+        self.assertIn("Container Apps Jobs Contributor", description)
+        self.grant_permissions_mock.assert_not_called()
+
+
+class TestResourceGroupExists(TestCase):
+    def test_parses_az_group_exists_output(self):
+        with mock_patch("azure_lfo_container_app_migration.grant_permissions.execute", return_value="true\n") as execute_mock:
+            self.assertTrue(resource_group_exists(RESOURCE_GROUP, SUBSCRIPTION_ID))
+        self.assertIn("group exists", str(execute_mock.call_args.args[0]))
+
+        with mock_patch("azure_lfo_container_app_migration.grant_permissions.execute", return_value="false\n"):
+            self.assertFalse(resource_group_exists(RESOURCE_GROUP, SUBSCRIPTION_ID))

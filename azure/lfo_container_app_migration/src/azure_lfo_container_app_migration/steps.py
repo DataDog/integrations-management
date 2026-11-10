@@ -23,6 +23,10 @@ class Step:
     def rollback(self) -> None:
         raise NotImplementedError()
 
+    def describe(self) -> str:
+        """What this step would do, for --dry-run. Must not change anything."""
+        return self.name
+
 
 def run_steps(steps: list[Step]) -> None:
     """Run steps in order. If a step fails, its own rollback is run first, then the
@@ -71,6 +75,10 @@ class CleanupStep:
 
     def execute(self) -> None:
         raise NotImplementedError()
+
+    def describe(self) -> str:
+        """What this step would do, for --dry-run. Must not change anything."""
+        return self.name
 
 
 def run_cleanup_steps(steps: list[CleanupStep]) -> None:

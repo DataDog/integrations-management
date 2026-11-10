@@ -37,6 +37,10 @@ class DeleteOldFunctionApps(CleanupStep):
         for plan_id in plan_ids:
             delete_function_app_plan(plan_id)
 
+    def describe(self) -> str:
+        control_plane = self.function_app_config.control_plane
+        return f"{self.name}: {', '.join(control_plane.task_names)} and their App Service plan"
+
 
 class DeleteControlPlaneCacheFileShare(CleanupStep):
     """Deletes the storage File Share the old Function Apps used for their content share."""

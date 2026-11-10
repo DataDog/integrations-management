@@ -35,6 +35,15 @@ def parse_arguments():
     )
 
     parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Show the settings that would be copied and every step the migration would run, without changing "
+            "any Azure resources. The Azure CLI 'resource-graph' extension is still installed if missing."
+        ),
+    )
+
+    parser.add_argument(
         "--log-level",
         type=str,
         default="INFO",
@@ -64,7 +73,9 @@ def main():
 
     validate_az_cli()
     # TODO add other user validation?
-    run_migration(optional_control_plane_ids, args.yes)
+    if args.dry_run:
+        log.info("Dry run enabled, no Azure resources will be changed")
+    run_migration(optional_control_plane_ids, args.yes, args.dry_run)
 
 
 if __name__ == "__main__":

@@ -94,6 +94,20 @@ class TestCreateContainerAppJob(TestCase):
 
         self.delete_job_mock.assert_not_called()
 
+    def test_describe_says_existing_job_would_be_skipped(self):
+        step = self.make_step()
+
+        self.assertIn("already exists, would be skipped", step.describe())
+        self.assertEqual(self.create_job_calls, [])
+
+    def test_describe_does_not_create_missing_job(self):
+        self.verify_mock.side_effect = ResourceNotFoundError("not found")
+
+        step = self.make_step()
+
+        self.assertNotIn("already exists", step.describe())
+        self.assertEqual(self.create_job_calls, [])
+
 
 class TestTaskSpecificSteps(TestCase):
     """Tests that each task-specific subclass wires up the right job name and resource_setup create function."""
