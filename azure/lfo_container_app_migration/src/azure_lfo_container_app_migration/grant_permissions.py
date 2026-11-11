@@ -2,6 +2,8 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
+from typing import Optional
+
 from az_shared.execute_cmd import execute
 from az_shared.logs import log
 from azure_logging_install.az_cmd import AzCmd
@@ -45,13 +47,19 @@ class GrantContainerAppJobPermissionsStep(Step):
             f"  - '{self.config.deployer_job_name}': {ROLE_NAMES[CONTAINER_APPS_JOBS_CONTRIBUTOR]} on resource group "
             f"'{rg}' in subscription {control_plane.sub_id}",
         ]
-        for sub_id in sorted(self.config.all_subscriptions):
+        # Control plane subscription first, then the monitored subscriptions
+        for sub_id in sorted(self.config.all_subscriptions, key=lambda s: (s != control_plane.sub_id, s)):
             label = " (control plane)" if sub_id == control_plane.sub_id else ""
             try:
-                rg_status = "exists" if resource_group_exists(rg, sub_id) else "does not exist, would be created"
+                exists = resource_group_exists(rg, sub_id)
+                reason = "check that you have access to this subscription"
             except Exception as e:
+                exists, reason = None, str(e).splitlines()[0]
+            if exists is None:
                 # Keep describing the rest of the plan; the real migration would fail at this step and roll back
-                rg_status = f"could not be checked, so the migration would likely fail here and roll back ({e})"
+                rg_status = f"could not be checked ({reason}), so the migration would likely fail here and roll back"
+            else:
+                rg_status = "exists" if exists else "does not exist, would be created"
             lines.append(f"  - Subscription {sub_id}{label}: resource group '{rg}' {rg_status}")
             for assignment in SUBSCRIPTION_TASK_ROLE_ASSIGNMENTS:
                 task_name = getattr(control_plane, f"{assignment.task}_task_name")
@@ -60,6 +68,13 @@ class GrantContainerAppJobPermissionsStep(Step):
         return "\n".join(lines)
 
 
-def resource_group_exists(resource_group: str, subscription_id: str) -> bool:
-    output = execute(AzCmd("group", "exists").param("--name", resource_group).param("--subscription", subscription_id))
-    return output.strip().lower() == "true"
+def resource_group_exists(resource_group: str, subscription_id: str) -> Optional[bool]:
+    """Returns whether the resource group exists, or None if the check failed (e.g. no access to the subscription).
+    can_fail keeps execute() from logging the failure itself, since describe() reports it in the plan."""
+    output = execute(
+        AzCmd("group", "exists").param("--name", resource_group).param("--subscription", subscription_id), can_fail=True
+    )
+    output = output.strip().lower()
+    if output not in ("true", "false"):
+        return None
+    return output == "true"

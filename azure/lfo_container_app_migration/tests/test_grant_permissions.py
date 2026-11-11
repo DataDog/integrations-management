@@ -84,7 +84,9 @@ class TestGrantContainerAppJobPermissionsStep(TestCase):
     def test_describe_reports_subscriptions_that_cannot_be_checked_and_continues(self):
         def rg_exists(rg, sub_id):
             if sub_id == "sub-1":
-                raise RuntimeError("Subscription 'sub-1' not found")
+                raise RuntimeError("Insufficient permissions for sub-1\nstdout: \nstderr: long az output\naz version: {...}")
+            if sub_id == "sub-2":
+                return None  # generic az failure, swallowed by execute(can_fail=True)
             return True
 
         self.patch("azure_lfo_container_app_migration.grant_permissions.resource_group_exists", side_effect=rg_exists)
@@ -92,9 +94,19 @@ class TestGrantContainerAppJobPermissionsStep(TestCase):
 
         description = step.describe()
 
-        self.assertIn("Subscription sub-1: resource group 'test-rg' could not be checked", description)
-        self.assertIn("Subscription 'sub-1' not found", description)
-        self.assertIn(f"Subscription sub-2: resource group '{RESOURCE_GROUP}' exists", description)
+        self.assertIn(
+            "Subscription sub-1: resource group 'test-rg' could not be checked (Insufficient permissions for sub-1), "
+            "so the migration would likely fail here and roll back",
+            description,
+        )
+        self.assertNotIn("az version", description)
+        self.assertIn(
+            "Subscription sub-2: resource group 'test-rg' could not be checked "
+            "(check that you have access to this subscription)",
+            description,
+        )
+        # The control plane subscription is listed first
+        self.assertLess(description.index(f"Subscription {SUBSCRIPTION_ID} (control plane)"), description.index("Subscription sub-1"))
 
 
 class TestResourceGroupExists(TestCase):
@@ -105,3 +117,9 @@ class TestResourceGroupExists(TestCase):
 
         with mock_patch("azure_lfo_container_app_migration.grant_permissions.execute", return_value="false\n"):
             self.assertFalse(resource_group_exists(RESOURCE_GROUP, SUBSCRIPTION_ID))
+
+    def test_failed_check_returns_none_without_execute_logging_it(self):
+        # execute(can_fail=True) returns "" instead of logging and raising on a generic az failure
+        with mock_patch("azure_lfo_container_app_migration.grant_permissions.execute", return_value="") as execute_mock:
+            self.assertIsNone(resource_group_exists(RESOURCE_GROUP, SUBSCRIPTION_ID))
+        self.assertTrue(execute_mock.call_args.kwargs["can_fail"])
