@@ -56,6 +56,9 @@ class PauseOldFunctionApps(Step):
         for name in self.function_app_config.control_plane.task_names:
             stop_function_app(name, self.function_app_config.control_plane.resource_group, self.function_app_config.control_plane.sub_id)
 
+    def describe(self) -> str:
+        return f"{self.name}: stop {', '.join(self.function_app_config.control_plane.task_names)}"
+
     def rollback(self) -> None:
         log.info("Resuming old Function App tasks")
         for name in self.function_app_config.control_plane.task_names:
@@ -75,6 +78,12 @@ class UnpauseNewContainerAppJobs(Step):
             name = getattr(self.config.control_plane, attr)
             update_container_app_job_cron_expression(name, self.config.control_plane.resource_group, self.config.control_plane.sub_id, cron)
 
+    def describe(self) -> str:
+        schedules = ", ".join(
+            f"'{getattr(self.config.control_plane, attr)}' ({cron})" for attr, cron in _TASK_CRON_EXPRESSIONS.items()
+        )
+        return f"{self.name}: set schedules for {schedules}"
+
     def rollback(self) -> None:
         log.info("Reverting new task Container App Jobs to paused schedule")
         for attr in _TASK_CRON_EXPRESSIONS:
@@ -91,6 +100,9 @@ class UpdateDeployerImage(Step):
         super().__init__(f"Update deployer image to '{caj_config.deployer_image_url}'")
         self.caj_config = caj_config
         self.function_app_config = function_app_config
+
+    def describe(self) -> str:
+        return f"Update deployer '{self.caj_config.deployer_job_name}' image to '{self.caj_config.deployer_image_url}'"
 
     def execute(self) -> None:
         update_container_app_job_image(

@@ -3,7 +3,7 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 from azure_logging_install.configuration import Configuration
-from azure_logging_install.constants import WEBSITE_CONTRIBUTOR_ID
+from azure_logging_install.constants import CONTROL_PLANE_CACHE, ROLE_NAMES, WEBSITE_CONTRIBUTOR_ID
 from azure_logging_install.resource_setup import (
     delete_file_share,
     delete_function_app,
@@ -49,6 +49,9 @@ class DeleteControlPlaneCacheFileShare(CleanupStep):
         super().__init__("Delete control plane cache File Share")
         self.config = config
 
+    def describe(self) -> str:
+        return f"{self.name}: '{CONTROL_PLANE_CACHE}' in storage account '{self.config.control_plane_cache_storage_name}'"
+
     def execute(self) -> None:
         delete_file_share(
             self.config.control_plane_cache_storage_name,
@@ -64,6 +67,12 @@ class RevokeDeployerWebsiteContributorRole(CleanupStep):
     def __init__(self, config: Configuration):
         super().__init__("Revoke deployer's Website Contributor role assignment")
         self.config = config
+
+    def describe(self) -> str:
+        return (
+            f"Revoke {ROLE_NAMES[WEBSITE_CONTRIBUTOR_ID]} from '{self.config.deployer_job_name}' on resource group "
+            f"'{self.config.control_plane.resource_group}' (no longer needed without Function Apps)"
+        )
 
     def execute(self) -> None:
         deployer_principal_id = get_container_app_job_principal_id(

@@ -6,8 +6,9 @@ from az_shared.execute_cmd import execute
 from az_shared.logs import log
 from azure_logging_install.az_cmd import AzCmd
 from azure_logging_install.configuration import Configuration
-from azure_logging_install.constants import CONTAINER_APPS_JOBS_CONTRIBUTOR
+from azure_logging_install.constants import CONTAINER_APPS_JOBS_CONTRIBUTOR, ROLE_NAMES
 from azure_logging_install.role_setup import (
+    SUBSCRIPTION_TASK_ROLE_ASSIGNMENTS,
     get_container_app_job_principal_id,
     grant_permissions,
     remove_role,
@@ -41,8 +42,8 @@ class GrantContainerAppJobPermissionsStep(Step):
         rg = control_plane.resource_group
         lines = [
             self.name,
-            f"  - '{self.config.deployer_job_name}': Container Apps Jobs Contributor on resource group '{rg}' "
-            f"in subscription {control_plane.sub_id}",
+            f"  - '{self.config.deployer_job_name}': {ROLE_NAMES[CONTAINER_APPS_JOBS_CONTRIBUTOR]} on resource group "
+            f"'{rg}' in subscription {control_plane.sub_id}",
         ]
         for sub_id in sorted(self.config.all_subscriptions):
             label = " (control plane)" if sub_id == control_plane.sub_id else ""
@@ -51,13 +52,11 @@ class GrantContainerAppJobPermissionsStep(Step):
             except Exception as e:
                 # Keep describing the rest of the plan; the real migration would fail at this step and roll back
                 rg_status = f"could not be checked, so the migration would likely fail here and roll back ({e})"
-            lines += [
-                f"  - Subscription {sub_id}{label}: resource group '{rg}' {rg_status}",
-                f"      '{control_plane.resources_task_name}': Monitoring Reader on the subscription",
-                f"      '{control_plane.scaling_task_name}': Contributor on resource group '{rg}'",
-                f"      '{control_plane.diagnostic_settings_task_name}': Monitoring Contributor on the subscription, "
-                f"Reader and Data Access on resource group '{rg}'",
-            ]
+            lines.append(f"  - Subscription {sub_id}{label}: resource group '{rg}' {rg_status}")
+            for assignment in SUBSCRIPTION_TASK_ROLE_ASSIGNMENTS:
+                task_name = getattr(control_plane, f"{assignment.task}_task_name")
+                scope = f"resource group '{rg}'" if assignment.resource_group_scoped else "the subscription"
+                lines.append(f"      '{task_name}': {ROLE_NAMES[assignment.role_id]} on {scope}")
         return "\n".join(lines)
 
 
