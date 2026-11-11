@@ -39,7 +39,8 @@ def parse_arguments():
         action="store_true",
         help=(
             "Show the settings that would be copied and every step the migration would run, without changing "
-            "any Azure resources. The Azure CLI 'resource-graph' extension is still installed if missing."
+            "any Azure resources. Does not check that you have the permissions the migration needs. The Azure "
+            "CLI 'resource-graph' extension is still installed if missing."
         ),
     )
 

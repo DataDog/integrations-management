@@ -42,6 +42,7 @@ class GrantContainerAppJobPermissionsStep(Step):
         """Lists the role assignments grant_permissions would create, and the resource groups it would create."""
         control_plane = self.config.control_plane
         rg = control_plane.resource_group
+        self.dry_run_warnings = []
         lines = [
             self.name,
             f"  - '{self.config.deployer_job_name}': {ROLE_NAMES[CONTAINER_APPS_JOBS_CONTRIBUTOR]} on resource group "
@@ -58,6 +59,7 @@ class GrantContainerAppJobPermissionsStep(Step):
             if exists is None:
                 # Keep describing the rest of the plan; the real migration would fail at this step and roll back
                 rg_status = f"could not be checked ({reason}), so the migration would likely fail here and roll back"
+                self.dry_run_warnings.append(f"Subscription {sub_id} could not be checked ({reason})")
             else:
                 rg_status = "exists" if exists else "does not exist, would be created"
             lines.append(f"  - Subscription {sub_id}{label}: resource group '{rg}' {rg_status}")

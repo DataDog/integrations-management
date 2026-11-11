@@ -39,7 +39,7 @@ class DeleteOldFunctionApps(CleanupStep):
 
     def describe(self) -> str:
         control_plane = self.function_app_config.control_plane
-        return f"{self.name}: {', '.join(control_plane.task_names)} and their App Service plan"
+        return f"{self.name}: {', '.join(control_plane.task_names)} and their App Service plan(s)"
 
 
 class DeleteControlPlaneCacheFileShare(CleanupStep):
@@ -50,7 +50,10 @@ class DeleteControlPlaneCacheFileShare(CleanupStep):
         self.config = config
 
     def describe(self) -> str:
-        return f"{self.name}: '{CONTROL_PLANE_CACHE}' in storage account '{self.config.control_plane_cache_storage_name}'"
+        return (
+            f"{self.name}: '{CONTROL_PLANE_CACHE}' in storage account '{self.config.control_plane_cache_storage_name}' "
+            "(this share may not exist; the Function Apps' own content file shares are left in place)"
+        )
 
     def execute(self) -> None:
         delete_file_share(

@@ -5,12 +5,14 @@
 """Checks that --dry-run output can't drift from what the migration actually does.
 
 Each step's real execute() runs against a fake Azure CLI that records commands instead of running them.
-Every change it would make (each create/update/delete/stop/start) must be named in that step's describe(),
-and describe() itself must not make any changes.
+Every change it would make (any command that isn't a read: show/list/exists/query) must be named in that
+step's describe(), and describe() itself must not make any changes.
 """
 
 import json
 import re
+import subprocess
+from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch as mock_patch
 
@@ -33,7 +35,8 @@ EXECUTE_IMPORTERS = [
     "azure_logging_install.role_setup",
     "azure_lfo_container_app_migration.grant_permissions",
 ]
-MUTATING_ACTIONS = {"create", "update", "delete", "stop", "start"}
+# Any command whose last action word isn't one of these is treated as a change
+READ_ONLY_ACTIONS = {"show", "list", "exists", "query"}
 
 
 class FakeAzureCli:
@@ -54,9 +57,10 @@ class FakeAzureCli:
         }
 
         if action == ("account", "set"):
+            # Only changes the local CLI's active subscription, not anything in Azure
             self.active_sub = params["--subscription"]
             return ""
-        if action[-1] in MUTATING_ACTIONS:
+        if action[-1] not in READ_ONLY_ACTIONS:
             self.mutations.append((action, params, self.active_sub))
             return ""
         return self._read(action, params)
@@ -83,16 +87,21 @@ class FakeAzureCli:
         return ""
 
 
-def described_role_assignments(description: str) -> set[tuple[str, str, str]]:
-    """Parses (subscription, identity name, role name) out of a describe() role assignment listing."""
+def _refuse_real_az_command(*args, **kwargs):
+    raise AssertionError(f"Real az command attempted: {args[0] if args else kwargs}. Add its module to EXECUTE_IMPORTERS")
+
+
+def described_role_assignments(description: str) -> set[tuple[str, str, str, str]]:
+    """Parses (subscription, identity name, role name, scope kind) out of a describe() role assignment listing."""
     assignments = set()
     current_sub = None
     for line in description.splitlines():
         if sub := re.search(r"Subscription ([^\s:]+)", line):
             current_sub = sub.group(1)
-        if match := re.search(r"'([^']+)': (.+?) on ", line):
+        if match := re.search(r"'([^']+)': (.+?) on (the subscription|resource group)", line):
             sub = re.search(r"in subscription (\S+)", line)
-            assignments.add((sub.group(1) if sub else current_sub, match.group(1), match.group(2)))
+            scope_kind = "resource_group" if match.group(3) == "resource group" else "subscription"
+            assignments.add((sub.group(1) if sub else current_sub, match.group(1), match.group(2), scope_kind))
     return assignments
 
 
@@ -103,6 +112,15 @@ class TestDryRunMatchesExecution(TestCase):
             patcher = mock_patch(f"{module}.execute", side_effect=self.fake_az)
             self.addCleanup(patcher.stop)
             patcher.start()
+        # Safety net: if a step reaches execute() through a module missing from EXECUTE_IMPORTERS, fail
+        # instead of running a real az command on a logged-in machine. Replaces only execute_cmd's reference
+        # to subprocess, not subprocess.run for the whole process.
+        real_az_guard = mock_patch(
+            "az_shared.execute_cmd.subprocess",
+            SimpleNamespace(run=_refuse_real_az_command, CalledProcessError=subprocess.CalledProcessError),
+        )
+        self.addCleanup(real_az_guard.stop)
+        real_az_guard.start()
 
         function_app_config = Configuration(
             control_plane=ControlPlane(
@@ -138,11 +156,13 @@ class TestDryRunMatchesExecution(TestCase):
         if action == ("role", "assignment", "create"):
             sub_id = re.match(r"/subscriptions/([^/]+)", params["--scope"]).group(1)
             identity = params["--assignee-object-id"].removeprefix("principal:")
-            expected = (sub_id, identity, ROLE_NAMES[params["--role"]])
+            scope_kind = "resource_group" if "/resourceGroups/" in params["--scope"] else "subscription"
+            expected = (sub_id, identity, ROLE_NAMES[params["--role"]], scope_kind)
             self.assertIn(expected, described_role_assignments(description), f"{command} {expected} not described")
         elif action == ("role", "assignment", "delete"):
-            role_id = params["--ids"].removeprefix("assignment:")
-            self.assertIn(ROLE_NAMES[role_id], description, f"{command} of {role_id} not described")
+            role_name = ROLE_NAMES[params["--ids"].removeprefix("assignment:")]
+            # Match the whole role name, so e.g. "Contributor" isn't satisfied by "Monitoring Contributor"
+            self.assertRegex(description, rf"Revoke {re.escape(role_name)} from", f"{command} of {role_name} not described")
         elif action == ("group", "create"):
             line = next((line for line in description.splitlines() if f"Subscription {active_sub}" in line), "")
             self.assertIn(f"'{params['--name']}' does not exist, would be created", line)

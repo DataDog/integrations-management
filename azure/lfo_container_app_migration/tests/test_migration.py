@@ -120,6 +120,16 @@ class TestMigrateControlPlaneDryRun(TestCase):
         self.assertIn("No Datadog API key", output)
         self.assertIn("No monitored subscriptions", output)
 
+    def test_dry_run_repeats_problems_after_the_plan(self):
+        self.patch("azure_lfo_container_app_migration.grant_permissions.resource_group_exists", return_value=None)
+
+        with self.assertLogs("logging_installer", level="WARNING") as logs:
+            migrate_control_plane(self.control_plane, dry_run=True)
+
+        output = "\n".join(logs.output)
+        self.assertIn("Subscription sub-1 could not be checked", output)
+        self.assertIn("problem(s) found above. The migration would likely fail and roll back.", output)
+
     def test_without_dry_run_steps_are_run(self):
         migrate_control_plane(self.control_plane)
 

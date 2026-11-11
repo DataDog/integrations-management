@@ -51,8 +51,12 @@ def run_migration(optional_control_plane_ids: set[str], skip_confirmation: bool,
         try:
             migrate_control_plane(control_plane, dry_run)
         except Exception as e:
-            log.error(f"Migration failed for control plane {control_plane.id}: {e}")
-            log.error("No changes were made." if dry_run else "Changes for this installation were rolled back.")
+            if dry_run:
+                log.error(f"Dry run failed for control plane {control_plane.id}: {e}")
+                log.error("No changes were made.")
+            else:
+                log.error(f"Migration failed for control plane {control_plane.id}: {e}")
+                log.error("Changes for this installation were rolled back.")
             raise
         else:
             if dry_run:
@@ -98,13 +102,26 @@ def _log_migration_plan(caj_config: Configuration, migration_steps: list[Step], 
     if not monitored_subs:
         log.warning("No monitored subscriptions were found on the Function Apps. The new tasks would not forward logs from any subscription.")
 
-    log_header("DRY RUN: migration steps (rolled back automatically if any step fails)")
+    log_header(
+        "DRY RUN: migration steps (if a step fails, completed steps are rolled back; "
+        "resource groups created in monitored subscriptions are kept)"
+    )
     for i, step in enumerate(migration_steps, start=1):
         log.info(f"{i}. {step.describe()}")
 
     log_header("DRY RUN: cleanup steps (run after a successful migration; cannot be undone)")
     for i, step in enumerate(cleanup_steps, start=1):
         log.info(f"{i}. {step.describe()}")
+
+    warnings = [warning for step in migration_steps for warning in step.dry_run_warnings]
+    for warning in warnings:
+        log.warning(warning)
+    if warnings:
+        log.warning(f"{len(warnings)} problem(s) found above. The migration would likely fail and roll back.")
+    log.info(
+        "Note: the dry run doesn't check whether you have permission to create the Container App Jobs, "
+        "resource groups and role assignments listed above."
+    )
 
 
 def _build_migration_steps(caj_config: Configuration, function_app_config: Configuration) -> list[Step]:

@@ -33,6 +33,9 @@ class PauseDeployer(Step):
         super().__init__(f"Pause deployer '{config.deployer_job_name}'")
         self.config = config
 
+    def describe(self) -> str:
+        return f"{self.name} (schedule set to never run)"
+
     def execute(self) -> None:
         update_container_app_job_cron_expression(
             self.config.deployer_job_name, self.config.control_plane.resource_group, self.config.control_plane.sub_id, NEVER_RUN_CRON_EXPRESSION
@@ -129,6 +132,9 @@ class UnpauseDeployer(Step):
     def __init__(self, config: Configuration):
         super().__init__(f"Unpause deployer '{config.deployer_job_name}'")
         self.config = config
+
+    def describe(self) -> str:
+        return f"{self.name} (schedule set back to {DEPLOYER_TASK_CRON})"
 
     def execute(self) -> None:
         update_container_app_job_cron_expression(
