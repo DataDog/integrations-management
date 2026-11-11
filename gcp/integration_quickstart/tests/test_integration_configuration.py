@@ -506,7 +506,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             message="Skipping project 'unbilled-project': it has no billing account, so the required APIs cannot be enabled"
         )
         step_reporter.report.assert_any_call(
-            message="Skipped 1 project(s) without a billing account",
+            message="Skipped 1 project(s) without an open billing account",
             metadata={"skipped_unbilled_projects": ["unbilled-project"]},
         )
         mock_dd_request.assert_called_once()
@@ -550,7 +550,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
         ]
         self.assertEqual(expected_commands, actual_commands)
         step_reporter.report.assert_any_call(
-            message="Skipped 1 project(s) without a billing account",
+            message="Skipped 1 project(s) without an open billing account",
             metadata={"skipped_unbilled_projects": ["unbilled-project"]},
         )
         mock_dd_request.assert_called_once()
@@ -588,11 +588,11 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             )
 
         self.assertEqual(
-            "none of the selected projects has a billing account, so there is nothing to monitor",
+            "none of the selected projects has an open billing account, so there is nothing to monitor",
             str(context.exception),
         )
         step_reporter.report.assert_any_call(
-            message="Skipped 2 project(s) without a billing account",
+            message="Skipped 2 project(s) without an open billing account",
             metadata={"skipped_unbilled_projects": ["unbilled-a", "unbilled-b"]},
         )
         mock_dd_request.assert_not_called()
@@ -624,6 +624,53 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
         self.assertIn("PERMISSION_DENIED", str(context.exception))
         mock_dd_request.assert_not_called()
 
+    @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
+    def test_create_integration_with_permissions_skips_project_with_closed_billing_account(
+        self, mock_dd_request, mock_gcloud, mock_try_gcloud
+    ):
+        """A project whose billing account is not open is skipped, with that reason."""
+
+        mock_dd_request.return_value = ('{"data": {"id": "sa-id"}}', 201)
+        actual_commands = _record_commands(
+            mock_gcloud,
+            mock_try_gcloud,
+            failing_projects={"closed-billing-project": BILLING_NOT_OPEN_STDERR},
+        )
+        step_reporter = Mock()
+
+        create_integration_with_permissions(
+            step_reporter,
+            self.service_account,
+            self.integration_configuration,
+            ConfigurationScope(
+                projects=[
+                    _project("closed-billing-project", "parent456"),
+                    _project("billed-project", "parent456"),
+                ],
+                folders=[],
+            ),
+        )
+
+        services_str = " ".join(REQUIRED_APIS)
+        expected_commands = [
+            f"services enable {services_str} --project closed-billing-project --quiet",
+            f"services enable {services_str} --project billed-project --quiet",
+        ] + [
+            f"projects add-iam-policy-binding billed-project --member serviceAccount:{self.service_account} --role {role} --condition None --quiet"
+            for role in REQUIRED_ROLES
+        ]
+        self.assertEqual(expected_commands, actual_commands)
+        step_reporter.report.assert_any_call(
+            message="Skipping project 'closed-billing-project': its billing account is not open, so the required APIs cannot be enabled"
+        )
+        step_reporter.report.assert_any_call(
+            message="Skipped 1 project(s) without an open billing account",
+            metadata={"skipped_unbilled_projects": ["closed-billing-project"]},
+        )
+        mock_dd_request.assert_called_once()
+
 
 # Mirrors the error the customer hit in CLOUDS-9037.
 BILLING_NOT_FOUND_STDERR = (
@@ -632,6 +679,19 @@ BILLING_NOT_FOUND_STDERR = (
     "'compute.googleapis.com' to proceed.\n"
     "- '@type': type.googleapis.com/google.rpc.ErrorInfo\n"
     "  reason: UREQ_PROJECT_BILLING_NOT_FOUND\n"
+)
+
+# Mirrors the customer's second error in CLOUDS-9037: a linked billing account that is closed.
+BILLING_NOT_OPEN_STDERR = (
+    "ERROR: (gcloud.services.enable) FAILED_PRECONDITION: Billing account for project "
+    "'658790394830' is not open. Billing must be enabled for activation of service(s) "
+    "'compute.googleapis.com' to proceed.\n"
+    "- '@type': type.googleapis.com/google.rpc.PreconditionFailure\n"
+    "  violations:\n"
+    "  - subject: ?error_code=390002&project=658790394830&services=compute.googleapis.com\n"
+    "    type: googleapis.com/billing-enabled\n"
+    "- '@type': type.googleapis.com/google.rpc.ErrorInfo\n"
+    "  reason: UREQ_PROJECT_BILLING_NOT_OPEN\n"
 )
 
 PERMISSION_DENIED_STDERR = (
