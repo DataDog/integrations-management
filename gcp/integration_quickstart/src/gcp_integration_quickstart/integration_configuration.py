@@ -3,8 +3,9 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
-from typing import Iterator, Optional
+from typing import Iterator, Optional, Union
 
 from gcp_shared.gcloud import GcloudCmd, gcloud, try_gcloud
 from gcp_shared.models import ConfigurationScope, Folder, Project
@@ -39,6 +40,10 @@ BILLING_DISABLED_REASONS: dict[str, str] = {
     "UREQ_PROJECT_BILLING_NOT_FOUND": "it has no billing account",
     "UREQ_PROJECT_BILLING_NOT_OPEN": "its billing account is not open",
 }
+
+# Each API enablement runs its own gcloud process, so this stays well below the
+# 20 workers the scopes step uses for plain HTTP calls.
+ENABLE_API_WORKERS = 10
 
 
 class ApiEnablementError(RuntimeError):
@@ -271,21 +276,39 @@ def create_integration_with_permissions(
 
     skipped_project_ids: list[str] = []
     failed_project_ids: list[str] = []
-    configured_project_count = 0
+    configured_projects: list[Project] = []
+
+    folder_projects = [
+        project
+        for folder in configuration_scope.folders
+        for project in descendant_projects(folder)
+    ]
+    outcomes = enable_apis_concurrently(
+        step_reporter, folder_projects + configuration_scope.projects, required_services
+    )
+
+    for project, outcome in zip(folder_projects, outcomes[: len(folder_projects)]):
+        # A skipped project still inherits the folder's role bindings below, so it is still discovered.
+        # One failing project deep in a folder tree shouldn't stop the setup for the rest of it.
+        if isinstance(outcome, ApiEnablementError):
+            step_reporter.report(
+                message=f"Skipping project '{project.name}': could not enable the required APIs: {outcome.summary}"
+            )
+            failed_project_ids.append(project.id)
+        elif not outcome:
+            skipped_project_ids.append(project.id)
+
+    for project, outcome in zip(
+        configuration_scope.projects, outcomes[len(folder_projects) :]
+    ):
+        if isinstance(outcome, ApiEnablementError):
+            raise outcome
+        if outcome:
+            configured_projects.append(project)
+        else:
+            skipped_project_ids.append(project.id)
 
     for folder in configuration_scope.folders:
-        for project in descendant_projects(folder):
-            # A skipped project still inherits the folder's role bindings below, so it is still discovered.
-            # One failing project deep in a folder tree shouldn't stop the setup for the rest of it.
-            try:
-                if not enable_required_apis(step_reporter, project, required_services):
-                    skipped_project_ids.append(project.id)
-            except ApiEnablementError as e:
-                step_reporter.report(
-                    message=f"Skipping project '{project.name}': could not enable the required APIs: {e.summary}"
-                )
-                failed_project_ids.append(project.id)
-
         for role in required_roles:
             step_reporter.report(
                 message=f"Assigning role [{role}] to service account '{service_account_email}' in folder '{folder.name}'"
@@ -300,12 +323,7 @@ def create_integration_with_permissions(
                 .flag("--quiet")
             )
 
-    for project in configuration_scope.projects:
-        if not enable_required_apis(step_reporter, project, required_services):
-            skipped_project_ids.append(project.id)
-            continue
-
-        configured_project_count += 1
+    for project in configured_projects:
         for role in required_roles:
             step_reporter.report(
                 message=f"Assigning role [{role}] to service account '{service_account_email}' in project '{project.name}'"
@@ -328,7 +346,7 @@ def create_integration_with_permissions(
     if (
         configuration_scope.projects
         and not configuration_scope.folders
-        and configured_project_count == 0
+        and not configured_projects
     ):
         raise RuntimeError(
             "none of the selected projects has an open billing account, so there is nothing to monitor"
@@ -363,6 +381,25 @@ def create_integration_with_permissions(
     step_reporter.report(
         metadata={"created_service_account_id": data.get("data", {}).get("id")}
     )
+
+
+def enable_apis_concurrently(
+    step_reporter: StepStatusReporter, projects: list[Project], required_services: list[str]
+) -> list[Union[bool, ApiEnablementError]]:
+    """Enable the required APIs on each project in parallel.
+
+    Return each project's outcome, in order: True if enabled, False if skipped for
+    billing, or the ApiEnablementError it failed with.
+    """
+
+    def enable(project: Project) -> Union[bool, ApiEnablementError]:
+        try:
+            return enable_required_apis(step_reporter, project, required_services)
+        except ApiEnablementError as e:
+            return e
+
+    with ThreadPoolExecutor(max_workers=ENABLE_API_WORKERS) as executor:
+        return list(executor.map(enable, projects))
 
 
 def descendant_projects(folder: Folder) -> Iterator[Project]:
