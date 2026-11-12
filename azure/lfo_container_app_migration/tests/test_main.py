@@ -21,3 +21,20 @@ class TestParseArguments(TestCase):
 
     def test_no_dry_run_flag_migrates(self):
         self.assertFalse(self.parse("--no-dry-run").dry_run)
+
+    def test_dry_run_accepts_an_explicit_value(self):
+        for value, expected in [("true", True), ("TRUE", True), ("yes", True), ("1", True),
+                                ("false", False), ("False", False), ("no", False), ("0", False)]:
+            with self.subTest(value=value):
+                self.assertEqual(self.parse(f"--dry-run={value}").dry_run, expected)
+        self.assertFalse(self.parse("--dry-run", "false").dry_run)
+
+    def test_dry_run_value_does_not_swallow_the_next_option(self):
+        args = self.parse("--dry-run", "--control-plane-ids", "abc123")
+        self.assertTrue(args.dry_run)
+        self.assertEqual(args.control_plane_ids, "abc123")
+
+    def test_unrecognized_dry_run_value_is_rejected(self):
+        # A typo must not silently turn the dry run off
+        with mock_patch("sys.stderr"), self.assertRaises(SystemExit):
+            self.parse("--dry-run=flase")

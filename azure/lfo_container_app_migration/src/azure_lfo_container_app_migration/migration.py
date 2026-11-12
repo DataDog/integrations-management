@@ -62,7 +62,7 @@ def run_migration(optional_control_plane_ids: set[str], skip_confirmation: bool,
             if dry_run:
                 log_header(
                     f"Dry run complete for control plane {control_plane.id}. No changes were made. "
-                    "To migrate, re-run with --no-dry-run."
+                    "To migrate, re-run with --dry-run=false."
                 )
             else:
                 log_header(f"Success! Control plane {control_plane.id} migrated.")
