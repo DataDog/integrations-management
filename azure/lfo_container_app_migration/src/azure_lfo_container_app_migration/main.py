@@ -31,16 +31,18 @@ def parse_arguments():
     parser.add_argument(
         "--yes",
         action="store_true",
-        help="Don't prompt for confirmation before migrating each discovered installation",
+        help="With --no-dry-run, don't prompt for confirmation before migrating each discovered installation",
     )
 
     parser.add_argument(
         "--dry-run",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help=(
-            "Show the settings that would be copied and every step the migration would run, without changing "
-            "any Azure resources. Does not check that you have the permissions the migration needs. The Azure "
-            "CLI 'resource-graph' extension is still installed if missing."
+            "Dry run (the default): show the settings that would be copied and every step the migration would "
+            "run, without changing any Azure resources. Does not check that you have the permissions the "
+            "migration needs. The Azure CLI 'resource-graph' extension is still installed if missing. "
+            "Pass --no-dry-run to perform the migration."
         ),
     )
 
@@ -75,7 +77,7 @@ def main():
     validate_az_cli()
     # TODO add other user validation?
     if args.dry_run:
-        log.info("Dry run enabled, no Azure resources will be changed")
+        log.info("Dry run (the default), no Azure resources will be changed. Pass --no-dry-run to migrate.")
     run_migration(optional_control_plane_ids, args.yes, args.dry_run)
 
 

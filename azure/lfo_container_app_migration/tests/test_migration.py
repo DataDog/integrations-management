@@ -39,20 +39,25 @@ class TestRunMigration(TestCase):
         return patcher.start()
 
     def test_no_filter_migrates_every_discovered_control_plane(self):
-        run_migration(set(), skip_confirmation=True)
+        run_migration(set(), skip_confirmation=True, dry_run=False)
 
         self.assertEqual([c.args[0].id for c in self.migrate_mock.call_args_list], ["aaa111", "bbb222"])
 
     def test_control_plane_ids_filter_restricts_to_the_matching_control_plane(self):
-        run_migration({"bbb222"}, skip_confirmation=True)
+        run_migration({"bbb222"}, skip_confirmation=True, dry_run=False)
 
         self.migrate_mock.assert_called_once()
         self.assertEqual(self.migrate_mock.call_args.args[0].id, "bbb222")
 
     def test_unknown_control_plane_id_migrates_nothing(self):
-        run_migration({"unknown-id"}, skip_confirmation=True)
+        run_migration({"unknown-id"}, skip_confirmation=True, dry_run=False)
 
         self.migrate_mock.assert_not_called()
+
+    def test_dry_run_is_the_default(self):
+        run_migration({"aaa111"}, skip_confirmation=False)
+
+        self.migrate_mock.assert_called_once_with(self.control_planes[0], True)
 
     def test_dry_run_does_not_prompt_and_passes_dry_run_through(self):
         confirm_mock = self.patch("azure_lfo_container_app_migration.migration.confirm_yes")
@@ -131,7 +136,7 @@ class TestMigrateControlPlaneDryRun(TestCase):
         self.assertIn("problem(s) found above. The migration would likely fail and roll back.", output)
 
     def test_without_dry_run_steps_are_run(self):
-        migrate_control_plane(self.control_plane)
+        migrate_control_plane(self.control_plane, dry_run=False)
 
         self.run_steps_mock.assert_called_once()
         self.run_cleanup_steps_mock.assert_called_once()

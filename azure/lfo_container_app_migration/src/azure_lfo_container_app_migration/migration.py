@@ -29,7 +29,7 @@ from .prompts import confirm_yes
 from .steps import run_cleanup_steps, run_steps, CleanupStep, Step
 
 
-def run_migration(optional_control_plane_ids: set[str], skip_confirmation: bool, dry_run: bool = False) -> None:
+def run_migration(optional_control_plane_ids: set[str], skip_confirmation: bool, dry_run: bool = True) -> None:
     control_planes: list[ControlPlane] = find_existing_lfo_control_planes(subscriptions=None, control_plane_type=ControlPlaneType.FunctionApps)
     if len(optional_control_plane_ids) > 0:
         control_planes = [c for c in control_planes if c.id in optional_control_plane_ids]
@@ -60,12 +60,15 @@ def run_migration(optional_control_plane_ids: set[str], skip_confirmation: bool,
             raise
         else:
             if dry_run:
-                log_header(f"Dry run complete for control plane {control_plane.id}. No changes were made.")
+                log_header(
+                    f"Dry run complete for control plane {control_plane.id}. No changes were made. "
+                    "To migrate, re-run with --no-dry-run."
+                )
             else:
                 log_header(f"Success! Control plane {control_plane.id} migrated.")
 
 
-def migrate_control_plane(control_plane: ControlPlane, dry_run: bool = False) -> None:
+def migrate_control_plane(control_plane: ControlPlane, dry_run: bool = True) -> None:
     log_header(
         f"{'[DRY RUN] ' if dry_run else ''}Migrating control plane {control_plane.id} in resource group {control_plane.resource_group}, subscription {control_plane.sub_id}"
     )
