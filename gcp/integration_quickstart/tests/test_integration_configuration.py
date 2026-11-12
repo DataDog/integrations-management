@@ -463,6 +463,57 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
     @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
     @patch("gcp_integration_quickstart.integration_configuration.gcloud")
     @patch("gcp_integration_quickstart.integration_configuration.dd_request")
+    def test_create_integration_with_permissions_enables_apis_in_nested_folder_projects(
+        self, mock_dd_request, mock_gcloud, mock_try_gcloud
+    ):
+        """Projects in subfolders of a selected folder get their APIs enabled; roles are bound on the selected folder only."""
+
+        mock_dd_request.return_value = ('{"data": {"id": "sa-id"}}', 201)
+        actual_commands = _record_commands(mock_gcloud, mock_try_gcloud)
+
+        subfolder = Folder(
+            parent_id="folder123",
+            id="subfolder456",
+            name="Subfolder",
+            child_scopes=[
+                Folder(
+                    parent_id="subfolder456",
+                    id="subfolder789",
+                    name="Sub-subfolder",
+                    child_scopes=[_project("deep-project", "subfolder789")],
+                ),
+                _project("nested-project", "subfolder456"),
+            ],
+        )
+        folder = Folder(
+            parent_id="parent123",
+            id="folder123",
+            name="Test Folder",
+            child_scopes=[_project("direct-project", "folder123"), subfolder],
+        )
+
+        create_integration_with_permissions(
+            Mock(),
+            self.service_account,
+            self.integration_configuration,
+            ConfigurationScope(projects=[], folders=[folder]),
+        )
+
+        services_str = " ".join(REQUIRED_APIS)
+        expected_commands = [
+            f"services enable {services_str} --project direct-project --quiet",
+            f"services enable {services_str} --project deep-project --quiet",
+            f"services enable {services_str} --project nested-project --quiet",
+        ] + [
+            f"resource-manager folders add-iam-policy-binding folder123 --member serviceAccount:{self.service_account} --role {role} --condition None --quiet"
+            for role in REQUIRED_ROLES
+        ]
+        self.assertEqual(expected_commands, actual_commands)
+        mock_dd_request.assert_called_once()
+
+    @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
     def test_create_integration_with_permissions_skips_unbilled_folder_child(
         self, mock_dd_request, mock_gcloud, mock_try_gcloud
     ):
