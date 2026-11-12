@@ -33,9 +33,12 @@ REQUIRED_APIS: list[str] = [
     "cloudresourcemanager.googleapis.com",
 ]
 
-# Reason GCP returns when an API that needs billing (compute) is enabled on a
-# project with no billing account.
-BILLING_NOT_FOUND_REASON = "UREQ_PROJECT_BILLING_NOT_FOUND"
+# Reasons GCP returns when an API that needs billing (compute) is enabled on a
+# project without an open billing account, mapped to why the project is skipped.
+BILLING_DISABLED_REASONS: dict[str, str] = {
+    "UREQ_PROJECT_BILLING_NOT_FOUND": "it has no billing account",
+    "UREQ_PROJECT_BILLING_NOT_OPEN": "its billing account is not open",
+}
 
 REQUIRED_ROLES: list[str] = [
     "roles/cloudasset.viewer",
@@ -310,7 +313,7 @@ def create_integration_with_permissions(
         and configured_project_count == 0
     ):
         raise RuntimeError(
-            "none of the selected projects has a billing account, so there is nothing to monitor"
+            "none of the selected projects has an open billing account, so there is nothing to monitor"
         )
 
     step_reporter.report(message="Creating GCP integration in Datadog...")
@@ -349,7 +352,7 @@ def enable_required_apis(
 ) -> bool:
     """Enable the required APIs on a project.
 
-    Return False when the project has no billing account, so the caller can skip it.
+    Return False when the project has no open billing account, so the caller can skip it.
     Raise on any other failure.
     """
     step_reporter.report(
@@ -364,19 +367,20 @@ def enable_required_apis(
     result = try_gcloud(enable_api_cmd)
     if result.success:
         return True
-    if BILLING_NOT_FOUND_REASON in result.error:
-        step_reporter.report(
-            message=f"Skipping project '{project.name}': it has no billing account, so the required APIs cannot be enabled"
-        )
-        return False
+    for reason, explanation in BILLING_DISABLED_REASONS.items():
+        if reason in result.error:
+            step_reporter.report(
+                message=f"Skipping project '{project.name}': {explanation}, so the required APIs cannot be enabled"
+            )
+            return False
     raise RuntimeError(f"could not execute gcloud command '{enable_api_cmd}': {result.error}")
 
 
 def report_skipped_projects(
     step_reporter: StepStatusReporter, skipped_project_ids: list[str]
 ) -> None:
-    """Report the projects skipped for having no billing account, once for the whole run."""
+    """Report the projects skipped for having no open billing account, once for the whole run."""
     step_reporter.report(
-        message=f"Skipped {len(skipped_project_ids)} project(s) without a billing account",
+        message=f"Skipped {len(skipped_project_ids)} project(s) without an open billing account",
         metadata={"skipped_unbilled_projects": skipped_project_ids},
     )
