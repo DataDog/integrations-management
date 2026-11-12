@@ -3,6 +3,7 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 import json
+import threading
 import unittest
 from unittest.mock import Mock, patch
 import os
@@ -350,9 +351,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
                 f"projects add-iam-policy-binding project123 --member serviceAccount:{self.service_account} --role {role} --condition None --quiet"
             )
 
-        self.assertEqual(len(actual_commands), len(expected_commands))
-        for i, (actual, expected) in enumerate(zip(actual_commands, expected_commands)):
-            self.assertEqual(actual, expected, f"Command {i} mismatch")
+        _assert_commands(self, expected_commands, actual_commands)
 
         mock_dd_request.assert_called_once_with(
             "POST",
@@ -430,9 +429,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
                 f"projects add-iam-policy-binding project123 --member serviceAccount:{self.service_account} --role {role} --condition None --quiet"
             )
 
-        self.assertEqual(len(actual_commands), len(expected_commands))
-        for i, (actual, expected) in enumerate(zip(actual_commands, expected_commands)):
-            self.assertEqual(actual, expected, f"Command {i} mismatch")
+        _assert_commands(self, expected_commands, actual_commands)
 
         mock_dd_request.assert_called_once()
 
@@ -508,7 +505,45 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             f"resource-manager folders add-iam-policy-binding folder123 --member serviceAccount:{self.service_account} --role {role} --condition None --quiet"
             for role in REQUIRED_ROLES
         ]
-        self.assertEqual(expected_commands, actual_commands)
+        _assert_commands(self, expected_commands, actual_commands)
+        mock_dd_request.assert_called_once()
+
+    @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
+    def test_create_integration_with_permissions_enables_apis_concurrently(
+        self, mock_dd_request, mock_gcloud, mock_try_gcloud
+    ):
+        """API enablement for different projects runs at the same time."""
+
+        mock_dd_request.return_value = ('{"data": {"id": "sa-id"}}', 201)
+        both_enabling = threading.Barrier(2, timeout=5)
+
+        def enable_together(cmd, *keys, **kwargs):
+            # Breaks after the timeout unless both enables are running at once.
+            both_enabling.wait()
+            return CommandResult(returncode=0, data=None, error="")
+
+        mock_try_gcloud.side_effect = enable_together
+
+        folder = Folder(
+            parent_id="parent123",
+            id="folder123",
+            name="Test Folder",
+            child_scopes=[
+                _project("project-a", "folder123"),
+                _project("project-b", "folder123"),
+            ],
+        )
+
+        create_integration_with_permissions(
+            Mock(),
+            self.service_account,
+            self.integration_configuration,
+            ConfigurationScope(projects=[], folders=[folder]),
+        )
+
+        self.assertEqual(2, mock_try_gcloud.call_count)
         mock_dd_request.assert_called_once()
 
     @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
@@ -595,7 +630,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             f"resource-manager folders add-iam-policy-binding folder123 --member serviceAccount:{self.service_account} --role {role} --condition None --quiet"
             for role in REQUIRED_ROLES
         ]
-        self.assertEqual(expected_commands, actual_commands)
+        _assert_commands(self, expected_commands, actual_commands)
         step_reporter.report.assert_any_call(
             message="Skipping project 'restricted-project': could not enable the required APIs: "
             "ERROR: (gcloud.services.enable) PERMISSION_DENIED: Request is disallowed by "
@@ -649,7 +684,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             f"resource-manager folders add-iam-policy-binding folder123 --member serviceAccount:{self.service_account} --role {role} --condition None --quiet"
             for role in REQUIRED_ROLES
         ]
-        self.assertEqual(expected_commands, actual_commands)
+        _assert_commands(self, expected_commands, actual_commands)
         step_reporter.report.assert_any_call(
             message="Skipping project 'unbilled-project': it has no billing account, so the required APIs cannot be enabled"
         )
@@ -696,7 +731,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             f"projects add-iam-policy-binding billed-project --member serviceAccount:{self.service_account} --role {role} --condition None --quiet"
             for role in REQUIRED_ROLES
         ]
-        self.assertEqual(expected_commands, actual_commands)
+        _assert_commands(self, expected_commands, actual_commands)
         step_reporter.report.assert_any_call(
             message="Skipped 1 project(s) without an open billing account",
             metadata={"skipped_unbilled_projects": ["unbilled-project"]},
@@ -809,7 +844,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             f"projects add-iam-policy-binding billed-project --member serviceAccount:{self.service_account} --role {role} --condition None --quiet"
             for role in REQUIRED_ROLES
         ]
-        self.assertEqual(expected_commands, actual_commands)
+        _assert_commands(self, expected_commands, actual_commands)
         step_reporter.report.assert_any_call(
             message="Skipping project 'closed-billing-project': its billing account is not open, so the required APIs cannot be enabled"
         )
@@ -855,6 +890,23 @@ ORG_POLICY_RESTRICTED_STDERR = (
     "- '@type': type.googleapis.com/google.rpc.ErrorInfo\n"
     "  reason: RESOURCE_USAGE_RESTRICTION_VIOLATED\n"
 )
+
+
+def _assert_commands(testcase, expected, actual):
+    """Assert the gcloud commands run.
+
+    API enablement runs in parallel, so those commands are compared in any order. They
+    must all come first, and every other command must match in order.
+    """
+    enable_count = sum(1 for c in expected if c.startswith("services enable"))
+    testcase.assertEqual(
+        sorted(c for c in expected if c.startswith("services enable")),
+        sorted(actual[:enable_count]),
+    )
+    testcase.assertEqual(
+        [c for c in expected if not c.startswith("services enable")],
+        actual[enable_count:],
+    )
 
 
 def _project(project_id, parent_id):
