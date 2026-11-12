@@ -514,6 +514,103 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
     @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
     @patch("gcp_integration_quickstart.integration_configuration.gcloud")
     @patch("gcp_integration_quickstart.integration_configuration.dd_request")
+    def test_create_integration_with_permissions_skips_unbilled_project_in_subfolder(
+        self, mock_dd_request, mock_gcloud, mock_try_gcloud
+    ):
+        """An unbilled project inside a subfolder is reported with the other skipped projects."""
+
+        mock_dd_request.return_value = ('{"data": {"id": "sa-id"}}', 201)
+        _record_commands(
+            mock_gcloud,
+            mock_try_gcloud,
+            failing_projects={"nested-unbilled": BILLING_NOT_FOUND_STDERR},
+        )
+        step_reporter = Mock()
+
+        folder = Folder(
+            parent_id="parent123",
+            id="folder123",
+            name="Test Folder",
+            child_scopes=[
+                Folder(
+                    parent_id="folder123",
+                    id="subfolder456",
+                    name="Subfolder",
+                    child_scopes=[_project("nested-unbilled", "subfolder456")],
+                ),
+            ],
+        )
+
+        create_integration_with_permissions(
+            step_reporter,
+            self.service_account,
+            self.integration_configuration,
+            ConfigurationScope(projects=[], folders=[folder]),
+        )
+
+        step_reporter.report.assert_any_call(
+            message="Skipped 1 project(s) without an open billing account",
+            metadata={"skipped_unbilled_projects": ["nested-unbilled"]},
+        )
+        mock_dd_request.assert_called_once()
+
+    @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
+    def test_create_integration_with_permissions_skips_folder_project_whose_apis_cannot_be_enabled(
+        self, mock_dd_request, mock_gcloud, mock_try_gcloud
+    ):
+        """A non-billing failure on a folder project is skipped and reported; the folder and integration are still set up."""
+
+        mock_dd_request.return_value = ('{"data": {"id": "sa-id"}}', 201)
+        actual_commands = _record_commands(
+            mock_gcloud,
+            mock_try_gcloud,
+            failing_projects={"restricted-project": ORG_POLICY_RESTRICTED_STDERR},
+        )
+        step_reporter = Mock()
+
+        folder = Folder(
+            parent_id="parent123",
+            id="folder123",
+            name="Test Folder",
+            child_scopes=[
+                _project("restricted-project", "folder123"),
+                _project("billed-project", "folder123"),
+            ],
+        )
+
+        create_integration_with_permissions(
+            step_reporter,
+            self.service_account,
+            self.integration_configuration,
+            ConfigurationScope(projects=[], folders=[folder]),
+        )
+
+        services_str = " ".join(REQUIRED_APIS)
+        expected_commands = [
+            f"services enable {services_str} --project restricted-project --quiet",
+            f"services enable {services_str} --project billed-project --quiet",
+        ] + [
+            f"resource-manager folders add-iam-policy-binding folder123 --member serviceAccount:{self.service_account} --role {role} --condition None --quiet"
+            for role in REQUIRED_ROLES
+        ]
+        self.assertEqual(expected_commands, actual_commands)
+        step_reporter.report.assert_any_call(
+            message="Skipping project 'restricted-project': could not enable the required APIs: "
+            "ERROR: (gcloud.services.enable) PERMISSION_DENIED: Request is disallowed by "
+            "organization's constraints/gcp.restrictServiceUsage constraint for "
+            "projects/restricted-project attempting to use service compute.googleapis.com."
+        )
+        step_reporter.report.assert_any_call(
+            message="Skipped 1 project(s) whose required APIs could not be enabled",
+            metadata={"skipped_failed_projects": ["restricted-project"]},
+        )
+        mock_dd_request.assert_called_once()
+
+    @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
     def test_create_integration_with_permissions_skips_unbilled_folder_child(
         self, mock_dd_request, mock_gcloud, mock_try_gcloud
     ):
@@ -748,6 +845,15 @@ BILLING_NOT_OPEN_STDERR = (
 PERMISSION_DENIED_STDERR = (
     "ERROR: (gcloud.services.enable) PERMISSION_DENIED: Permission denied to enable "
     "service [compute.googleapis.com]\n"
+)
+
+# Shape of an org policy block, from GCP's restrictServiceUsage docs; not captured from a real run.
+ORG_POLICY_RESTRICTED_STDERR = (
+    "ERROR: (gcloud.services.enable) PERMISSION_DENIED: Request is disallowed by "
+    "organization's constraints/gcp.restrictServiceUsage constraint for "
+    "projects/restricted-project attempting to use service compute.googleapis.com.\n"
+    "- '@type': type.googleapis.com/google.rpc.ErrorInfo\n"
+    "  reason: RESOURCE_USAGE_RESTRICTION_VIOLATED\n"
 )
 
 
