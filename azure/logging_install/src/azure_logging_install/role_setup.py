@@ -7,7 +7,7 @@ import os
 import tempfile
 import time
 from collections.abc import Callable
-from typing import Iterable, Optional
+from typing import Final, Iterable, NamedTuple, Optional
 
 from az_shared.constants import GRAPH_ASSIGNEE_NOT_IN_DIRECTORY
 from az_shared.errors import (
@@ -31,6 +31,28 @@ from .constants import (
     STORAGE_READER_AND_DATA_ACCESS_ID,
     WEBSITE_CONTRIBUTOR_ID,
 )
+
+
+class TaskRoleAssignment(NamedTuple):
+    """A role assignment that a control plane task gets in every subscription the control plane covers."""
+
+    task: str  # "resources", "scaling" or "diagnostic_settings"
+    role_id: str
+    resource_group_scoped: bool  # scoped to the control plane resource group if True, else the whole subscription
+
+
+# Single source of truth for granting, revoking, and describing (--dry-run) the per-subscription role assignments
+SUBSCRIPTION_TASK_ROLE_ASSIGNMENTS: Final = (
+    TaskRoleAssignment("resources", MONITORING_READER_ID, resource_group_scoped=False),
+    TaskRoleAssignment("scaling", SCALING_CONTRIBUTOR_ID, resource_group_scoped=True),
+    TaskRoleAssignment("diagnostic_settings", MONITORING_CONTRIBUTOR_ID, resource_group_scoped=False),
+    TaskRoleAssignment("diagnostic_settings", STORAGE_READER_AND_DATA_ACCESS_ID, resource_group_scoped=True),
+)
+
+
+def task_role_assignment_scope(assignment: TaskRoleAssignment, sub_id: str, resource_group: str) -> str:
+    subscription_scope = f"/subscriptions/{sub_id}"
+    return f"{subscription_scope}/resourceGroups/{resource_group}" if assignment.resource_group_scoped else subscription_scope
 
 
 def create_initial_deploy_identity(control_plane_rg: str, control_plane_region: str):
@@ -292,6 +314,11 @@ def _get_control_plane_task_principal_ids(control_plane: ControlPlane) -> tuple[
         return resource_principal_id, scaling_principal_id, diagnostic_principal_id
 
 
+def _get_control_plane_task_principal_ids_by_task(control_plane: ControlPlane) -> dict[str, str]:
+    """Return the control plane task principal IDs keyed by TaskRoleAssignment.task."""
+    return dict(zip(("resources", "scaling", "diagnostic_settings"), _get_control_plane_task_principal_ids(control_plane)))
+
+
 def ensure_control_plane_rg_not_deleting(
     rg_name: str,
     sub_ids: Iterable[str],
@@ -341,40 +368,20 @@ def _ensure_resource_group_exists(rg_name: str, sub_id: str, region: str) -> Non
 def grant_subscriptions_permissions(control_plane: ControlPlane, sub_ids: Iterable[str]):
     """Grant permissions to a set of subscriptions."""
 
-    resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_control_plane_task_principal_ids(control_plane)
+    principal_ids = _get_control_plane_task_principal_ids_by_task(control_plane)
 
     for sub_id in sub_ids:
         set_subscription(sub_id)
         _ensure_resource_group_exists(control_plane.resource_group, sub_id, control_plane.region)
 
-        subscription_scope = f"/subscriptions/{sub_id}"
-        resource_group_scope = f"{subscription_scope}/resourceGroups/{control_plane.resource_group}"
-
         log.info(f"Assigning permissions in subscription: {sub_id}")
-        assign_role(
-            subscription_scope,
-            resource_principal_id,
-            MONITORING_READER_ID,
-            control_plane.id,
-        )
-        assign_role(
-            resource_group_scope,
-            scaling_principal_id,
-            SCALING_CONTRIBUTOR_ID,
-            control_plane.id,
-        )
-        assign_role(
-            subscription_scope,
-            diagnostic_principal_id,
-            MONITORING_CONTRIBUTOR_ID,
-            control_plane.id,
-        )
-        assign_role(
-            resource_group_scope,
-            diagnostic_principal_id,
-            STORAGE_READER_AND_DATA_ACCESS_ID,
-            control_plane.id,
-        )
+        for assignment in SUBSCRIPTION_TASK_ROLE_ASSIGNMENTS:
+            assign_role(
+                task_role_assignment_scope(assignment, sub_id, control_plane.resource_group),
+                principal_ids[assignment.task],
+                assignment.role_id,
+                control_plane.id,
+            )
 
     set_subscription(control_plane.sub_id)
     log.info("Role assignment complete")
@@ -384,20 +391,16 @@ def revoke_subscriptions_role_assignments(control_plane: ControlPlane, sub_ids: 
     """Revoke the four role assignments per subscription granted by grant_subscriptions_permissions, without
     touching the LFO-created resource group. Used when only the role assignments need to be undone, e.g. rolling
     back a partially-applied permission grant."""
-    resource_principal_id, scaling_principal_id, diagnostic_principal_id = _get_control_plane_task_principal_ids(control_plane)
+    principal_ids = _get_control_plane_task_principal_ids_by_task(control_plane)
 
     for sub_id in sub_ids:
-        subscription_scope = f"/subscriptions/{sub_id}"
-        resource_group_scope = f"{subscription_scope}/resourceGroups/{control_plane.resource_group}"
-
         log.info(f"Revoking permissions in subscription: {sub_id}")
-        for scope, principal_id, role_id in [
-            (subscription_scope, resource_principal_id, MONITORING_READER_ID),
-            (resource_group_scope, scaling_principal_id, SCALING_CONTRIBUTOR_ID),
-            (subscription_scope, diagnostic_principal_id, MONITORING_CONTRIBUTOR_ID),
-            (resource_group_scope, diagnostic_principal_id, STORAGE_READER_AND_DATA_ACCESS_ID),
-        ]:
-            remove_role(scope, principal_id, role_id)
+        for assignment in SUBSCRIPTION_TASK_ROLE_ASSIGNMENTS:
+            remove_role(
+                task_role_assignment_scope(assignment, sub_id, control_plane.resource_group),
+                principal_ids[assignment.task],
+                assignment.role_id,
+            )
 
     log.info("Revoke complete")
 

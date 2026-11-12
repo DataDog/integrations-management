@@ -32,6 +32,16 @@ SCALING_CONTRIBUTOR_ID = "b24988ac-6180-42a0-ab88-20f7382dd24c"
 WEBSITE_CONTRIBUTOR_ID = "de139f84-1756-47ae-9be6-808fbbe84772"
 CONTAINER_APPS_JOBS_CONTRIBUTOR = "4e3d2b60-56ae-4dc6-a233-09c8e5a82e68"
 
+# Display names of the built-in roles above, for user-facing output
+ROLE_NAMES = {
+    MONITORING_READER_ID: "Monitoring Reader",
+    MONITORING_CONTRIBUTOR_ID: "Monitoring Contributor",
+    STORAGE_READER_AND_DATA_ACCESS_ID: "Reader and Data Access",
+    SCALING_CONTRIBUTOR_ID: "Contributor",
+    WEBSITE_CONTRIBUTOR_ID: "Website Contributor",
+    CONTAINER_APPS_JOBS_CONTRIBUTOR: "Container Apps Jobs Contributor",
+}
+
 RESOURCES_TASK_PREFIX: Final = "resources-task-"
 SCALING_TASK_PREFIX: Final = "scaling-task-"
 DIAGNOSTIC_SETTINGS_TASK_FUNCTION_APP_PREFIX: Final = "diagnostic-settings-task-"

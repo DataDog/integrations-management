@@ -40,6 +40,7 @@ jobs:
           - { cloud: azure, package: agentless }
           - { cloud: azure, package: integration_quickstart }
           - { cloud: azure, package: logging_install }
+          - { cloud: azure, package: lfo_container_app_migration }
           - { cloud: gcp, package: shared }
           - { cloud: gcp, package: agentless }
           - { cloud: gcp, package: integration_quickstart }
