@@ -675,7 +675,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
 # Mirrors the error the customer hit in CLOUDS-9037.
 BILLING_NOT_FOUND_STDERR = (
     "ERROR: (gcloud.services.enable) FAILED_PRECONDITION: Billing account for project "
-    "'658790394830' is not found. Billing must be enabled for activation of service(s) "
+    "'123456789012' is not found. Billing must be enabled for activation of service(s) "
     "'compute.googleapis.com' to proceed.\n"
     "- '@type': type.googleapis.com/google.rpc.ErrorInfo\n"
     "  reason: UREQ_PROJECT_BILLING_NOT_FOUND\n"
@@ -684,11 +684,11 @@ BILLING_NOT_FOUND_STDERR = (
 # Mirrors the customer's second error in CLOUDS-9037: a linked billing account that is closed.
 BILLING_NOT_OPEN_STDERR = (
     "ERROR: (gcloud.services.enable) FAILED_PRECONDITION: Billing account for project "
-    "'658790394830' is not open. Billing must be enabled for activation of service(s) "
+    "'123456789012' is not open. Billing must be enabled for activation of service(s) "
     "'compute.googleapis.com' to proceed.\n"
     "- '@type': type.googleapis.com/google.rpc.PreconditionFailure\n"
     "  violations:\n"
-    "  - subject: ?error_code=390002&project=658790394830&services=compute.googleapis.com\n"
+    "  - subject: ?error_code=390002&project=123456789012&services=compute.googleapis.com\n"
     "    type: googleapis.com/billing-enabled\n"
     "- '@type': type.googleapis.com/google.rpc.ErrorInfo\n"
     "  reason: UREQ_PROJECT_BILLING_NOT_OPEN\n"
