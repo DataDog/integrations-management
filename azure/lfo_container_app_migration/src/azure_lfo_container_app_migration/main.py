@@ -12,6 +12,16 @@ from az_shared.logs import log
 
 from .migration import run_migration
 
+def _parse_bool(value: str) -> bool:
+    """Parses --dry-run's value. Rejects anything unrecognized, so a typo can't turn the dry run off."""
+    normalized = value.strip().lower()
+    if normalized in ("true", "yes", "1"):
+        return True
+    if normalized in ("false", "no", "0"):
+        return False
+    raise argparse.ArgumentTypeError(f"expected true or false, got '{value}'")
+
+
 def parse_arguments():
     parser = argparse.ArgumentParser(
         description="Migrate an Azure Log Forwarding Orchestration control plane from Function Apps to Container App Jobs",
@@ -31,7 +41,28 @@ def parse_arguments():
     parser.add_argument(
         "--yes",
         action="store_true",
-        help="Don't prompt for confirmation before migrating each discovered installation",
+        help="With --dry-run=false, don't prompt for confirmation before migrating each discovered installation",
+    )
+
+    parser.add_argument(
+        "--dry-run",
+        nargs="?",
+        const=True,
+        default=True,
+        type=_parse_bool,
+        metavar="true|false",
+        help=(
+            "Dry run (the default): show the settings that would be copied and every step the migration would "
+            "run, without changing any Azure resources. Does not check that you have the permissions the "
+            "migration needs. The Azure CLI 'resource-graph' extension is still installed if missing. "
+            "Pass --dry-run=false (or --no-dry-run) to perform the migration."
+        ),
+    )
+    parser.add_argument(
+        "--no-dry-run",
+        dest="dry_run",
+        action="store_false",
+        help="Perform the migration. Same as --dry-run=false",
     )
 
     parser.add_argument(
@@ -64,7 +95,9 @@ def main():
 
     validate_az_cli()
     # TODO add other user validation?
-    run_migration(optional_control_plane_ids, args.yes)
+    if args.dry_run:
+        log.info("Dry run (the default), no Azure resources will be changed. Pass --dry-run=false to migrate.")
+    run_migration(optional_control_plane_ids, args.yes, args.dry_run)
 
 
 if __name__ == "__main__":

@@ -16,12 +16,18 @@ class Step:
 
     def __init__(self, name: str):
         self.name = name
+        # Problems describe() found that would make this step fail; repeated after the --dry-run plan
+        self.dry_run_warnings: list[str] = []
 
     def execute(self) -> None:
         raise NotImplementedError()
 
     def rollback(self) -> None:
         raise NotImplementedError()
+
+    def describe(self) -> str:
+        """What this step would do, for --dry-run. Must not change anything."""
+        return self.name
 
 
 def run_steps(steps: list[Step]) -> None:
@@ -71,6 +77,10 @@ class CleanupStep:
 
     def execute(self) -> None:
         raise NotImplementedError()
+
+    def describe(self) -> str:
+        """What this step would do, for --dry-run. Must not change anything."""
+        return self.name
 
 
 def run_cleanup_steps(steps: list[CleanupStep]) -> None:

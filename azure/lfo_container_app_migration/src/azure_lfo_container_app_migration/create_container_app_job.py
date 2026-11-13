@@ -47,6 +47,11 @@ class CreateContainerAppJob(Step):
         log.info(f"Deleting Container App Job '{self.job_name}'")
         delete_container_app_job(self.job_name, self.config.control_plane.resource_group, self.config.control_plane.sub_id)
 
+    def describe(self) -> str:
+        if self.does_job_exists():
+            return f"{self.name} - already exists, would be skipped"
+        return f"{self.name} (created paused, with settings copied from the Function Apps)"
+
     def does_job_exists(self) -> bool:
         try:
             verify_container_app_job_exists(self.job_name, self.config.control_plane.resource_group, self.config.control_plane.sub_id)
