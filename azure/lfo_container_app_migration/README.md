@@ -6,7 +6,7 @@ New installations have used Container App Jobs since August 3, 2026. Only instal
 Log forwarders are not changed. The new control plane keeps the existing configuration: monitored subscriptions, Datadog API key and site, resource tag filters, PII scrubber rules, telemetry setting, and log level.
 
 # Prerequisites
-The migration creates role assignments on each monitored subscription and on the control plane resource group. You need one of these roles on the control plane subscription and on every monitored subscription: Owner, User Access Administrator, or Role Based Access Control Administrator. Without it, the migration fails partway and rolls back.
+The migration creates and deletes resources, and creates role assignments, in the control plane subscription and in every monitored subscription. On each of those subscriptions you need either Owner, or Contributor plus User Access Administrator or Role Based Access Control Administrator. Without them, the migration fails partway and rolls back.
 
 # Usage
 Run the script in an [Azure Cloud Shell](https://learn.microsoft.com/en-us/azure/cloud-shell/get-started/classic?tabs=azurecli) in bash mode.
@@ -24,6 +24,8 @@ Run the script in an [Azure Cloud Shell](https://learn.microsoft.com/en-us/azure
    ```
 
 By default, the script finds every Function App installation in the subscriptions you have access to. With `--dry-run=false`, it asks for confirmation before migrating each one.
+
+Logs at `DEBUG` level, and logs of failed commands, can contain your Datadog API key and storage account key. Remove them before sharing logs.
 
 Optional flags (output of `--help`):
 ```
@@ -58,9 +60,9 @@ For each control plane:
 2. Assigns the roles the new jobs need, and the Container Apps Jobs Contributor role to the deployer. Creates the control plane resource group in any monitored subscription that doesn't have one.
 3. Pauses the deployer job and stops the Function Apps.
 4. Enables the new jobs, switches the deployer to the Container App Jobs image, and resumes the deployer.
-5. Deletes the Function Apps and their App Service plan, deletes the control plane cache file share, and removes the deployer's Website Contributor role.
+5. Deletes the Function Apps and their App Service plan(s), deletes the control plane cache file share if it exists, and removes the deployer's Website Contributor role. The Function Apps' own content file shares are not deleted.
 
-If a step in 1–4 fails, the script attempts to roll back the completed steps for that installation and then stops. Remaining installations are not migrated, and resource groups created in step 2 are kept. Check the log for any rollback errors. If a step in 5 fails, the migration is still complete. The script lists the resources to delete manually.
+If a step in 1–4 fails, the script attempts to roll back the completed steps for that installation and then stops. Remaining installations are not migrated, resource groups created in step 2 are kept, and role assignments may be left in some subscriptions. Check the log for any rollback errors. If a step in 5 fails, the migration is still complete. The script lists the resources to delete manually.
 
 # Development
 ### Testing
