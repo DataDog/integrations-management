@@ -537,6 +537,49 @@ class TestValidation(TestCase):
                 # Should not raise an exception
                 validation.validate_user_config(config)
 
+    # ===== Resource Provider Configs Validation Tests ===== #
+
+    def test_resource_provider_configs_invalid(self):
+        """Test validation fails with resource provider configs the log forwarder would reject"""
+        invalid_configs_to_error_msg = {
+            "not json": "must be valid JSON",
+            "[]": "must be a JSON object",
+            '{"logs_enabled_default": "false"}': "`logs_enabled_default` must be a boolean",
+            '{"providers": {}}': "`providers` must be an array",
+            '{"providers": ["Microsoft.Web"]}': "must be an object",
+            '{"providers": [{"logs_enabled": false}]}': "must have a `namespace` string",
+            '{"providers": [{"namespace": " ", "logs_enabled": false}]}': "must have a `namespace` string",
+            '{"providers": [{"namespace": "Microsoft.Web"}]}': "must have a `logs_enabled` boolean",
+            '{"providers": [{"namespace": "Microsoft.Web", "logs_enabled": "false"}]}': "must have a `logs_enabled` boolean",
+        }
+
+        for invalid_configs, expected_error in invalid_configs_to_error_msg.items():
+            with self.subTest(invalid_configs=invalid_configs):
+                config = make_config(resource_provider_configs=invalid_configs)
+
+                with self.assertRaises(InputParamValidationError) as context:
+                    validation.validate_user_config(config)
+
+                self.assertIn(expected_error, str(context.exception))
+
+    def test_resource_provider_configs_valid(self):
+        """Test validation succeeds with resource provider configs matching the log forwarder's schema"""
+        valid_configs = [
+            "",
+            "{}",
+            '{"logs_enabled_default": false}',
+            '{"providers": []}',
+            '{"logs_enabled_default": true, "providers": [{"namespace": "Microsoft.Web", "logs_enabled": false}]}',
+            '{"providers": [{"namespace": "Microsoft.Sql", "logs_enabled": true}], "unknown": 1}',
+        ]
+
+        for valid_configs_str in valid_configs:
+            with self.subTest(valid_configs=valid_configs_str):
+                config = make_config(resource_provider_configs=valid_configs_str)
+
+                # Should not raise an exception
+                validation.validate_user_config(config)
+
     # ===== PII Scrubber Rules Validation Tests ===== #
 
     def test_pii_scrubber_rules_invalid(self):

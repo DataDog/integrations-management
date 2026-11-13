@@ -4,6 +4,7 @@
 
 """Tests for quickstart_shared: build_log_forwarder_payload and report_existing_log_forwarders (Section 7: optional monitoredSubscriptions)."""
 
+import json
 import os
 from unittest.mock import MagicMock
 from unittest.mock import patch as mock_patch
@@ -11,6 +12,7 @@ from unittest.mock import patch as mock_patch
 from azure_integration_quickstart.quickstart_shared import (
     build_log_forwarder_payload,
     report_existing_log_forwarders,
+    serialize_resource_provider_configs,
     upsert_log_forwarder,
     wait_for_rg_delete_if_needed,
 )
@@ -35,8 +37,16 @@ def _make_metadata(monitored_subs=None):
         datadog_api_key="",
         monitored_subs=monitored_subs,
         resource_tag_filters="env:prod",
+        resource_provider_configs=RESOURCE_PROVIDER_CONFIGS,
         pii_scrubber_rules="rule: redact",
     )
+
+
+RESOURCE_PROVIDER_CONFIGS_OBJECT = {
+    "logs_enabled_default": True,
+    "providers": [{"namespace": "Microsoft.Web", "logs_enabled": False}],
+}
+RESOURCE_PROVIDER_CONFIGS = json.dumps(RESOURCE_PROVIDER_CONFIGS_OBJECT, separators=(",", ":"), sort_keys=True)
 
 
 class TestBuildLogForwarderPayload(DDTestCase):
@@ -60,6 +70,25 @@ class TestBuildLogForwarderPayload(DDTestCase):
         payload = build_log_forwarder_payload(metadata, include_monitored_scopes=False, sub_id_to_name=sub_id_to_name)
         self.assertNotIn("monitoredSubscriptions", payload)
         self.assertEqual(payload["resourceGroupName"], "lfo-rg")
+
+    def test_reports_resource_provider_configs_as_json_string(self):
+        payload = build_log_forwarder_payload(_make_metadata(), include_monitored_scopes=False, sub_id_to_name={})
+        self.assertEqual(payload["resourceProviderConfigs"], RESOURCE_PROVIDER_CONFIGS)
+        self.assertEqual(json.loads(payload["resourceProviderConfigs"]), RESOURCE_PROVIDER_CONFIGS_OBJECT)
+
+
+class TestSerializeResourceProviderConfigs(DDTestCase):
+    def test_serializes_object_from_ui(self):
+        self.assertEqual(serialize_resource_provider_configs(RESOURCE_PROVIDER_CONFIGS_OBJECT), RESOURCE_PROVIDER_CONFIGS)
+
+    def test_serializes_json_string_reported_to_ui_without_double_encoding(self):
+        reported = json.dumps(RESOURCE_PROVIDER_CONFIGS_OBJECT, indent=2)
+        self.assertEqual(serialize_resource_provider_configs(reported), RESOURCE_PROVIDER_CONFIGS)
+
+    def test_missing_configs_serialize_to_empty_setting(self):
+        for missing in (None, "", {}):
+            with self.subTest(missing=missing):
+                self.assertEqual(serialize_resource_provider_configs(missing), "")
 
 
 class TestWaitForRgDeleteIfNeeded(DDTestCase):
@@ -161,6 +190,20 @@ class TestUpsertLogForwarder(DDTestCase):
         self.assertEqual(configuration.control_plane.region, "eastus")
         self.assertEqual(configuration.monitored_subscriptions, ["sub-1"])
         self.assertEqual(configuration.resource_tag_filters, "env:prod")
+        self.assertEqual(configuration.resource_provider_configs, "")
         self.assertEqual(configuration.pii_scrubber_rules, "rule: redact")
         self.assertEqual(configuration.datadog_api_key, "test-api-key")
         self.assertEqual(configuration.datadog_site, "datadoghq.com")
+
+    def test_passes_resource_provider_configs_to_log_forwarder(self):
+        config = {
+            "controlPlaneSubscriptionId": "cp-sub",
+            "resourceGroupName": "lfo-rg",
+            "controlPlaneRegion": "eastus",
+            "resourceProviderConfigs": RESOURCE_PROVIDER_CONFIGS_OBJECT,
+        }
+
+        upsert_log_forwarder(config, {"sub-1"})
+
+        configuration = self.install_mock.call_args[0][0]
+        self.assertEqual(configuration.resource_provider_configs, RESOURCE_PROVIDER_CONFIGS)

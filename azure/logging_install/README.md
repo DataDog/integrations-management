@@ -42,6 +42,7 @@ usage:
   --datadog-api-key DATADOG_API_KEY \
   [--datadog-site {datadoghq.com,datadoghq.eu,ap1.datadoghq.com,ap2.datadoghq.com,us3.datadoghq.com,us5.datadoghq.com,ddog-gov.com}] \
   [--resource-tag-filters RESOURCE_TAG_FILTERS] \
+  [--resource-provider-configs RESOURCE_PROVIDER_CONFIGS] \
   [--pii-scrubber-rules PII_SCRUBBER_RULES] \
   [--datadog-telemetry] \
   [--log-level {DEBUG,INFO,WARNING,ERROR}]
@@ -64,6 +65,8 @@ options:
                         Datadog site (default: datadoghq.com)
   --resource-tag-filters RESOURCE_TAG_FILTERS
                         Comma separated list of tags to filter resources by
+  --resource-provider-configs RESOURCE_PROVIDER_CONFIGS
+                        JSON object of resource providers to forward logs for, e.g. '{"logs_enabled_default": true, "providers": [{"namespace": "Microsoft.Web", "logs_enabled": false}]}'
   --pii-scrubber-rules PII_SCRUBBER_RULES
                         YAML formatted list of PII Scrubber Rules
   --datadog-telemetry   Enable Datadog telemetry
