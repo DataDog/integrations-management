@@ -1,0 +1,289 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+  "languageVersion": "2.0",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.40.2.10011",
+      "templateHash": "4462048856947586167"
+    }
+  },
+  "definitions": {
+    "storageAccountToOnboard": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "metadata": {
+            "description": "Storage account name."
+          }
+        },
+        "resourceGroup": {
+          "type": "string",
+          "metadata": {
+            "description": "Resource group of the storage account."
+          }
+        },
+        "enableLastAccessTracking": {
+          "type": "bool",
+          "nullable": true,
+          "metadata": {
+            "description": "Turn on last-access tracking. Defaults to false."
+          }
+        },
+        "existingInventoryRules": {
+          "type": "array",
+          "nullable": true,
+          "metadata": {
+            "description": "Current inventory rules on the account other than the Datadog rule. They are kept. Defaults to none."
+          }
+        }
+      }
+    }
+  },
+  "parameters": {
+    "workflowId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Datadog UI workflow ID. Returned in the outputs so Datadog can match the deployment to the onboarding session."
+      }
+    },
+    "datadogServicePrincipalObjectId": {
+      "type": "string",
+      "metadata": {
+        "description": "Object ID (not client ID) of the Datadog integration service principal. Manually: az ad sp show --id <client_id> --query id -o tsv"
+      }
+    },
+    "storageAccounts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/storageAccountToOnboard"
+      },
+      "minLength": 1,
+      "metadata": {
+        "description": "Storage accounts to onboard in this subscription."
+      }
+    },
+    "inventoryContainerName": {
+      "type": "string",
+      "defaultValue": "datadog-storage-monitoring",
+      "metadata": {
+        "description": "Container that receives the inventory reports."
+      }
+    },
+    "inventorySchemaFields": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "defaultValue": [
+        "Name",
+        "Creation-Time",
+        "AccessTier",
+        "AccessTierInferred",
+        "BlobType",
+        "Last-Modified",
+        "LastAccessTime",
+        "Content-Length",
+        "ServerEncrypted",
+        "VersionId",
+        "IsCurrentVersion"
+      ],
+      "metadata": {
+        "description": "Inventory CSV columns. The Datadog inventory reader requires Name, AccessTier, Last-Modified, Content-Length and ServerEncrypted."
+      }
+    }
+  },
+  "resources": {
+    "storageAccountSetup": {
+      "copy": {
+        "name": "storageAccountSetup",
+        "count": "[length(parameters('storageAccounts'))]"
+      },
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[take(format('datadog-storage-monitoring-{0}', parameters('storageAccounts')[copyIndex()].name), 64)]",
+      "resourceGroup": "[parameters('storageAccounts')[copyIndex()].resourceGroup]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "storageAccountName": {
+            "value": "[parameters('storageAccounts')[copyIndex()].name]"
+          },
+          "inventoryContainerName": {
+            "value": "[parameters('inventoryContainerName')]"
+          },
+          "datadogServicePrincipalObjectId": {
+            "value": "[parameters('datadogServicePrincipalObjectId')]"
+          },
+          "enableLastAccessTracking": {
+            "value": "[coalesce(tryGet(parameters('storageAccounts')[copyIndex()], 'enableLastAccessTracking'), false())]"
+          },
+          "existingInventoryRules": {
+            "value": "[coalesce(tryGet(parameters('storageAccounts')[copyIndex()], 'existingInventoryRules'), createArray())]"
+          },
+          "inventorySchemaFields": {
+            "value": "[parameters('inventorySchemaFields')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "languageVersion": "2.0",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.40.2.10011",
+              "templateHash": "3541411560884810202"
+            }
+          },
+          "parameters": {
+            "storageAccountName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of an existing StorageV2, BlockBlobStorage or BlobStorage account. Other kinds do not support blob inventory."
+              }
+            },
+            "inventoryContainerName": {
+              "type": "string",
+              "metadata": {
+                "description": "Container that receives the inventory reports."
+              }
+            },
+            "datadogServicePrincipalObjectId": {
+              "type": "string",
+              "metadata": {
+                "description": "Object ID (not client ID) of the Datadog integration service principal."
+              }
+            },
+            "enableLastAccessTracking": {
+              "type": "bool",
+              "metadata": {
+                "description": "Turn on last-access tracking so inventory reports fill LastAccessTime. Existing blob service settings are kept."
+              }
+            },
+            "existingInventoryRules": {
+              "type": "array",
+              "metadata": {
+                "description": "Current inventory rules on the account other than the Datadog rule. An account has a single inventory policy, which this module replaces, so these rules are written back."
+              }
+            },
+            "inventorySchemaFields": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "metadata": {
+                "description": "Inventory CSV columns. VersionId and IsCurrentVersion are dropped on HNS accounts, which do not support blob versions."
+              }
+            }
+          },
+          "variables": {
+            "storageBlobDataReaderRoleDefinitionId": "2a2b9908-6ea1-4ae2-8e65-a410df84e7d1",
+            "blobVersionSchemaFields": [
+              "VersionId",
+              "IsCurrentVersion"
+            ]
+          },
+          "resources": {
+            "storageAccount": {
+              "existing": true,
+              "type": "Microsoft.Storage/storageAccounts",
+              "apiVersion": "2023-05-01",
+              "name": "[parameters('storageAccountName')]"
+            },
+            "existingBlobService": {
+              "existing": true,
+              "type": "Microsoft.Storage/storageAccounts/blobServices",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}', parameters('storageAccountName'), 'default')]"
+            },
+            "blobServiceWithLastAccessTracking": {
+              "condition": "[parameters('enableLastAccessTracking')]",
+              "type": "Microsoft.Storage/storageAccounts/blobServices",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}', parameters('storageAccountName'), 'default')]",
+              "properties": "[union(reference('existingBlobService'), createObject('lastAccessTimeTrackingPolicy', createObject('enable', true(), 'name', 'AccessTimeTracking', 'trackingGranularityInDays', 1, 'blobType', createArray('blockBlob'))))]",
+              "dependsOn": [
+                "existingBlobService"
+              ]
+            },
+            "inventoryContainer": {
+              "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}/{2}', parameters('storageAccountName'), 'default', parameters('inventoryContainerName'))]",
+              "properties": {
+                "publicAccess": "None"
+              },
+              "dependsOn": [
+                "blobServiceWithLastAccessTracking"
+              ]
+            },
+            "inventoryPolicy": {
+              "type": "Microsoft.Storage/storageAccounts/inventoryPolicies",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}', parameters('storageAccountName'), 'default')]",
+              "properties": {
+                "policy": {
+                  "enabled": true,
+                  "type": "Inventory",
+                  "rules": "[concat(parameters('existingInventoryRules'), createArray(createObject('enabled', true(), 'name', parameters('inventoryContainerName'), 'destination', parameters('inventoryContainerName'), 'definition', createObject('format', 'Csv', 'schedule', 'Daily', 'objectType', 'Blob', 'schemaFields', if(coalesce(tryGet(reference('storageAccount'), 'isHnsEnabled'), false()), filter(parameters('inventorySchemaFields'), lambda('field', not(contains(variables('blobVersionSchemaFields'), lambdaVariables('field'))))), parameters('inventorySchemaFields')), 'filters', createObject('blobTypes', if(coalesce(tryGet(reference('storageAccount'), 'isHnsEnabled'), false()), createArray('blockBlob'), createArray('blockBlob', 'appendBlob', 'pageBlob')), 'excludePrefix', createArray(parameters('inventoryContainerName')), 'includeBlobVersions', not(coalesce(tryGet(reference('storageAccount'), 'isHnsEnabled'), false())), 'includeSnapshots', false())))))]"
+                }
+              },
+              "dependsOn": [
+                "inventoryContainer",
+                "storageAccount"
+              ]
+            },
+            "datadogInventoryReader": {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', parameters('storageAccountName'), 'default', parameters('inventoryContainerName'))]",
+              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', parameters('storageAccountName'), 'default', parameters('inventoryContainerName')), parameters('datadogServicePrincipalObjectId'), variables('storageBlobDataReaderRoleDefinitionId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageBlobDataReaderRoleDefinitionId'))]",
+                "principalId": "[parameters('datadogServicePrincipalObjectId')]",
+                "principalType": "ServicePrincipal",
+                "description": "Datadog Storage Monitoring: read blob inventory reports"
+              },
+              "dependsOn": [
+                "inventoryContainer"
+              ]
+            }
+          },
+          "outputs": {
+            "inventoryContainerResourceId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', parameters('storageAccountName'), 'default', parameters('inventoryContainerName'))]"
+            },
+            "isHierarchicalNamespaceEnabled": {
+              "type": "bool",
+              "value": "[coalesce(tryGet(reference('storageAccount'), 'isHnsEnabled'), false())]"
+            }
+          }
+        }
+      }
+    }
+  },
+  "outputs": {
+    "workflowId": {
+      "type": "string",
+      "value": "[parameters('workflowId')]"
+    },
+    "inventoryContainerResourceIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "copy": {
+        "count": "[length(parameters('storageAccounts'))]",
+        "input": "[reference(format('storageAccountSetup[{0}]', copyIndex())).outputs.inventoryContainerResourceId.value]"
+      }
+    }
+  }
+}
