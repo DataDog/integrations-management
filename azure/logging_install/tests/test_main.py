@@ -227,6 +227,7 @@ class TestMain(TestCase):
             DIAGNOSTIC_SETTINGS_TASK_NAME,
         ]
         mock_config.resource_tag_filters = RESOURCE_TAG_FILTERS
+        mock_config.resource_provider_configs = ""
         mock_config.pii_scrubber_rules = PII_SCRUBBER_RULES
 
         # Existing LFO with a missing sub and different tag filter
@@ -247,6 +248,7 @@ class TestMain(TestCase):
         with (
             mock_patch("azure_logging_install.existing_lfo.set_monitored_subscriptions") as mock_set_monitored_subs,
             mock_patch("azure_logging_install.existing_lfo.set_resource_tag_filters") as mock_set_tag_filters,
+            mock_patch("azure_logging_install.existing_lfo.set_resource_provider_configs") as mock_set_resource_provider_configs,
             mock_patch("azure_logging_install.existing_lfo.set_pii_scrubber_rules") as mock_set_pii_rules,
             mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
             mock_patch("azure_logging_install.existing_lfo.remove_subscription_resources"),
@@ -256,6 +258,7 @@ class TestMain(TestCase):
             # # Verify function app environment variables are updated due to new tag filter
             mock_set_monitored_subs.assert_called_once_with(existing_lfo.control_plane, mock_config.monitored_subscriptions)
             mock_set_tag_filters.assert_called_once_with(existing_lfo.control_plane, mock_config.resource_tag_filters)
+            mock_set_resource_provider_configs.assert_not_called()
             mock_set_pii_rules.assert_not_called()
 
             # Verify permissions are granted only for new subscription

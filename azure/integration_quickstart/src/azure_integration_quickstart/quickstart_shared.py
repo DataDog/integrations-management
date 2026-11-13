@@ -4,12 +4,13 @@
 
 """Shared functions and constants used by the main and log forwarding quickstart scripts."""
 
+import json
 import os
 import signal
 import sys
 import threading
 from collections.abc import Sequence, Set
-from typing import Optional, TypedDict
+from typing import Any, Optional, TypedDict
 
 if sys.version_info >= (3, 11):
     from typing import NotRequired
@@ -39,6 +40,8 @@ class LogForwarderPayload(TypedDict):
     controlPlaneSubscriptionName: str
     controlPlaneRegion: str
     tagFilters: str
+    # JSON string, rather than an object, so that its snake_case keys reach the UI unchanged
+    resourceProviderConfigs: str
     piiFilters: str
     monitoredSubscriptions: NotRequired[list[dict[str, str]]]
 
@@ -96,6 +99,7 @@ def build_log_forwarder_payload(config: Configuration, include_monitored_scopes:
         controlPlaneSubscriptionName=sub_id_to_name.get(config.control_plane.sub_id, UNKNOWN_SUB_NAME_MESSAGE),
         controlPlaneRegion=config.control_plane.region,
         tagFilters=config.resource_tag_filters,
+        resourceProviderConfigs=config.resource_provider_configs,
         piiFilters=config.pii_scrubber_rules,
     )
     if include_monitored_scopes:
@@ -139,6 +143,16 @@ def wait_for_rg_delete_if_needed(rg_name: str, subs_to_check: set[str], status: 
         status.report("wait_for_rg_delete", Status.FINISHED, "Resource group deletion complete.")
 
 
+def serialize_resource_provider_configs(resource_provider_configs: Any) -> str:
+    """Serialize the UI's resource provider configs into the log forwarder's RESOURCE_PROVIDER_CONFIGS setting.
+    Accepts the configs object, or the JSON string reported back to the UI for an existing log forwarder."""
+    if not resource_provider_configs:
+        return ""
+    if isinstance(resource_provider_configs, str):
+        resource_provider_configs = json.loads(resource_provider_configs)
+    return json.dumps(resource_provider_configs, separators=(",", ":"), sort_keys=True)
+
+
 def upsert_log_forwarder(config: dict, subscriptions: Set[str]):
     install_log_forwarder(
         Configuration(
@@ -152,6 +166,7 @@ def upsert_log_forwarder(config: dict, subscriptions: Set[str]):
             datadog_api_key=os.environ["DD_API_KEY"],
             datadog_site=os.environ["DD_SITE"],
             resource_tag_filters=config.get("tagFilters", ""),
+            resource_provider_configs=serialize_resource_provider_configs(config.get("resourceProviderConfigs")),
             pii_scrubber_rules=config.get("piiFilters", ""),
         )
     )

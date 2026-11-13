@@ -21,7 +21,7 @@ from az_shared.logs import log
 
 from .az_cmd import AzCmd
 from .configuration import Configuration, ControlPlaneType, ControlPlane, fully_qualified_image
-from .constants import CONTROL_PLANE_CACHE, DEPLOYER_TASK_CRON, DIAGNOSTIC_SETTINGS_TASK_CRON, LFO_PUBLIC_STORAGE_ACCOUNT_URL, MAX_THREAD_POOL_WORKERS, MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_CRON, SCALING_TASK_CRON
+from .constants import CONTROL_PLANE_CACHE, DEPLOYER_TASK_CRON, DIAGNOSTIC_SETTINGS_TASK_CRON, LFO_PUBLIC_STORAGE_ACCOUNT_URL, MAX_THREAD_POOL_WORKERS, MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_PROVIDER_CONFIGS_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_CRON, SCALING_TASK_CRON
 
 # =============================================================================
 # Subscription, Resource Group, Storage Account
@@ -184,6 +184,7 @@ def set_function_app_env_vars(config: Configuration, function_app_name: str):
         specific_settings = {
             MONITORED_SUBSCRIPTIONS_KEY: json.dumps(config.monitored_subscriptions),
             RESOURCE_TAG_FILTERS_KEY: config.resource_tag_filters,
+            RESOURCE_PROVIDER_CONFIGS_KEY: config.resource_provider_configs,
         }
     elif function_app_name == config.control_plane.diagnostic_settings_task_name:
         specific_settings = {
@@ -229,6 +230,13 @@ def set_resource_tag_filters(control_plane: ControlPlane, resource_tag_filters: 
     """Update only RESOURCE_TAG_FILTERS on the resources-task."""
     log.info(f"Updating {RESOURCE_TAG_FILTERS_KEY} for {control_plane.resources_task_name}")
     new_var = shlex.quote(f"{RESOURCE_TAG_FILTERS_KEY}={resource_tag_filters}")
+    return _set_env_var_on_task(control_plane, control_plane.resources_task_name, new_var)
+
+
+def set_resource_provider_configs(control_plane: ControlPlane, resource_provider_configs: str) -> None:
+    """Update only RESOURCE_PROVIDER_CONFIGS on the resources-task."""
+    log.info(f"Updating {RESOURCE_PROVIDER_CONFIGS_KEY} for {control_plane.resources_task_name}")
+    new_var = shlex.quote(f"{RESOURCE_PROVIDER_CONFIGS_KEY}={resource_provider_configs}")
     return _set_env_var_on_task(control_plane, control_plane.resources_task_name, new_var)
 
 
@@ -426,7 +434,8 @@ def create_resources_task_container_app_job(config: Configuration, cron: Optiona
     monitored_subs = json.dumps(config.monitored_subscriptions)
     extra_vars = [
         f"{MONITORED_SUBSCRIPTIONS_KEY}={shlex.quote(monitored_subs)}",
-        f"{RESOURCE_TAG_FILTERS_KEY}={shlex.quote(config.resource_tag_filters)}"
+        f"{RESOURCE_TAG_FILTERS_KEY}={shlex.quote(config.resource_tag_filters)}",
+        f"{RESOURCE_PROVIDER_CONFIGS_KEY}={shlex.quote(config.resource_provider_configs)}",
     ]
     _create_control_plane_task_container_app_job(
         config,

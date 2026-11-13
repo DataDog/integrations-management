@@ -95,6 +95,13 @@ def parse_arguments():
     )
 
     parser.add_argument(
+        "--resource-provider-configs",
+        type=str,
+        default="",
+        help='JSON object of resource providers to forward logs for, e.g. \'{"logs_enabled_default": true, "providers": [{"namespace": "Microsoft.Web", "logs_enabled": false}]}\'',
+    )
+
+    parser.add_argument(
         "--pii-scrubber-rules",
         type=str,
         default="",
@@ -198,6 +205,7 @@ def main():
             datadog_api_key=args.datadog_api_key,
             datadog_site=args.datadog_site,
             resource_tag_filters=args.resource_tag_filters,
+            resource_provider_configs=args.resource_provider_configs,
             pii_scrubber_rules=args.pii_scrubber_rules,
             datadog_telemetry=args.datadog_telemetry,
             log_level=args.log_level,

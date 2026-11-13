@@ -17,6 +17,7 @@ from logging_install.tests.test_data import (
     CONTROL_PLANE_REGION,
     CONTROL_PLANE_RESOURCE_GROUP,
     CONTROL_PLANE_SUBSCRIPTION_ID,
+    RESOURCE_PROVIDER_CONFIGS,
     get_test_config,
 )
 
@@ -268,6 +269,31 @@ class TestResourceSetup(TestCase):
         self.assertIn("*/5 * * * *", create_cmd)
         self.assertIn("MONITORED_SUBSCRIPTIONS", create_cmd)
         self.assertIn("RESOURCE_TAG_FILTERS", create_cmd)
+        self.assertIn("RESOURCE_PROVIDER_CONFIGS", create_cmd)
+
+    def test_create_resources_task_container_app_job_sets_resource_provider_configs(self):
+        caj_config = get_test_config()
+        caj_config.resource_provider_configs = RESOURCE_PROVIDER_CONFIGS
+
+        with mock_patch(
+            "azure_logging_install.resource_setup._create_control_plane_task_container_app_job"
+        ) as mock_create:
+            resource_setup.create_resources_task_container_app_job(caj_config)
+
+        extra_vars = mock_create.call_args.args[3]
+        self.assertIn(f"RESOURCE_PROVIDER_CONFIGS={shlex.quote(RESOURCE_PROVIDER_CONFIGS)}", extra_vars)
+
+    def test_set_resource_provider_configs_updates_resources_task(self):
+        control_plane = get_test_config().control_plane
+
+        with mock_patch("azure_logging_install.resource_setup._set_env_var_on_task") as mock_set_env_var:
+            resource_setup.set_resource_provider_configs(control_plane, RESOURCE_PROVIDER_CONFIGS)
+
+        mock_set_env_var.assert_called_once_with(
+            control_plane,
+            control_plane.resources_task_name,
+            shlex.quote(f"RESOURCE_PROVIDER_CONFIGS={RESOURCE_PROVIDER_CONFIGS}"),
+        )
 
     def test_create_resources_task_container_app_job_serializes_monitored_subscriptions_as_json(self):
         caj_config = get_test_config()
