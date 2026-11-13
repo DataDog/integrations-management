@@ -34,7 +34,7 @@ def parse_arguments():
         default=None,
         help=(
             "Comma-separated list of specific control plane IDs to migrate. "
-            "Default: auto-discover every eligible Function-App-based installation in the tenant."
+            "Default: auto-discover every eligible Function-App-based installation in the subscriptions you have access to."
         ),
     )
 

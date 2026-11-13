@@ -40,7 +40,7 @@ options:
   --control-plane-ids CONTROL_PLANE_IDS
                         Comma-separated list of specific control plane IDs to migrate. Default:
                         auto-discover every eligible Function-App-based installation in the
-                        tenant.
+                        subscriptions you have access to.
   --yes                 With --dry-run=false, don't prompt for confirmation before migrating each
                         discovered installation
   --dry-run [true|false]
