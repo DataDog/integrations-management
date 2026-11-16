@@ -156,9 +156,24 @@ def get_tenant_and_subscriptions() -> tuple[str, list[Subscription]]:
     return tenant_id, subscriptions
 
 
+def limit_management_groups_to_subscriptions(
+    management_groups: Sequence[ManagementGroup], subscriptions: Sequence[Scope]
+) -> list[ManagementGroup]:
+    """Keep only the subscriptions of each management group that are in the given subscriptions.
+
+    A management group lists every subscription under it, including ones left out of the subscriptions, such as disabled ones."""
+    subscription_ids = {s.id.lower() for s in subscriptions}
+    return [
+        ManagementGroup(m.id, m.name, [s for s in m.subscriptions if s.id.lower() in subscription_ids])
+        for m in management_groups
+    ]
+
+
 def finish_collecting_scopes(tenant_id: str, subscriptions: Sequence[Scope], step_metadata: dict) -> None:
     """Finish scope collection: management groups, regions, and write all three to step_metadata."""
-    management_groups = filter_scopes_by_permission(get_management_group_scopes(tenant_id))
+    management_groups = limit_management_groups_to_subscriptions(
+        cast(list[ManagementGroup], filter_scopes_by_permission(get_management_group_scopes(tenant_id))), subscriptions
+    )
     regions = get_available_regions()
     step_metadata["subscriptions"] = [asdict(s) for s in subscriptions]
     step_metadata["management_groups"] = [asdict(m) for m in management_groups]
