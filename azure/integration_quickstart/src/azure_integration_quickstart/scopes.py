@@ -162,16 +162,18 @@ def limit_management_groups_to_subscriptions(
     """Replace each management group's subscriptions with the matching ones from the given subscriptions, dropping the rest.
 
     A management group lists every subscription under it, including ones `az account list` leaves out, such as disabled ones.
-    Using the given subscriptions keeps each id and name the same in both lists."""
+    Using the given subscriptions keeps each id and name the same in both lists.
+    Groups left with no subscriptions are dropped, since selecting them would monitor nothing."""
     subscriptions_by_id = {s.id.lower(): s for s in subscriptions}
-    return [
+    limited = (
         ManagementGroup(
             m.id,
             m.name,
             [subscriptions_by_id[s.id.lower()] for s in m.subscriptions if s.id.lower() in subscriptions_by_id],
         )
         for m in management_groups
-    ]
+    )
+    return [m for m in limited if m.subscriptions]
 
 
 def finish_collecting_scopes(tenant_id: str, subscriptions: Sequence[Subscription], step_metadata: dict) -> None:

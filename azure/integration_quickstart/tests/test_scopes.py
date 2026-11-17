@@ -140,10 +140,16 @@ class TestLimitManagementGroupsToSubscriptions(DDTestCase):
                 [ManagementGroup("mg", "MG", [listed])],
             ),
             (
-                "group with only unlisted subscriptions kept with none",
-                [ManagementGroup("mg", "MG", [unlisted])],
+                "group with only unlisted subscriptions dropped",
+                [ManagementGroup("mg", "MG", [unlisted]), ManagementGroup("other", "Other", [listed])],
                 [listed],
+                [ManagementGroup("other", "Other", [listed])],
+            ),
+            (
+                "group with no subscriptions dropped",
                 [ManagementGroup("mg", "MG", [])],
+                [listed],
+                [],
             ),
             (
                 "ids matched case-insensitively, using the listed subscription",
