@@ -365,9 +365,21 @@ check_prereqs() {
 # read permission, false-negative-ing users who have write but not read).
 #
 # Run before any Scaleway-side work so a permission failure doesn't leave the
-# user with half-provisioned IAM apps, exporters, or Instances.
+# user with half-provisioned IAM apps, exporters, or Instances.  --teardown
+# runs it before the confirmation prompt for the same reason: an invalid or
+# expired key would otherwise abort after the user confirmed, with nothing
+# deleted.
 preflight_check_datadog_access() {
   log "Verifying Datadog API key can manage Scaleway integration accounts..."
+
+  local nothing_changed="No Scaleway resources have been created"
+  [[ "$TEARDOWN" == "true" ]] && nothing_changed="No resources have been deleted"
+  # The command copied from the Datadog Scaleway tile can carry a personal
+  # access token that expires after 24 hours, so a re-run from shell history
+  # can fail here.
+  local expired_hint="  If you copied this command from the Datadog Scaleway tile more than
+  24 hours ago, its DD_APP_KEY may have expired: copy a fresh command from the
+  tile, or set DD_APP_KEY to your own application key or personal access token."
 
   if [[ "$DRY_RUN" == "true" ]]; then
     dryrun "DELETE ${DD_API_BASE_URL}/api/v2/web-integrations/scaleway/accounts/<probe-uuid> (pre-flight)"
@@ -391,19 +403,21 @@ preflight_check_datadog_access() {
     401)
       die "Datadog returned 401 Unauthorized.
   Verify DD_API_KEY and DD_APP_KEY are valid keys for site ${DD_SITE}.
-  No Scaleway resources have been created."
+${expired_hint}
+  ${nothing_changed}."
       ;;
     403)
-      die "Datadog returned 403 Forbidden — your API/App key lacks the
-  'integrations_manage' permission required to register the Scaleway
-  integration account.
+      die "Datadog returned 403 Forbidden — your API/App key is expired or
+  revoked, or lacks the 'integrations_manage' permission required to manage
+  the Scaleway integration account.
 
   Fix one of:
     - Ask a Datadog admin to grant your role 'integrations_manage'
       (Organization Settings -> Roles -> your role -> Integrations -> Manage).
     - Re-run with credentials from a user who has that permission.
+${expired_hint}
 
-  No Scaleway resources have been created — safe to re-run after fixing."
+  ${nothing_changed} — safe to re-run after fixing."
       ;;
     404|4[0-9][0-9]|2??)
       # 404 = expected (no such account).  Other 4xx codes (e.g. 400 for path
@@ -414,7 +428,7 @@ preflight_check_datadog_access() {
       die "Datadog returned unexpected status ${http_code} from
   /api/v2/web-integrations/scaleway/accounts:
   ${body_out}
-  No Scaleway resources have been created."
+  ${nothing_changed}."
       ;;
   esac
 }
@@ -1232,6 +1246,7 @@ main() {
 
   # --teardown is a destructive one-shot: skip the normal setup flow entirely.
   if [[ "$TEARDOWN" == "true" ]]; then
+    preflight_check_datadog_access
     confirm_teardown || return 0
     teardown_datadog_account
     teardown_cockpit_exports
