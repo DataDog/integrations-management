@@ -156,9 +156,31 @@ def get_tenant_and_subscriptions() -> tuple[str, list[Subscription]]:
     return tenant_id, subscriptions
 
 
-def finish_collecting_scopes(tenant_id: str, subscriptions: Sequence[Scope], step_metadata: dict) -> None:
+def limit_management_groups_to_subscriptions(
+    management_groups: Sequence[ManagementGroup], subscriptions: Sequence[Subscription]
+) -> list[ManagementGroup]:
+    """Replace each management group's subscriptions with the matching ones from the given subscriptions, dropping the rest.
+
+    A management group lists every subscription under it, including ones `az account list` leaves out, such as disabled ones.
+    Using the given subscriptions keeps each id and name the same in both lists.
+    Groups left with no subscriptions are dropped, since selecting them would monitor nothing."""
+    subscriptions_by_id = {s.id.lower(): s for s in subscriptions}
+    limited = (
+        ManagementGroup(
+            m.id,
+            m.name,
+            [subscriptions_by_id[s.id.lower()] for s in m.subscriptions if s.id.lower() in subscriptions_by_id],
+        )
+        for m in management_groups
+    )
+    return [m for m in limited if m.subscriptions]
+
+
+def finish_collecting_scopes(tenant_id: str, subscriptions: Sequence[Subscription], step_metadata: dict) -> None:
     """Finish scope collection: management groups, regions, and write all three to step_metadata."""
-    management_groups = filter_scopes_by_permission(get_management_group_scopes(tenant_id))
+    management_groups = limit_management_groups_to_subscriptions(
+        cast(list[ManagementGroup], filter_scopes_by_permission(get_management_group_scopes(tenant_id))), subscriptions
+    )
     regions = get_available_regions()
     step_metadata["subscriptions"] = [asdict(s) for s in subscriptions]
     step_metadata["management_groups"] = [asdict(m) for m in management_groups]
