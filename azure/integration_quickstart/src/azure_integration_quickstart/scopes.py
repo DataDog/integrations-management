@@ -157,19 +157,24 @@ def get_tenant_and_subscriptions() -> tuple[str, list[Subscription]]:
 
 
 def limit_management_groups_to_subscriptions(
-    management_groups: Sequence[ManagementGroup], subscriptions: Sequence[Scope]
+    management_groups: Sequence[ManagementGroup], subscriptions: Sequence[Subscription]
 ) -> list[ManagementGroup]:
-    """Keep only the subscriptions of each management group that are in the given subscriptions.
+    """Replace each management group's subscriptions with the matching ones from the given subscriptions, dropping the rest.
 
-    A management group lists every subscription under it, including ones left out of the subscriptions, such as disabled ones."""
-    subscription_ids = {s.id.lower() for s in subscriptions}
+    A management group lists every subscription under it, including ones `az account list` leaves out, such as disabled ones.
+    Using the given subscriptions keeps each id and name the same in both lists."""
+    subscriptions_by_id = {s.id.lower(): s for s in subscriptions}
     return [
-        ManagementGroup(m.id, m.name, [s for s in m.subscriptions if s.id.lower() in subscription_ids])
+        ManagementGroup(
+            m.id,
+            m.name,
+            [subscriptions_by_id[s.id.lower()] for s in m.subscriptions if s.id.lower() in subscriptions_by_id],
+        )
         for m in management_groups
     ]
 
 
-def finish_collecting_scopes(tenant_id: str, subscriptions: Sequence[Scope], step_metadata: dict) -> None:
+def finish_collecting_scopes(tenant_id: str, subscriptions: Sequence[Subscription], step_metadata: dict) -> None:
     """Finish scope collection: management groups, regions, and write all three to step_metadata."""
     management_groups = limit_management_groups_to_subscriptions(
         cast(list[ManagementGroup], filter_scopes_by_permission(get_management_group_scopes(tenant_id))), subscriptions

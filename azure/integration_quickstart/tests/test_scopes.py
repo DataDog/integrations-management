@@ -146,10 +146,10 @@ class TestLimitManagementGroupsToSubscriptions(DDTestCase):
                 [ManagementGroup("mg", "MG", [])],
             ),
             (
-                "ids matched case-insensitively",
-                [ManagementGroup("mg", "MG", [Subscription(id="LISTED", name="Listed Sub")])],
+                "ids matched case-insensitively, using the listed subscription",
+                [ManagementGroup("mg", "MG", [Subscription(id="LISTED", name="Group Copy")])],
                 [listed],
-                [ManagementGroup("mg", "MG", [Subscription(id="LISTED", name="Listed Sub")])],
+                [ManagementGroup("mg", "MG", [listed])],
             ),
         ]
         for name, management_groups, subscriptions, expected in test_cases:
