@@ -616,6 +616,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             self.service_account,
             self.integration_configuration,
             ConfigurationScope(projects=[], folders=[folder]),
+            skip_failed_projects=True,
         )
 
         step_reporter.report.assert_any_call(
@@ -655,6 +656,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             self.service_account,
             self.integration_configuration,
             ConfigurationScope(projects=[], folders=[folder]),
+            skip_failed_projects=True,
         )
 
         services_str = " ".join(REQUIRED_APIS)
@@ -709,6 +711,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             self.service_account,
             self.integration_configuration,
             ConfigurationScope(projects=[], folders=[folder]),
+            skip_failed_projects=True,
         )
 
         services_str = " ".join(REQUIRED_APIS)
@@ -756,6 +759,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
                 ],
                 folders=[],
             ),
+            skip_failed_projects=True,
         )
 
         services_str = " ".join(REQUIRED_APIS)
@@ -803,6 +807,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
                     ],
                     folders=[],
                 ),
+                skip_failed_projects=True,
             )
 
         self.assertEqual(
@@ -845,6 +850,50 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
     @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
     @patch("gcp_integration_quickstart.integration_configuration.gcloud")
     @patch("gcp_integration_quickstart.integration_configuration.dd_request")
+    def test_create_integration_with_permissions_stops_on_folder_project_failure_by_default(
+        self, mock_dd_request, mock_gcloud, mock_try_gcloud
+    ):
+        """Without skip_failed_projects, any failing folder project stops the run before any binding."""
+
+        tests = [
+            ("no billing account", BILLING_NOT_FOUND_STDERR, "UREQ_PROJECT_BILLING_NOT_FOUND"),
+            ("org policy", ORG_POLICY_RESTRICTED_STDERR, "RESOURCE_USAGE_RESTRICTION_VIOLATED"),
+        ]
+        for name, give_stderr, want_reason in tests:
+            with self.subTest(name):
+                mock_dd_request.reset_mock()
+                actual_commands = _record_commands(
+                    mock_gcloud,
+                    mock_try_gcloud,
+                    failing_projects={"failing-project": give_stderr},
+                )
+                folder = Folder(
+                    parent_id="parent123",
+                    id="folder123",
+                    name="Test Folder",
+                    child_scopes=[_project("failing-project", "folder123")],
+                )
+
+                with self.assertRaises(RuntimeError) as context:
+                    create_integration_with_permissions(
+                        Mock(),
+                        self.service_account,
+                        self.integration_configuration,
+                        ConfigurationScope(projects=[], folders=[folder]),
+                    )
+
+                self.assertIn(want_reason, str(context.exception))
+                self.assertEqual(
+                    [
+                        f"services enable {' '.join(REQUIRED_APIS)} --project failing-project --quiet"
+                    ],
+                    actual_commands,
+                )
+                mock_dd_request.assert_not_called()
+
+    @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
     def test_create_integration_with_permissions_skips_project_with_closed_billing_account(
         self, mock_dd_request, mock_gcloud, mock_try_gcloud
     ):
@@ -869,6 +918,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
                 ],
                 folders=[],
             ),
+            skip_failed_projects=True,
         )
 
         services_str = " ".join(REQUIRED_APIS)
@@ -1094,6 +1144,64 @@ class TestMainLogsForwardingConfiguration(unittest.TestCase):
         mock_create_integration.assert_called_once()
         mock_create_logs_forwarding.assert_not_called()
         mock_assign_organization_permissions.assert_not_called()
+
+    @patch("gcp_integration_quickstart.main.signal.signal")
+    @patch("gcp_integration_quickstart.main.create_logs_forwarding_integration")
+    @patch("gcp_integration_quickstart.main.create_integration_with_permissions")
+    @patch("gcp_integration_quickstart.main.assign_organization_permissions")
+    @patch("gcp_integration_quickstart.main.assign_delegate_permissions")
+    @patch("gcp_integration_quickstart.main.find_or_create_service_account")
+    @patch("gcp_integration_quickstart.main.WorkflowReporter")
+    def test_main_passes_skip_failed_projects_from_selections(
+        self,
+        mock_workflow_reporter_cls,
+        mock_find_or_create_sa,
+        _mock_assign_delegate,
+        _mock_assign_organization_permissions,
+        mock_create_integration,
+        _mock_create_logs_forwarding,
+        _mock_signal,
+    ):
+        tests = [
+            ("absent", {}, False),
+            ("enabled", {"skip_failed_projects": True}, True),
+        ]
+        for name, give_selection, want_skip in tests:
+            with self.subTest(name):
+                mock_create_integration.reset_mock()
+                user_selections = {
+                    "service_account_id": "my-sa",
+                    "default_project_id": "my-project",
+                    "projects": [],
+                    "folders": [],
+                    "integration_configuration": {
+                        "metric_namespace_configs": [],
+                        "monitored_resource_configs": [],
+                        "account_tags": [],
+                        "resource_collection_enabled": True,
+                        "automute": False,
+                    },
+                    **give_selection,
+                }
+
+                workflow_reporter = Mock()
+                workflow_reporter.is_valid_workflow_id.return_value = True
+                workflow_reporter.is_scopes_step_already_completed.return_value = True
+                workflow_reporter.receive_user_selections.return_value = user_selections
+                workflow_reporter.report_step.side_effect = lambda *_a, **_k: _step_ctx(
+                    Mock()
+                )
+                mock_workflow_reporter_cls.return_value = workflow_reporter
+                mock_find_or_create_sa.return_value = "sa@my-project.iam.gserviceaccount.com"
+
+                with patch.dict(os.environ, self.env, clear=True):
+                    main()
+
+                mock_create_integration.assert_called_once()
+                self.assertEqual(
+                    want_skip,
+                    mock_create_integration.call_args.kwargs["skip_failed_projects"],
+                )
 
     @patch("gcp_integration_quickstart.main.signal.signal")
     @patch("gcp_integration_quickstart.main.create_logs_forwarding_integration")
