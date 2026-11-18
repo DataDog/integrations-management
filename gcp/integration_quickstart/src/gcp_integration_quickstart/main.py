@@ -126,6 +126,9 @@ def main():
             integration_configuration,
             configuration_scope,
             product_requirements,
+            limit_to_selected_projects=user_selections.get(
+                "limit_to_selected_projects", False
+            ),
         )
 
     if user_selections.get("logs_forwarding_configuration") is not None:
