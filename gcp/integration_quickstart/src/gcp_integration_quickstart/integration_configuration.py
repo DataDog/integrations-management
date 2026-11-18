@@ -246,8 +246,14 @@ def create_integration_with_permissions(
     integration_configuration: IntegrationConfiguration,
     configuration_scope: ConfigurationScope,
     product_requirements: Optional[ProductRequirements] = None,
+    skip_failed_projects: bool = False,
 ):
-    """Create the GCP integration in Datadog with the specified permissions."""
+    """Create the GCP integration in Datadog with the specified permissions.
+
+    By default, any project whose required APIs can't be enabled stops the setup.
+    With skip_failed_projects, projects without an open billing account and folder
+    projects that fail for another reason are skipped and reported instead.
+    """
 
     required_services = REQUIRED_APIS.copy()
     if product_requirements:
@@ -276,11 +282,17 @@ def create_integration_with_permissions(
     for folder in configuration_scope.folders:
         for project in descendant_projects(folder):
             # A skipped project still inherits the folder's role bindings below, so it is still discovered.
-            # One failing project deep in a folder tree shouldn't stop the setup for the rest of it.
             try:
-                if not enable_required_apis(step_reporter, project, required_services):
+                if not enable_required_apis(
+                    step_reporter,
+                    project,
+                    required_services,
+                    skip_billing_errors=skip_failed_projects,
+                ):
                     skipped_project_ids.append(project.id)
             except ApiEnablementError as e:
+                if not skip_failed_projects:
+                    raise
                 step_reporter.report(
                     message=f"Skipping project '{project.name}': could not enable the required APIs: {e.summary}"
                 )
@@ -301,7 +313,12 @@ def create_integration_with_permissions(
             )
 
     for project in configuration_scope.projects:
-        if not enable_required_apis(step_reporter, project, required_services):
+        if not enable_required_apis(
+            step_reporter,
+            project,
+            required_services,
+            skip_billing_errors=skip_failed_projects,
+        ):
             skipped_project_ids.append(project.id)
             continue
 
@@ -375,12 +392,15 @@ def descendant_projects(folder: Folder) -> Iterator[Project]:
 
 
 def enable_required_apis(
-    step_reporter: StepStatusReporter, project: Project, required_services: list[str]
+    step_reporter: StepStatusReporter,
+    project: Project,
+    required_services: list[str],
+    skip_billing_errors: bool,
 ) -> bool:
     """Enable the required APIs on a project.
 
-    Return False when the project has no open billing account, so the caller can skip it.
-    Raise ApiEnablementError on any other failure.
+    With skip_billing_errors, return False when the project has no open billing account,
+    so the caller can skip it. Raise ApiEnablementError on any other failure.
     """
     step_reporter.report(
         message=f"Enabling required APIs [{', '.join(required_services)}] for project '{project.name}'"
@@ -395,7 +415,7 @@ def enable_required_apis(
     if result.success:
         return True
     for reason, explanation in BILLING_DISABLED_REASONS.items():
-        if reason in result.error:
+        if skip_billing_errors and reason in result.error:
             step_reporter.report(
                 message=f"Skipping project '{project.name}': {explanation}, so the required APIs cannot be enabled"
             )
