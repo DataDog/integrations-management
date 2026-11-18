@@ -4,7 +4,7 @@
 
 import json
 from dataclasses import asdict
-from typing import Any, Iterator, Optional
+from typing import Iterator, Optional
 
 from gcp_shared.gcloud import GcloudCmd, gcloud, try_gcloud
 from gcp_shared.models import ConfigurationScope, Folder, Project
@@ -49,9 +49,6 @@ class ApiEnablementError(RuntimeError):
         lines = error.strip().splitlines()
         self.summary = lines[0] if lines else "unknown error"
 
-
-# The most project ID filters the v2 GCP accounts API accepts on a service account.
-MAX_PROJECT_ID_FILTERS = 15000
 
 REQUIRED_ROLES: list[str] = [
     "roles/cloudasset.viewer",
@@ -249,15 +246,8 @@ def create_integration_with_permissions(
     integration_configuration: IntegrationConfiguration,
     configuration_scope: ConfigurationScope,
     product_requirements: Optional[ProductRequirements] = None,
-    limit_to_selected_projects: bool = False,
 ):
     """Create the GCP integration in Datadog with the specified permissions."""
-
-    project_filter_configs = (
-        selected_project_filter_configs(configuration_scope)
-        if limit_to_selected_projects
-        else []
-    )
 
     required_services = REQUIRED_APIS.copy()
     if product_requirements:
@@ -356,11 +346,6 @@ def create_integration_with_permissions(
                     "client_email": service_account_email,
                     "is_per_project_quota_enabled": True,
                     **asdict(integration_configuration),
-                    **(
-                        {"project_filter_configs": project_filter_configs}
-                        if project_filter_configs
-                        else {}
-                    ),
                 },
             }
         },
@@ -378,29 +363,6 @@ def create_integration_with_permissions(
     step_reporter.report(
         metadata={"created_service_account_id": data.get("data", {}).get("id")}
     )
-
-
-def selected_project_filter_configs(
-    configuration_scope: ConfigurationScope,
-) -> list[dict[str, Any]]:
-    """Return a project ID filter that limits monitoring to the selected projects.
-
-    Every project inside a selected folder counts as selected, so the filter lists them too.
-    """
-    project_ids = {project.id for project in configuration_scope.projects}
-    for folder in configuration_scope.folders:
-        project_ids.update(project.id for project in descendant_projects(folder))
-
-    if not project_ids:
-        raise RuntimeError(
-            "monitoring is limited to the selected projects, but no projects were selected"
-        )
-    if len(project_ids) > MAX_PROJECT_ID_FILTERS:
-        raise RuntimeError(
-            f"monitoring can be limited to at most {MAX_PROJECT_ID_FILTERS} projects, "
-            f"but {len(project_ids)} were selected"
-        )
-    return [{"type": "project_id", "filters": sorted(project_ids)}]
 
 
 def descendant_projects(folder: Folder) -> Iterator[Project]:

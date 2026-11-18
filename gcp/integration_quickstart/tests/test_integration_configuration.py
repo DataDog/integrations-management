@@ -371,6 +371,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
                         "region_filter_configs": ["lushy", "boo_boi"],
                         "is_global_location_enabled": True,
                         "is_org_folder_resource_collection_enabled": False,
+                        "project_filter_configs": [],
                     },
                 }
             },
@@ -1171,30 +1172,45 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class TestLimitToSelectedProjects(unittest.TestCase):
-    """Test limiting monitoring to the selected projects."""
+class TestProjectFilterConfigs(unittest.TestCase):
+    """Test that project filters chosen during onboarding reach the new service account."""
 
-    def setUp(self):
-        self.service_account = (
-            "test-service-account@test-project.iam.gserviceaccount.com"
-        )
-        self.integration_configuration = IntegrationConfiguration(
+    @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
+    def test_sends_project_filter_configs_from_the_selections(
+        self, mock_dd_request, mock_gcloud, mock_try_gcloud
+    ):
+        mock_dd_request.return_value = ('{"data": {"id": "abc"}}', 201)
+        _record_commands(mock_gcloud, mock_try_gcloud)
+        service_account = "sa@test-project.iam.gserviceaccount.com"
+        project_filter_configs = [
+            {"type": "project_id", "filters": ["project-a", "project-b"]}
+        ]
+        integration_configuration = IntegrationConfiguration(
             metric_namespace_configs=[],
             monitored_resource_configs=[],
             account_tags=[],
             resource_collection_enabled=True,
             automute=False,
+            project_filter_configs=project_filter_configs,
         )
 
-    def _expected_request(self, extra_attributes):
-        return (
+        create_integration_with_permissions(
+            Mock(),
+            service_account,
+            integration_configuration,
+            ConfigurationScope(projects=[_project("project-a", "org")], folders=[]),
+        )
+
+        mock_dd_request.assert_called_once_with(
             "POST",
             "/api/v2/integration/gcp/accounts?source=script",
             {
                 "data": {
                     "type": "gcp_service_account",
                     "attributes": {
-                        "client_email": self.service_account,
+                        "client_email": service_account,
                         "is_per_project_quota_enabled": True,
                         "metric_namespace_configs": [],
                         "monitored_resource_configs": [],
@@ -1204,210 +1220,8 @@ class TestLimitToSelectedProjects(unittest.TestCase):
                         "region_filter_configs": [],
                         "is_global_location_enabled": True,
                         "is_org_folder_resource_collection_enabled": False,
-                        **extra_attributes,
+                        "project_filter_configs": project_filter_configs,
                     },
                 }
             },
-        )
-
-    @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
-    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
-    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
-    def test_sends_selected_projects_and_folder_projects_as_project_id_filter(
-        self, mock_dd_request, mock_gcloud, mock_try_gcloud
-    ):
-        mock_dd_request.return_value = ('{"data": {"id": "abc"}}', 201)
-        _record_commands(mock_gcloud, mock_try_gcloud)
-        subfolder = Folder(
-            parent_id="folder1",
-            id="folder2",
-            name="Subfolder",
-            child_scopes=[_project("nested-project", "folder2")],
-        )
-        folder = Folder(
-            parent_id="org",
-            id="folder1",
-            name="Folder",
-            child_scopes=[_project("folder-project", "folder1"), subfolder],
-        )
-        scope = ConfigurationScope(
-            # folder-project is also selected on its own, and must appear once.
-            projects=[_project("zeta-project", "org"), _project("folder-project", "folder1")],
-            folders=[folder],
-        )
-
-        create_integration_with_permissions(
-            Mock(),
-            self.service_account,
-            self.integration_configuration,
-            scope,
-            limit_to_selected_projects=True,
-        )
-
-        mock_dd_request.assert_called_once_with(
-            *self._expected_request(
-                {
-                    "project_filter_configs": [
-                        {
-                            "type": "project_id",
-                            "filters": [
-                                "folder-project",
-                                "nested-project",
-                                "zeta-project",
-                            ],
-                        }
-                    ]
-                }
-            )
-        )
-
-    @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
-    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
-    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
-    def test_omits_project_filters_when_not_limited(
-        self, mock_dd_request, mock_gcloud, mock_try_gcloud
-    ):
-        mock_dd_request.return_value = ('{"data": {"id": "abc"}}', 201)
-        _record_commands(mock_gcloud, mock_try_gcloud)
-        scope = ConfigurationScope(projects=[_project("project-a", "org")], folders=[])
-
-        create_integration_with_permissions(
-            Mock(), self.service_account, self.integration_configuration, scope
-        )
-
-        mock_dd_request.assert_called_once_with(*self._expected_request({}))
-
-    @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
-    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
-    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
-    def test_fails_before_granting_roles_when_over_the_filter_limit(
-        self, mock_dd_request, mock_gcloud, mock_try_gcloud
-    ):
-        commands = _record_commands(mock_gcloud, mock_try_gcloud)
-        scope = ConfigurationScope(
-            projects=[_project(f"project-{i:05d}", "org") for i in range(15001)],
-            folders=[],
-        )
-
-        with self.assertRaisesRegex(
-            RuntimeError,
-            "monitoring can be limited to at most 15000 projects, but 15001 were selected",
-        ):
-            create_integration_with_permissions(
-                Mock(),
-                self.service_account,
-                self.integration_configuration,
-                scope,
-                limit_to_selected_projects=True,
-            )
-
-        self.assertEqual(commands, [])
-        mock_dd_request.assert_not_called()
-
-    @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
-    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
-    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
-    def test_fails_when_limited_but_selection_has_no_projects(
-        self, mock_dd_request, mock_gcloud, mock_try_gcloud
-    ):
-        commands = _record_commands(mock_gcloud, mock_try_gcloud)
-        empty_folder = Folder(parent_id="org", id="folder1", name="Empty Folder")
-        scope = ConfigurationScope(projects=[], folders=[empty_folder])
-
-        with self.assertRaisesRegex(
-            RuntimeError,
-            "monitoring is limited to the selected projects, but no projects were selected",
-        ):
-            create_integration_with_permissions(
-                Mock(),
-                self.service_account,
-                self.integration_configuration,
-                scope,
-                limit_to_selected_projects=True,
-            )
-
-        self.assertEqual(commands, [])
-        mock_dd_request.assert_not_called()
-
-
-class TestMainLimitToSelectedProjects(unittest.TestCase):
-    """Test that main passes the limit selection through."""
-
-    def setUp(self):
-        self.env = {
-            "DD_API_KEY": "x",
-            "DD_APP_KEY": "y",
-            "DD_SITE": "datad0g.com",
-            "WORKFLOW_ID": "11111111-1111-1111-1111-111111111111",
-        }
-        self.user_selections = {
-            "service_account_id": "my-sa",
-            "default_project_id": "my-project",
-            "projects": [],
-            "folders": [],
-            "integration_configuration": {
-                "metric_namespace_configs": [],
-                "monitored_resource_configs": [],
-                "account_tags": [],
-                "resource_collection_enabled": True,
-                "automute": False,
-            },
-        }
-
-    def _run_main(self, user_selections, mock_workflow_reporter_cls, mock_find_or_create_sa):
-        step_reporter = Mock()
-        workflow_reporter = Mock()
-        workflow_reporter.is_valid_workflow_id.return_value = True
-        workflow_reporter.is_scopes_step_already_completed.return_value = True
-        workflow_reporter.receive_user_selections.return_value = user_selections
-        workflow_reporter.report_step.side_effect = lambda *_a, **_k: _step_ctx(
-            step_reporter
-        )
-        mock_workflow_reporter_cls.return_value = workflow_reporter
-        mock_find_or_create_sa.return_value = "sa@my-project.iam.gserviceaccount.com"
-        with patch.dict(os.environ, self.env, clear=True):
-            main()
-
-    @patch("gcp_integration_quickstart.main.signal.signal")
-    @patch("gcp_integration_quickstart.main.create_integration_with_permissions")
-    @patch("gcp_integration_quickstart.main.assign_delegate_permissions")
-    @patch("gcp_integration_quickstart.main.find_or_create_service_account")
-    @patch("gcp_integration_quickstart.main.WorkflowReporter")
-    def test_main_passes_limit_to_selected_projects(
-        self,
-        mock_workflow_reporter_cls,
-        mock_find_or_create_sa,
-        _mock_assign_delegate,
-        mock_create_integration,
-        _mock_signal,
-    ):
-        self._run_main(
-            {**self.user_selections, "limit_to_selected_projects": True},
-            mock_workflow_reporter_cls,
-            mock_find_or_create_sa,
-        )
-
-        self.assertTrue(
-            mock_create_integration.call_args.kwargs["limit_to_selected_projects"]
-        )
-
-    @patch("gcp_integration_quickstart.main.signal.signal")
-    @patch("gcp_integration_quickstart.main.create_integration_with_permissions")
-    @patch("gcp_integration_quickstart.main.assign_delegate_permissions")
-    @patch("gcp_integration_quickstart.main.find_or_create_service_account")
-    @patch("gcp_integration_quickstart.main.WorkflowReporter")
-    def test_main_does_not_limit_when_selection_omits_it(
-        self,
-        mock_workflow_reporter_cls,
-        mock_find_or_create_sa,
-        _mock_assign_delegate,
-        mock_create_integration,
-        _mock_signal,
-    ):
-        self._run_main(
-            self.user_selections, mock_workflow_reporter_cls, mock_find_or_create_sa
-        )
-
-        self.assertFalse(
-            mock_create_integration.call_args.kwargs["limit_to_selected_projects"]
         )
