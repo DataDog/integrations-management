@@ -374,11 +374,10 @@ preflight_check_datadog_access() {
 
   local nothing_changed="No Scaleway resources have been created"
   [[ "$TEARDOWN" == "true" ]] && nothing_changed="No resources have been deleted"
-  # The command copied from the Datadog Scaleway tile can carry a personal
-  # access token that expires after 24 hours, so a re-run from shell history
-  # can fail here.
+  # The command copied from the Datadog Scaleway tile carries a personal access
+  # token that expires after 24 hours, so a re-run from shell history fails here.
   local expired_hint="  If you copied this command from the Datadog Scaleway tile more than
-  24 hours ago, its DD_APP_KEY may have expired: copy a fresh command from the
+  24 hours ago, its DD_APP_KEY has expired: copy a fresh command from the
   tile, or set DD_APP_KEY to your own application key or personal access token."
 
   if [[ "$DRY_RUN" == "true" ]]; then
@@ -407,15 +406,16 @@ ${expired_hint}
   ${nothing_changed}."
       ;;
     403)
-      die "Datadog returned 403 Forbidden — your API/App key is expired or
-  revoked, or lacks the 'integrations_manage' permission required to manage
-  the Scaleway integration account.
+      die "Datadog returned 403 Forbidden — DD_APP_KEY is expired or revoked,
+  or lacks the 'integrations_manage' permission required to manage the
+  Scaleway integration account.
 
   Fix one of:
+    - Set DD_APP_KEY to a valid key. Keys in commands copied from the
+      Datadog Scaleway tile expire after 24 hours.
     - Ask a Datadog admin to grant your role 'integrations_manage'
       (Organization Settings -> Roles -> your role -> Integrations -> Manage).
     - Re-run with credentials from a user who has that permission.
-${expired_hint}
 
   ${nothing_changed} — safe to re-run after fixing."
       ;;
