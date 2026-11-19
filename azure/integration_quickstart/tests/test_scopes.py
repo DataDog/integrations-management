@@ -7,14 +7,17 @@ from unittest.mock import patch as mock_patch
 
 from azure_integration_quickstart.permissions import FlatPermission
 from azure_integration_quickstart.scopes import (
+    ManagementGroup,
     ManagementGroupListResult,
     Scope,
     Subscription,
     _collect_subscriptions_from_children,
     filter_scopes_by_permission,
+    finish_collecting_scopes,
     flatten_scopes_to_unique_subscriptions,
     get_available_regions,
     get_management_group_from_list_result,
+    limit_management_groups_to_subscriptions,
 )
 
 from integration_quickstart.tests.dd_test_case import DDTestCase
@@ -116,6 +119,68 @@ class TestFlattenScopesToUniqueSubscriptions(DDTestCase):
             with self.subTest(msg=name):
                 actual = flatten_scopes_to_unique_subscriptions(scopes)
                 self.assert_same_scopes(actual, expected_result)
+
+
+class TestLimitManagementGroupsToSubscriptions(DDTestCase):
+    def test_limit_management_groups_to_subscriptions(self):
+        listed = Subscription(id="listed", name="Listed Sub")
+        unlisted = Subscription(id="unlisted", name="Disabled Sub")
+        test_cases: list[tuple[str, list[ManagementGroup], list[Subscription], list[ManagementGroup]]] = [
+            ("no management groups", [], [listed], []),
+            (
+                "all subscriptions listed",
+                [ManagementGroup("mg", "MG", [listed])],
+                [listed],
+                [ManagementGroup("mg", "MG", [listed])],
+            ),
+            (
+                "unlisted subscription removed",
+                [ManagementGroup("mg", "MG", [listed, unlisted])],
+                [listed],
+                [ManagementGroup("mg", "MG", [listed])],
+            ),
+            (
+                "group with only unlisted subscriptions dropped",
+                [ManagementGroup("mg", "MG", [unlisted]), ManagementGroup("other", "Other", [listed])],
+                [listed],
+                [ManagementGroup("other", "Other", [listed])],
+            ),
+            (
+                "group with no subscriptions dropped",
+                [ManagementGroup("mg", "MG", [])],
+                [listed],
+                [],
+            ),
+            (
+                "ids matched case-insensitively, using the listed subscription",
+                [ManagementGroup("mg", "MG", [Subscription(id="LISTED", name="Group Copy")])],
+                [listed],
+                [ManagementGroup("mg", "MG", [listed])],
+            ),
+        ]
+        for name, management_groups, subscriptions, expected in test_cases:
+            with self.subTest(msg=name):
+                self.assertEqual(limit_management_groups_to_subscriptions(management_groups, subscriptions), expected)
+
+
+class TestFinishCollectingScopes(DDTestCase):
+    def test_management_group_subscriptions_limited_to_subscriptions(self):
+        listed = Subscription(id="listed", name="Listed Sub")
+        unlisted = Subscription(id="unlisted", name="Disabled Sub")
+        self.patch(
+            "azure_integration_quickstart.scopes.get_management_group_scopes",
+            return_value=[ManagementGroup("mg", "MG", [listed, unlisted])],
+        )
+        self.patch("azure_integration_quickstart.scopes.filter_scopes_by_permission", side_effect=lambda scopes: scopes)
+        self.patch("azure_integration_quickstart.scopes.get_available_regions", return_value=["eastus"])
+        step_metadata: dict = {}
+
+        finish_collecting_scopes("tenant", [listed], step_metadata)
+
+        self.assertEqual(
+            step_metadata["management_groups"],
+            [{"id": "mg", "name": "MG", "subscriptions": [{"id": "listed", "name": "Listed Sub"}]}],
+        )
 
 
 class TestGetAvailableRegions(DDTestCase):
