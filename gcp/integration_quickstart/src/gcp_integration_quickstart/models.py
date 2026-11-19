@@ -3,7 +3,14 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypedDict
+
+
+class ProjectFilterConfig(TypedDict):
+    """One entry of the account's project_filter_configs, as the Datadog API takes it."""
+
+    type: str
+    filters: list[str]
 
 
 @dataclass
@@ -19,6 +26,7 @@ class IntegrationConfiguration:
     region_filter_configs: list[str] = field(default_factory=list)
     is_global_location_enabled: bool = True
     is_org_folder_resource_collection_enabled: bool = False
+    project_filter_configs: list[ProjectFilterConfig] = field(default_factory=list)
 
 
 @dataclass

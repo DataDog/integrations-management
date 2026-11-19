@@ -371,6 +371,7 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
                         "region_filter_configs": ["lushy", "boo_boi"],
                         "is_global_location_enabled": True,
                         "is_org_folder_resource_collection_enabled": False,
+                        "project_filter_configs": [],
                     },
                 }
             },
@@ -435,6 +436,75 @@ class TestCreateIntegrationWithPermissions(unittest.TestCase):
             self.assertEqual(actual, expected, f"Command {i} mismatch")
 
         mock_dd_request.assert_called_once()
+
+    @patch("gcp_integration_quickstart.integration_configuration.try_gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.gcloud")
+    @patch("gcp_integration_quickstart.integration_configuration.dd_request")
+    def test_create_integration_with_permissions_with_project_filter_configs(
+        self, mock_dd_request, mock_gcloud, mock_try_gcloud
+    ):
+        """Test create_integration_with_permissions sends the project filters chosen during onboarding."""
+
+        mock_dd_request.return_value = ('{"status": "ok"}', 201)
+
+        _record_commands(mock_gcloud, mock_try_gcloud)
+
+        step_reporter = Mock()
+
+        project = Project(
+            parent_id="parent456",
+            id="project123",
+            name="Test Project",
+            is_already_monitored=False,
+        )
+
+        configuration_scope = ConfigurationScope(projects=[project], folders=[])
+
+        project_filter_configs = [
+            {"type": "project_id", "filters": ["project123", "project456"]}
+        ]
+
+        integration_configuration = IntegrationConfiguration(
+            metric_namespace_configs=[{"namespace": "test"}],
+            monitored_resource_configs=[{"cloud_run": ["filter1"]}],
+            account_tags=["tag1", "tag2"],
+            resource_collection_enabled=True,
+            automute=False,
+            region_filter_configs=["lushy", "boo_boi"],
+            is_global_location_enabled=True,
+            is_org_folder_resource_collection_enabled=False,
+            project_filter_configs=project_filter_configs,
+        )
+
+        create_integration_with_permissions(
+            step_reporter,
+            self.service_account,
+            integration_configuration,
+            configuration_scope,
+        )
+
+        mock_dd_request.assert_called_once_with(
+            "POST",
+            "/api/v2/integration/gcp/accounts?source=script",
+            {
+                "data": {
+                    "type": "gcp_service_account",
+                    "attributes": {
+                        "client_email": self.service_account,
+                        "is_per_project_quota_enabled": True,
+                        "metric_namespace_configs": [{"namespace": "test"}],
+                        "monitored_resource_configs": [{"cloud_run": ["filter1"]}],
+                        "account_tags": ["tag1", "tag2"],
+                        "resource_collection_enabled": True,
+                        "automute": False,
+                        "region_filter_configs": ["lushy", "boo_boi"],
+                        "is_global_location_enabled": True,
+                        "is_org_folder_resource_collection_enabled": False,
+                        "project_filter_configs": project_filter_configs,
+                    },
+                }
+            },
+        )
 
     @patch("gcp_integration_quickstart.integration_configuration.gcloud")
     @patch("gcp_integration_quickstart.integration_configuration.dd_request")
