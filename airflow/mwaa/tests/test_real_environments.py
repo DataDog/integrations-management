@@ -12,7 +12,7 @@ from mwaa.base_constraints import MINIMAL_CONSTRAINTS_HEADER
 from mwaa.apply import apply_to_environment, check_files_unchanged, compute_apply_actions
 from mwaa.plan import ConstraintDirectiveChange, EnvVarChange, PinChange
 from mwaa.probe import build_context
-from mwaa.session import build_session
+from mwaa.session import blocking_issues, build_session
 
 from .conftest import FakeS3Client
 
@@ -156,3 +156,24 @@ def test_configured_281_on_the_upgrade_guides_packages_and_the_docs_recipe_is_co
     assert entry.already_configured is True
     assert entry.plan.file_changes == []
     assert not issues(entry, FindingStatus.FAIL)
+
+
+def test_sandbox_281_referencing_a_missing_local_constraints_file_is_blocked_with_no_package_changes():
+    client = load("sandbox-281")
+    client.objects["probe/sandbox/requirements.txt"] = '--constraint "/usr/local/airflow/dags/my-constraints.txt"\n' + client.objects["probe/sandbox/requirements.txt"]
+    _, entry = scan(client)
+
+    failures = issues(entry, FindingStatus.FAIL)
+    assert {"constraint_path", "base_constraints"} <= set(failures)
+    assert blocking_issues(entry)
+    assert not [fc for fc in entry.plan.file_changes if not isinstance(fc, EnvVarChange)]
+
+
+def test_sandbox_281_with_a_constraint_path_outside_the_dags_mount_never_replaces_it_with_a_minimal_file():
+    client = load("sandbox-281")
+    client.objects["probe/sandbox/requirements.txt"] = '--constraint "/tmp/custom-constraints.txt"\n' + client.objects["probe/sandbox/requirements.txt"]
+    _, entry = scan(client)
+
+    assert "base_constraints" in issues(entry, FindingStatus.FAIL)
+    assert blocking_issues(entry)
+    assert not [fc for fc in entry.plan.file_changes if not isinstance(fc, EnvVarChange)]

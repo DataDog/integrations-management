@@ -22,12 +22,22 @@ def test_no_constraint_line_is_a_minimal_file_and_fetches_nothing():
     assert base == BaseConstraints(source=None, text=MINIMAL_CONSTRAINTS_HEADER, minimal=True)
 
 
-def test_a_local_constraints_path_that_does_not_exist_is_a_minimal_file():
+def test_a_local_constraints_path_that_does_not_exist_is_an_error_not_a_minimal_file():
     requirements = '--constraint "/usr/local/airflow/dags/constraints.txt"\n'
     base = resolve_base_constraints("2.8.1", requirements, None, "s3://b/dags/constraints.txt", never_fetch)
 
-    assert base.minimal
-    assert base.text == MINIMAL_CONSTRAINTS_HEADER
+    assert base.text is None
+    assert not base.minimal
+    assert "doesn't exist" in base.error
+
+
+@pytest.mark.parametrize("path", ["/tmp/custom-constraints.txt", "constraints.txt", "/usr/local/airflow/plugins/constraints.txt"])
+def test_a_constraint_path_outside_the_dags_mount_is_an_error_not_a_minimal_file(path):
+    base = resolve_base_constraints("2.8.1", f'--constraint "{path}"\n', None, "", never_fetch)
+
+    assert base.text is None
+    assert not base.minimal
+    assert "isn't under /usr/local/airflow/dags/ or an https:// URL" in base.error
 
 
 def test_an_existing_local_constraints_file_is_the_base():

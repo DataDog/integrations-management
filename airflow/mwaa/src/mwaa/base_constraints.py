@@ -16,12 +16,13 @@ packages already resolve against that file, so the pins are patched into it:
      environment's (see parse_apache_constraints_url); a custom-hosted file
      is used as-is.
 
-When either of those can't be read, there's no safe file to write, so `text`
-is None and plan.py leaves the package changes out entirely (see
+When the file a --constraint line references can't be read (it doesn't exist,
+isn't under the DAGs mount or https://, can't be downloaded, ...), there's no
+safe file to write -- its other pins may still be in force -- so `text` is None
+and plan.py leaves the package changes out entirely (see
 check_base_constraints for the issue that records why).
 
-  3. Otherwise (no --constraint line, or one this tool can't read as a base)
-     the file written is minimal: MINIMAL_CONSTRAINTS_HEADER plus just the
+  3. With no --constraint line at all, the file written is minimal: MINIMAL_CONSTRAINTS_HEADER plus just the
      OpenLineage pins. Not the full upstream constraints file the upgrade
      guide patches: a customer's own pins routinely postdate an old Airflow
      release's upstream file (boto3, say), and pip then refuses to install
@@ -36,7 +37,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from .fetch import FetchError
-from .pins import find_constraint_path
+from .pins import DAGS_MOUNT_PREFIX, find_constraint_path
 from .version_table import PYTHON_VERSION_BY_AIRFLOW_VERSION
 
 
@@ -83,19 +84,36 @@ def resolve_base_constraints(
     fetch: Callable[[str], bytes],
 ) -> BaseConstraints:
     """`local_constraints_text` is the referenced local file's content (None if there's no
-    such reference, or the object doesn't exist -- then the file written is minimal, case 3)."""
+    such reference, or the object doesn't exist)."""
     if local_constraints_text is not None:
         return BaseConstraints(source=local_constraints_uri, text=local_constraints_text)
 
     constraint_path = find_constraint_path(requirements_text)
-    if constraint_path and constraint_path.startswith("http://"):
+    if constraint_path is None:
+        return BaseConstraints(source=None, text=MINIMAL_CONSTRAINTS_HEADER, minimal=True)
+    # an unreadable reference doesn't mean nothing is constrained -- replacing it with the
+    # minimal file could drop every other pin it holds
+    if constraint_path.startswith(DAGS_MOUNT_PREFIX):
+        return BaseConstraints(
+            source=local_constraints_uri,
+            text=None,
+            error=f"--constraint file {constraint_path} doesn't exist; upload it or remove the --constraint line, then re-scan",
+        )
+    if constraint_path.startswith("http://"):
         return BaseConstraints(
             source=constraint_path,
             text=None,
             error=f"--constraint URL {constraint_path} isn't HTTPS, so it can't be trusted as a base; point it at an https:// URL and re-scan",
         )
-    if not constraint_path or not constraint_path.startswith("https://"):
-        return BaseConstraints(source=None, text=MINIMAL_CONSTRAINTS_HEADER, minimal=True)
+    if not constraint_path.startswith("https://"):
+        return BaseConstraints(
+            source=constraint_path,
+            text=None,
+            error=(
+                f"--constraint file {constraint_path} isn't under {DAGS_MOUNT_PREFIX} or an https:// URL, so it can't be "
+                "read as a base; move it under the DAGs folder (or host it over https) and re-scan"
+            ),
+        )
 
     apache_versions = parse_apache_constraints_url(constraint_path)
     python_version = PYTHON_VERSION_BY_AIRFLOW_VERSION.get(airflow_version, "unknown")

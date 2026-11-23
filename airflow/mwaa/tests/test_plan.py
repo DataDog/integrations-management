@@ -603,7 +603,11 @@ def test_a_full_constraints_file_gets_the_transitive_bumps_its_flagged_version_n
     assert (f"apache-airflow-providers-common-sql {target} needs sqlparse>=0.5.1" in plan.rationale) == bool(expected)
 
 
-@pytest.mark.parametrize("constraints", ["sqlparse==0.5.1\n", "sqlparse==0.5.3\n", "boto3==1.33.13\n"], ids=["at-minimum", "newer", "unpinned"])
+@pytest.mark.parametrize(
+    "constraints",
+    ["sqlparse==0.5.1\n", "sqlparse==0.5.3\n", "sqlparse==0.5.1.post1\n", "sqlparse==0.5.1.0\n", "sqlparse==0.6\n", "boto3==1.33.13\n"],
+    ids=["at-minimum", "newer", "post-release", "padded", "shorter-newer", "unpinned"],
+)
 def test_a_constraint_bump_never_lowers_or_adds_a_pin(constraints):
     plan = compute_plan(
         airflow_version="2.8.1", requirements_text="", base_constraints=local_base(constraints), startup_script_text=None, dd_site="datadoghq.com"
@@ -627,3 +631,13 @@ def test_a_minimal_constraints_file_pins_exactly_the_target_versions(airflow_ver
     assert set(wheels) == set(entry.wheel_only_packages)
     for package, wheel in wheels.items():
         assert wheel.line.endswith(datadog_wheel_filename(package, constraint_pins[package]))
+
+
+@pytest.mark.parametrize("pinned", ["0.4.4", "0.5", "0.5.0", "0.5.1rc1", "0.5.1.dev1", "0.5.1a1", "0.5.1b2", "0.5.1-rc.1", "not-a-version"])
+def test_a_constraint_bump_raises_anything_pep_440_orders_below_the_minimum(pinned):
+    plan = compute_plan(
+        airflow_version="2.8.1", requirements_text="", base_constraints=local_base(f"sqlparse=={pinned}\n"), startup_script_text=None, dd_site="datadoghq.com"
+    )
+
+    bumps = [fc for fc in plan.file_changes if isinstance(fc, PinChange) and fc.package == "sqlparse"]
+    assert bumps == [PinChange(path="dags/constraints.txt", package="sqlparse", from_version=pinned, to_version="0.5.1")]

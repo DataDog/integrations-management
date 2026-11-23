@@ -193,9 +193,26 @@ def plan_from_dict(data: dict) -> Plan:
     )
 
 
-def _release(version: str) -> tuple[int, ...]:
-    """The numeric release part of a version (`0.5.1rc1` -> (0, 5, 1)), enough to compare a pin with a minimum."""
-    return tuple(int(part) for part in re.match(r"[0-9.]*", version).group().split(".") if part)
+def _below(version: str, minimum: str) -> bool:
+    """Whether a pinned `version` is lower than a plain-release `minimum`, PEP 440-style.
+
+    No `packaging` in the zipapp, so this covers what a pin can look like: a
+    pre/dev release (`0.5.1rc1`, `0.5.1.dev1`) sorts below its release, a
+    post/local one (`0.5.1.post1`, `0.5.1+abc`) doesn't, and anything that
+    can't be parsed counts as below, since raising it is the safe side.
+    """
+    match = re.fullmatch(r"v?(\d+(?:\.\d+)*)(.*)", version.strip().lower())
+    if match is None:
+        return True
+    release = [int(part) for part in match.group(1).split(".")]
+    floor = [int(part) for part in minimum.split(".")]
+    width = max(len(release), len(floor))
+    release += [0] * (width - len(release))
+    floor += [0] * (width - len(floor))
+    if release != floor:
+        return release < floor
+    suffix = match.group(2).lstrip(".-_")
+    return bool(suffix) and not suffix.startswith("+") and not re.match(r"(post|rev|r(?!c))", suffix)
 
 
 def _plan_flagged_version(
@@ -238,7 +255,7 @@ def _plan_flagged_version(
             changes.append(PinChange(path=constraints_path, package=package, from_version=from_version, to_version=target))
     bump_reasons = []
     for package, (minimum, needed_by) in entry.constraint_bumps.items():
-        too_low = [version for version in pinned_versions(base_constraints.text, package) if _release(version) < _release(minimum)]
+        too_low = [version for version in pinned_versions(base_constraints.text, package) if _below(version, minimum)]
         if too_low:
             changes.append(PinChange(path=constraints_path, package=package, from_version=too_low[0], to_version=minimum))
             bump_reasons.append(f"{needed_by} {entry.target_versions[needed_by]} needs {package}>={minimum}")
