@@ -8,9 +8,10 @@ import pytest
 
 from botocore.exceptions import ClientError
 
+from mwaa.base_constraints import MINIMAL_CONSTRAINTS_HEADER, BaseConstraints
 from mwaa.probe import build_context
 
-from .conftest import UPSTREAM_2_8_1_TEXT, UPSTREAM_2_8_1_URL
+from .conftest import UPSTREAM_2_8_1_URL
 
 ENVIRONMENT = {
     "Name": "my-env",
@@ -102,7 +103,8 @@ def test_build_context_fetches_the_url_requirements_already_points_at(fake_fetch
     assert "boto3==1.33.13" in ctx.base_constraints.text
 
 
-def test_build_context_falls_back_to_upstream_constraints_for_the_airflow_and_python_version():
+def test_build_context_uses_a_minimal_constraints_base_without_a_constraint_line(fake_fetch):
+    fake_fetch.clear()  # nothing gets downloaded
     client = make_client()
     client.get_object_text.side_effect = lambda bucket, key, version_id=None: {
         "requirements.txt": "pandas==2.1.4\n",
@@ -111,15 +113,14 @@ def test_build_context_falls_back_to_upstream_constraints_for_the_airflow_and_py
 
     ctx = build_context(client, "my-env")
 
-    assert ctx.base_constraints.source == UPSTREAM_2_8_1_URL
-    assert ctx.base_constraints.text == UPSTREAM_2_8_1_TEXT
+    assert ctx.base_constraints == BaseConstraints(source=None, text=MINIMAL_CONSTRAINTS_HEADER, minimal=True)
 
 
 def test_build_context_records_a_base_constraints_fetch_failure_instead_of_raising(fake_fetch):
     fake_fetch.clear()
     client = make_client()
     client.get_object_text.side_effect = lambda bucket, key, version_id=None: {
-        "requirements.txt": "pandas==2.1.4\n",
+        "requirements.txt": f'--constraint "{UPSTREAM_2_8_1_URL}"\npandas==2.1.4\n',
         "startup/mwaa-startup.sh": "",
     }[key]
 

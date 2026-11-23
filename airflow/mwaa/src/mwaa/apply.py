@@ -151,10 +151,10 @@ def compute_apply_actions(ctx: ProbeContext, plan: Plan) -> list[FileUpload]:
     changes, possibly several sharing the same path (e.g. six PinChanges all
     for dags/constraints.txt) -- group by path first, then patch once per file.
 
-    constraints pins are patched into ctx.base_constraints, the full base
-    file (see base_constraints.py), never into whatever's at the target key
-    or an empty file -- if the base can't be read now, this raises rather
-    than produce a pins-only constraints file.
+    constraints pins are patched into ctx.base_constraints (see
+    base_constraints.py), never into whatever's at the target key -- if the
+    --constraint file it comes from can't be read now, this raises rather
+    than write a file the plan wasn't computed against.
 
     Everything else is taken from the plan as-is: check_files_unchanged has
     already proven every file it was computed from is still the same version.

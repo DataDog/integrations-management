@@ -2,28 +2,32 @@
 
 # This product includes software developed at Datadog (https://www.datadoghq.com/) Copyright 2025 Datadog, Inc.
 
-"""Which full constraints file a flagged version's OpenLineage pins get patched into.
+"""Which constraints file a flagged version's OpenLineage pins get patched into.
 
-The upgrade guide's procedure is to download the *whole* upstream constraints
-file, edit a handful of pins in it, and point requirements.txt at the result.
-A constraints file holding only those pins would leave every other package --
-apache-airflow itself included -- unconstrained, so the file this tool writes
-is always a full base with pins patched in, never pins alone. The base, in
-order of preference:
+When requirements.txt already has a --constraint line, the environment's other
+packages already resolve against that file, so the pins are patched into it:
 
-  1. the local constraints file requirements.txt already points at under the
-     DAGs mount (it's patched in place, whatever it's named);
-  2. the https:// URL requirements.txt's --constraint line already points at
-     (plain http:// is refused: its content can't be trusted) -- most
-     often the upstream file itself, which is what AWS recommends. When it's
-     an Apache-hosted upstream file, its Airflow/Python versions must match
-     the environment's (see parse_apache_constraints_url); a custom-hosted
-     file is used as-is;
-  3. the upstream file for the environment's Airflow + Python version.
+  1. the local constraints file requirements.txt points at under the DAGs
+     mount (it's patched in place, whatever it's named);
+  2. the https:// URL requirements.txt's --constraint line points at (plain
+     http:// is refused: its content can't be trusted) -- most often the
+     upstream file itself, which is what AWS recommends. When it's an
+     Apache-hosted upstream file, its Airflow/Python versions must match the
+     environment's (see parse_apache_constraints_url); a custom-hosted file
+     is used as-is.
 
-When none of those can be read, there's no safe file to write, so `text` is
-None and plan.py leaves the package changes out entirely (see
+When either of those can't be read, there's no safe file to write, so `text`
+is None and plan.py leaves the package changes out entirely (see
 check_base_constraints for the issue that records why).
+
+  3. Otherwise (no --constraint line, or one this tool can't read as a base)
+     the file written is minimal: MINIMAL_CONSTRAINTS_HEADER plus just the
+     OpenLineage pins. Not the full upstream constraints file the upgrade
+     guide patches: a customer's own pins routinely postdate an old Airflow
+     release's upstream file (boto3, say), and pip then refuses to install
+     anything from requirements.txt -- while MWAA still reports the update as
+     a success. MWAA installs apache-airflow==<version> as a top-level
+     requirement itself, so Airflow stays pinned either way.
 """
 
 import re
@@ -33,7 +37,7 @@ from typing import Callable, Optional
 
 from .fetch import FetchError
 from .pins import find_constraint_path
-from .version_table import PYTHON_VERSION_BY_AIRFLOW_VERSION, UPSTREAM_CONSTRAINTS_URL
+from .version_table import PYTHON_VERSION_BY_AIRFLOW_VERSION
 
 
 @dataclass(frozen=True)
@@ -41,6 +45,12 @@ class BaseConstraints:
     source: Optional[str]  # an s3:// URI or https URL; None if not even a source could be determined
     text: Optional[str]  # None when it couldn't be read -- see error
     error: Optional[str] = None
+    minimal: bool = False  # case 3: no base to patch, just the header the pins get appended to
+
+
+MINIMAL_CONSTRAINTS_HEADER = (
+    "# Pins only the OpenLineage packages Datadog Data Observability needs; every other package resolves as it would without a constraints file.\n"
+)
 
 
 _APACHE_CONSTRAINTS_REF = re.compile(r"constraints-(.+)")
@@ -73,7 +83,7 @@ def resolve_base_constraints(
     fetch: Callable[[str], bytes],
 ) -> BaseConstraints:
     """`local_constraints_text` is the referenced local file's content (None if there's no
-    such reference, or the object doesn't exist)."""
+    such reference, or the object doesn't exist -- then the file written is minimal, case 3)."""
     if local_constraints_text is not None:
         return BaseConstraints(source=local_constraints_uri, text=local_constraints_text)
 
@@ -84,27 +94,22 @@ def resolve_base_constraints(
             text=None,
             error=f"--constraint URL {constraint_path} isn't HTTPS, so it can't be trusted as a base; point it at an https:// URL and re-scan",
         )
-    if constraint_path and constraint_path.startswith("https://"):
-        url = constraint_path
-        apache_versions = parse_apache_constraints_url(url)
-        python_version = PYTHON_VERSION_BY_AIRFLOW_VERSION.get(airflow_version, "unknown")
-        if apache_versions and apache_versions != (airflow_version, python_version):
-            url_airflow, url_python = apache_versions
-            return BaseConstraints(
-                source=url,
-                text=None,
-                error=(
-                    f"--constraint URL is for Airflow {url_airflow} / Python {url_python} but this environment runs "
-                    f"Airflow {airflow_version} (Python {python_version}); fix the --constraint line and re-scan"
-                ),
-            )
-    else:
-        python_version = PYTHON_VERSION_BY_AIRFLOW_VERSION.get(airflow_version)
-        if python_version is None:
-            return BaseConstraints(source=None, text=None, error=f"no known MWAA Python version for Airflow {airflow_version}")
-        url = UPSTREAM_CONSTRAINTS_URL.format(airflow_version=airflow_version, python_version=python_version)
+    if not constraint_path or not constraint_path.startswith("https://"):
+        return BaseConstraints(source=None, text=MINIMAL_CONSTRAINTS_HEADER, minimal=True)
 
+    apache_versions = parse_apache_constraints_url(constraint_path)
+    python_version = PYTHON_VERSION_BY_AIRFLOW_VERSION.get(airflow_version, "unknown")
+    if apache_versions and apache_versions != (airflow_version, python_version):
+        url_airflow, url_python = apache_versions
+        return BaseConstraints(
+            source=constraint_path,
+            text=None,
+            error=(
+                f"--constraint URL is for Airflow {url_airflow} / Python {url_python} but this environment runs "
+                f"Airflow {airflow_version} (Python {python_version}); fix the --constraint line and re-scan"
+            ),
+        )
     try:
-        return BaseConstraints(source=url, text=fetch(url).decode("utf-8"))
+        return BaseConstraints(source=constraint_path, text=fetch(constraint_path).decode("utf-8"))
     except (FetchError, UnicodeDecodeError) as exc:
-        return BaseConstraints(source=url, text=None, error=f"{exc}; re-run scan once it's reachable")
+        return BaseConstraints(source=constraint_path, text=None, error=f"{exc}; re-run scan once it's reachable")

@@ -6,9 +6,10 @@ from dataclasses import asdict
 
 import pytest
 
-from mwaa.base_constraints import BaseConstraints
+from mwaa.base_constraints import MINIMAL_CONSTRAINTS_HEADER, BaseConstraints
 from mwaa.plan import ConstraintDirectiveChange, EnvVarChange, PinChange, WheelReference, compute_plan, plan_from_dict
 from mwaa.startup_script import DD_API_KEY_PLACEHOLDER
+from mwaa.version_table import FLAGGED_VERSION_TABLE, datadog_wheel_filename
 
 
 def local_base(text: str) -> BaseConstraints:
@@ -560,3 +561,69 @@ def test_plan_from_dict_round_trips_every_file_change_variant():
     loaded = plan_from_dict(asdict(plan))
 
     assert loaded == plan
+
+
+MINIMAL_BASE = BaseConstraints(source=None, text=MINIMAL_CONSTRAINTS_HEADER, minimal=True)
+
+
+def test_no_constraint_line_writes_a_minimal_constraints_file_that_leaves_the_customers_own_pins_alone():
+    """A never-onboarded requirements.txt pinning boto3 newer than upstream 2.8.1's boto3==1.33.13:
+    against the full upstream file pip would install nothing from it at all."""
+    requirements = "pandas==2.1.4\nboto3==1.34.11\napache-airflow-providers-snowflake==5.2.1\n"
+    plan = compute_plan(
+        airflow_version="2.8.1", requirements_text=requirements, base_constraints=MINIMAL_BASE, startup_script_text=None, dd_site="datadoghq.com"
+    )
+
+    constraint_pins = {fc.package: (fc.from_version, fc.to_version) for fc in plan.file_changes if isinstance(fc, PinChange) and fc.path == "dags/constraints.txt"}
+    assert constraint_pins == {package: (None, target) for package, target in FLAGGED_VERSION_TABLE["2.8.1"].target_versions.items()}
+    assert ConstraintDirectiveChange(path="requirements.txt", from_line=None, to_line='--constraint "/usr/local/airflow/dags/constraints.txt"') in plan.file_changes
+    assert not any(isinstance(fc, PinChange) and fc.package in ("boto3", "pandas", "sqlparse") for fc in plan.file_changes)
+    assert "minimal constraints file pinning just the OpenLineage packages" in plan.rationale
+
+
+@pytest.mark.parametrize(
+    "airflow_version, expected",
+    [
+        ("2.7.2", []),
+        ("2.8.1", [PinChange(path="dags/constraints.txt", package="sqlparse", from_version="0.4.4", to_version="0.5.1")]),
+        ("2.9.2", [PinChange(path="dags/constraints.txt", package="sqlparse", from_version="0.4.4", to_version="0.5.1")]),
+    ],
+)
+def test_a_full_constraints_file_gets_the_transitive_bumps_its_flagged_version_needs(airflow_version, expected):
+    plan = compute_plan(
+        airflow_version=airflow_version,
+        requirements_text="",
+        base_constraints=local_base("boto3==1.33.13\nsqlparse==0.4.4\n"),
+        startup_script_text=None,
+        dd_site="datadoghq.com",
+    )
+
+    assert [fc for fc in plan.file_changes if isinstance(fc, PinChange) and fc.package == "sqlparse"] == expected
+    target = FLAGGED_VERSION_TABLE[airflow_version].target_versions.get("apache-airflow-providers-common-sql")
+    assert (f"apache-airflow-providers-common-sql {target} needs sqlparse>=0.5.1" in plan.rationale) == bool(expected)
+
+
+@pytest.mark.parametrize("constraints", ["sqlparse==0.5.1\n", "sqlparse==0.5.3\n", "boto3==1.33.13\n"], ids=["at-minimum", "newer", "unpinned"])
+def test_a_constraint_bump_never_lowers_or_adds_a_pin(constraints):
+    plan = compute_plan(
+        airflow_version="2.8.1", requirements_text="", base_constraints=local_base(constraints), startup_script_text=None, dd_site="datadoghq.com"
+    )
+
+    assert not any(isinstance(fc, PinChange) and fc.package == "sqlparse" for fc in plan.file_changes)
+    assert "needs sqlparse" not in plan.rationale
+
+
+@pytest.mark.parametrize("airflow_version", ["2.7.2", "2.8.1", "2.9.2"])
+def test_a_minimal_constraints_file_pins_exactly_the_target_versions(airflow_version):
+    entry = FLAGGED_VERSION_TABLE[airflow_version]
+    plan = compute_plan(
+        airflow_version=airflow_version, requirements_text="", base_constraints=MINIMAL_BASE, startup_script_text=None, dd_site="datadoghq.com"
+    )
+
+    constraint_pins = {fc.package: fc.to_version for fc in plan.file_changes if isinstance(fc, PinChange) and fc.path == "dags/constraints.txt"}
+    assert constraint_pins == entry.target_versions
+    # 2.7.2's wheel-only packages are pinned to the very version of the wheel requirements.txt installs
+    wheels = {fc.package: fc for fc in plan.file_changes if isinstance(fc, WheelReference)}
+    assert set(wheels) == set(entry.wheel_only_packages)
+    for package, wheel in wheels.items():
+        assert wheel.line.endswith(datadog_wheel_filename(package, constraint_pins[package]))

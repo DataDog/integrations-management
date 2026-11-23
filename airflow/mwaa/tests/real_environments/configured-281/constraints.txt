@@ -7,3 +7,4 @@ openlineage-integration-common==1.24.2
 openlineage-python==1.24.2
 openlineage-sql==1.24.2
 pandas==2.1.4
+sqlparse==0.5.1

@@ -29,21 +29,33 @@ No "removed" variant exists because nothing in this plan ever removes a line
 -- only adds or corrects one. If that changes, add the variant that case
 actually needs then, rather than guessing its shape now.
 
-A flagged version's constraints.txt PinChanges are against the full base
-constraints file base_constraints.py resolves, never a file holding only
-those pins -- and when that base can't be read, the plan has no package
-changes at all rather than ones apply couldn't safely write.
+A flagged version's constraints.txt PinChanges are against the base
+base_constraints.py resolves: the constraints file requirements.txt already
+uses, when it has one -- and when that can't be read, the plan has no package
+changes at all rather than ones apply couldn't safely write -- else a minimal
+file that pins only the OpenLineage packages.
 
 EnvVarChange.to_value is never a real secret -- see startup_script.py's
 DD_API_KEY_PLACEHOLDER -- so a Plan is always safe to persist, log, or
 display as-is.
 """
 
+import re
 from dataclasses import dataclass, replace
 from typing import Optional, Union
 
 from .base_constraints import BaseConstraints
-from .pins import DAGS_MOUNT_PREFIX, OPENLINEAGE_PROVIDER, find_constraint_lines, find_constraint_path, mentions_package, resolve_constraint_s3_key, stale_pin, wheel_identity
+from .pins import (
+    DAGS_MOUNT_PREFIX,
+    OPENLINEAGE_PROVIDER,
+    find_constraint_lines,
+    find_constraint_path,
+    mentions_package,
+    pinned_versions,
+    resolve_constraint_s3_key,
+    stale_pin,
+    wheel_identity,
+)
 from .openlineage_config import OpenLineageState, analyze, is_intake_url, is_set
 from .startup_script import KEEP_EXISTING_VAR_NAMES, SECRET_VAR_NAMES, parse_exports, target_values
 from .version_table import DATADOG_WHEEL_BASE_URL, FLAGGED_VERSION_TABLE, SOURCE_DOC, FlaggedVersionEntry, datadog_wheel_filename
@@ -181,6 +193,11 @@ def plan_from_dict(data: dict) -> Plan:
     )
 
 
+def _release(version: str) -> tuple[int, ...]:
+    """The numeric release part of a version (`0.5.1rc1` -> (0, 5, 1)), enough to compare a pin with a minimum."""
+    return tuple(int(part) for part in re.match(r"[0-9.]*", version).group().split(".") if part)
+
+
 def _plan_flagged_version(
     entry: FlaggedVersionEntry,
     requirements_text: str,
@@ -198,9 +215,8 @@ def _plan_flagged_version(
         reason = base_constraints.error if base_constraints else "it wasn't resolved"
         return (
             True,
-            f"{rationale} No safe full constraints file could be planned ({reason}), so this plan leaves out "
-            "every package change -- a constraints file holding only the OpenLineage pins would unconstrain "
-            "every other package.",
+            f"{rationale} requirements.txt's --constraint file couldn't be read ({reason}), so this plan leaves out "
+            "every package change -- its other packages resolve against that file, so the pins have to be patched into it.",
             [],
         )
     constraint_lines = find_constraint_lines(requirements_text)
@@ -220,8 +236,22 @@ def _plan_flagged_version(
         needs_change, from_version = stale_pin(base_constraints.text, package, target)
         if needs_change:
             changes.append(PinChange(path=constraints_path, package=package, from_version=from_version, to_version=target))
+    bump_reasons = []
+    for package, (minimum, needed_by) in entry.constraint_bumps.items():
+        too_low = [version for version in pinned_versions(base_constraints.text, package) if _release(version) < _release(minimum)]
+        if too_low:
+            changes.append(PinChange(path=constraints_path, package=package, from_version=too_low[0], to_version=minimum))
+            bump_reasons.append(f"{needed_by} {entry.target_versions[needed_by]} needs {package}>={minimum}")
     if changes:
-        rationale += f" {constraints_path} is the full constraints file from {base_constraints.source}, with these pins patched in."
+        if base_constraints.minimal:
+            rationale += (
+                f" {constraints_path} is a minimal constraints file pinning just the OpenLineage packages, so the "
+                "environment's other packages resolve as they did before."
+            )
+        else:
+            rationale += f" {constraints_path} is the constraints file from {base_constraints.source}, with these pins patched in."
+        if bump_reasons:
+            rationale += f" It also raises pins the OpenLineage packages can't resolve against: {'; '.join(bump_reasons)}."
         if constraints_path == DATADOG_CONSTRAINTS_PATH:
             rationale += (
                 f" {CONSTRAINTS_PATH} already exists but isn't referenced by requirements.txt, so the patched "

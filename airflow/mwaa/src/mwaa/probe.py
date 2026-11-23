@@ -58,8 +58,8 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
     """Fetch everything the checks (and plan computation) need, once, up front.
 
     Everything comes from AWS except a flagged version's base constraints
-    file when it isn't already a local S3 object (see base_constraints.py) --
-    that's a plain HTTPS GET.
+    file when requirements.txt's --constraint line is an https:// URL (see
+    base_constraints.py) -- that's a plain HTTPS GET.
 
     Also records file_versions: the latest S3 VersionId (None if it doesn't
     exist) of every file the plan reads or might write, keyed by the plan's

@@ -25,6 +25,7 @@ UPSTREAM_2_8_1_TEXT = (
     "openlineage-python==1.7.0\n"
     "openlineage_sql==1.7.0\n"
     "pandas==2.1.4\n"
+    "sqlparse==0.4.4\n"
 )
 
 UPSTREAM_2_7_2_URL = "https://raw.githubusercontent.com/apache/airflow/constraints-2.7.2/constraints-3.11.txt"

@@ -4,7 +4,7 @@
 
 import pytest
 
-from mwaa.base_constraints import parse_apache_constraints_url, resolve_base_constraints
+from mwaa.base_constraints import MINIMAL_CONSTRAINTS_HEADER, BaseConstraints, parse_apache_constraints_url, resolve_base_constraints
 from mwaa.fetch import FetchError
 
 
@@ -12,33 +12,52 @@ def unreachable(url: str) -> bytes:
     raise FetchError(f"could not download {url}: unreachable")
 
 
-def test_uses_the_2_9_2_python_version_aws_documents():
-    fetched = []
-    resolve_base_constraints("2.9.2", "", None, "s3://b/dags/constraints.txt", lambda url: fetched.append(url) or b"")
-
-    assert fetched == ["https://raw.githubusercontent.com/apache/airflow/constraints-2.9.2/constraints-3.11.txt"]
+def never_fetch(url: str) -> bytes:
+    raise AssertionError(f"{url} must not be fetched")
 
 
-def test_unknown_python_version_is_an_error_not_a_guess():
-    base = resolve_base_constraints("2.6.3", "", None, "s3://b/dags/constraints.txt", unreachable)
+def test_no_constraint_line_is_a_minimal_file_and_fetches_nothing():
+    base = resolve_base_constraints("2.8.1", "pandas==2.1.4\nboto3==1.34.11\n", None, "", never_fetch)
+
+    assert base == BaseConstraints(source=None, text=MINIMAL_CONSTRAINTS_HEADER, minimal=True)
+
+
+def test_a_local_constraints_path_that_does_not_exist_is_a_minimal_file():
+    requirements = '--constraint "/usr/local/airflow/dags/constraints.txt"\n'
+    base = resolve_base_constraints("2.8.1", requirements, None, "s3://b/dags/constraints.txt", never_fetch)
+
+    assert base.minimal
+    assert base.text == MINIMAL_CONSTRAINTS_HEADER
+
+
+def test_an_existing_local_constraints_file_is_the_base():
+    base = resolve_base_constraints("2.8.1", "", "boto3==1.33.13\n", "s3://b/dags/constraints.txt", never_fetch)
+
+    assert base == BaseConstraints(source="s3://b/dags/constraints.txt", text="boto3==1.33.13\n")
+
+
+def test_a_2_9_2_apache_url_matches_the_python_version_aws_documents():
+    url = "https://raw.githubusercontent.com/apache/airflow/constraints-2.9.2/constraints-3.11.txt"
+    base = resolve_base_constraints("2.9.2", f'--constraint "{url}"\n', None, "", lambda url: b"boto3==1.34.0\n")
+
+    assert base.source == url
+    assert base.text == "boto3==1.34.0\n"
+
+
+def test_an_apache_url_for_an_airflow_version_with_no_known_python_version_is_an_error_not_a_guess():
+    url = "https://raw.githubusercontent.com/apache/airflow/constraints-2.6.3/constraints-3.10.txt"
+    base = resolve_base_constraints("2.6.3", f'--constraint "{url}"\n', None, "", never_fetch)
 
     assert base.text is None
-    assert base.source is None
-    assert "2.6.3" in base.error
-
-
-def test_a_local_constraints_path_that_does_not_exist_falls_back_to_upstream():
-    requirements = '--constraint "/usr/local/airflow/dags/constraints.txt"\n'
-    base = resolve_base_constraints("2.8.1", requirements, None, "s3://b/dags/constraints.txt", lambda url: b"boto3==1.33.13\n")
-
-    assert base.source == "https://raw.githubusercontent.com/apache/airflow/constraints-2.8.1/constraints-3.11.txt"
-    assert base.text == "boto3==1.33.13\n"
+    assert "Python unknown" in base.error
 
 
 def test_fetch_failure_is_carried_as_an_error():
-    base = resolve_base_constraints("2.8.1", "", None, "s3://b/dags/constraints.txt", unreachable)
+    url = "https://raw.githubusercontent.com/apache/airflow/constraints-2.8.1/constraints-3.11.txt"
+    base = resolve_base_constraints("2.8.1", f'--constraint "{url}"\n', None, "", unreachable)
 
     assert base.text is None
+    assert not base.minimal
     assert "unreachable" in base.error
 
 

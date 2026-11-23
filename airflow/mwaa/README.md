@@ -14,25 +14,33 @@ one named environment's plan.
 (`mwaa:GetEnvironment`, `s3:GetObject`/`HeadObject`, `iam:SimulatePrincipalPolicy`), and
 that's enforced mechanically, not just by review -- see `MwaaClient`'s `read_only` guard
 in `shared/src/airflow_shared/mwaa_client.py`. Its one non-AWS request is a plain HTTPS
-GET for a public constraints file (below).
+GET for the constraints file requirements.txt's `--constraint` line points at, when that's
+a URL (below).
 
 For Airflow 2.7.2/2.8.1/2.9.2, the upgrade guide's procedure is to take the *full* Airflow
 constraints file, patch the OpenLineage pins into it, upload it as `dags/constraints.txt`
-and point requirements.txt's `--constraint` line at it. The plan does the same, starting
-from (in order) the local constraints file requirements.txt already points at under the
-DAGs mount (patched in place, whatever it's named), else the URL requirements.txt already
-points at (the line is then replaced, never duplicated; an Apache-hosted upstream URL
-must be for the environment's own Airflow and Python version, or it's a `base_constraints`
-issue instead), else the upstream
-`constraints-<airflow>/constraints-<python>.txt` for the environment's version -- see
-`base_constraints.py`, and `version_table.py` for the Airflow-to-Python table. If that
-base can't be read, the plan leaves out the package changes entirely and records a
-`base_constraints` issue: a constraints file holding only the OpenLineage pins would
-unconstrain every other package, Airflow included. The same goes for a requirements.txt
-with more than one `--constraint` line (a `constraint_directives` issue): pip enforces
-all of them, so repointing just one would leave the others' old pins in force.
+and point requirements.txt's `--constraint` line at it. The plan only does that when
+requirements.txt already has a `--constraint` line, since its other packages already
+resolve against that file: it patches the local constraints file that line points at under
+the DAGs mount (in place, whatever it's named), else the URL it points at (the line is
+then replaced, never duplicated; an Apache-hosted upstream URL must be for the
+environment's own Airflow and Python version, or it's a `base_constraints` issue instead)
+-- see `base_constraints.py`, and `version_table.py` for the Airflow-to-Python table. If
+that file can't be read, the plan leaves out the package changes entirely and records a
+`base_constraints` issue. The same goes for a requirements.txt with more than one
+`--constraint` line (a `constraint_directives` issue): pip enforces all of them, so
+repointing just one would leave the others' old pins in force. A full file also gets the transitive pins the OpenLineage
+packages can't resolve against raised (`constraint_bumps` in `version_table.py`: upstream
+2.8.1/2.9.2 pin `sqlparse` below what common-sql needs), or pip refuses the whole install.
 
-When requirements.txt doesn't reference a local constraints file, the patched one is
+With no `--constraint` line, the plan writes a *minimal* constraints file instead: a
+one-line header and just the OpenLineage pins. The full upstream file would pin
+everything else to the old Airflow release's versions, and a customer's own newer pins
+(`boto3`, say) then make pip refuse to install anything from requirements.txt -- while
+MWAA still reports the update as a success. MWAA installs `apache-airflow==<version>`
+itself, so Airflow stays pinned either way.
+
+When requirements.txt doesn't reference a local constraints file, the new one is
 written to `dags/constraints.txt` -- unless that already exists, unreferenced (it may be
 another environment's), in which case it's left alone and the plan writes
 `dags/constraints-datadog.txt` instead. Telling those apart needs `s3:ListBucket` on the

@@ -37,6 +37,11 @@ class FlaggedVersionEntry:
     # -- constraints.txt still pins them. Only true for 2.7.2, where the
     # upstream provider isn't compatible with that Airflow version at all.
     wheel_only_packages: tuple[str, ...] = field(default_factory=tuple)
+    # package -> (minimum version, the target package that needs it): pins a full
+    # constraints file holds too low for target_versions to resolve against, so
+    # pip fails the whole install. Only raised when a full file is patched -- the
+    # minimal one (see base_constraints.py) doesn't pin them at all.
+    constraint_bumps: dict[str, tuple[str, str]] = field(default_factory=dict)
 
 
 SOURCE_DOC = "https://docs.datadoghq.com/data_observability/jobs_monitoring/airflow_mwaa_upgrade.md"
@@ -68,8 +73,6 @@ def datadog_wheel_filename(package: str, version: str) -> str:
     """The upgrade guide's patched wheels follow the standard wheel name for a pure-Python package."""
     return f"{package.replace('-', '_')}-{version}-py3-none-any.whl"
 
-
-UPSTREAM_CONSTRAINTS_URL = "https://raw.githubusercontent.com/apache/airflow/constraints-{airflow_version}/constraints-{python_version}.txt"
 
 FLAGGED_VERSION_TABLE: dict[str, FlaggedVersionEntry] = {
     "2.7.2": FlaggedVersionEntry(
@@ -108,6 +111,7 @@ FLAGGED_VERSION_TABLE: dict[str, FlaggedVersionEntry] = {
             "openlineage-python": "1.24.2",
             "openlineage-sql": "1.24.2",
         },
+        constraint_bumps={"sqlparse": ("0.5.1", "apache-airflow-providers-common-sql")},
     ),
     "2.9.2": FlaggedVersionEntry(
         airflow_version="2.9.2",
@@ -126,5 +130,6 @@ FLAGGED_VERSION_TABLE: dict[str, FlaggedVersionEntry] = {
             "openlineage-python": "1.31.0",
             "openlineage-sql": "1.31.0",
         },
+        constraint_bumps={"sqlparse": ("0.5.1", "apache-airflow-providers-common-sql")},
     ),
 }

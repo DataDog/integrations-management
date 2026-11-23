@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 from airflow_shared.reporter import FindingStatus
+from mwaa.base_constraints import MINIMAL_CONSTRAINTS_HEADER
 from mwaa.apply import apply_to_environment, check_files_unchanged, compute_apply_actions
 from mwaa.plan import ConstraintDirectiveChange, EnvVarChange, PinChange
 from mwaa.probe import build_context
@@ -77,9 +78,14 @@ def test_probe_281_whose_airflow_transport_overrides_openlineage_url_fails_and_p
     assert not env_var_names(entry) & TRANSPORT_VARS
     assert "AIRFLOW__OPENLINEAGE__NAMESPACE" not in env_var_names(entry)
     # requirements already carry the 2.8.1 targets under a local --constraint; the constraints file
-    # still has upstream's openlineage_sql==1.7.0 next to the patched pin, which has to go
+    # still has upstream's openlineage_sql==1.7.0 next to the patched pin, which has to go, and
+    # upstream's sqlparse==0.4.4, which common-sql 1.20.0 can't install against
     package_changes = [fc for fc in entry.plan.file_changes if not isinstance(fc, EnvVarChange)]
-    assert package_changes == [PinChange(path="dags/constraints.txt", package="openlineage-sql", from_version="1.7.0", to_version="1.24.2")]
+    assert package_changes == [
+        PinChange(path="dags/constraints.txt", package="openlineage-sql", from_version="1.7.0", to_version="1.24.2"),
+        PinChange(path="dags/constraints.txt", package="sqlparse", from_version="0.4.4", to_version="0.5.1"),
+    ]
+    assert "apache-airflow-providers-common-sql 1.20.0 needs sqlparse>=0.5.1" in entry.plan.rationale
 
 
 def test_sandbox_281_writes_datadog_copies_next_to_its_orphaned_files():
@@ -108,6 +114,19 @@ def test_sandbox_281_writes_datadog_copies_next_to_its_orphaned_files():
     assert client.objects["probe/sandbox/dags/startup.sh"] == (FIXTURES / "sandbox-281" / "someone-elses-startup.sh").read_text()
     assert "OPENLINEAGE_URL=https://data-obs-intake.datad0g.com" in client.objects["probe/sandbox/dags/startup-datadog.sh"]
     assert client.update_environment.call_args.kwargs["StartupScriptS3Path"] == "probe/sandbox/dags/startup-datadog.sh"
+    # no --constraint line, so the constraints file pins only the OpenLineage packages: the
+    # full upstream file's boto3==1.33.13 would make pip refuse this requirements.txt's boto3==1.34.11
+    assert client.objects["probe/sandbox/dags/constraints-datadog.txt"] == MINIMAL_CONSTRAINTS_HEADER + (
+        "apache-airflow-providers-openlineage==1.14.0\n"
+        "apache-airflow-providers-common-sql==1.20.0\n"
+        "apache-airflow-providers-common-compat==1.2.1\n"
+        "openlineage-integration-common==1.24.2\n"
+        "openlineage-python==1.24.2\n"
+        "openlineage-sql==1.24.2\n"
+    )
+    assert client.objects["probe/sandbox/dags/constraints.txt"] == (FIXTURES / "sandbox-281" / "someone-elses-constraints.txt").read_text()
+    assert client.objects["probe/sandbox/requirements.txt"].startswith('--constraint "/usr/local/airflow/dags/constraints-datadog.txt"\n')
+    assert "boto3==1.34.11" in client.objects["probe/sandbox/requirements.txt"]
 
 
 def test_blank_321_writes_requirements_datadog_txt_beside_an_existing_unconfigured_requirements_txt():

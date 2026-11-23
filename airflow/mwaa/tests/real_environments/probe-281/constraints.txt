@@ -10,3 +10,4 @@ openlineage-python==1.24.2
 openlineage-sql==1.24.2
 openlineage_sql==1.7.0
 pandas==2.1.4
+sqlparse==0.4.4
