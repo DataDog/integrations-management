@@ -4,10 +4,10 @@
 
 import json
 from dataclasses import asdict
-from typing import Optional
+from typing import Iterator, Optional
 
 from gcp_shared.gcloud import GcloudCmd, gcloud, try_gcloud
-from gcp_shared.models import ConfigurationScope, Project
+from gcp_shared.models import ConfigurationScope, Folder, Project
 from gcp_shared.reporter import StepStatusReporter
 from gcp_shared.requests import dd_request
 from gcp_shared.dataflow_configuration import (
@@ -39,6 +39,16 @@ BILLING_DISABLED_REASONS: dict[str, str] = {
     "UREQ_PROJECT_BILLING_NOT_FOUND": "it has no billing account",
     "UREQ_PROJECT_BILLING_NOT_OPEN": "its billing account is not open",
 }
+
+
+class ApiEnablementError(RuntimeError):
+    """The required APIs could not be enabled on a project, for a reason other than billing."""
+
+    def __init__(self, cmd: GcloudCmd, error: str):
+        super().__init__(f"could not execute gcloud command '{cmd}': {error}")
+        lines = error.strip().splitlines()
+        self.summary = lines[0] if lines else "unknown error"
+
 
 REQUIRED_ROLES: list[str] = [
     "roles/cloudasset.viewer",
@@ -260,15 +270,21 @@ def create_integration_with_permissions(
         )
 
     skipped_project_ids: list[str] = []
+    failed_project_ids: list[str] = []
     configured_project_count = 0
 
     for folder in configuration_scope.folders:
-        for child_project in filter(
-            lambda c: c.resource_container_type == "project", folder.child_scopes
-        ):
-            # A skipped child still inherits the folder's role bindings below, so it is still discovered.
-            if not enable_required_apis(step_reporter, child_project, required_services):
-                skipped_project_ids.append(child_project.id)
+        for project in descendant_projects(folder):
+            # A skipped project still inherits the folder's role bindings below, so it is still discovered.
+            # One failing project deep in a folder tree shouldn't stop the setup for the rest of it.
+            try:
+                if not enable_required_apis(step_reporter, project, required_services):
+                    skipped_project_ids.append(project.id)
+            except ApiEnablementError as e:
+                step_reporter.report(
+                    message=f"Skipping project '{project.name}': could not enable the required APIs: {e.summary}"
+                )
+                failed_project_ids.append(project.id)
 
         for role in required_roles:
             step_reporter.report(
@@ -306,6 +322,8 @@ def create_integration_with_permissions(
 
     if skipped_project_ids:
         report_skipped_projects(step_reporter, skipped_project_ids)
+    if failed_project_ids:
+        report_failed_projects(step_reporter, failed_project_ids)
 
     if (
         configuration_scope.projects
@@ -347,13 +365,22 @@ def create_integration_with_permissions(
     )
 
 
+def descendant_projects(folder: Folder) -> Iterator[Project]:
+    """Yield every project under a folder, including those in its subfolders."""
+    for child in folder.child_scopes:
+        if isinstance(child, Folder):
+            yield from descendant_projects(child)
+        else:
+            yield child
+
+
 def enable_required_apis(
     step_reporter: StepStatusReporter, project: Project, required_services: list[str]
 ) -> bool:
     """Enable the required APIs on a project.
 
     Return False when the project has no open billing account, so the caller can skip it.
-    Raise on any other failure.
+    Raise ApiEnablementError on any other failure.
     """
     step_reporter.report(
         message=f"Enabling required APIs [{', '.join(required_services)}] for project '{project.name}'"
@@ -373,7 +400,7 @@ def enable_required_apis(
                 message=f"Skipping project '{project.name}': {explanation}, so the required APIs cannot be enabled"
             )
             return False
-    raise RuntimeError(f"could not execute gcloud command '{enable_api_cmd}': {result.error}")
+    raise ApiEnablementError(enable_api_cmd, result.error)
 
 
 def report_skipped_projects(
@@ -383,4 +410,14 @@ def report_skipped_projects(
     step_reporter.report(
         message=f"Skipped {len(skipped_project_ids)} project(s) without an open billing account",
         metadata={"skipped_unbilled_projects": skipped_project_ids},
+    )
+
+
+def report_failed_projects(
+    step_reporter: StepStatusReporter, failed_project_ids: list[str]
+) -> None:
+    """Report the folder projects skipped because their APIs could not be enabled, once for the whole run."""
+    step_reporter.report(
+        message=f"Skipped {len(failed_project_ids)} project(s) whose required APIs could not be enabled",
+        metadata={"skipped_failed_projects": failed_project_ids},
     )
