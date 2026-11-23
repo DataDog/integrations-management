@@ -12,10 +12,12 @@ from unittest.mock import patch as mock_patch
 from azure_integration_quickstart.quickstart_shared import (
     build_log_forwarder_payload,
     report_existing_log_forwarders,
-    serialize_resource_provider_configs,
+    resource_provider_configs_to_selection,
+    resource_provider_selection_to_configs,
     upsert_log_forwarder,
     wait_for_rg_delete_if_needed,
 )
+from az_shared.errors import InputParamValidationError
 from az_shared.script_status import Status
 from azure_logging_install.existing_lfo import ControlPlane, Configuration
 from azure_logging_install.configuration import ControlPlaneType
@@ -42,11 +44,12 @@ def _make_metadata(monitored_subs=None):
     )
 
 
-RESOURCE_PROVIDER_CONFIGS_OBJECT = {
-    "logs_enabled_default": True,
-    "providers": [{"namespace": "Microsoft.Web", "logs_enabled": False}],
-}
-RESOURCE_PROVIDER_CONFIGS = json.dumps(RESOURCE_PROVIDER_CONFIGS_OBJECT, separators=(",", ":"), sort_keys=True)
+RESOURCE_PROVIDER_SELECTION = {"logsEnabledDefault": True, "resourceProviderExceptions": ["Microsoft.Sql", "Microsoft.Web"]}
+RESOURCE_PROVIDER_CONFIGS = (
+    '{"logs_enabled_default":true,"providers":['
+    '{"logs_enabled":false,"namespace":"Microsoft.Sql"},'
+    '{"logs_enabled":false,"namespace":"Microsoft.Web"}]}'
+)
 
 
 class TestBuildLogForwarderPayload(DDTestCase):
@@ -71,24 +74,79 @@ class TestBuildLogForwarderPayload(DDTestCase):
         self.assertNotIn("monitoredSubscriptions", payload)
         self.assertEqual(payload["resourceGroupName"], "lfo-rg")
 
-    def test_reports_resource_provider_configs_as_json_string(self):
+    def test_reports_resource_provider_selection(self):
         payload = build_log_forwarder_payload(_make_metadata(), include_monitored_scopes=False, sub_id_to_name={})
-        self.assertEqual(payload["resourceProviderConfigs"], RESOURCE_PROVIDER_CONFIGS)
-        self.assertEqual(json.loads(payload["resourceProviderConfigs"]), RESOURCE_PROVIDER_CONFIGS_OBJECT)
+        self.assertEqual(payload["resourceProviderSelection"], RESOURCE_PROVIDER_SELECTION)
 
 
-class TestSerializeResourceProviderConfigs(DDTestCase):
-    def test_serializes_object_from_ui(self):
-        self.assertEqual(serialize_resource_provider_configs(RESOURCE_PROVIDER_CONFIGS_OBJECT), RESOURCE_PROVIDER_CONFIGS)
+class TestResourceProviderSelectionToConfigs(DDTestCase):
+    def test_converts_selection_to_log_forwarder_setting(self):
+        self.assertEqual(resource_provider_selection_to_configs(RESOURCE_PROVIDER_SELECTION), RESOURCE_PROVIDER_CONFIGS)
 
-    def test_serializes_json_string_reported_to_ui_without_double_encoding(self):
-        reported = json.dumps(RESOURCE_PROVIDER_CONFIGS_OBJECT, indent=2)
-        self.assertEqual(serialize_resource_provider_configs(reported), RESOURCE_PROVIDER_CONFIGS)
+    def test_disabled_by_default_enables_exceptions(self):
+        configs = resource_provider_selection_to_configs(
+            {"logsEnabledDefault": False, "resourceProviderExceptions": ["Microsoft.Web"]}
+        )
+        self.assertEqual(
+            json.loads(configs),
+            {"logs_enabled_default": False, "providers": [{"namespace": "Microsoft.Web", "logs_enabled": True}]},
+        )
 
-    def test_missing_configs_serialize_to_empty_setting(self):
-        for missing in (None, "", {}):
+    def test_same_selection_converts_to_same_setting(self):
+        """Exceptions are deduplicated and sorted, so an unchanged selection doesn't update the log forwarder."""
+        configs = resource_provider_selection_to_configs(
+            {"logsEnabledDefault": True, "resourceProviderExceptions": ["Microsoft.Web", "microsoft.sql", "Microsoft.Sql", " "]}
+        )
+        self.assertEqual(configs, RESOURCE_PROVIDER_CONFIGS)
+
+    def test_missing_selection_converts_to_empty_setting(self):
+        for missing in (None, {}):
             with self.subTest(missing=missing):
-                self.assertEqual(serialize_resource_provider_configs(missing), "")
+                self.assertEqual(resource_provider_selection_to_configs(missing), "")
+
+    def test_invalid_selection_raises_input_param_validation_error(self):
+        for invalid in (
+            {"logsEnabledDefault": "true"},
+            {"resourceProviderExceptions": "Microsoft.Web"},
+            {"resourceProviderExceptions": [1]},
+        ):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(InputParamValidationError):
+                    resource_provider_selection_to_configs(invalid)
+
+
+class TestResourceProviderConfigsToSelection(DDTestCase):
+    def test_converts_log_forwarder_setting_to_selection(self):
+        self.assertEqual(resource_provider_configs_to_selection(RESOURCE_PROVIDER_CONFIGS), RESOURCE_PROVIDER_SELECTION)
+
+    def test_round_trips(self):
+        selection = {"logsEnabledDefault": False, "resourceProviderExceptions": ["Microsoft.KeyVault", "Microsoft.Web"]}
+        self.assertEqual(
+            resource_provider_configs_to_selection(resource_provider_selection_to_configs(selection)), selection
+        )
+
+    def test_resolves_overrides_like_the_log_forwarder(self):
+        """The last override for a resource provider wins, and overrides that match the default aren't exceptions."""
+        configs = json.dumps(
+            {
+                "providers": [
+                    {"namespace": "Microsoft.Web", "logs_enabled": False},
+                    {"namespace": "microsoft.web", "logs_enabled": True},
+                    {"namespace": "Microsoft.Sql", "logs_enabled": True},
+                    {"namespace": " Microsoft.KeyVault ", "logs_enabled": False},
+                ]
+            }
+        )
+        self.assertEqual(
+            resource_provider_configs_to_selection(configs),
+            {"logsEnabledDefault": True, "resourceProviderExceptions": ["Microsoft.KeyVault"]},
+        )
+
+    def test_empty_or_invalid_setting_enables_all_resource_providers(self):
+        all_enabled = {"logsEnabledDefault": True, "resourceProviderExceptions": []}
+        for configs in ("", "{}", "not json", "[]", '{"logs_enabled_default": "no", "providers": [{"namespace": 1}]}'):
+            with self.subTest(configs=configs):
+                self.assertEqual(resource_provider_configs_to_selection(configs), all_enabled)
 
 
 class TestWaitForRgDeleteIfNeeded(DDTestCase):
@@ -195,12 +253,12 @@ class TestUpsertLogForwarder(DDTestCase):
         self.assertEqual(configuration.datadog_api_key, "test-api-key")
         self.assertEqual(configuration.datadog_site, "datadoghq.com")
 
-    def test_passes_resource_provider_configs_to_log_forwarder(self):
+    def test_converts_resource_provider_selection_for_log_forwarder(self):
         config = {
             "controlPlaneSubscriptionId": "cp-sub",
             "resourceGroupName": "lfo-rg",
             "controlPlaneRegion": "eastus",
-            "resourceProviderConfigs": RESOURCE_PROVIDER_CONFIGS_OBJECT,
+            "resourceProviderSelection": RESOURCE_PROVIDER_SELECTION,
         }
 
         upsert_log_forwarder(config, {"sub-1"})

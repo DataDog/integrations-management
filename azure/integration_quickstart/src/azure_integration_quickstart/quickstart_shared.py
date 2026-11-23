@@ -10,7 +10,7 @@ import signal
 import sys
 import threading
 from collections.abc import Sequence, Set
-from typing import Any, Optional, TypedDict
+from typing import Optional, TypedDict
 
 if sys.version_info >= (3, 11):
     from typing import NotRequired
@@ -18,7 +18,7 @@ else:
     from typing_extensions import NotRequired
 
 from az_shared.auth import check_login
-from az_shared.errors import AzCliNotAuthenticatedError, AzCliNotInstalledError
+from az_shared.errors import AzCliNotAuthenticatedError, AzCliNotInstalledError, InputParamValidationError
 from azure_integration_quickstart.scopes import Scope
 from az_shared.script_status import Status, StatusReporter
 from azure_logging_install.configuration import Configuration, ControlPlane, generate_control_plane_id
@@ -32,6 +32,14 @@ REQUIRED_ENVIRONMENT_VARS = {"DD_API_KEY", "DD_APP_KEY", "DD_SITE", "WORKFLOW_ID
 UNKNOWN_SUB_NAME_MESSAGE = "Unknown (insufficient Azure permission)"
 
 
+class ResourceProviderSelection(TypedDict):
+    """The resource providers selected in the quickstart UI. Logs are forwarded for a resource provider when
+    `logsEnabledDefault` is true, unless it is one of `resourceProviderExceptions`, and the other way around."""
+
+    logsEnabledDefault: bool
+    resourceProviderExceptions: list[str]
+
+
 class LogForwarderPayload(TypedDict):
     """Log Forwarder format expected by quickstart UI"""
 
@@ -40,8 +48,7 @@ class LogForwarderPayload(TypedDict):
     controlPlaneSubscriptionName: str
     controlPlaneRegion: str
     tagFilters: str
-    # JSON string, rather than an object, so that its snake_case keys reach the UI unchanged
-    resourceProviderConfigs: str
+    resourceProviderSelection: ResourceProviderSelection
     piiFilters: str
     monitoredSubscriptions: NotRequired[list[dict[str, str]]]
 
@@ -99,7 +106,7 @@ def build_log_forwarder_payload(config: Configuration, include_monitored_scopes:
         controlPlaneSubscriptionName=sub_id_to_name.get(config.control_plane.sub_id, UNKNOWN_SUB_NAME_MESSAGE),
         controlPlaneRegion=config.control_plane.region,
         tagFilters=config.resource_tag_filters,
-        resourceProviderConfigs=config.resource_provider_configs,
+        resourceProviderSelection=resource_provider_configs_to_selection(config.resource_provider_configs),
         piiFilters=config.pii_scrubber_rules,
     )
     if include_monitored_scopes:
@@ -143,14 +150,60 @@ def wait_for_rg_delete_if_needed(rg_name: str, subs_to_check: set[str], status: 
         status.report("wait_for_rg_delete", Status.FINISHED, "Resource group deletion complete.")
 
 
-def serialize_resource_provider_configs(resource_provider_configs: Any) -> str:
-    """Serialize the UI's resource provider configs into the log forwarder's RESOURCE_PROVIDER_CONFIGS setting.
-    Accepts the configs object, or the JSON string reported back to the UI for an existing log forwarder."""
-    if not resource_provider_configs:
+def resource_provider_selection_to_configs(selection: Optional[dict]) -> str:
+    """Convert the quickstart UI's resource provider selection into the log forwarder's RESOURCE_PROVIDER_CONFIGS setting.
+    Without a selection, the setting is left empty, which the log forwarder treats as all resource providers enabled."""
+    if not selection:
         return ""
-    if isinstance(resource_provider_configs, str):
-        resource_provider_configs = json.loads(resource_provider_configs)
-    return json.dumps(resource_provider_configs, separators=(",", ":"), sort_keys=True)
+    logs_enabled_default = selection.get("logsEnabledDefault", True)
+    exceptions = selection.get("resourceProviderExceptions", [])
+    if (
+        not isinstance(logs_enabled_default, bool)
+        or not isinstance(exceptions, list)
+        or not all(isinstance(namespace, str) for namespace in exceptions)
+    ):
+        raise InputParamValidationError(f"Invalid resource provider selection: {selection}")
+    # resource provider namespaces are case-insensitive, so drop duplicates and sort for a stable setting
+    namespaces = {namespace.strip().casefold(): namespace.strip() for namespace in exceptions if namespace.strip()}
+    return json.dumps(
+        {
+            "logs_enabled_default": logs_enabled_default,
+            "providers": [
+                {"namespace": namespace, "logs_enabled": not logs_enabled_default}
+                for namespace in sorted(namespaces.values(), key=str.casefold)
+            ],
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def resource_provider_configs_to_selection(resource_provider_configs: str) -> ResourceProviderSelection:
+    """Convert the log forwarder's RESOURCE_PROVIDER_CONFIGS setting into the quickstart UI's resource provider selection,
+    resolving overrides like the log forwarder does: the last override for a resource provider wins.
+    An empty or invalid setting is reported as all resource providers enabled."""
+    try:
+        configs = json.loads(resource_provider_configs) if resource_provider_configs else {}
+    except json.JSONDecodeError:
+        configs = {}
+    if not isinstance(configs, dict):
+        configs = {}
+    logs_enabled_default = configs.get("logs_enabled_default", True)
+    if not isinstance(logs_enabled_default, bool):
+        logs_enabled_default = True
+    overrides: dict[str, tuple[str, bool]] = {}
+    providers = configs.get("providers")
+    for provider in providers if isinstance(providers, list) else []:
+        if isinstance(provider, dict) and isinstance(provider.get("namespace"), str) and isinstance(provider.get("logs_enabled"), bool):
+            namespace = provider["namespace"].strip()
+            overrides[namespace.casefold()] = (namespace, provider["logs_enabled"])
+    return ResourceProviderSelection(
+        logsEnabledDefault=logs_enabled_default,
+        resourceProviderExceptions=sorted(
+            (namespace for namespace, logs_enabled in overrides.values() if logs_enabled != logs_enabled_default),
+            key=str.casefold,
+        ),
+    )
 
 
 def upsert_log_forwarder(config: dict, subscriptions: Set[str]):
@@ -166,7 +219,7 @@ def upsert_log_forwarder(config: dict, subscriptions: Set[str]):
             datadog_api_key=os.environ["DD_API_KEY"],
             datadog_site=os.environ["DD_SITE"],
             resource_tag_filters=config.get("tagFilters", ""),
-            resource_provider_configs=serialize_resource_provider_configs(config.get("resourceProviderConfigs")),
+            resource_provider_configs=resource_provider_selection_to_configs(config.get("resourceProviderSelection")),
             pii_scrubber_rules=config.get("piiFilters", ""),
         )
     )
