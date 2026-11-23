@@ -51,6 +51,7 @@ def test_constraint_path_warns_when_no_constraint_line_on_a_flagged_version():
     ctx = make_context(requirements_text="apache-airflow-providers-openlineage==2.18.0\n")
     finding = check_constraint_path(ctx)
     assert finding.status == FindingStatus.WARN
+    assert "minimal constraints file" in finding.detail
 
 
 @pytest.mark.parametrize("airflow_version", ["2.10.3", "2.11.0", "3.2.1"])

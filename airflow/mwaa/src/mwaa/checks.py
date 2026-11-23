@@ -90,18 +90,21 @@ def check_constraint_path(ctx: ProbeContext) -> Finding:
     """The --constraint line in requirements.txt must resolve to a real S3 object.
 
     Having no --constraint line at all is only worth a warning on a flagged
-    version: anywhere else, MWAA's own default constraints are fine.
+    version: anywhere else, nothing about it affects OpenLineage. session.py
+    drops the warning when the plan adds the line itself, so it only shows when
+    another issue keeps the plan's package changes out.
     """
     match = CONSTRAINT_LINE.search(ctx.requirements_text)
     if not match and ctx.environment.get("AirflowVersion", "") not in FLAGGED_VERSION_TABLE:
-        return Finding("constraint_path", FindingStatus.PASS, "no --constraint line, so MWAA's default constraints apply")
+        return Finding("constraint_path", FindingStatus.PASS, "no --constraint line, which this Airflow version doesn't need")
     if not match:
         return Finding(
             "constraint_path",
             FindingStatus.WARN,
             "requirements.txt has no --constraint line",
-            "MWAA will fall back to its own default constraints for this Airflow version, "
-            "which is exactly what pins a broken OpenLineage provider on 2.7.2/2.8.1/2.9.2.",
+            "Nothing pins the OpenLineage packages to the upgrade guide's versions. The plan adds a --constraint "
+            "line pointing at a minimal constraints file that pins just those packages, once no other issue keeps "
+            "its package changes out.",
         )
 
     constraint_path = match.group(1)
