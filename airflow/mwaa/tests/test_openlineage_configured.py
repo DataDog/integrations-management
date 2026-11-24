@@ -772,12 +772,17 @@ def test_a_rejected_key_assigned_twice_is_never_claimed_replaced():
     assert entry.already_configured is False
 
 
-def test_a_rejected_key_set_through_a_variable_is_reported_but_not_edited():
-    startup = f"#!/bin/sh\nexport OPENLINEAGE_URL={INTAKE}\nMY_KEY={KEY}\nexport OPENLINEAGE_API_KEY=$MY_KEY\n" + NAMESPACE
-    entry = entry_for(startup, validate_api_key=lambda site, key: False)
+@pytest.mark.parametrize(
+    "assignment",
+    [f"MY_KEY={KEY}\nexport OPENLINEAGE_API_KEY=$MY_KEY", f'MY_KEY={KEY}\nexport OPENLINEAGE_API_KEY="${{MY_KEY}}"', f"export OPENLINEAGE_API_KEY={KEY}\nexport OPENLINEAGE_API_KEY=$OPENLINEAGE_API_KEY"],
+    ids=["variable", "braced-variable", "re-exported-through-itself"],
+)
+def test_a_key_that_resolves_through_a_variable_is_never_checked_or_edited(assignment):
+    startup = f"#!/bin/sh\nexport OPENLINEAGE_URL={INTAKE}\n{assignment}\n" + NAMESPACE
+    entry = entry_for(startup, validate_api_key=never_called)
 
     assert api_key_change(entry) is None
-    assert "can't safely edit" in check(entry, "openlineage_api_key")[1]
+    assert check(entry, "openlineage_api_key") is None
 
 
 def test_a_comment_after_a_single_quoted_value_isnt_part_of_it():

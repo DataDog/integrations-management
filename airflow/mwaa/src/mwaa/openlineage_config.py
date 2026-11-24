@@ -140,6 +140,20 @@ _LITERAL_API_KEY = re.compile(r"[0-9a-fA-F]{32}")
 _STANDALONE_KEY_EXPORT = re.compile(r"""\s*export\s+OPENLINEAGE_API_KEY=(?:'[0-9a-fA-F]{32}'|"[0-9a-fA-F]{32}"|[0-9a-fA-F]{32})(?:\s+#.*)?\s*""")
 
 
+# the value of an OPENLINEAGE_API_KEY assignment is a literal key token, not an expansion
+_LITERAL_KEY_ASSIGNMENT = re.compile(r"""OPENLINEAGE_API_KEY=(?:'[0-9a-fA-F]{32}'|"[0-9a-fA-F]{32}"|[0-9a-fA-F]{32})(?=$|[\s;&|#])""")
+
+
+def _effective_key_assignment_is_literal(startup_script_text: str) -> bool:
+    """The last OPENLINEAGE_API_KEY assignment -- the one in effect -- types the key in as is.
+
+    A key that only resolves through a variable is never checked: what's
+    eligible is a key written into the script, nothing derived.
+    """
+    lines = [line for line in startup_script_text.splitlines() if "OPENLINEAGE_API_KEY=" in line]
+    return bool(lines) and bool(_LITERAL_KEY_ASSIGNMENT.match("OPENLINEAGE_API_KEY=" + lines[-1].rsplit("OPENLINEAGE_API_KEY=", 1)[1]))
+
+
 def _single_standalone_key_export(startup_script_text: str) -> bool:
     """OPENLINEAGE_API_KEY is assigned exactly once, by a standalone literal export patch_env_vars can replace.
 
@@ -484,7 +498,7 @@ def analyze(
     api_key_editable = False
     if resolution.winner == "OPENLINEAGE_URL" or fixable:
         key = environment.get("OPENLINEAGE_API_KEY")
-        if isinstance(key, str) and _LITERAL_API_KEY.fullmatch(key):
+        if isinstance(key, str) and _LITERAL_API_KEY.fullmatch(key) and _effective_key_assignment_is_literal(startup_script_text or ""):
             existing_api_key, api_key_source = key, "OPENLINEAGE_API_KEY"
             api_key_editable = _single_standalone_key_export(startup_script_text or "")
             url = environment.get("OPENLINEAGE_URL")
