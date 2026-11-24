@@ -36,8 +36,8 @@ def patch_pins(text: str, pin_changes: list[PinChange]) -> str:
     is dropped, leaving exactly one.
 
     A `to_version` of None (see plan.py's unflagged-version path) means "just
-    add the bare package name, no version" -- MWAA resolves the version itself
-    from its own default constraints.
+    add the bare package name, no version" -- pip resolves the version itself,
+    against whatever constraints requirements.txt uses.
     """
     changes = {normalize_package_name(change.package): change for change in pin_changes}
     patched = set()

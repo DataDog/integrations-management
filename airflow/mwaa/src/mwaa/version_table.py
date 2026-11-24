@@ -7,7 +7,7 @@
 Source: Datadog's MWAA/OpenLineage upgrade guide
 (https://docs.datadoghq.com/data_observability/jobs_monitoring/airflow_mwaa_upgrade.md),
 which documents exact before/after package pins for the three Airflow versions
-whose MWAA-default constraints pin a known-broken OpenLineage provider release:
+whose Airflow constraints files pin a known-broken OpenLineage provider release:
 2.7.2, 2.8.1, and 2.9.2.
 
 This table is deliberately hardcoded and versioned in this repo rather than
@@ -24,7 +24,7 @@ class FlaggedVersionEntry:
     """Target package pins for one flagged Airflow version.
 
     `default_versions` is what Datadog's guide documents as the broken
-    MWAA-default pin, kept for the rationale text -- the actual diff always
+    pin in that Airflow version's constraints, kept for the rationale text -- the actual diff always
     compares against the environment's real current pins, not this default,
     since a customer may have already partially customized their setup.
     """

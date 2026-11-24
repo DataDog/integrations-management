@@ -43,7 +43,7 @@ def test_an_existing_unreferenced_constraints_txt_sends_the_patch_to_constraints
     directive = next(fc for fc in entry.plan.file_changes if isinstance(fc, ConstraintDirectiveChange))
     assert directive.to_line == '--constraint "/usr/local/airflow/dags/constraints-datadog.txt"'
     assert (
-        "dags/constraints.txt already exists but isn't referenced by requirements.txt, so the patched constraints "
+        "dags/constraints.txt already exists but isn't referenced by requirements.txt, so the constraints "
         "are written to constraints-datadog.txt instead of overwriting it."
     ) in entry.plan.rationale
     assert real_key_for_path(ctx.environment, "dags/constraints-datadog.txt") == "dags/constraints-datadog.txt"

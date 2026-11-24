@@ -641,3 +641,19 @@ def test_a_constraint_bump_raises_anything_pep_440_orders_below_the_minimum(pinn
 
     bumps = [fc for fc in plan.file_changes if isinstance(fc, PinChange) and fc.package == "sqlparse"]
     assert bumps == [PinChange(path="dags/constraints.txt", package="sqlparse", from_version=pinned, to_version="0.5.1")]
+
+
+@pytest.mark.parametrize("airflow_version", ["2.8.1", "3.2.1"])
+def test_rationale_states_whose_constraints_pin_what_and_never_claims_mwaa_default_constraints(airflow_version):
+    plan = compute_plan(
+        airflow_version=airflow_version, requirements_text="", base_constraints=MINIMAL_BASE, startup_script_text=None, dd_site="datadoghq.com"
+    )
+
+    if airflow_version == "2.8.1":
+        assert plan.rationale.startswith(
+            "Airflow 2.8.1 is flagged by Datadog's MWAA upgrade guide: Airflow 2.8.1's constraints pin "
+            "apache-airflow-providers-openlineage 1.4.0, which has known reliability/compatibility issues."
+        )
+    else:
+        assert "pip installs a release compatible with this Airflow version" in plan.rationale
+    assert "default" not in plan.rationale.lower()

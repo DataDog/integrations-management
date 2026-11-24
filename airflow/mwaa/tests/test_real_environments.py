@@ -135,7 +135,7 @@ def test_blank_321_writes_requirements_datadog_txt_beside_an_existing_unconfigur
 
     assert entry.already_configured is False
     assert not issues(entry, FindingStatus.FAIL)
-    assert not issues(entry, FindingStatus.WARN)  # MWAA's default constraints are fine on 3.2.1
+    assert not issues(entry, FindingStatus.WARN)  # no --constraint line is fine on 3.2.1
     assert {fc.path for fc in entry.plan.file_changes if isinstance(fc, PinChange)} == {"requirements-datadog.txt"}
     assert {fc.path for fc in entry.plan.file_changes if isinstance(fc, EnvVarChange)} == {"dags/startup.sh"}
     assert "requirements-datadog.txt" in entry.plan.rationale

@@ -36,7 +36,7 @@ import re
 
 # Airflow versions that need the OpenLineage config-path workaround, per the
 # onboarding doc: fixed upstream in apache-airflow-providers-openlineage 1.7,
-# but MWAA's default constraints for these two versions pin older than that.
+# but the Airflow constraints for these two versions pin older than that.
 VERSIONS_NEEDING_CONFIG_PATH_WORKAROUND = {"2.7.2", "2.8.1"}
 
 #: Stands in for the real API key in any rendered/persisted content.

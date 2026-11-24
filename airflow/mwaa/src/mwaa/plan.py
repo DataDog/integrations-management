@@ -224,7 +224,7 @@ def _plan_flagged_version(
 ) -> tuple[bool, str, list[FileChange]]:
     default_ol_version = entry.default_versions.get(OPENLINEAGE_PROVIDER, "an old version")
     rationale = (
-        f"Airflow {entry.airflow_version} is flagged by Datadog's MWAA upgrade guide: its MWAA-default "
+        f"Airflow {entry.airflow_version} is flagged by Datadog's MWAA upgrade guide: Airflow {entry.airflow_version}'s "
         f"constraints pin {OPENLINEAGE_PROVIDER} {default_ol_version}, which has known "
         "reliability/compatibility issues."
     )
@@ -271,7 +271,7 @@ def _plan_flagged_version(
             rationale += f" It also raises pins the OpenLineage packages can't resolve against: {'; '.join(bump_reasons)}."
         if constraints_path == DATADOG_CONSTRAINTS_PATH:
             rationale += (
-                f" {CONSTRAINTS_PATH} already exists but isn't referenced by requirements.txt, so the patched "
+                f" {CONSTRAINTS_PATH} already exists but isn't referenced by requirements.txt, so the "
                 f"constraints are written to {DATADOG_CONSTRAINTS_PATH.removeprefix('dags/')} instead of overwriting it."
             )
         # a --constraint already under the dags mount is the file being patched in place
@@ -310,9 +310,9 @@ def _plan_unflagged_version(airflow_version: str, requirements_text: str) -> tup
         )
     return (
         True,
-        f"Airflow {airflow_version} is not one of the flagged versions, so MWAA's own default constraints "
-        "should already resolve a healthy OpenLineage provider version -- only the package itself needs to "
-        "be added, with no constraints.txt change.",
+        f"Airflow {airflow_version} is not one of the flagged versions, so only the OpenLineage provider itself "
+        "needs to be added, with no version and no constraints.txt change -- pip installs a release compatible "
+        "with this Airflow version.",
         [PinChange(path=REQUIREMENTS_PATH, package=OPENLINEAGE_PROVIDER, from_version=None, to_version=None)],
     )
 
