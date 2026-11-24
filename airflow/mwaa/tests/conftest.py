@@ -36,6 +36,18 @@ UPSTREAM_2_7_2_TEXT = (
     "openlineage_sql==1.3.1\n"
 )
 
+UPSTREAM_2_9_2_URL = "https://raw.githubusercontent.com/apache/airflow/constraints-2.9.2/constraints-3.11.txt"
+UPSTREAM_2_9_2_TEXT = (
+    "apache-airflow-providers-common-sql==1.14.0\n"
+    "apache-airflow-providers-openlineage==1.8.0\n"
+    "boto3==1.34.106\n"
+    "openlineage-integration-common==1.16.0\n"
+    "openlineage-python==1.16.0\n"
+    "openlineage_sql==1.16.0\n"
+    "pandas==2.1.4\n"
+    "sqlparse==0.5.0\n"
+)
+
 OPENLINEAGE_WHEEL_URL = "https://docs.datadoghq.com/resources/whl/apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl"
 COMMON_COMPAT_WHEEL_URL = "https://docs.datadoghq.com/resources/whl/apache_airflow_providers_common_compat-1.2.2-py3-none-any.whl"
 FAKE_WHEEL_BYTES = b"PK\x03\x04 not really a wheel"
@@ -51,6 +63,7 @@ def fake_fetch(monkeypatch) -> dict[str, bytes]:
     responses = {
         UPSTREAM_2_8_1_URL: UPSTREAM_2_8_1_TEXT.encode(),
         UPSTREAM_2_7_2_URL: UPSTREAM_2_7_2_TEXT.encode(),
+        UPSTREAM_2_9_2_URL: UPSTREAM_2_9_2_TEXT.encode(),
         OPENLINEAGE_WHEEL_URL: FAKE_WHEEL_BYTES,
         COMMON_COMPAT_WHEEL_URL: FAKE_WHEEL_BYTES,
     }

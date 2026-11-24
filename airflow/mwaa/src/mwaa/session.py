@@ -67,6 +67,7 @@ from .checks import (
     check_execution_role_s3_access,
     check_file_versions,
     check_openlineage_precedence,
+    check_requirement_pins_against_mwaa_constraints,
     check_unapplied_uploads,
     check_wheel_references,
     unapplied_uploads,
@@ -92,6 +93,7 @@ from .plan import (
 _ISSUE_CHECKS = (
     check_base_constraints,
     check_constraint_directives,
+    check_requirement_pins_against_mwaa_constraints,
     check_file_versions,
     check_openlineage_precedence,
     check_constraint_path,
@@ -101,7 +103,13 @@ _ISSUE_CHECKS = (
 
 
 #: The checks that only read ProbeContext, never call AWS themselves.
-_PURE_CHECKS = (check_base_constraints, check_constraint_directives, check_file_versions, check_openlineage_precedence)
+_PURE_CHECKS = (
+    check_base_constraints,
+    check_constraint_directives,
+    check_requirement_pins_against_mwaa_constraints,
+    check_file_versions,
+    check_openlineage_precedence,
+)
 
 
 @dataclass(frozen=True)

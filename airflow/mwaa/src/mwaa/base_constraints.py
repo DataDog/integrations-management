@@ -22,23 +22,30 @@ safe file to write -- its other pins may still be in force -- so `text` is None
 and plan.py leaves the package changes out entirely (see
 check_base_constraints for the issue that records why).
 
-  3. With no --constraint line at all, the file written is minimal: MINIMAL_CONSTRAINTS_HEADER plus just the
-     OpenLineage pins. Not the full upstream constraints file the upgrade
-     guide patches: a customer's own pins routinely postdate an old Airflow
-     release's upstream file (boto3, say), and pip then refuses to install
-     anything from requirements.txt -- while MWAA still reports the update as
-     a success. MWAA installs apache-airflow==<version> as a top-level
-     requirement itself, so Airflow stays pinned either way.
+  3. With no --constraint line at all, the file written mirrors what MWAA
+     already applies, plus the OpenLineage pins -- per version, see
+     FlaggedVersionEntry.mwaa_forces_upstream_constraints:
+     - where MWAA forces the upstream constraints-<v>/constraints-<py>.txt
+       itself (2.7.2, 2.9.2), that same file. A minimal one would switch the
+       forcing off and let every unpinned package float to its latest
+       release (pandas 2 -> 3, numpy 1 -> 2). When it can't be downloaded,
+       `text` is None, the same as cases 1 and 2.
+     - where MWAA applies none (2.8.1), MINIMAL_CONSTRAINTS_HEADER plus just
+       the OpenLineage pins. The full upstream file there would newly enforce
+       its old pins, and a customer's newer one (boto3, say) would make pip
+       refuse all of requirements.txt -- while MWAA still reports success.
+     MWAA installs apache-airflow==<version> as a top-level requirement
+     itself, so Airflow stays pinned either way.
 """
 
 import re
 import urllib.parse
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Optional
 
 from .fetch import FetchError
 from .pins import DAGS_MOUNT_PREFIX, find_constraint_path
-from .version_table import PYTHON_VERSION_BY_AIRFLOW_VERSION
+from .version_table import FLAGGED_VERSION_TABLE, PYTHON_VERSION_BY_AIRFLOW_VERSION, UPSTREAM_CONSTRAINTS_URL
 
 
 @dataclass(frozen=True)
@@ -46,11 +53,13 @@ class BaseConstraints:
     source: Optional[str]  # an s3:// URI or https URL; None if not even a source could be determined
     text: Optional[str]  # None when it couldn't be read -- see error
     error: Optional[str] = None
-    minimal: bool = False  # case 3: no base to patch, just the header the pins get appended to
+    minimal: bool = False  # case 3 where MWAA forces nothing: just the header the pins get appended to
+    mwaa_default: bool = False  # case 3 where MWAA forces the upstream file: that file, which it already applies
 
 
 MINIMAL_CONSTRAINTS_HEADER = (
-    "# Pins only the OpenLineage packages Datadog Data Observability needs; every other package resolves as it would without a constraints file.\n"
+    "# Pins only the OpenLineage packages Datadog Data Observability needs; MWAA applies no constraints of its own on this "
+    "Airflow version, so every other package resolves as it did before.\n"
 )
 
 
@@ -90,7 +99,14 @@ def resolve_base_constraints(
 
     constraint_path = find_constraint_path(requirements_text)
     if constraint_path is None:
-        return BaseConstraints(source=None, text=MINIMAL_CONSTRAINTS_HEADER, minimal=True)
+        entry = FLAGGED_VERSION_TABLE.get(airflow_version)
+        if entry is None or not entry.mwaa_forces_upstream_constraints:
+            return BaseConstraints(source=None, text=MINIMAL_CONSTRAINTS_HEADER, minimal=True)
+        python_version = PYTHON_VERSION_BY_AIRFLOW_VERSION.get(airflow_version)
+        if python_version is None:
+            return BaseConstraints(source=None, text=None, error=f"no known MWAA Python version for Airflow {airflow_version}")
+        url = UPSTREAM_CONSTRAINTS_URL.format(airflow_version=airflow_version, python_version=python_version)
+        return replace(_download(url, fetch), mwaa_default=True)
     # an unreadable reference doesn't mean nothing is constrained -- replacing it with the
     # minimal file could drop every other pin it holds
     if constraint_path.startswith(DAGS_MOUNT_PREFIX):
@@ -127,7 +143,11 @@ def resolve_base_constraints(
                 f"Airflow {airflow_version} (Python {python_version}); fix the --constraint line and re-scan"
             ),
         )
+    return _download(constraint_path, fetch)
+
+
+def _download(url: str, fetch: Callable[[str], bytes]) -> BaseConstraints:
     try:
-        return BaseConstraints(source=constraint_path, text=fetch(constraint_path).decode("utf-8"))
+        return BaseConstraints(source=url, text=fetch(url).decode("utf-8"))
     except (FetchError, UnicodeDecodeError) as exc:
-        return BaseConstraints(source=constraint_path, text=None, error=f"{exc}; re-run scan once it's reachable")
+        return BaseConstraints(source=url, text=None, error=f"{exc}; re-run scan once it's reachable")

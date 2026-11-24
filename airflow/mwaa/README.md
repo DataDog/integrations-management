@@ -34,12 +34,19 @@ repointing just one would leave the others' old pins in force. A full file also 
 packages can't resolve against raised (`constraint_bumps` in `version_table.py`: upstream
 2.8.1/2.9.2 pin `sqlparse` below what common-sql needs), or pip refuses the whole install.
 
-With no `--constraint` line, the plan writes a *minimal* constraints file instead: a
-one-line header and just the OpenLineage pins. The full upstream file would pin
-everything else to the old Airflow release's versions, and a customer's own newer pins
-(`boto3`, say) then make pip refuse to install anything from requirements.txt -- while
-MWAA still reports the update as a success. MWAA installs `apache-airflow==<version>`
-itself, so Airflow stays pinned either way.
+With no `--constraint` line, the plan mirrors what MWAA already applies on that version
+(`mwaa_forces_upstream_constraints` in `version_table.py`, from observed install
+logs). On 2.7.2 and 2.9.2 MWAA forces the upstream `constraints-<v>/constraints-<py>.txt`
+itself ("Forcing local constraints"), so the plan writes that same file with the OpenLineage
+pins raised (and `sqlparse` on 2.9.2). A minimal file there would switch the forcing off
+and let unpinned packages float to new major versions. If it can't be downloaded, that's a
+`base_constraints` FAIL with no package changes. A `requirement_pins` WARN names any
+direct `==` pin in requirements.txt that disagrees with that file: pip was already refusing
+it, and still will. On 2.8.1 MWAA applies no constraints, so the plan writes a *minimal*
+constraints file: a one-line header and just the OpenLineage pins. The full upstream file
+there would newly enforce old pins, and a customer's newer one (`boto3`, say) would make pip
+refuse all of requirements.txt -- while MWAA still reports success. MWAA installs
+`apache-airflow==<version>` itself, so Airflow stays pinned either way.
 
 When requirements.txt doesn't reference a local constraints file, the new one is
 written to `dags/constraints.txt` -- unless that already exists, unreferenced (it may be

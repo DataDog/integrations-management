@@ -31,9 +31,10 @@ actually needs then, rather than guessing its shape now.
 
 A flagged version's constraints.txt PinChanges are against the base
 base_constraints.py resolves: the constraints file requirements.txt already
-uses, when it has one -- and when that can't be read, the plan has no package
-changes at all rather than ones apply couldn't safely write -- else a minimal
-file that pins only the OpenLineage packages.
+uses, when it has one, else the one MWAA already applies on that version (its
+upstream file, or none at all and so a minimal file pinning only the
+OpenLineage packages). When a file that has to be patched can't be read, the
+plan has no package changes at all rather than ones apply couldn't safely write.
 
 EnvVarChange.to_value is never a real secret -- see startup_script.py's
 DD_API_KEY_PLACEHOLDER -- so a Plan is always safe to persist, log, or
@@ -234,7 +235,7 @@ def plan_from_dict(data: dict) -> Plan:
     )
 
 
-def _below(version: str, minimum: str) -> bool:
+def version_below(version: str, minimum: str) -> bool:
     """Whether a pinned `version` is lower than a plain-release `minimum`, PEP 440-style.
 
     No `packaging` in the zipapp, so this covers what a pin can look like: a
@@ -273,8 +274,8 @@ def _plan_flagged_version(
         reason = base_constraints.error if base_constraints else "it wasn't resolved"
         return (
             True,
-            f"{rationale} requirements.txt's --constraint file couldn't be read ({reason}), so this plan leaves out "
-            "every package change -- its other packages resolve against that file, so the pins have to be patched into it.",
+            f"{rationale} The constraints file the environment's other packages resolve against couldn't be read ({reason}), "
+            "so this plan leaves out every package change -- the pins have to be patched into that file.",
             [],
         )
     constraint_lines = find_constraint_lines(requirements_text)
@@ -296,15 +297,22 @@ def _plan_flagged_version(
             changes.append(PinChange(path=constraints_path, package=package, from_version=from_version, to_version=target))
     bump_reasons = []
     for package, (minimum, needed_by) in entry.constraint_bumps.items():
-        too_low = [version for version in pinned_versions(base_constraints.text, package) if _below(version, minimum)]
+        too_low = [version for version in pinned_versions(base_constraints.text, package) if version_below(version, minimum)]
         if too_low:
             changes.append(PinChange(path=constraints_path, package=package, from_version=too_low[0], to_version=minimum))
             bump_reasons.append(f"{needed_by} {entry.target_versions[needed_by]} needs {package}>={minimum}")
     if changes:
         if base_constraints.minimal:
             rationale += (
-                f" {constraints_path} is a minimal constraints file pinning just the OpenLineage packages, so the "
-                "environment's other packages resolve as they did before."
+                f" {constraints_path} is a minimal constraints file pinning just the OpenLineage packages: MWAA "
+                f"applies no constraints of its own on Airflow {entry.airflow_version}, so the environment's other "
+                "packages resolve as they did before."
+            )
+        elif base_constraints.mwaa_default:
+            rationale += (
+                f" {constraints_path} is the Airflow constraints file MWAA already applies on Airflow {entry.airflow_version} "
+                f"({base_constraints.source}), with the OpenLineage pins raised, so the environment's other packages "
+                "resolve as they did before."
             )
         else:
             rationale += f" {constraints_path} is the constraints file from {base_constraints.source}, with these pins patched in."

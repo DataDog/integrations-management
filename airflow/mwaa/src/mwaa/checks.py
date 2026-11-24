@@ -33,8 +33,8 @@ from airflow_shared.mwaa_client import MwaaClient
 from airflow_shared.reporter import Finding, FindingStatus
 
 from .base_constraints import BaseConstraints
-from .plan import CONSTRAINTS_PATH, REQUIREMENTS_PATH, STARTUP_SCRIPT_PATH, real_key_for_path
-from .pins import CONSTRAINT_LINE, DAGS_MOUNT_PREFIX, find_constraint_lines, find_wheel_references, resolve_constraint_s3_key
+from .plan import CONSTRAINTS_PATH, REQUIREMENTS_PATH, STARTUP_SCRIPT_PATH, real_key_for_path, version_below
+from .pins import CONSTRAINT_LINE, all_pins, DAGS_MOUNT_PREFIX, find_constraint_lines, find_wheel_references, resolve_constraint_s3_key
 from .version_table import FLAGGED_VERSION_TABLE
 from .startup_script import parse_exports
 
@@ -103,8 +103,7 @@ def check_constraint_path(ctx: ProbeContext) -> Finding:
             FindingStatus.WARN,
             "requirements.txt has no --constraint line",
             "Nothing pins the OpenLineage packages to the upgrade guide's versions. The plan adds a --constraint "
-            "line pointing at a minimal constraints file that pins just those packages, once no other issue keeps "
-            "its package changes out.",
+            "line pointing at a constraints file with those pins, once no other issue keeps its package changes out.",
         )
 
     constraint_path = match.group(1)
@@ -130,14 +129,14 @@ def check_constraint_path(ctx: ProbeContext) -> Finding:
 
 
 def check_base_constraints(ctx: ProbeContext) -> Finding:
-    """A flagged version whose requirements.txt has a --constraint file needs to read it to plan its package changes.
+    """A flagged version needs to read the constraints file its other packages resolve against to plan its package changes.
 
-    See base_constraints.py for every way that can fail (an unreachable
-    download, an upstream URL for the wrong Airflow/Python version, ...);
-    base.error says which, and what to do about it. The other packages
-    already resolve against that file, so the pins have to be patched into
-    it; without it the plan leaves the package changes out instead and this
-    records why.
+    That's requirements.txt's --constraint file, or with none, the upstream
+    file MWAA applies itself on that version. See base_constraints.py for
+    every way that can fail (an unreachable download, an upstream URL for the
+    wrong Airflow/Python version, ...); base.error says which, and what to do
+    about it. The pins have to be patched into that file; without it the plan
+    leaves the package changes out instead and this records why.
     """
     base = ctx.base_constraints
     if base is None or base.text is not None:
@@ -146,8 +145,42 @@ def check_base_constraints(ctx: ProbeContext) -> Finding:
         "base_constraints",
         FindingStatus.FAIL,
         base.error,
-        "The plan leaves out every OpenLineage package change until this is fixed: requirements.txt's other "
-        "packages resolve against its --constraint file, so the pins have to be patched into it.",
+        "The plan leaves out every OpenLineage package change until this is fixed: the environment's other "
+        "packages resolve against that constraints file, so the pins have to be patched into it.",
+    )
+
+
+def check_requirement_pins_against_mwaa_constraints(ctx: ProbeContext) -> Finding:
+    """Direct `==` pins in requirements.txt that the constraints MWAA applies on this version pin differently.
+
+    Only when the plan writes the upstream file MWAA already forces (see
+    base_constraints.py, case 3): such a pin was already failing every
+    install, and still will. Compared with the file as the plan writes it --
+    OpenLineage targets, which the plan also sets in requirements.txt, are
+    left out, and a raised pin counts at its raised version.
+    """
+    base = ctx.base_constraints
+    entry = FLAGGED_VERSION_TABLE.get(ctx.environment.get("AirflowVersion", ""))
+    if not (base and base.mwaa_default and base.text and entry):
+        return Finding("requirement_pins", FindingStatus.PASS, "no constraints MWAA applies are being written")
+    constrained = dict(all_pins(base.text))
+    for package, (minimum, _) in entry.constraint_bumps.items():
+        if package in constrained and version_below(constrained[package], minimum):
+            constrained[package] = minimum
+    conflicts = [
+        f"{package}=={version} (the constraints pin {constrained[package]})"
+        for package, version in all_pins(ctx.requirements_text)
+        if package not in entry.target_versions and package in constrained and constrained[package] != version
+    ]
+    if not conflicts:
+        return Finding("requirement_pins", FindingStatus.PASS, "requirements.txt's pins agree with the constraints MWAA applies")
+    return Finding(
+        "requirement_pins",
+        FindingStatus.WARN,
+        f"requirements.txt pins {', '.join(conflicts)}, which conflict with the Airflow constraints MWAA applies on "
+        f"Airflow {entry.airflow_version}; pip will fail to install requirements.txt until they match",
+        "This was already failing before onboarding: MWAA applies those constraints whenever requirements.txt has no "
+        "--constraint line. Change the pins to match, or remove them.",
     )
 
 

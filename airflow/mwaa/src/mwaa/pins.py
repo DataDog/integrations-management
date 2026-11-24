@@ -27,6 +27,11 @@ def normalize_package_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
+def all_pins(text: str) -> list[tuple[str, str]]:
+    """Every (normalized package name, version) `text` pins with `==`, in order."""
+    return [(normalize_package_name(name), version) for name, version in _PIN_LINE.findall(text)]
+
+
 def pinned_versions(text: str, package: str) -> list[str]:
     """Every `==` version `text` pins `package` to, in order, matching any spelling of its name."""
     return [version for name, version in _PIN_LINE.findall(text) if normalize_package_name(name) == package]

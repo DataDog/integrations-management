@@ -42,6 +42,13 @@ class FlaggedVersionEntry:
     # pip fails the whole install. Only raised when a full file is patched -- the
     # minimal one (see base_constraints.py) doesn't pin them at all.
     constraint_bumps: dict[str, tuple[str, str]] = field(default_factory=dict)
+    # Whether MWAA applies this version's upstream Airflow constraints file itself when
+    # requirements.txt has no --constraint line ("Forcing local constraints" in the
+    # requirements_install log, then pins identical to constraints-<v>/constraints-<py>.txt).
+    # Observed on real environments, not documented: 2.7.2, 2.9.2 and later versions force;
+    # 2.8.1 never did, with or without --constraint. Decides what base_constraints.py writes
+    # for an environment with no --constraint line.
+    mwaa_forces_upstream_constraints: bool = True
 
 
 SOURCE_DOC = "https://docs.datadoghq.com/data_observability/jobs_monitoring/airflow_mwaa_upgrade.md"
@@ -74,6 +81,8 @@ def datadog_wheel_filename(package: str, version: str) -> str:
     return f"{package.replace('-', '_')}-{version}-py3-none-any.whl"
 
 
+UPSTREAM_CONSTRAINTS_URL = "https://raw.githubusercontent.com/apache/airflow/constraints-{airflow_version}/constraints-{python_version}.txt"
+
 FLAGGED_VERSION_TABLE: dict[str, FlaggedVersionEntry] = {
     "2.7.2": FlaggedVersionEntry(
         airflow_version="2.7.2",
@@ -93,6 +102,7 @@ FLAGGED_VERSION_TABLE: dict[str, FlaggedVersionEntry] = {
             # apache-airflow-providers-common-sql: no change needed at 1.7.2.
         },
         wheel_only_packages=("apache-airflow-providers-openlineage", "apache-airflow-providers-common-compat"),
+        mwaa_forces_upstream_constraints=True,
     ),
     "2.8.1": FlaggedVersionEntry(
         airflow_version="2.8.1",
@@ -112,6 +122,7 @@ FLAGGED_VERSION_TABLE: dict[str, FlaggedVersionEntry] = {
             "openlineage-sql": "1.24.2",
         },
         constraint_bumps={"sqlparse": ("0.5.1", "apache-airflow-providers-common-sql")},
+        mwaa_forces_upstream_constraints=False,
     ),
     "2.9.2": FlaggedVersionEntry(
         airflow_version="2.9.2",
@@ -131,5 +142,6 @@ FLAGGED_VERSION_TABLE: dict[str, FlaggedVersionEntry] = {
             "openlineage-sql": "1.31.0",
         },
         constraint_bumps={"sqlparse": ("0.5.1", "apache-airflow-providers-common-sql")},
+        mwaa_forces_upstream_constraints=True,
     ),
 }
