@@ -87,9 +87,12 @@ def target_values(airflow_version: str, dd_site: str) -> list[tuple[str, str]]:
 def render_export_line(name: str, value: str) -> str:
     """One `export NAME=value` line, quoted the way this variable needs to be.
 
-    Only NAMESPACE and the (always-empty) workaround variables need quotes;
-    URL/API_KEY values never contain characters that do.
+    Only NAMESPACE and the (always-empty) workaround variables need double
+    quotes; URL/API_KEY values never contain characters that do. A TRANSPORT
+    JSON value is single-quoted, so the shell expands nothing in it.
     """
+    if name == "AIRFLOW__OPENLINEAGE__TRANSPORT":
+        return f"export {name}='" + value.replace("'", "'\\''") + "'"
     if name == "AIRFLOW__OPENLINEAGE__NAMESPACE" or value == "":
         return f'export {name}="{value}"'
     return f"export {name}={value}"

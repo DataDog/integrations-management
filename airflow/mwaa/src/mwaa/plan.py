@@ -126,7 +126,10 @@ class EnvVarChange:
     (see plan.py's _plan_env_var_changes) because it's a secret variable that
     already has *some* value -- we have no real value to compare against, so
     we never propose "correcting" one, only adding it when it's missing.
-    to_value is a placeholder, never the real value, when secret is True.
+    to_value is a placeholder, never the real value, when secret is True --
+    for AIRFLOW__OPENLINEAGE__TRANSPORT that's the corrected JSON carrying
+    DD_API_KEY_PLACEHOLDER as its apiKey, with from_value None since the old
+    JSON may hold a real key.
     """
 
     path: str
@@ -335,6 +338,12 @@ def _plan_env_var_changes(airflow_version: str, dd_site: str, startup_script_tex
     environment = state.environment
     written = parse_exports(startup_script_text or "")
     changes = []
+    if state.transport_rewrite:
+        # aimed at a Datadog intake but the wrong site or no API key: corrected in place, since it
+        # wins over OPENLINEAGE_URL. from_value stays None -- the old JSON may carry a real key
+        changes.append(
+            EnvVarChange(path=STARTUP_SCRIPT_PATH, name="AIRFLOW__OPENLINEAGE__TRANSPORT", from_value=None, to_value=state.transport_rewrite, secret=True)
+        )
     for name, to_value in target_values(airflow_version, dd_site):
         if name == "OPENLINEAGE_URL":
             skip = not state.transport_fixable or is_intake_url(environment.get(name), dd_site)

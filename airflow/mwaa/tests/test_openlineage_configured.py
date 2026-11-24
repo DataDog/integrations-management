@@ -5,13 +5,19 @@
 """Is OpenLineage effectively configured? Judged statically from requirements.txt, startup.sh and
 AirflowConfigurationOptions, following the provider's and openlineage-python's own precedence."""
 
+import json
+from dataclasses import asdict
+
 import pytest
 
 from airflow_shared.reporter import FindingStatus
 from mwaa.base_constraints import BaseConstraints
 from mwaa.checks import ProbeContext
+from mwaa.openlineage_config import analyze, is_any_datadog_intake_url
+from mwaa.patch import patch_env_vars
 from mwaa.plan import EnvVarChange
 from mwaa.session import build_session
+from mwaa.startup_script import DD_API_KEY_PLACEHOLDER, interpolate_api_key
 
 SITE = "datad0g.com"
 INTAKE = "https://data-obs-intake.datad0g.com"
@@ -390,7 +396,12 @@ def test_openlineage_python_capabilities_count_only_from_the_version_that_has_th
 
     assert at_boundary.already_configured is True
     assert before.already_configured is False
-    assert check(before, "openlineage_transport")[0] == FindingStatus.FAIL
+    if boundary == "1.35.0":
+        assert check(before, "openlineage_transport")[0] == FindingStatus.FAIL  # async_http can't be fixed by a url or key
+    else:
+        # the key the pinned client can't see is corrected in place instead
+        assert check(before, "openlineage_transport") is None
+        assert "AIRFLOW__OPENLINEAGE__TRANSPORT" in env_var_names(before)
     assert unknown.already_configured is False
     status, message = check(unknown, "openlineage_transport")
     assert status == FindingStatus.WARN
@@ -429,10 +440,11 @@ def test_a_non_http_airflow_transport_still_fails_with_a_legacy_config_file_set(
     assert "AIRFLOW__OPENLINEAGE__TRANSPORT" in message
 
 
-def test_an_explicitly_non_api_key_auth_still_fails_with_a_legacy_config_file_set():
+def test_an_intake_transport_with_a_non_api_key_auth_is_corrected_even_with_a_legacy_config_file_set():
     entry = entry_for(airflow_transport(f'{{"type": "http", "url": "{INTAKE}", "auth": {{"type": "none"}}}}') + LEGACY_CONFIG_FILE)
 
-    assert check(entry, "openlineage_transport")[0] == FindingStatus.FAIL
+    assert check(entry, "openlineage_transport") is None
+    assert "AIRFLOW__OPENLINEAGE__TRANSPORT" in env_var_names(entry)
 
 
 def test_a_composite_airflow_transport_the_legacy_config_file_could_extend_cant_be_verified():
@@ -481,3 +493,109 @@ def test_an_untyped_airflow_transport_fragment_no_config_file_could_fix_fails(fr
     assert status == FindingStatus.FAIL
     assert "AIRFLOW__OPENLINEAGE__TRANSPORT" in message
     assert named in message
+
+
+# --- a transport aimed at a Datadog intake is corrected in place ---------------------
+
+WRONG_SITE_TRANSPORT = (
+    "#!/bin/sh\n"
+    "export MY_TEAM_SETTING=keep-me\n"
+    """export AIRFLOW__OPENLINEAGE__TRANSPORT='{"type": "http", "url": "https://data-obs-intake.datadoghq.com", """
+    """"timeout": 5, "auth": {"type": "api_key", "apiKey": "not-a-real-key"}}'\n"""
+    "export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\n"
+)
+
+
+def transport_change(entry) -> EnvVarChange:
+    return next(fc for fc in entry.plan.file_changes if isinstance(fc, EnvVarChange) and fc.name == "AIRFLOW__OPENLINEAGE__TRANSPORT")
+
+
+def test_a_transport_aimed_at_another_sites_intake_is_rewritten_in_place_not_failed():
+    entry = entry_for(WRONG_SITE_TRANSPORT, airflow_version="2.8.1", constraints="apache-airflow-providers-openlineage==1.14.0\n")
+
+    assert check(entry, "openlineage_transport") is None
+    change = transport_change(entry)
+    assert change.secret is True
+    assert change.from_value is None  # the old JSON carries a key, so it's never copied into the plan
+    assert json.loads(change.to_value) == {
+        "type": "http",
+        "url": INTAKE,
+        "timeout": 5,
+        "auth": {"type": "api_key", "apiKey": DD_API_KEY_PLACEHOLDER},
+    }
+    assert "not-a-real-key" not in json.dumps(asdict(entry))
+    # it wins over OPENLINEAGE_URL, so neither OPENLINEAGE_URL nor OPENLINEAGE_API_KEY is proposed
+    assert not env_var_names(entry) & {"OPENLINEAGE_URL", "OPENLINEAGE_API_KEY"}
+
+
+def test_the_rewritten_transport_is_written_over_its_own_line_and_then_counts_as_configured():
+    entry = entry_for(WRONG_SITE_TRANSPORT, airflow_version="2.8.1")
+    changes = [fc for fc in entry.plan.file_changes if isinstance(fc, EnvVarChange)]
+
+    written = interpolate_api_key(patch_env_vars(WRONG_SITE_TRANSPORT, changes), "0123456789abcdef")
+
+    lines = written.splitlines()
+    assert lines[1] == "export MY_TEAM_SETTING=keep-me"
+    assert lines[2].startswith("export AIRFLOW__OPENLINEAGE__TRANSPORT='{") and INTAKE in lines[2]
+    assert lines[3] == "export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com"
+    rescanned = analyze("2.8.1", PROVIDER, written, {}, SITE)
+    assert rescanned.configured is True
+    assert rescanned.issues == []
+
+
+def test_an_intake_transport_on_the_right_site_without_an_api_key_is_rewritten():
+    entry = entry_for(airflow_transport(f'{{"type": "http", "url": "{INTAKE}"}}') + NAMESPACE)
+
+    assert check(entry, "openlineage_transport") is None
+    assert json.loads(transport_change(entry).to_value)["auth"] == {"type": "api_key", "apiKey": DD_API_KEY_PLACEHOLDER}
+
+
+def test_a_datadog_bound_transport_in_airflow_configuration_options_fails_since_apply_cant_rewrite_it():
+    config_options = {"openlineage.transport": '{"type": "http", "url": "https://data-obs-intake.datadoghq.com"}'}
+
+    entry = entry_for(DOCS_RECIPE, config_options=config_options)
+
+    status, message = check(entry, "openlineage_transport")
+    assert status == FindingStatus.FAIL
+    assert "can't correct it in place" in message
+    assert "AIRFLOW__OPENLINEAGE__TRANSPORT" not in env_var_names(entry)
+
+
+def test_a_transport_assigned_twice_in_the_startup_script_is_never_rewritten():
+    once = airflow_transport('{"type": "http", "url": "https://data-obs-intake.datadoghq.com"}')
+
+    entry = entry_for(once + once + NAMESPACE)
+
+    assert check(entry, "openlineage_transport")[0] == FindingStatus.FAIL
+    assert "AIRFLOW__OPENLINEAGE__TRANSPORT" not in env_var_names(entry)
+
+
+def test_a_transport_to_a_non_datadog_backend_fails_with_a_plain_message_and_is_left_alone():
+    entry = entry_for(airflow_transport('{"type": "http", "url": "https://marquez.example.com"}') + NAMESPACE)
+
+    failure = next(i for i in entry.issues if i.check_id == "openlineage_transport")
+    assert failure.status == FindingStatus.FAIL
+    assert failure.message == (
+        "AIRFLOW__OPENLINEAGE__TRANSPORT sends OpenLineage events to https://marquez.example.com, not to Datadog, "
+        "and takes precedence over OPENLINEAGE_URL"
+    )
+    assert "left alone" in failure.detail
+    assert env_var_names(entry) == set()
+
+
+@pytest.mark.parametrize(
+    "url, expected",
+    [
+        ("https://data-obs-intake.datadoghq.com", True),
+        ("https://data-obs-intake.us5.datadoghq.com", True),
+        ("https://data-obs-intake.datadoghq.eu", True),
+        ("https://data-obs-intake.ddog-gov.com", True),
+        ("https://data-obs-intake.datad0g.com/api/v1/lineage", True),
+        ("https://data-obs-intake.datadoghq.com.example.com", False),
+        ("https://intake.datadoghq.com", False),
+        ("https://marquez.example.com", False),
+        (None, False),
+    ],
+)
+def test_is_any_datadog_intake_url(url, expected):
+    assert is_any_datadog_intake_url(url) is expected

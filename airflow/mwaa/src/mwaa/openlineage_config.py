@@ -47,7 +47,11 @@ A config file or connection can't be read statically, so either one winning is
 a WARN ("can't verify"), never a guess. When the transport that wins goes
 somewhere other than the intake and setting OPENLINEAGE_URL wouldn't change
 that, it's a FAIL naming the winning variable -- the plan proposes no transport
-change there, since it wouldn't take effect.
+change there, since it wouldn't take effect. The exception is an
+AIRFLOW__OPENLINEAGE__TRANSPORT that startup.sh exports on one line and that's
+aimed at a Datadog intake (any site): it's obviously meant for Datadog, so
+OpenLineageState.transport_rewrite is that JSON with the url and API key
+corrected, everything else kept, for the plan to write back in place.
 """
 
 import json
@@ -82,6 +86,9 @@ class OpenLineageState:
     transport_fixable: bool
     issues: list[Finding] = field(default_factory=list)
     environment: Variables = field(default_factory=dict)
+    # AIRFLOW__OPENLINEAGE__TRANSPORT's corrected JSON, when it's aimed at a Datadog intake
+    # and startup.sh's one export of it can be rewritten in place -- see _datadog_transport_rewrite
+    transport_rewrite: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -111,6 +118,18 @@ def is_intake_url(url: Any, dd_site: str) -> bool:
         return False
     parsed = urllib.parse.urlparse(url)
     return parsed.scheme == "https" and (parsed.hostname or "").lower() == f"data-obs-intake.{dd_site}"
+
+
+_ANY_DATADOG_INTAKE = re.compile(r"data-obs-intake\.(?:[a-z0-9-]+\.)*(?:datadoghq\.com|datadoghq\.eu|ddog-gov\.com|datad0g\.com)")
+_TRANSPORT_VAR = "AIRFLOW__OPENLINEAGE__TRANSPORT"
+
+
+def is_any_datadog_intake_url(url: Any) -> bool:
+    """A data-obs-intake URL for any Datadog site, not just the one being onboarded."""
+    if not isinstance(url, str):
+        return False
+    parsed = urllib.parse.urlparse(url)
+    return parsed.scheme in ("http", "https") and bool(_ANY_DATADOG_INTAKE.fullmatch((parsed.hostname or "").lower()))
 
 
 def _api_key(auth: Any, client_version: Optional[tuple]) -> Optional[bool]:
@@ -269,6 +288,14 @@ def _resolve(environment: Variables, dd_site: str, provider_version: Optional[tu
     return _select(_deep_merge(env_config, user_config), environment, dd_site, winner, client_version)
 
 
+def _json_object(raw: Any) -> Optional[dict]:
+    try:
+        value = json.loads(raw) if isinstance(raw, str) else None
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def _helpful_config_file(dd_site: str) -> dict:
     """A config file filling every gap with a transport to the intake -- the best a file could do."""
     http = {"type": "http", "url": f"https://data-obs-intake.{dd_site}", "auth": {"type": "api_key", "apiKey": "k", "apikey": "k", "api_key": "k"}}
@@ -290,6 +317,31 @@ def _select(config: dict, environment: Variables, dd_site: str, winner: Optional
         auth = {"type": "api_key", "apiKey": _UNKNOWN if api_key is None else api_key} if "OPENLINEAGE_API_KEY" in environment else None
         return _evaluate({"type": "http", "url": _UNKNOWN if url is None else url, "auth": auth}, dd_site, "OPENLINEAGE_URL", client_version)
     return _Resolution(ok=False, destinations=("the console -- no transport is configured",))
+
+
+def _datadog_transport_rewrite(
+    environment: Variables, startup_script_text: Optional[str], dd_site: str, provider_version: Optional[tuple], client_version: Optional[tuple]
+) -> Optional[str]:
+    """AIRFLOW__OPENLINEAGE__TRANSPORT pointed at this site's intake with an API key, if that's a safe in-place fix.
+
+    Only for a top-level http/async_http transport whose url is a Datadog intake,
+    set by exactly one single-line assignment in startup.sh (one patch_env_vars
+    can replace) that's the value in effect -- not airflow_configuration_options,
+    which apply doesn't write. None unless the rewritten value would resolve.
+    """
+    raw = environment.get(_TRANSPORT_VAR)
+    assignments = [line for line in (startup_script_text or "").splitlines() if re.match(rf"^\s*(?:export\s+)?{_TRANSPORT_VAR}=", line)]
+    if raw is None or len(assignments) != 1 or not assignments[0].lstrip().startswith("export"):
+        return None
+    if exported_environment(assignments[0]).get(_TRANSPORT_VAR) != raw:
+        return None
+    transport = _json_object(raw)
+    if transport is None or transport.get("type") not in ("http", "async_http") or not is_any_datadog_intake_url(transport.get("url")):
+        return None
+    rewritten = json.dumps({**transport, "url": f"https://data-obs-intake.{dd_site}", "auth": {"type": "api_key", "apiKey": DD_API_KEY_PLACEHOLDER}})
+    if not _resolve({**environment, _TRANSPORT_VAR: rewritten}, dd_site, provider_version, client_version).ok:
+        return None
+    return rewritten
 
 
 def _installed_version(package: str, requirements_text: str, constraints_text: Optional[str]) -> Optional[tuple]:
@@ -327,6 +379,9 @@ def analyze(
     if not is_set(fixed, "OPENLINEAGE_API_KEY"):
         fixed["OPENLINEAGE_API_KEY"] = DD_API_KEY_PLACEHOLDER
     fixable = not resolution.ok and resolution.unknown is None and _resolve(fixed, dd_site, provider_version, client_version).ok
+    rewrite = None
+    if not resolution.ok and not fixable and resolution.unknown is None and resolution.winner == _TRANSPORT_VAR:
+        rewrite = _datadog_transport_rewrite(environment, startup_script_text, dd_site, provider_version, client_version)
 
     if resolution.unknown:
         issues.append(
@@ -347,16 +402,23 @@ def analyze(
                 f"Remove {resolution.winner} from the startup script / airflow_configuration_options, then re-scan.",
             )
         )
-    elif not resolution.ok and not fixable and resolution.winner:
-        issues.append(
-            Finding(
-                "openlineage_transport",
-                FindingStatus.FAIL,
-                f"{resolution.winner} is set and takes precedence over OPENLINEAGE_URL; it sends to "
-                f"{', '.join(resolution.destinations)}, so an OPENLINEAGE_URL change would not take effect",
-                f"Point it at https://data-obs-intake.{dd_site} (with an API key), or remove it, then re-scan.",
+    elif not resolution.ok and not fixable and rewrite is None and resolution.winner:
+        destinations = ", ".join(resolution.destinations)
+        if resolution.winner == _TRANSPORT_VAR and is_any_datadog_intake_url((_json_object(environment.get(_TRANSPORT_VAR)) or {}).get("url")):
+            # aimed at Datadog, but not somewhere apply can rewrite it
+            message = f"{resolution.winner} sends OpenLineage events to {destinations}, and this can't correct it in place"
+            detail = (
+                f"It's set in airflow_configuration_options, or in a way the startup script can't be safely edited. Change its url "
+                f"to https://data-obs-intake.{dd_site} with your API key, or remove it, then re-scan."
             )
-        )
+        else:
+            message = f"{resolution.winner} sends OpenLineage events to {destinations}, not to Datadog, and takes precedence over OPENLINEAGE_URL"
+            detail = (
+                "That's left alone: it's a choice of where events go. To send them to Datadog instead, remove "
+                f"{resolution.winner} from the startup script / airflow_configuration_options, or point it at "
+                f"https://data-obs-intake.{dd_site} with an API key, then re-scan."
+            )
+        issues.append(Finding("openlineage_transport", FindingStatus.FAIL, message, detail))
 
     provider_present = mentions_package(requirements_text, OPENLINEAGE_PROVIDER)
     if not provider_present and _PROVIDER_MENTION.search(startup_script_text or ""):
@@ -373,5 +435,5 @@ def analyze(
         name in environment for name in ("AIRFLOW__OPENLINEAGE__CONFIG_PATH", "AIRFLOW__OPENLINEAGE__DISABLED_FOR_OPERATORS")
     )
     configured = resolution.ok and provider_present and is_set(environment, "AIRFLOW__OPENLINEAGE__NAMESPACE") and workaround_ok
-    return OpenLineageState(configured=configured, transport_fixable=fixable, issues=issues, environment=environment)
+    return OpenLineageState(configured=configured, transport_fixable=fixable, issues=issues, environment=environment, transport_rewrite=rewrite)
 
