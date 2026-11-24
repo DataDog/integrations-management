@@ -201,3 +201,14 @@ def test_patch_env_vars_rewrites_an_empty_namespace_line_in_place():
     patched = patch_env_vars(text, [change])
 
     assert patched == '#!/bin/sh\nexport AIRFLOW__OPENLINEAGE__NAMESPACE="${AIRFLOW_ENV_NAME}"\necho done\n'
+
+
+def test_patch_env_vars_keeps_a_comment_trailing_the_replaced_assignment():
+    from mwaa.plan import EnvVarChange
+
+    text = "#!/bin/sh\nexport OPENLINEAGE_URL=https://old.example.com   # set by ops\necho hi # not ours\n"
+    change = EnvVarChange(path="dags/startup.sh", name="OPENLINEAGE_URL", from_value=None, to_value="https://data-obs-intake.datad0g.com", secret=False)
+
+    assert patch_env_vars(text, [change]) == (
+        "#!/bin/sh\nexport OPENLINEAGE_URL=https://data-obs-intake.datad0g.com   # set by ops\necho hi # not ours\n"
+    )

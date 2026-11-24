@@ -216,36 +216,41 @@ def _without_blocked_changes(plan: Plan, ctx: ProbeContext) -> Plan:
 ApiKeyValidator = Callable[[str, str], Optional[bool]]
 
 
-def _check_existing_api_key(state: OpenLineageState, dd_site: str, validate_api_key: Optional[ApiKeyValidator]) -> tuple[bool, Optional[Finding]]:
-    """(replace it, the issue saying so) for the literal API key the transport in use sends with.
+def _check_existing_api_key(state: OpenLineageState, dd_site: str, validate_api_key: Optional[ApiKeyValidator]) -> tuple[bool, bool, Optional[Finding]]:
+    """(known not to work, replace it, the issue saying so) for the literal API key the transport in use sends with.
 
-    Another Datadog site's key never works on this one, so it's replaced without
-    asking the intake. Otherwise the intake is asked; a key it rejects is
-    replaced, and one it can't be asked about (offline, unreachable) is kept.
-    Neither the key nor anything derived from it is in the issue.
+    Another Datadog site's key never works on this one, so that needs no intake
+    call. Otherwise the intake is asked; a key it can't be asked about (offline,
+    unreachable) is kept. A key known not to work is only replaced when it's
+    set somewhere the plan can edit safely (state.api_key_editable) -- else the
+    issue says to replace it by hand. Neither the key nor anything derived from
+    it is in the issue.
     """
     if state.existing_api_key is None:
-        return False, None
+        return False, False, None
     where = "OPENLINEAGE_API_KEY" if state.api_key_source == "OPENLINEAGE_API_KEY" else f"the API key in {state.api_key_source}"
     if state.api_key_site_changes:
-        return True, Finding(
-            "openlineage_api_key",
-            FindingStatus.WARN,
-            f"the existing {where} was set for another Datadog site's intake; the plan replaces it with the selected API key",
-        )
-    valid = validate_api_key(dd_site, state.existing_api_key) if validate_api_key else None
-    if valid is False:
-        return True, Finding(
-            "openlineage_api_key", FindingStatus.WARN, f"the existing {where} was rejected by Datadog; the plan replaces it with the selected API key"
-        )
-    if valid is None:
-        return False, Finding(
-            "openlineage_api_key",
-            FindingStatus.WARN,
-            f"couldn't verify the existing {where} with Datadog, so it's kept",
-            "If no events arrive after applying, replace it with your Datadog API key.",
-        )
-    return False, None
+        problem = f"the existing {where} was set for another Datadog site's intake"
+    else:
+        valid = validate_api_key(dd_site, state.existing_api_key) if validate_api_key else None
+        if valid is None:
+            return False, False, Finding(
+                "openlineage_api_key",
+                FindingStatus.WARN,
+                f"couldn't verify the existing {where} with Datadog, so it's kept",
+                "If no events arrive after applying, replace it with your Datadog API key.",
+            )
+        if valid:
+            return False, False, None
+        problem = f"the existing {where} was rejected by Datadog"
+    if state.api_key_editable:
+        return True, True, Finding("openlineage_api_key", FindingStatus.WARN, f"{problem}; the plan replaces it with the selected API key")
+    return True, False, Finding(
+        "openlineage_api_key",
+        FindingStatus.WARN,
+        f"{problem}, and it's set in a way the plan can't safely edit",
+        "It's assigned more than once, or not as one plain `export` line. Replace it with your Datadog API key and re-scan.",
+    )
 
 
 def _environment_entry(ctx: ProbeContext, dd_site: str, validate_api_key: Optional[ApiKeyValidator]) -> EnvironmentEntry:
@@ -259,7 +264,7 @@ def _environment_entry(ctx: ProbeContext, dd_site: str, validate_api_key: Option
         dd_site,
         ctx.base_constraints.text if ctx.base_constraints else None,
     )
-    replace_api_key, api_key_issue = _check_existing_api_key(openlineage, dd_site, validate_api_key)
+    api_key_broken, replace_api_key, api_key_issue = _check_existing_api_key(openlineage, dd_site, validate_api_key)
     plan = compute_plan(
         airflow_version=airflow_version,
         requirements_text=ctx.requirements_text,
@@ -294,7 +299,7 @@ def _environment_entry(ctx: ProbeContext, dd_site: str, validate_api_key: Option
         # can't be determined, e.g. an unreadable base constraints file); and the environment
         # has to run the files that judgment was made from
         already_configured=openlineage.configured
-        and not replace_api_key
+        and not api_key_broken
         and not (plan.source == "flagged_version_table" and plan.upgrade_needed)
         and not unapplied_uploads(ctx),
         plan=replace(plan_to_apply, file_changes=[replace(fc, path=real(fc.path)) for fc in plan_to_apply.file_changes]),

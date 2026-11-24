@@ -713,3 +713,72 @@ def test_a_replaced_key_is_written_over_its_own_line():
 
     assert "export OPENLINEAGE_API_KEY=fedcba9876543210fedcba9876543210" in written
     assert KEY not in written
+
+
+NEW_KEY = "fedcba9876543210fedcba9876543210"
+
+
+def apply_env_var_changes(startup: str, entry) -> str:
+    return interpolate_api_key(patch_env_vars(startup, [fc for fc in entry.plan.file_changes if isinstance(fc, EnvVarChange)]), NEW_KEY)
+
+
+@pytest.mark.parametrize(
+    "key_line",
+    [
+        f"export OPENLINEAGE_API_KEY={KEY}      # existing key",
+        f'export OPENLINEAGE_API_KEY="{KEY}" # existing key',
+        f"export OPENLINEAGE_API_KEY='{KEY}'  # existing key",
+    ],
+    ids=["unquoted", "double-quoted", "single-quoted"],
+)
+def test_a_commented_literal_key_the_intake_rejects_is_replaced_and_its_comment_kept(key_line):
+    startup = f"#!/bin/sh\nexport MY_TEAM_SETTING=keep-me\nexport OPENLINEAGE_URL={INTAKE}\n{key_line}\n" + NAMESPACE
+    asked = []
+    entry = entry_for(startup, validate_api_key=lambda site, key: asked.append(key) or False)
+
+    assert asked == [KEY]
+    assert api_key_change(entry) is not None
+    written = apply_env_var_changes(startup, entry)
+    (key_line_now,) = [line for line in written.splitlines() if "OPENLINEAGE_API_KEY=" in line]
+    assert key_line_now.startswith(f"export OPENLINEAGE_API_KEY={NEW_KEY} ") and key_line_now.endswith("# existing key")
+    assert "export MY_TEAM_SETTING=keep-me" in written
+    rescanned = analyze("2.10.3", PROVIDER, written, {}, SITE)
+    assert rescanned.environment["OPENLINEAGE_API_KEY"] == NEW_KEY
+
+
+def test_the_pms_commented_wrong_site_recipe_replaces_url_and_key_without_asking_the_intake():
+    startup = (
+        "#!/bin/sh\n"
+        "export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com      # wrong site\n"
+        f"export OPENLINEAGE_API_KEY={KEY}        # stale key\n" + NAMESPACE
+    )
+    entry = entry_for(startup, validate_api_key=never_called)
+
+    assert {"OPENLINEAGE_URL", "OPENLINEAGE_API_KEY"} <= env_var_names(entry)
+    written = apply_env_var_changes(startup, entry)
+    assert f"export OPENLINEAGE_URL={INTAKE}      # wrong site" in written
+    assert f"export OPENLINEAGE_API_KEY={NEW_KEY}        # stale key" in written
+    assert analyze("2.10.3", PROVIDER, written, {}, SITE).configured is True
+
+
+def test_a_rejected_key_assigned_twice_is_never_claimed_replaced():
+    startup = literal_key_recipe() + f"export OPENLINEAGE_API_KEY={KEY}\n"
+    entry = entry_for(startup, validate_api_key=lambda site, key: False)
+
+    assert api_key_change(entry) is None
+    status, message = check(entry, "openlineage_api_key")
+    assert status == FindingStatus.WARN
+    assert message == "the existing OPENLINEAGE_API_KEY was rejected by Datadog, and it's set in a way the plan can't safely edit"
+    assert entry.already_configured is False
+
+
+def test_a_rejected_key_set_through_a_variable_is_reported_but_not_edited():
+    startup = f"#!/bin/sh\nexport OPENLINEAGE_URL={INTAKE}\nMY_KEY={KEY}\nexport OPENLINEAGE_API_KEY=$MY_KEY\n" + NAMESPACE
+    entry = entry_for(startup, validate_api_key=lambda site, key: False)
+
+    assert api_key_change(entry) is None
+    assert "can't safely edit" in check(entry, "openlineage_api_key")[1]
+
+
+def test_a_comment_after_a_single_quoted_value_isnt_part_of_it():
+    assert analyze("2.10.3", PROVIDER, f"export OPENLINEAGE_API_KEY='{KEY}'  # existing key\n", {}, SITE).environment["OPENLINEAGE_API_KEY"] == KEY

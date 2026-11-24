@@ -172,7 +172,9 @@ def _statements(line: str) -> list[tuple[str, list[str]]]:
     while i < len(line):
         c = line[i]
         if c in "'\"":
-            end = _matching(line, i, c, c) if c == "'" else _closing_double_quote(line, i)
+            # nothing escapes inside single quotes, so the next one closes it
+            end = line.find("'", i + 1) if c == "'" else _closing_double_quote(line, i)
+            end = len(line) - 1 if end == -1 else end
             word += line[i : end + 1]
             i = end + 1
         elif c == "\\":

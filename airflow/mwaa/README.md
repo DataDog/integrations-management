@@ -141,7 +141,9 @@ An API key that's already set is normally left alone. The exception is a literal
 judged: next to another Datadog site's `OPENLINEAGE_URL` it's that site's key, so it's
 replaced along with the site; otherwise `scan` asks the intake, and a key it rejects
 (401/403) is replaced too. Either way the replacement is the API key passed to `apply`,
-and an `openlineage_api_key` WARN says so. A key the intake can't be asked about
+and an `openlineage_api_key` WARN says so. That's only when the key is assigned once, on an
+`export` line of its own (a trailing comment is kept); a key known not to work that's set
+any other way (twice, through a variable) is left for the user, and the WARN says so. A key the intake can't be asked about
 (`--offline`, unreachable) is kept with a WARN. A `$(...)`, a variable or a secret lookup is
 never checked or replaced. The existing key is never in a session: a replaced secret's
 `from_value` is always `null`.

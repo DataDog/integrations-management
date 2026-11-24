@@ -98,8 +98,14 @@ def _export_line_pattern(name: str) -> "re.Pattern[str]":
     return re.compile(rf"^\s*export\s+{re.escape(name)}=.*$", re.MULTILINE)
 
 
+# a single-word assignment followed by a comment -- the comment is kept when the value is replaced
+_TRAILING_COMMENT = re.compile(r"""^\s*export\s+\w+=(?:'[^']*'|"(?:[^"\\]|\\.)*"|[^\s'"#]*)(\s+#.*)$""")
+
+
 def patch_env_vars(text: "str | None", env_var_changes: list[EnvVarChange]) -> str:
     """Rewrite each variable's export line in place; append any that don't exist yet.
+
+    A comment trailing the replaced assignment is kept.
 
     `text` may be empty/None -- a brand-new startup.sh. change.to_value is
     written verbatim, placeholder included when the change is secret;
@@ -115,7 +121,8 @@ def patch_env_vars(text: "str | None", env_var_changes: list[EnvVarChange]) -> s
         pattern = _export_line_pattern(change.name)
         for i, line in enumerate(lines):
             if pattern.match(line):
-                lines[i] = new_line
+                comment = _TRAILING_COMMENT.match(line)
+                lines[i] = new_line + (comment.group(1) if comment else "")
                 break
         else:
             lines.append(new_line)
