@@ -271,3 +271,40 @@ def test_transport_281_with_header_credentials_keeps_them_out_of_the_session_and
         "headers": {"Authorization": "Bearer synthetic-secret"},
         "auth": {"type": "api_key", "apiKey": "0123456789abcdef"},
     }
+
+
+CONFIGURED_STARTUP = "configured/281/startup/startup.sh"
+
+
+def test_configured_281_env_tag_is_its_name():
+    _, entry = scan(load("configured-281"))
+
+    assert entry.env_tag == "configured-281"
+
+
+def test_configured_281_env_tag_is_unknown_while_a_namespace_upload_this_plan_doesnt_deploy_is_pending():
+    client = load("configured-281")
+    client.objects["configured/281/requirements.txt"] = client.objects["configured/281/requirements.txt"].replace(
+        "openlineage-python==1.24.2", "openlineage-python==1.20.0"
+    )
+    client.environment["RequirementsS3ObjectVersion"] = client.versions["configured/281/requirements.txt"]
+    newer = client.objects[CONFIGURED_STARTUP].replace("NAMESPACE=${AIRFLOW_ENV_NAME}", "NAMESPACE=new-namespace")
+    client.put_object_text("example-mwaa-bucket", CONFIGURED_STARTUP, newer)
+
+    _, entry = scan(client)
+
+    assert {fc.path for fc in entry.plan.file_changes} == {"configured/281/requirements.txt"}  # requirements only
+    assert "won't deploy it" in issues(entry, FindingStatus.WARN)["unapplied_uploads"]
+    assert entry.env_tag is None  # the environment keeps running the configured script's namespace
+
+
+def test_configured_281_env_tag_follows_a_pending_startup_upload_the_plan_deploys():
+    client = load("configured-281")
+    newer = client.objects[CONFIGURED_STARTUP].replace("export AIRFLOW__OPENLINEAGE__CONFIG_PATH=\"\"\n", "")
+    newer = newer.replace("NAMESPACE=${AIRFLOW_ENV_NAME}", "NAMESPACE=new-namespace")
+    client.put_object_text("example-mwaa-bucket", CONFIGURED_STARTUP, newer)
+
+    _, entry = scan(client)
+
+    assert CONFIGURED_STARTUP in {fc.path for fc in entry.plan.file_changes}  # CONFIG_PATH gets restored
+    assert entry.env_tag == "new-namespace"

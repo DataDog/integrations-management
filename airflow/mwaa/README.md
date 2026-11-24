@@ -171,8 +171,9 @@ Every file name in a session is the environment's real S3 key -- `file_changes[]
 Each environment also records `env_tag`: the OpenLineage namespace its events will carry
 (Datadog's `env` tag) once the plan is applied, when that's statically known -- the
 environment's name for `${AIRFLOW_ENV_NAME}` (which is all the plan ever writes), an
-existing literal as is, `default` when nothing sets one -- and `null` when it isn't, e.g.
-a `$(...)` or another variable.
+existing literal as is, `default` when nothing sets one -- and `null` when it isn't: a
+`$(...)` or any variable other than `AIRFLOW_ENV_NAME` (even one the script sets), or a
+newer startup.sh upload that this plan won't deploy.
 
 If `scan` recorded any `issues` for the environment you `apply` (a conflicting OpenLineage
 config, a missing constraints/wheel file, an execution role that can't read what the plan

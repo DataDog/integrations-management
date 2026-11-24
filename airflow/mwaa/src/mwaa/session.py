@@ -53,6 +53,7 @@ environment to AppliedStatus is done by replacing its EnvironmentEntry
 consistent with everything else here.
 """
 
+import re
 from dataclasses import dataclass, field, replace
 from typing import Callable, Optional
 
@@ -258,23 +259,32 @@ def _check_existing_api_key(state: OpenLineageState, dd_site: str, validate_api_
 
 
 _NAMESPACE = "AIRFLOW__OPENLINEAGE__NAMESPACE"
+_ENV_NAME_REFERENCE = re.compile(r"\$\{AIRFLOW_ENV_NAME\}|\$AIRFLOW_ENV_NAME(?![A-Za-z0-9_])")
 
 
 def _env_tag(ctx: ProbeContext, plan: Plan) -> Optional[str]:
     """The namespace OpenLineage events carry -- Datadog's `env` tag -- once `plan` is applied, if it's statically known.
 
     The plan only ever writes `${AIRFLOW_ENV_NAME}`, which MWAA sets to the
-    environment's name. Otherwise it's startup.sh's export (resolved with that
-    same AIRFLOW_ENV_NAME, so `$(...)` or another unknown variable is None),
-    else airflow_configuration_options' openlineage.namespace when it holds no
-    `$`, else the provider's own fallback, "default", for a missing or empty one.
+    environment's name. Otherwise it's startup.sh's export, when the assignment
+    in effect is a literal that references nothing but AIRFLOW_ENV_NAME --
+    `$(...)` or any other variable is None, even one the script sets -- else
+    airflow_configuration_options' openlineage.namespace when it holds no `$`,
+    else the provider's own fallback, "default", for a missing or empty one.
+    None too when startup.sh has a newer upload this plan doesn't deploy: the
+    environment keeps running the configured version.
     """
     name = ctx.environment.get("Name")
+    if ctx.startup_script_path in unapplied_uploads(ctx) and ctx.startup_script_path not in {fc.path for fc in plan.file_changes}:
+        return None
     if any(isinstance(fc, EnvVarChange) and fc.name == _NAMESPACE for fc in plan.file_changes):
         return name
-    exported = exported_environment(ctx.startup_script_text or "", inherited={"AIRFLOW_ENV_NAME": name})
+    script = ctx.startup_script_text or ""
+    exported = exported_environment(script, inherited={"AIRFLOW_ENV_NAME": name})
     if _NAMESPACE in exported:
-        value = exported[_NAMESPACE]
+        assignments = [line for line in script.splitlines() if f"{_NAMESPACE}=" in line]
+        raw = assignments[-1].rsplit(f"{_NAMESPACE}=", 1)[1] if assignments else "$"
+        value = None if re.search(r"[$`]", _ENV_NAME_REFERENCE.sub("", raw)) else exported[_NAMESPACE]
     else:
         option = (ctx.environment.get("AirflowConfigurationOptions") or {}).get("openlineage.namespace")
         value = "" if option is None else None if "$" in str(option) else str(option)

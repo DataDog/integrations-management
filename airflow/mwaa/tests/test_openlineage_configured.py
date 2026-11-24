@@ -803,6 +803,8 @@ def test_a_comment_after_a_single_quoted_value_isnt_part_of_it():
         (DOCS_RECIPE.replace(NAMESPACE, "export AIRFLOW__OPENLINEAGE__NAMESPACE=production\n"), None, "production"),
         (DOCS_RECIPE.replace(NAMESPACE, "export AIRFLOW__OPENLINEAGE__NAMESPACE=$(cat /tmp/ns)\n"), None, None),
         (DOCS_RECIPE.replace(NAMESPACE, "export AIRFLOW__OPENLINEAGE__NAMESPACE=$TEAM_NAMESPACE\n"), None, None),
+        (DOCS_RECIPE.replace(NAMESPACE, "TEAM_NAMESPACE=production\nexport AIRFLOW__OPENLINEAGE__NAMESPACE=$TEAM_NAMESPACE\n"), None, None),
+        (DOCS_RECIPE.replace(NAMESPACE, "export AIRFLOW__OPENLINEAGE__NAMESPACE=${AIRFLOW_ENV_NAMESPACE}\n"), None, None),
         (DOCS_RECIPE.replace(NAMESPACE, ""), {"openlineage.namespace": "analytics"}, "analytics"),
         (DOCS_RECIPE.replace(NAMESPACE, ""), {"openlineage.namespace": "${TEAM}"}, None),
         (DOCS_RECIPE, {"openlineage.namespace": "analytics"}, "my-env"),  # startup.sh's export wins
@@ -816,6 +818,8 @@ def test_a_comment_after_a_single_quoted_value_isnt_part_of_it():
         "existing-literal",
         "command",
         "other-variable",
+        "other-variable-the-script-sets",
+        "lookalike-variable",
         "config-option-literal",
         "config-option-non-literal",
         "startup-over-config-option",
