@@ -126,9 +126,11 @@ something higher-precedence than `OPENLINEAGE_URL` sends to a non-Datadog backen
 that's an `openlineage_transport` FAIL and nothing is changed: where events go is the
 customer's choice. An `AIRFLOW__OPENLINEAGE__TRANSPORT` aimed at any Datadog intake but
 the wrong site, or without a usable API key, is plainly meant for Datadog, so when the
-startup script exports it on one line the plan rewrites that line in place (this site's
-url, the API key placeholder, its other fields kept) -- a secret `env_var_change` whose
-`from_value` is `null`, since the old JSON may hold a key. When it can't be told statically (a config file, a URL from a
+startup script exports it on a line of its own the plan corrects it in place: a secret
+`env_var_change` whose `to_value` is a JSON object of just the fields set (this site's
+`url`, and `auth` with the API key placeholder) and whose `from_value` is `null`. `apply`
+merges those fields into the transport as it reads it then, so its other fields (headers,
+which may hold credentials) are kept but never enter a session. When it can't be told statically (a config file, a URL from a
 command) it's a WARN, and likewise nothing is proposed. A provider that only the startup
 script installs is an `openlineage_provider` WARN.
 

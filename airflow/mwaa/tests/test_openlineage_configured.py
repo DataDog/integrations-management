@@ -6,14 +6,14 @@
 AirflowConfigurationOptions, following the provider's and openlineage-python's own precedence."""
 
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 import pytest
 
 from airflow_shared.reporter import FindingStatus
 from mwaa.base_constraints import BaseConstraints
 from mwaa.checks import ProbeContext
-from mwaa.openlineage_config import analyze, is_any_datadog_intake_url
+from mwaa.openlineage_config import analyze, is_any_datadog_intake_url, merge_transport_fields
 from mwaa.patch import patch_env_vars
 from mwaa.plan import EnvVarChange
 from mwaa.session import build_session
@@ -517,12 +517,8 @@ def test_a_transport_aimed_at_another_sites_intake_is_rewritten_in_place_not_fai
     change = transport_change(entry)
     assert change.secret is True
     assert change.from_value is None  # the old JSON carries a key, so it's never copied into the plan
-    assert json.loads(change.to_value) == {
-        "type": "http",
-        "url": INTAKE,
-        "timeout": 5,
-        "auth": {"type": "api_key", "apiKey": DD_API_KEY_PLACEHOLDER},
-    }
+    # only the fields set -- apply merges them into the transport (timeout and all) as it is then
+    assert json.loads(change.to_value) == {"url": INTAKE, "auth": {"type": "api_key", "apiKey": DD_API_KEY_PLACEHOLDER}}
     assert "not-a-real-key" not in json.dumps(asdict(entry))
     # it wins over OPENLINEAGE_URL, so neither OPENLINEAGE_URL nor OPENLINEAGE_API_KEY is proposed
     assert not env_var_names(entry) & {"OPENLINEAGE_URL", "OPENLINEAGE_API_KEY"}
@@ -530,13 +526,18 @@ def test_a_transport_aimed_at_another_sites_intake_is_rewritten_in_place_not_fai
 
 def test_the_rewritten_transport_is_written_over_its_own_line_and_then_counts_as_configured():
     entry = entry_for(WRONG_SITE_TRANSPORT, airflow_version="2.8.1")
-    changes = [fc for fc in entry.plan.file_changes if isinstance(fc, EnvVarChange)]
+    changes = [
+        replace(fc, to_value=merge_transport_fields(WRONG_SITE_TRANSPORT, fc.to_value)) if fc.name == "AIRFLOW__OPENLINEAGE__TRANSPORT" else fc
+        for fc in entry.plan.file_changes
+        if isinstance(fc, EnvVarChange)
+    ]
 
     written = interpolate_api_key(patch_env_vars(WRONG_SITE_TRANSPORT, changes), "0123456789abcdef")
 
     lines = written.splitlines()
     assert lines[1] == "export MY_TEAM_SETTING=keep-me"
     assert lines[2].startswith("export AIRFLOW__OPENLINEAGE__TRANSPORT='{") and INTAKE in lines[2]
+    assert '"timeout": 5' in lines[2]
     assert lines[3] == "export OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com"
     rescanned = analyze("2.8.1", PROVIDER, written, {}, SITE)
     assert rescanned.configured is True
@@ -568,6 +569,24 @@ def test_a_transport_assigned_twice_in_the_startup_script_is_never_rewritten():
 
     assert check(entry, "openlineage_transport")[0] == FindingStatus.FAIL
     assert "AIRFLOW__OPENLINEAGE__TRANSPORT" not in env_var_names(entry)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        """export AIRFLOW__OPENLINEAGE__TRANSPORT="{\\"type\\": \\"http\\", \\"url\\": \\"https://data-obs-intake.datadoghq.com\\"}"; export MY_TEAM_SETTING=keep-me""",
+        """export AIRFLOW__OPENLINEAGE__TRANSPORT='{"type": "http", "url": "https://data-obs-intake.datadoghq.com"}' && echo configured""",
+        """export AIRFLOW__OPENLINEAGE__TRANSPORT='{"type": "http", "url": "https://data-obs-intake.datadoghq.com"}' # set by ops""",
+        """echo hi; export AIRFLOW__OPENLINEAGE__TRANSPORT='{"type": "http", "url": "https://data-obs-intake.datadoghq.com"}'""",
+    ],
+    ids=["another-export-after", "command-after", "comment-after", "command-before"],
+)
+def test_a_transport_export_sharing_its_line_with_anything_else_is_never_rewritten(line):
+    """patch_env_vars replaces the whole physical line, so anything else on it would be lost."""
+    entry = entry_for(line + "\n" + NAMESPACE)
+
+    assert "AIRFLOW__OPENLINEAGE__TRANSPORT" not in env_var_names(entry)
+    assert check(entry, "openlineage_transport")[0] in (FindingStatus.FAIL, FindingStatus.WARN)  # WARN: can't tell statically
 
 
 def test_a_transport_to_a_non_datadog_backend_fails_with_a_plain_message_and_is_left_alone():

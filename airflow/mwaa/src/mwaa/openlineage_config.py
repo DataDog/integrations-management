@@ -50,8 +50,8 @@ that, it's a FAIL naming the winning variable -- the plan proposes no transport
 change there, since it wouldn't take effect. The exception is an
 AIRFLOW__OPENLINEAGE__TRANSPORT that startup.sh exports on one line and that's
 aimed at a Datadog intake (any site): it's obviously meant for Datadog, so
-OpenLineageState.transport_rewrite is that JSON with the url and API key
-corrected, everything else kept, for the plan to write back in place.
+OpenLineageState.transport_rewrite is the url and API key fields to set in it,
+for apply to merge into that line in place (keeping its other fields).
 """
 
 import json
@@ -86,8 +86,8 @@ class OpenLineageState:
     transport_fixable: bool
     issues: list[Finding] = field(default_factory=list)
     environment: Variables = field(default_factory=dict)
-    # AIRFLOW__OPENLINEAGE__TRANSPORT's corrected JSON, when it's aimed at a Datadog intake
-    # and startup.sh's one export of it can be rewritten in place -- see _datadog_transport_rewrite
+    # the fields (JSON) to set in AIRFLOW__OPENLINEAGE__TRANSPORT, when it's aimed at a Datadog
+    # intake and startup.sh's one export of it can be rewritten in place -- see _datadog_transport_rewrite
     transport_rewrite: Optional[str] = None
 
 
@@ -319,29 +319,51 @@ def _select(config: dict, environment: Variables, dd_site: str, winner: Optional
     return _Resolution(ok=False, destinations=("the console -- no transport is configured",))
 
 
+#: one standalone `export AIRFLOW__OPENLINEAGE__TRANSPORT=<one quoted or bare word>` -- nothing
+#: else on the line, since patch_env_vars replaces the whole physical line
+_STANDALONE_TRANSPORT_EXPORT = re.compile(
+    rf"""\s*export\s+{_TRANSPORT_VAR}=(?:'[^']*'|"(?:[^"\\]|\\.)*"|[^\s'";&|#\\`$()<>]+)\s*"""
+)
+
+
+def transport_fields_to_set(dd_site: str) -> dict:
+    """The fields a Datadog-bound transport gets corrected to -- the only part of it a plan ever carries."""
+    return {"url": f"https://data-obs-intake.{dd_site}", "auth": {"type": "api_key", "apiKey": DD_API_KEY_PLACEHOLDER}}
+
+
+def merge_transport_fields(startup_script_text: str, fields: str) -> Optional[str]:
+    """startup.sh's AIRFLOW__OPENLINEAGE__TRANSPORT with `fields` (a plan's to_value) set in it; None if it isn't a JSON object now."""
+    transport = _json_object(exported_environment(startup_script_text).get(_TRANSPORT_VAR))
+    return None if transport is None else json.dumps({**transport, **json.loads(fields)})
+
+
 def _datadog_transport_rewrite(
     environment: Variables, startup_script_text: Optional[str], dd_site: str, provider_version: Optional[tuple], client_version: Optional[tuple]
 ) -> Optional[str]:
-    """AIRFLOW__OPENLINEAGE__TRANSPORT pointed at this site's intake with an API key, if that's a safe in-place fix.
+    """The fields to set in AIRFLOW__OPENLINEAGE__TRANSPORT (JSON), if pointing it at this site's intake is a safe in-place fix.
 
     Only for a top-level http/async_http transport whose url is a Datadog intake,
-    set by exactly one single-line assignment in startup.sh (one patch_env_vars
-    can replace) that's the value in effect -- not airflow_configuration_options,
-    which apply doesn't write. None unless the rewritten value would resolve.
+    set by exactly one assignment in startup.sh, a standalone export line that's
+    the value in effect (one patch_env_vars can replace) -- not
+    airflow_configuration_options, which apply doesn't write. None unless the
+    corrected transport would resolve. Only transport_fields_to_set is returned:
+    the rest of the transport (headers, say) may hold credentials, so apply
+    merges these fields into the transport it reads at apply time instead.
     """
     raw = environment.get(_TRANSPORT_VAR)
-    assignments = [line for line in (startup_script_text or "").splitlines() if re.match(rf"^\s*(?:export\s+)?{_TRANSPORT_VAR}=", line)]
-    if raw is None or len(assignments) != 1 or not assignments[0].lstrip().startswith("export"):
+    script = startup_script_text or ""
+    if raw is None or script.count(f"{_TRANSPORT_VAR}=") != 1:
         return None
-    if exported_environment(assignments[0]).get(_TRANSPORT_VAR) != raw:
+    line = next(line for line in script.splitlines() if f"{_TRANSPORT_VAR}=" in line)
+    if not _STANDALONE_TRANSPORT_EXPORT.fullmatch(line) or exported_environment(line).get(_TRANSPORT_VAR) != raw:
         return None
     transport = _json_object(raw)
     if transport is None or transport.get("type") not in ("http", "async_http") or not is_any_datadog_intake_url(transport.get("url")):
         return None
-    rewritten = json.dumps({**transport, "url": f"https://data-obs-intake.{dd_site}", "auth": {"type": "api_key", "apiKey": DD_API_KEY_PLACEHOLDER}})
-    if not _resolve({**environment, _TRANSPORT_VAR: rewritten}, dd_site, provider_version, client_version).ok:
+    fields = transport_fields_to_set(dd_site)
+    if not _resolve({**environment, _TRANSPORT_VAR: json.dumps({**transport, **fields})}, dd_site, provider_version, client_version).ok:
         return None
-    return rewritten
+    return json.dumps(fields)
 
 
 def _installed_version(package: str, requirements_text: str, constraints_text: Optional[str]) -> Optional[tuple]:

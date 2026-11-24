@@ -245,3 +245,28 @@ def test_transport_281_with_the_users_own_unapplied_fix_plans_on_top_of_it_and_d
     _, rescanned = scan(client)
     assert rescanned.already_configured is True
     assert not rescanned.issues
+
+
+def test_transport_281_with_header_credentials_keeps_them_out_of_the_session_and_in_the_written_script():
+    client = load("transport-281")
+    client.objects[TRANSPORT_STARTUP] = client.objects[TRANSPORT_STARTUP].replace(
+        '"auth": {"type": "api_key", "apiKey": "not-a-real-key"}',
+        '"timeout": 5, "headers": {"Authorization": "Bearer synthetic-secret"}, "auth": {"type": "api_key", "apiKey": "not-a-real-key"}',
+    )
+    ctx, entry = scan(client)
+
+    assert "AIRFLOW__OPENLINEAGE__TRANSPORT" in env_var_names(entry)
+    payload = json.dumps(asdict(entry))
+    assert "synthetic-secret" not in payload and "not-a-real-key" not in payload
+
+    check_files_unchanged(client, ctx.environment, entry.plan, entry.file_versions)
+    apply_to_environment(client, ctx, interpolate_api_key(compute_apply_actions(ctx, entry.plan), "0123456789abcdef"), [])
+
+    transport = json.loads(client.objects[TRANSPORT_STARTUP].splitlines()[2].split("=", 1)[1].strip("'"))
+    assert transport == {
+        "type": "http",
+        "url": "https://data-obs-intake.datad0g.com",
+        "timeout": 5,
+        "headers": {"Authorization": "Bearer synthetic-secret"},
+        "auth": {"type": "api_key", "apiKey": "0123456789abcdef"},
+    }

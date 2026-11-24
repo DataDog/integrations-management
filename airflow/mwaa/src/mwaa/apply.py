@@ -29,6 +29,7 @@ from botocore.exceptions import ClientError
 
 from .checks import ProbeContext
 from .fetch import fetch_bytes
+from .openlineage_config import merge_transport_fields
 from .patch import patch_env_vars, patch_pins, patch_wheel_references, set_constraint_line
 from .plan import (
     REQUIREMENTS_PATHS,
@@ -158,10 +159,22 @@ def compute_apply_actions(ctx: ProbeContext, plan: Plan) -> list[FileUpload]:
                 content = set_constraint_line(content, directive.to_line)
             action = "update"
         else:  # a startup.sh label -- current_text_for_path already validated it
-            content = patch_env_vars(old_content, [c for c in changes if isinstance(c, EnvVarChange)])
+            env_var_changes = [_with_transport_merged(c, old_content) for c in changes if isinstance(c, EnvVarChange)]
+            content = patch_env_vars(old_content, env_var_changes)
             action = "update" if old_content else "create"
         uploads.append(FileUpload(path=path, label=label, old_content=old_content, content=content, action=action))
     return uploads
+
+
+def _with_transport_merged(change: EnvVarChange, startup_script_text: str) -> EnvVarChange:
+    """A TRANSPORT change only carries the fields it sets (see openlineage_config.py); the rest
+    of the transport, which may hold credentials, comes from the file as it is now."""
+    if change.name != "AIRFLOW__OPENLINEAGE__TRANSPORT":
+        return change
+    merged = merge_transport_fields(startup_script_text, change.to_value)
+    if merged is None:
+        raise StaleSessionError("the startup script's AIRFLOW__OPENLINEAGE__TRANSPORT isn't a JSON object any more. Nothing was written -- re-run scan.")
+    return replace(change, to_value=merged)
 
 
 def interpolate_api_key(uploads: list[FileUpload], dd_api_key: str) -> list[FileUpload]:
