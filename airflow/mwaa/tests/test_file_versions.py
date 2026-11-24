@@ -71,28 +71,58 @@ def test_an_orphan_and_the_datadog_file_are_both_fingerprinted():
     assert entry.file_versions["dags/constraints-datadog.txt"] is None
 
 
-def test_an_unapplied_requirements_upload_drops_every_package_change():
+def warnings(entry) -> dict[str, str]:
+    return {i.check_id: i.message for i in entry.issues if i.status == FindingStatus.WARN}
+
+
+def test_an_unapplied_requirements_upload_the_plan_writes_is_planned_on_top_of_and_deployed():
     client = FakeS3Client(environment(), {"requirements.txt": "pandas==2.1.4\n", "dags/startup.sh": STARTUP})
     client.put_object_text("my-bucket", "requirements.txt", "pandas==2.2.0\n")  # uploaded, never applied
 
-    _, entry = scan(client)
+    ctx, entry = scan(client)
 
-    assert failed_checks(entry) == ["unapplied_uploads"]
-    issue = next(i for i in entry.issues if i.check_id == "unapplied_uploads")
-    assert issue.message == "requirements.txt has a newer upload than the environment is configured with; apply or discard it, then re-scan"
-    assert entry.plan.file_changes and all(isinstance(fc, EnvVarChange) for fc in entry.plan.file_changes)
+    assert failed_checks(entry) == []
+    assert warnings(entry)["unapplied_uploads"] == (
+        "requirements.txt has a newer upload than the environment runs; the plan builds on it, "
+        "and apply deploys it together with these changes"
+    )
+    assert entry.already_configured is False
+    check_files_unchanged(client, ctx.environment, entry.plan, entry.file_versions)
+    apply_to_environment(client, ctx, compute_apply_actions(ctx, entry.plan), [])
+    assert "pandas==2.2.0" in client.objects["requirements.txt"]  # the user's own edit survives
+    assert "apache-airflow-providers-openlineage==1.14.0" in client.objects["requirements.txt"]
+    assert client.environment["RequirementsS3ObjectVersion"] == client.versions["requirements.txt"]
 
 
-def test_an_unapplied_startup_upload_drops_the_env_var_changes_only():
+def test_an_unapplied_startup_upload_the_plan_writes_is_planned_on_top_of_and_deployed():
     client = FakeS3Client(environment(), {"requirements.txt": "pandas==2.1.4\n", "dags/startup.sh": STARTUP})
     client.put_object_text("my-bucket", "dags/startup.sh", STARTUP + "echo newer\n")
 
-    _, entry = scan(client)
+    ctx, entry = scan(client)
 
-    assert failed_checks(entry) == ["unapplied_uploads"]
-    assert "dags/startup.sh has a newer upload" in entry.issues[0].message
-    assert entry.plan.file_changes and not any(isinstance(fc, EnvVarChange) for fc in entry.plan.file_changes)
-    assert entry.already_configured is False  # still not configured, just not planned
+    assert failed_checks(entry) == []
+    assert "dags/startup.sh has a newer upload" in warnings(entry)["unapplied_uploads"]
+    assert any(isinstance(fc, EnvVarChange) for fc in entry.plan.file_changes)
+    apply_to_environment(client, ctx, compute_apply_actions(ctx, entry.plan), [])
+    assert "echo newer" in client.objects["dags/startup.sh"]
+    assert client.environment["StartupScriptS3ObjectVersion"] == client.versions["dags/startup.sh"]
+
+
+def test_an_unapplied_upload_the_plan_doesnt_write_is_a_warning_that_apply_wont_deploy_it():
+    configured = "#!/bin/sh\nexport OPENLINEAGE_URL=https://data-obs-intake.datadoghq.com\nexport OPENLINEAGE_API_KEY=k\n"
+    configured += 'export AIRFLOW__OPENLINEAGE__NAMESPACE="${AIRFLOW_ENV_NAME}"\n'
+    client = FakeS3Client(environment("2.10.3"), {"requirements.txt": "pandas==2.1.4\n", "dags/startup.sh": configured})
+    client.put_object_text("my-bucket", "dags/startup.sh", configured + "echo newer\n")
+
+    ctx, entry = scan(client)
+
+    assert not any(isinstance(fc, EnvVarChange) for fc in entry.plan.file_changes)
+    assert warnings(entry)["unapplied_uploads"] == (
+        "dags/startup.sh has a newer upload than the environment runs, which this plan doesn't change, so apply won't deploy it"
+    )
+    assert entry.already_configured is False  # the environment doesn't run what was judged configured
+    apply_to_environment(client, ctx, compute_apply_actions(ctx, entry.plan), [])
+    assert client.environment["StartupScriptS3ObjectVersion"] == "v-dags/startup.sh-0"
 
 
 def test_an_unreadable_version_drops_the_changes_that_depend_on_it():

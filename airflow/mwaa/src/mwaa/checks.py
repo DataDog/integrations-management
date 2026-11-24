@@ -173,13 +173,11 @@ def check_constraint_directives(ctx: ProbeContext) -> Finding:
 def unapplied_uploads(ctx: ProbeContext) -> list[str]:
     """Labels of requirements.txt/startup.sh whose latest S3 version isn't the one the environment is configured with.
 
-    Someone uploaded a newer file without updating the environment. A plan
-    computed from the configured version would silently discard their
-    upload; one computed from the newer one would silently apply it. Only
-    a file the environment is actually configured with, at a pinned
-    version, counts -- an unconfigured one at the default key is an orphan
-    the plan leaves alone (see probe.py), and an unpinned one means MWAA
-    uses the latest.
+    Someone uploaded a newer file without updating the environment. The plan
+    is computed from that newer upload (see probe.py). Only a file the
+    environment is actually configured with, at a pinned version, counts --
+    an unconfigured one at the default key is an orphan the plan leaves
+    alone, and an unpinned one means MWAA uses the latest.
     """
     configured = (
         (REQUIREMENTS_PATH, "RequirementsS3Path", "RequirementsS3ObjectVersion"),
@@ -195,23 +193,38 @@ def unapplied_uploads(ctx: ProbeContext) -> list[str]:
     ]
 
 
-def check_unapplied_uploads(ctx: ProbeContext) -> Finding:
-    """requirements.txt/startup.sh must not have a newer upload the environment isn't configured with yet.
+def check_unapplied_uploads(ctx: ProbeContext, written: "set[str]") -> Finding:
+    """Whether requirements.txt/startup.sh have a newer upload the environment isn't configured with yet.
 
-    The plan leaves out that file's changes (session.py) -- all package
-    changes for requirements.txt, the env-var changes for startup.sh.
+    `written` is the labels of the files the plan writes. The plan is computed
+    from the newer upload either way; apply deploys it only when it writes that
+    file too, since UpdateEnvironment only moves the versions apply wrote.
     """
     labels = unapplied_uploads(ctx)
     if not labels:
         return Finding("unapplied_uploads", FindingStatus.PASS, "the environment is configured with the latest requirements.txt and startup.sh")
+    deployed = [label for label in labels if label in written]
+    left = [label for label in labels if label not in written]
+    lines = []
+    if deployed:
+        lines.append(
+            f"{' and '.join(deployed)} {'has a newer upload' if len(deployed) == 1 else 'have newer uploads'} than the environment "
+            f"runs; the plan builds on {'it' if len(deployed) == 1 else 'them'}, and apply deploys "
+            f"{'it' if len(deployed) == 1 else 'them'} together with these changes"
+        )
+    if left:
+        lines.append(
+            f"{' and '.join(left)} {'has a newer upload' if len(left) == 1 else 'have newer uploads'} than the environment runs, "
+            f"which this plan doesn't change, so apply won't deploy {'it' if len(left) == 1 else 'them'}"
+        )
     return Finding(
         "unapplied_uploads",
-        FindingStatus.FAIL,
-        f"{' and '.join(labels)} {'has a newer upload' if len(labels) == 1 else 'have newer uploads'} than the environment "
-        f"is configured with; apply or discard {'it' if len(labels) == 1 else 'them'}, then re-scan",
-        "Until then the plan leaves out the changes to "
-        + (" and ".join(labels))
-        + ".",
+        FindingStatus.WARN,
+        "; ".join(lines),
+        "The plan was computed from the newer uploads. Anything apply doesn't deploy only takes effect once the "
+        "environment is updated to it."
+        if left
+        else None,
     )
 
 

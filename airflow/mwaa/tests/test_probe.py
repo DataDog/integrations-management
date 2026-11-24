@@ -187,10 +187,21 @@ def test_an_unpinned_configured_file_is_read_at_exactly_the_fingerprinted_versio
     assert text == "fingerprinted content\n"
 
 
-def test_a_pinned_configured_file_is_still_read_at_its_configured_version():
+def test_a_pinned_configured_file_is_read_at_its_latest_version_so_a_newer_upload_is_planned_on_top_of():
     client = make_client()
     client.get_environment.return_value = {**ENVIRONMENT, "AirflowVersion": "2.10.3"}
     client.latest_version_id.side_effect = lambda bucket, k: "v-latest"
+
+    build_context(client, "my-env")
+
+    requirements_reads = [call for call in client.get_object_text.call_args_list if call.args[1] == "requirements.txt"]
+    assert [call.args[2] for call in requirements_reads] == ["v-latest"]
+
+
+def test_a_configured_file_with_no_latest_version_falls_back_to_its_configured_version():
+    client = make_client()
+    client.get_environment.return_value = {**ENVIRONMENT, "AirflowVersion": "2.10.3"}
+    client.latest_version_id.side_effect = lambda bucket, k: None
 
     build_context(client, "my-env")
 

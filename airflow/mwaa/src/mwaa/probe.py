@@ -86,16 +86,15 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
             return False, None
         return True, file_versions[label]
 
-    # the plan is computed from the configured versions; check_unapplied_uploads
-    # compares them with the latest ones fingerprinted here
-    # a configured path with no pinned version means MWAA uses the latest, so read
-    # exactly the latest version fingerprinted, not whatever's latest a moment later
+    # the plan is computed from the latest versions fingerprinted here -- not whatever's
+    # latest a moment later -- so a newer upload than the configured one is planned on top
+    # of; check_unapplied_uploads says whether apply deploys it
     requirements_label = REQUIREMENTS_PATH
     requirements_target_text = None
     _, requirements_version = fingerprint(REQUIREMENTS_PATH)
     if environment.get("RequirementsS3Path"):
         requirements_text = client.get_object_text(
-            bucket, environment["RequirementsS3Path"], environment.get("RequirementsS3ObjectVersion") or requirements_version
+            bucket, environment["RequirementsS3Path"], requirements_version or environment.get("RequirementsS3ObjectVersion")
         )
     else:
         # never configured; a file already at the default key isn't this environment's
@@ -111,7 +110,7 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
     if environment.get("StartupScriptS3Path"):
         try:
             startup_script_text = client.get_object_text(
-                bucket, environment["StartupScriptS3Path"], environment.get("StartupScriptS3ObjectVersion") or startup_script_version
+                bucket, environment["StartupScriptS3Path"], startup_script_version or environment.get("StartupScriptS3ObjectVersion")
             )
         except ObjectNotFoundError:
             startup_script_text = None

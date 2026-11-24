@@ -39,8 +39,9 @@ review while one exists.
 Each environment also carries `file_versions` (see probe.py): the latest
 S3 VersionId of every file its plan reads or might write, so apply can
 refuse if any changed since. Changes depending on a file with an
-unapplied upload or an unreadable version are left out of the plan
-entirely (_without_blocked_changes).
+unreadable version are left out of the plan entirely
+(_without_blocked_changes). A newer upload than the environment runs is
+planned on top of instead (see check_unapplied_uploads).
 
 Each environment also carries `status`: has THIS session's plan actually
 been applied to it yet? Deliberately just the current state, not a history
@@ -79,7 +80,6 @@ from .plan import STARTUP_SCRIPT_PATHS, ConstraintDirectiveChange, EnvVarChange,
 _ISSUE_CHECKS = (
     check_base_constraints,
     check_constraint_directives,
-    check_unapplied_uploads,
     check_file_versions,
     check_openlineage_precedence,
     check_constraint_path,
@@ -89,7 +89,7 @@ _ISSUE_CHECKS = (
 
 
 #: The checks that only read ProbeContext, never call AWS themselves.
-_PURE_CHECKS = (check_base_constraints, check_constraint_directives, check_unapplied_uploads, check_file_versions, check_openlineage_precedence)
+_PURE_CHECKS = (check_base_constraints, check_constraint_directives, check_file_versions, check_openlineage_precedence)
 
 
 @dataclass(frozen=True)
@@ -178,13 +178,13 @@ def _compute_issues(ctx: ProbeContext) -> list[Finding]:
 
 
 def _without_blocked_changes(plan: Plan, ctx: ProbeContext) -> Plan:
-    """Drop the changes that depend on a file with an unapplied upload or an unreadable version.
+    """Drop the changes that depend on a file with an unreadable version.
 
     startup.sh blocks only the env-var changes; any other file (requirements.txt,
     the constraints file, a wheel) blocks every package change. See
-    check_unapplied_uploads/check_file_versions for the issues that say why.
+    check_file_versions for the issue that says why.
     """
-    blocked = set(unapplied_uploads(ctx)) | set(ctx.file_version_errors)
+    blocked = set(ctx.file_version_errors)
     drop_packages = any(label not in STARTUP_SCRIPT_PATHS for label in blocked)
     drop_env_vars = any(label in STARTUP_SCRIPT_PATHS for label in blocked)
     if not drop_packages and not drop_env_vars:
@@ -225,14 +225,21 @@ def _environment_entry(ctx: ProbeContext, dd_site: str) -> EnvironmentEntry:
     if any(isinstance(fc, ConstraintDirectiveChange) and fc.from_line is None for fc in plan.file_changes):
         # "no --constraint line" is exactly what the plan is about to add
         issues = [i for i in issues if i.check_id != "constraint_path"]
+    plan_to_apply = _without_blocked_changes(plan, ctx)
+    unapplied = check_unapplied_uploads(ctx, {fc.path for fc in plan_to_apply.file_changes})
+    if unapplied.status != FindingStatus.PASS:
+        issues.append(unapplied)
     return EnvironmentEntry(
         name=ctx.environment.get("Name"),
         airflow_version=airflow_version,
         # a flagged version also has to be on the upgrade guide's packages (its plan, before
         # blocked changes are dropped, needs none -- upgrade_needed is also set when that
-        # can't be determined, e.g. an unreadable base constraints file)
-        already_configured=openlineage.configured and not (plan.source == "flagged_version_table" and plan.upgrade_needed),
-        plan=_without_blocked_changes(plan, ctx),
+        # can't be determined, e.g. an unreadable base constraints file); and the environment
+        # has to run the files that judgment was made from
+        already_configured=openlineage.configured
+        and not (plan.source == "flagged_version_table" and plan.upgrade_needed)
+        and not unapplied_uploads(ctx),
+        plan=plan_to_apply,
         issues=issues,
         file_versions=ctx.file_versions,
     )
