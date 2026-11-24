@@ -64,7 +64,7 @@ from airflow_shared.reporter import Finding, FindingStatus
 
 from .pins import OPENLINEAGE_PROVIDER, mentions_package, pinned_versions, requirement_line_package
 from .shell_env import Variables, exported_environment
-from .startup_script import DD_API_KEY_PLACEHOLDER, VERSIONS_NEEDING_CONFIG_PATH_WORKAROUND
+from .startup_script import DD_API_KEY_PLACEHOLDER, VERSIONS_NEEDING_CONFIG_PATH_WORKAROUND, parse_exports
 
 # version boundaries, from the provider/openlineage-python source at each release
 PROVIDER_ENV_STYLE_TRANSPORT_VERSION = (2, 6, 0)  # conf.is_disabled counts OPENLINEAGE__TRANSPORT* env vars
@@ -89,6 +89,15 @@ class OpenLineageState:
     # the fields (JSON) to set in AIRFLOW__OPENLINEAGE__TRANSPORT, when it's aimed at a Datadog
     # intake and startup.sh's one export of it can be rewritten in place -- see _datadog_transport_rewrite
     transport_rewrite: Optional[str] = None
+    # the literal Datadog API key the transport in use sends with, if there is one -- kept in
+    # memory only so the scan can check it (session.py); never persisted, printed or repr'd
+    existing_api_key: Optional[str] = field(default=None, repr=False)
+    # where that key is set: "OPENLINEAGE_API_KEY" or "AIRFLOW__OPENLINEAGE__TRANSPORT"
+    api_key_source: Optional[str] = None
+    # OPENLINEAGE_URL is another Datadog site's intake, so a key set next to it is that site's
+    api_key_site_changes: bool = False
+    # the TRANSPORT fields to set if its key has to be replaced (see _datadog_transport_rewrite)
+    transport_key_rewrite: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -122,6 +131,9 @@ def is_intake_url(url: Any, dd_site: str) -> bool:
 
 _ANY_DATADOG_INTAKE = re.compile(r"data-obs-intake\.(?:[a-z0-9-]+\.)*(?:datadoghq\.com|datadoghq\.eu|ddog-gov\.com|datad0g\.com)")
 _TRANSPORT_VAR = "AIRFLOW__OPENLINEAGE__TRANSPORT"
+# what a Datadog API key looks like, typed into the script as is -- not a $(...), a
+# variable or a secret lookup, which can't be checked and are never replaced
+_LITERAL_API_KEY = re.compile(r"[0-9a-fA-F]{32}")
 
 
 def is_any_datadog_intake_url(url: Any) -> bool:
@@ -453,9 +465,35 @@ def analyze(
             )
         )
 
+    existing_api_key = api_key_source = transport_key_rewrite = None
+    api_key_site_changes = False
+    if resolution.winner == "OPENLINEAGE_URL" or fixable:
+        raw = parse_exports(startup_script_text or "").get("OPENLINEAGE_API_KEY")
+        if raw is not None and _LITERAL_API_KEY.fullmatch(raw) and environment.get("OPENLINEAGE_API_KEY") == raw:
+            existing_api_key, api_key_source = raw, "OPENLINEAGE_API_KEY"
+            url = environment.get("OPENLINEAGE_URL")
+            api_key_site_changes = is_any_datadog_intake_url(url) and not is_intake_url(url, dd_site)
+    elif resolution.ok and resolution.winner == _TRANSPORT_VAR:
+        auth = (_json_object(environment.get(_TRANSPORT_VAR)) or {}).get("auth")
+        keys = {auth.get(name) for name in ("apiKey", "apikey", "api_key") if auth.get(name)} if isinstance(auth, dict) else set()
+        fields = _datadog_transport_rewrite(environment, startup_script_text, dd_site, provider_version, client_version)
+        key = next(iter(keys)) if len(keys) == 1 else None
+        if fields and isinstance(key, str) and _LITERAL_API_KEY.fullmatch(key):
+            existing_api_key, api_key_source, transport_key_rewrite = key, _TRANSPORT_VAR, fields
+
     workaround_ok = airflow_version not in VERSIONS_NEEDING_CONFIG_PATH_WORKAROUND or all(
         name in environment for name in ("AIRFLOW__OPENLINEAGE__CONFIG_PATH", "AIRFLOW__OPENLINEAGE__DISABLED_FOR_OPERATORS")
     )
     configured = resolution.ok and provider_present and is_set(environment, "AIRFLOW__OPENLINEAGE__NAMESPACE") and workaround_ok
-    return OpenLineageState(configured=configured, transport_fixable=fixable, issues=issues, environment=environment, transport_rewrite=rewrite)
+    return OpenLineageState(
+        configured=configured,
+        transport_fixable=fixable,
+        issues=issues,
+        environment=environment,
+        transport_rewrite=rewrite,
+        existing_api_key=existing_api_key,
+        api_key_source=api_key_source,
+        api_key_site_changes=api_key_site_changes,
+        transport_key_rewrite=transport_key_rewrite,
+    )
 

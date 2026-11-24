@@ -12,7 +12,7 @@ from mwaa.patch import patch_pins
 from mwaa.scan import _app_url, run_scan
 from mwaa.scan_config import ScanConfig
 from mwaa.session import AppliedStatus, ScannedStatus
-from mwaa.session_store import SessionStore
+from mwaa.session_store import FilesystemSessionStore, SessionStore
 
 from .conftest import UPSTREAM_2_8_1_TEXT, UPSTREAM_2_8_1_URL
 
@@ -364,3 +364,22 @@ def test_run_scan_interactive_no_environments_found(capsys):
 
     assert result["applied"] is False
     assert "No MWAA environments found" in capsys.readouterr().out
+
+
+LITERAL_KEY = "0123456789abcdef0123456789abcdef"
+
+
+@pytest.mark.parametrize("offline", [False, True])
+def test_run_scan_checks_an_existing_literal_api_key_with_the_intake_unless_offline(offline, intake_key_checks):
+    intake_key_checks[LITERAL_KEY] = False
+    client = make_client()
+    texts = client.get_object_text.side_effect
+    client.get_object_text.side_effect = lambda bucket, key, version_id=None: texts(bucket, key).replace("some-real-key", LITERAL_KEY)
+    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key", offline=offline)
+
+    with patch("mwaa.scan.MwaaClient", return_value=client), patch("mwaa.scan.select_session_store", return_value=(FilesystemSessionStore() if offline else make_store(), False)):
+        session = run_scan(config, Reporter(workflow_type="mwaa-setup"), input_func=fake_input())["session"]
+
+    staging = session.find("my-mwaa-staging")
+    issue = next(i for i in staging.issues if i.check_id == "openlineage_api_key")
+    assert ("couldn't verify" in issue.message) if offline else ("rejected by Datadog" in issue.message)

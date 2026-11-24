@@ -40,6 +40,7 @@ def entry_for(
     requirements: str = PROVIDER,
     config_options: "dict | None" = None,
     constraints: "str | None" = None,
+    validate_api_key=None,
 ):
     ctx = ProbeContext(
         environment={
@@ -55,7 +56,7 @@ def entry_for(
         client=None,
         base_constraints=BaseConstraints(source="s3://example-bucket/dags/constraints.txt", text=constraints) if constraints else None,
     )
-    return build_session("s", "us-east-1", SITE, [ctx]).environments[0]
+    return build_session("s", "us-east-1", SITE, [ctx], validate_api_key).environments[0]
 
 
 def check(entry, check_id: str) -> "tuple[FindingStatus, str] | None":
@@ -618,3 +619,97 @@ def test_a_transport_to_a_non_datadog_backend_fails_with_a_plain_message_and_is_
 )
 def test_is_any_datadog_intake_url(url, expected):
     assert is_any_datadog_intake_url(url) is expected
+
+
+# --- an existing literal API key that's known not to work is replaced -----------------
+
+KEY = "0123456789abcdef0123456789abcdef"  # synthetic, shaped like a Datadog API key
+
+
+def literal_key_recipe(url: str = INTAKE, key: str = KEY) -> str:
+    return f"#!/bin/sh\nexport OPENLINEAGE_URL={url}\nexport OPENLINEAGE_API_KEY={key}\n" + NAMESPACE
+
+
+def api_key_change(entry) -> "EnvVarChange | None":
+    return next((fc for fc in entry.plan.file_changes if isinstance(fc, EnvVarChange) and fc.name == "OPENLINEAGE_API_KEY"), None)
+
+
+def never_called(dd_site, api_key):
+    raise AssertionError("the intake must not be asked")
+
+
+def test_a_literal_key_next_to_another_sites_url_is_replaced_along_with_the_site_without_asking_the_intake():
+    entry = entry_for(literal_key_recipe(url="https://data-obs-intake.datadoghq.com"), validate_api_key=never_called)
+
+    assert "OPENLINEAGE_URL" in env_var_names(entry)
+    change = api_key_change(entry)
+    assert (change.from_value, change.to_value, change.secret) == (None, DD_API_KEY_PLACEHOLDER, True)
+    status, message = check(entry, "openlineage_api_key")
+    assert status == FindingStatus.WARN
+    assert "another Datadog site" in message
+    assert KEY not in json.dumps(asdict(entry))
+
+
+def test_a_literal_key_the_intake_rejects_is_replaced_with_a_warning():
+    asked = []
+    entry = entry_for(literal_key_recipe(), validate_api_key=lambda site, key: asked.append((site, key)) or False)
+
+    assert asked == [(SITE, KEY)]
+    assert api_key_change(entry).to_value == DD_API_KEY_PLACEHOLDER
+    assert env_var_names(entry) == {"OPENLINEAGE_API_KEY"}  # the URL is already right
+    assert check(entry, "openlineage_api_key") == (
+        FindingStatus.WARN,
+        "the existing OPENLINEAGE_API_KEY was rejected by Datadog; the plan replaces it with the selected API key",
+    )
+    assert entry.already_configured is False
+    assert KEY not in json.dumps(asdict(entry))
+
+
+def test_a_literal_key_the_intake_accepts_is_kept():
+    entry = entry_for(literal_key_recipe(), validate_api_key=lambda site, key: True)
+
+    assert api_key_change(entry) is None
+    assert check(entry, "openlineage_api_key") is None
+    assert entry.already_configured is True
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["$(aws secretsmanager get-secret-value --secret-id dd --query SecretString --output text)", "${DD_API_KEY}", "not-a-datadog-key"],
+    ids=["command", "variable", "not-key-shaped"],
+)
+def test_a_key_that_isnt_a_literal_datadog_key_is_kept_and_never_checked(value):
+    entry = entry_for(literal_key_recipe(key=value), validate_api_key=never_called)
+
+    assert api_key_change(entry) is None
+    assert check(entry, "openlineage_api_key") is None
+
+
+def test_a_literal_key_that_cant_be_checked_offline_is_kept_with_a_warning():
+    entry = entry_for(literal_key_recipe(), validate_api_key=None)
+
+    assert api_key_change(entry) is None
+    status, message = check(entry, "openlineage_api_key")
+    assert status == FindingStatus.WARN
+    assert message == "couldn't verify the existing OPENLINEAGE_API_KEY with Datadog, so it's kept"
+    assert entry.already_configured is True
+
+
+def test_a_literal_key_in_a_working_datadog_transport_that_the_intake_rejects_is_replaced_in_place():
+    startup = airflow_transport(f'{{"type": "http", "url": "{INTAKE}", "auth": {{"type": "api_key", "apiKey": "{KEY}"}}}}')
+
+    entry = entry_for(startup, validate_api_key=lambda site, key: False)
+
+    assert json.loads(transport_change(entry).to_value) == {"url": INTAKE, "auth": {"type": "api_key", "apiKey": DD_API_KEY_PLACEHOLDER}}
+    assert "API key in AIRFLOW__OPENLINEAGE__TRANSPORT was rejected" in check(entry, "openlineage_api_key")[1]
+    assert KEY not in json.dumps(asdict(entry))
+
+
+def test_a_replaced_key_is_written_over_its_own_line():
+    startup = literal_key_recipe()
+    entry = entry_for(startup, validate_api_key=lambda site, key: False)
+
+    written = interpolate_api_key(patch_env_vars(startup, [api_key_change(entry)]), "fedcba9876543210fedcba9876543210")
+
+    assert "export OPENLINEAGE_API_KEY=fedcba9876543210fedcba9876543210" in written
+    assert KEY not in written

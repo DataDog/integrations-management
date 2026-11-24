@@ -13,9 +13,10 @@ one named environment's plan.
 `scan` makes no changes to the environment: every call it makes is a read
 (`mwaa:GetEnvironment`, `s3:GetObject`/`HeadObject`, `iam:SimulatePrincipalPolicy`), and
 that's enforced mechanically, not just by review -- see `MwaaClient`'s `read_only` guard
-in `shared/src/airflow_shared/mwaa_client.py`. Its one non-AWS request is a plain HTTPS
+in `shared/src/airflow_shared/mwaa_client.py`. Its non-AWS requests are a plain HTTPS
 GET for the constraints file requirements.txt's `--constraint` line points at, when that's
-a URL (below).
+a URL (below), and, unless `--offline`, one POST of an empty lineage event to
+`https://data-obs-intake.<site>` to check an existing literal API key (below).
 
 For Airflow 2.7.2/2.8.1/2.9.2, the upgrade guide's procedure is to take the *full* Airflow
 constraints file, patch the OpenLineage pins into it, upload it as `dags/constraints.txt`
@@ -133,6 +134,17 @@ merges those fields into the transport as it reads it then, so its other fields 
 which may hold credentials) are kept but never enter a session. When it can't be told statically (a config file, a URL from a
 command) it's a WARN, and likewise nothing is proposed. A provider that only the startup
 script installs is an `openlineage_provider` WARN.
+
+An API key that's already set is normally left alone. The exception is a literal
+32-hex key typed into the startup script (in `OPENLINEAGE_API_KEY`, or in a Datadog-bound
+`AIRFLOW__OPENLINEAGE__TRANSPORT`'s auth) for the transport in use, since that one can be
+judged: next to another Datadog site's `OPENLINEAGE_URL` it's that site's key, so it's
+replaced along with the site; otherwise `scan` asks the intake, and a key it rejects
+(401/403) is replaced too. Either way the replacement is the API key passed to `apply`,
+and an `openlineage_api_key` WARN says so. A key the intake can't be asked about
+(`--offline`, unreachable) is kept with a WARN. A `$(...)`, a variable or a secret lookup is
+never checked or replaced. The existing key is never in a session: a replaced secret's
+`from_value` is always `null`.
 
 AWS credentials are picked up the normal boto3 way (CloudShell's assumed role, an
 environment profile, `~/.aws/credentials`, etc.) -- this tool does not manage credentials

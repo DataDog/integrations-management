@@ -65,6 +65,18 @@ def fake_fetch(monkeypatch) -> dict[str, bytes]:
     return responses
 
 
+@pytest.fixture(autouse=True)
+def intake_key_checks(monkeypatch) -> dict[str, "bool | None"]:
+    """Stands in for scan's API key check against the intake, so no test ever POSTs one.
+
+    Maps key -> what the intake answers (True accepted, False rejected); a key
+    not in it can't be checked (None), like an unreachable intake.
+    """
+    answers: dict[str, "bool | None"] = {}
+    monkeypatch.setattr("mwaa.scan.check_intake_api_key", lambda dd_site, api_key: answers.get(api_key))
+    return answers
+
+
 class FakeS3Client:
     """Just enough of MwaaClient to build a context from, apply against and re-check.
 

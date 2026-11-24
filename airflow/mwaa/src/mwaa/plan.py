@@ -358,7 +358,9 @@ def _plan_unflagged_version(airflow_version: str, requirements_text: str) -> tup
     )
 
 
-def _plan_env_var_changes(airflow_version: str, dd_site: str, startup_script_text: Optional[str], state: OpenLineageState) -> list[EnvVarChange]:
+def _plan_env_var_changes(
+    airflow_version: str, dd_site: str, startup_script_text: Optional[str], state: OpenLineageState, replace_api_key: bool
+) -> list[EnvVarChange]:
     """Diff startup.sh variable-by-variable against the *effective* configuration (openlineage_config.py).
 
     OPENLINEAGE_URL/OPENLINEAGE_API_KEY are only proposed when setting them
@@ -367,7 +369,9 @@ def _plan_env_var_changes(airflow_version: str, dd_site: str, startup_script_tex
     can't be told statically. An API key that's already set to anything (a
     secret lookup, another variable) is left alone: there's nothing real to
     compare it against, and proposing to overwrite a customer's working key
-    on every scan would be worse than occasionally missing a wrong one. The
+    on every scan would be worse than occasionally missing a wrong one --
+    unless replace_api_key says the literal key in use is known not to work
+    (session.py: another site's, or rejected by the intake). The
     namespace is left alone whenever it's non-empty, since it's the
     customer's `env` identity (see startup_script.py), and the 2.7/2.8
     workaround variables whenever they're defined at all (a non-empty
@@ -382,18 +386,30 @@ def _plan_env_var_changes(airflow_version: str, dd_site: str, startup_script_tex
         changes.append(
             EnvVarChange(path=STARTUP_SCRIPT_PATH, name="AIRFLOW__OPENLINEAGE__TRANSPORT", from_value=None, to_value=state.transport_rewrite, secret=True)
         )
+    elif replace_api_key and state.api_key_source == "AIRFLOW__OPENLINEAGE__TRANSPORT":
+        changes.append(
+            EnvVarChange(path=STARTUP_SCRIPT_PATH, name="AIRFLOW__OPENLINEAGE__TRANSPORT", from_value=None, to_value=state.transport_key_rewrite, secret=True)
+        )
+    replace_variable = replace_api_key and state.api_key_source == "OPENLINEAGE_API_KEY"
     for name, to_value in target_values(airflow_version, dd_site):
         if name == "OPENLINEAGE_URL":
             skip = not state.transport_fixable or is_intake_url(environment.get(name), dd_site)
         elif name == "OPENLINEAGE_API_KEY":
-            skip = not state.transport_fixable or is_set(environment, name)
+            skip = not replace_variable and (not state.transport_fixable or is_set(environment, name))
         elif name in KEEP_EXISTING_VAR_NAMES:
             skip = is_set(environment, name)
         else:
             skip = name in environment
         if not skip:
             changes.append(
-                EnvVarChange(path=STARTUP_SCRIPT_PATH, name=name, from_value=written.get(name), to_value=to_value, secret=name in SECRET_VAR_NAMES)
+                EnvVarChange(
+                    path=STARTUP_SCRIPT_PATH,
+                    name=name,
+                    # a secret's current value is never copied into a plan, even when it's being replaced
+                    from_value=None if name in SECRET_VAR_NAMES else written.get(name),
+                    to_value=to_value,
+                    secret=name in SECRET_VAR_NAMES,
+                )
             )
     return changes
 
@@ -409,6 +425,7 @@ def compute_plan(
     requirements_path: str = REQUIREMENTS_PATH,
     startup_script_path: str = STARTUP_SCRIPT_PATH,
     configuration_options: Optional[dict] = None,
+    replace_api_key: bool = False,
 ) -> Plan:
     """Compute the onboarding plan for one environment from its real current files.
 
@@ -417,6 +434,7 @@ def compute_plan(
     startup_script_path are the labels of the files written (see ProbeContext).
     configuration_options is the environment's AirflowConfigurationOptions,
     which count the same as startup.sh exports (openlineage_config.py).
+    replace_api_key replaces the literal API key in use (see _plan_env_var_changes).
     """
     flagged_entry = FLAGGED_VERSION_TABLE.get(airflow_version)
     if flagged_entry:
@@ -428,7 +446,7 @@ def compute_plan(
 
     effective_constraints = base_constraints.text if base_constraints else None
     state = analyze(airflow_version, requirements_text, startup_script_text, configuration_options or {}, dd_site, effective_constraints)
-    file_changes += _plan_env_var_changes(airflow_version, dd_site, startup_script_text, state)
+    file_changes += _plan_env_var_changes(airflow_version, dd_site, startup_script_text, state, replace_api_key)
 
     relabel = {REQUIREMENTS_PATH: requirements_path, STARTUP_SCRIPT_PATH: startup_script_path}
     file_changes = [replace(fc, path=relabel.get(fc.path, fc.path)) for fc in file_changes]

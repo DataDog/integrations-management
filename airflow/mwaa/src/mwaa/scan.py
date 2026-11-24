@@ -42,6 +42,7 @@ from .apply import apply_to_environment, check_files_unchanged, compute_apply_ac
 from .checks import ProbeContext
 from .diff_preview import render_unified_diff
 from .discovery import discover_environments
+from .fetch import check_intake_api_key
 from .plan import Plan, WheelReference
 from .scan_config import ScanConfig
 from .session import Session, blocking_issues, build_session, seal_applied
@@ -222,7 +223,7 @@ def run_scan(config: ScanConfig, reporter: Reporter, input_func: InputFunc = inp
         contexts = discover_environments(client)
 
     with reporter.report_step("build_session"):
-        session = build_session(config.session_id, config.region, config.dd_site, contexts)
+        session = build_session(config.session_id, config.region, config.dd_site, contexts, None if offline else check_intake_api_key)
 
     with reporter.report_step("persist_session"):
         store.save(session)
