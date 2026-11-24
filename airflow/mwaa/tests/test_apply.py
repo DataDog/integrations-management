@@ -7,11 +7,12 @@ from unittest.mock import MagicMock
 import pytest
 
 from airflow_shared.reporter import FindingStatus
-from mwaa.apply import compute_apply_actions, apply_to_environment, interpolate_api_key, real_key_for_path
+from mwaa.apply import StaleSessionError, apply_to_environment, compute_apply_actions, interpolate_api_key
 from mwaa.base_constraints import BaseConstraints
 from mwaa.checks import ProbeContext, check_wheel_references
-from mwaa.plan import WheelReference, compute_plan
+from mwaa.plan import WheelReference, compute_plan, real_key_for_path
 from mwaa.probe import build_context
+from mwaa.session import build_session
 from mwaa.startup_script import DD_API_KEY_PLACEHOLDER
 
 from .conftest import FAKE_WHEEL_BYTES, OPENLINEAGE_WHEEL_URL, UPSTREAM_2_7_2_TEXT, FakeS3Client
@@ -160,7 +161,7 @@ def test_compute_apply_actions_rejects_unknown_path():
         source_doc="",
         file_changes=[PinChange(path="somewhere/else.txt", package="pandas", from_version=None, to_version="2.1.4")],
     )
-    with pytest.raises(ValueError, match="somewhere/else.txt"):
+    with pytest.raises(StaleSessionError, match="somewhere/else.txt, which this environment doesn't use now"):
         compute_apply_actions(make_context(), plan)
 
 
@@ -218,7 +219,7 @@ def test_apply_to_environment_skips_update_call_when_only_constraints_change():
     from mwaa.apply import FileUpload
 
     ctx = make_context()
-    uploads = [FileUpload(path="dags/constraints.txt", old_content="", content="pandas==2.1.4\n", action="update")]
+    uploads = [FileUpload(path="dags/constraints.txt", label="dags/constraints.txt", old_content="", content="pandas==2.1.4\n", action="update")]
 
     result = apply_to_environment(client, ctx, uploads, [])
 
@@ -243,7 +244,12 @@ def test_apply_to_environment_writes_to_the_environments_real_prefixed_keys():
             "StartupScriptS3Path": "setup-probe/probe-env/startup/startup.sh",
         },
     )
-    plan = compute_plan("2.8.1", ctx.requirements_text, ctx.base_constraints, ctx.startup_script_text, "datadoghq.com")
+    plan = build_session("s", "us-east-1", "datadoghq.com", [ctx]).environments[0].plan
+    assert {fc.path for fc in plan.file_changes} == {
+        "setup-probe/probe-env/requirements.txt",
+        "setup-probe/probe-env/dags/constraints.txt",
+        "setup-probe/probe-env/startup/startup.sh",
+    }  # the persisted plan names the real files
     uploads = compute_apply_actions(ctx, plan)
 
     result = apply_to_environment(client, ctx, uploads, [])

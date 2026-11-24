@@ -71,7 +71,17 @@ from .checks import (
     unapplied_uploads,
 )
 from .openlineage_config import analyze
-from .plan import STARTUP_SCRIPT_PATHS, ConstraintDirectiveChange, EnvVarChange, Plan, compute_plan, plan_from_dict
+from .plan import (
+    STARTUP_SCRIPT_PATHS,
+    ConstraintDirectiveChange,
+    EnvVarChange,
+    Plan,
+    WheelReference,
+    compute_plan,
+    plan_from_dict,
+    real_key_for_path,
+    wheel_path,
+)
 
 #: The subset of probe checks worth recording at scan time and re-surfacing
 #: at apply time -- each one is a way applying this environment's plan could
@@ -116,8 +126,11 @@ class EnvironmentEntry:
     plan: Plan
     issues: list[Finding] = field(default_factory=list)
     status: "ScannedStatus | AppliedStatus" = field(default_factory=ScannedStatus)
-    # plan path label -> latest S3 VersionId at scan time (None = didn't exist); see probe.py
+    # real S3 key -> latest S3 VersionId at scan time (None = didn't exist); see probe.py
     file_versions: dict[str, Optional[str]] = field(default_factory=dict)
+    # real S3 key -> what that file is, for every file the plan writes: "requirements",
+    # "constraints", "startup_script" or "wheel" -- plan paths are real keys, which don't say
+    file_roles: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -191,9 +204,10 @@ def _without_blocked_changes(plan: Plan, ctx: ProbeContext) -> Plan:
         return plan
     kept = [fc for fc in plan.file_changes if (isinstance(fc, EnvVarChange) and not drop_env_vars) or (not isinstance(fc, EnvVarChange) and not drop_packages)]
     left_out = " and ".join(name for name, dropped in (("package", drop_packages), ("startup.sh", drop_env_vars)) if dropped)
+    blocked_files = ", ".join(sorted(real_key_for_path(ctx.environment, label) for label in blocked))
     return replace(
         plan,
-        rationale=f"{plan.rationale} The {left_out} changes are left out until the issues recorded for {', '.join(sorted(blocked))} are resolved.",
+        rationale=f"{plan.rationale} The {left_out} changes are left out until the issues recorded for {blocked_files} are resolved.",
         file_changes=kept,
     )
 
@@ -229,6 +243,11 @@ def _environment_entry(ctx: ProbeContext, dd_site: str) -> EnvironmentEntry:
     unapplied = check_unapplied_uploads(ctx, {fc.path for fc in plan_to_apply.file_changes})
     if unapplied.status != FindingStatus.PASS:
         issues.append(unapplied)
+
+    def real(label: str) -> str:
+        return real_key_for_path(ctx.environment, label)
+
+    roles = {ctx.requirements_path: "requirements", ctx.constraints_path: "constraints", ctx.startup_script_path: "startup_script"}
     return EnvironmentEntry(
         name=ctx.environment.get("Name"),
         airflow_version=airflow_version,
@@ -239,9 +258,11 @@ def _environment_entry(ctx: ProbeContext, dd_site: str) -> EnvironmentEntry:
         already_configured=openlineage.configured
         and not (plan.source == "flagged_version_table" and plan.upgrade_needed)
         and not unapplied_uploads(ctx),
-        plan=plan_to_apply,
+        plan=replace(plan_to_apply, file_changes=[replace(fc, path=real(fc.path)) for fc in plan_to_apply.file_changes]),
         issues=issues,
-        file_versions=ctx.file_versions,
+        file_versions={real(label): version for label, version in ctx.file_versions.items()},
+        file_roles={real(fc.path): roles[fc.path] for fc in plan_to_apply.file_changes}
+        | {real(wheel_path(fc)): "wheel" for fc in plan_to_apply.file_changes if isinstance(fc, WheelReference)},
     )
 
 
@@ -285,6 +306,7 @@ def session_from_dict(data: dict) -> Session:
                 ],
                 status=_status_from_dict(e.get("status", {"type": "scanned"})),
                 file_versions=e.get("file_versions", {}),
+                file_roles=e.get("file_roles", {}),
             )
             for e in data["environments"]
         ],

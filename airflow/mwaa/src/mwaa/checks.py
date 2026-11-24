@@ -33,7 +33,7 @@ from airflow_shared.mwaa_client import MwaaClient
 from airflow_shared.reporter import Finding, FindingStatus
 
 from .base_constraints import BaseConstraints
-from .plan import CONSTRAINTS_PATH, REQUIREMENTS_PATH, STARTUP_SCRIPT_PATH
+from .plan import CONSTRAINTS_PATH, REQUIREMENTS_PATH, STARTUP_SCRIPT_PATH, real_key_for_path
 from .pins import CONSTRAINT_LINE, DAGS_MOUNT_PREFIX, find_constraint_lines, find_wheel_references, resolve_constraint_s3_key
 from .version_table import FLAGGED_VERSION_TABLE
 from .startup_script import parse_exports
@@ -203,8 +203,8 @@ def check_unapplied_uploads(ctx: ProbeContext, written: "set[str]") -> Finding:
     labels = unapplied_uploads(ctx)
     if not labels:
         return Finding("unapplied_uploads", FindingStatus.PASS, "the environment is configured with the latest requirements.txt and startup.sh")
-    deployed = [label for label in labels if label in written]
-    left = [label for label in labels if label not in written]
+    deployed = [real_key_for_path(ctx.environment, label) for label in labels if label in written]
+    left = [real_key_for_path(ctx.environment, label) for label in labels if label not in written]
     lines = []
     if deployed:
         lines.append(
@@ -239,8 +239,9 @@ def check_file_versions(ctx: ProbeContext) -> Finding:
     return Finding(
         "file_versions",
         FindingStatus.FAIL,
-        f"couldn't read the latest S3 version of {', '.join(ctx.file_version_errors)}, so the plan leaves out the changes that depend on it",
-        "\n".join(f"{label}: {error}" for label, error in ctx.file_version_errors.items())
+        f"couldn't read the latest S3 version of {', '.join(real_key_for_path(ctx.environment, label) for label in ctx.file_version_errors)}, "
+        "so the plan leaves out the changes that depend on it",
+        "\n".join(f"{real_key_for_path(ctx.environment, label)}: {error}" for label, error in ctx.file_version_errors.items())
         + "\nRe-run scan once these can be read (HeadObject, with s3:ListBucket on the bucket).",
     )
 

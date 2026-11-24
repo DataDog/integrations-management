@@ -5,8 +5,8 @@
 """An unreferenced dags/constraints.txt is never patched or overwritten -- see probe.py."""
 
 from airflow_shared.reporter import FindingStatus
-from mwaa.apply import apply_to_environment, compute_apply_actions, real_key_for_path
-from mwaa.plan import ConstraintDirectiveChange, EnvVarChange, PinChange
+from mwaa.apply import apply_to_environment, compute_apply_actions
+from mwaa.plan import ConstraintDirectiveChange, EnvVarChange, PinChange, real_key_for_path
 from mwaa.probe import build_context
 from mwaa.session import build_session
 

@@ -5,11 +5,12 @@
 """Five real MWAA environments the scan used to get wrong -- see real_environments/README.md."""
 
 import json
+from dataclasses import asdict
 from pathlib import Path
 
 from airflow_shared.reporter import FindingStatus
 from mwaa.base_constraints import MINIMAL_CONSTRAINTS_HEADER
-from mwaa.apply import apply_to_environment, check_files_unchanged, compute_apply_actions
+from mwaa.apply import apply_to_environment, check_files_unchanged, compute_apply_actions, interpolate_api_key
 from mwaa.plan import ConstraintDirectiveChange, EnvVarChange, PinChange
 from mwaa.probe import build_context
 from mwaa.session import blocking_issues, build_session
@@ -82,8 +83,8 @@ def test_probe_281_whose_airflow_transport_overrides_openlineage_url_fails_and_p
     # upstream's sqlparse==0.4.4, which common-sql 1.20.0 can't install against
     package_changes = [fc for fc in entry.plan.file_changes if not isinstance(fc, EnvVarChange)]
     assert package_changes == [
-        PinChange(path="dags/constraints.txt", package="openlineage-sql", from_version="1.7.0", to_version="1.24.2"),
-        PinChange(path="dags/constraints.txt", package="sqlparse", from_version="0.4.4", to_version="0.5.1"),
+        PinChange(path="probe/281/dags/constraints.txt", package="openlineage-sql", from_version="1.7.0", to_version="1.24.2"),
+        PinChange(path="probe/281/dags/constraints.txt", package="sqlparse", from_version="0.4.4", to_version="0.5.1"),
     ]
     assert "apache-airflow-providers-common-sql 1.20.0 needs sqlparse>=0.5.1" in entry.plan.rationale
 
@@ -95,7 +96,7 @@ def test_sandbox_281_writes_datadog_copies_next_to_its_orphaned_files():
     assert entry.already_configured is False
     assert not issues(entry, FindingStatus.FAIL)
     assert "constraint_path" not in issues(entry, FindingStatus.WARN)  # the plan adds the --constraint line itself
-    assert {fc.path for fc in entry.plan.file_changes if isinstance(fc, EnvVarChange)} == {"dags/startup-datadog.sh"}
+    assert {fc.path for fc in entry.plan.file_changes if isinstance(fc, EnvVarChange)} == {"probe/sandbox/dags/startup-datadog.sh"}
     assert env_var_names(entry) == {
         "OPENLINEAGE_URL",
         "OPENLINEAGE_API_KEY",
@@ -103,7 +104,15 @@ def test_sandbox_281_writes_datadog_copies_next_to_its_orphaned_files():
         "AIRFLOW__OPENLINEAGE__CONFIG_PATH",
         "AIRFLOW__OPENLINEAGE__DISABLED_FOR_OPERATORS",
     }
-    assert {fc.path for fc in entry.plan.file_changes if isinstance(fc, PinChange)} == {"dags/constraints-datadog.txt", "requirements.txt"}
+    assert {fc.path for fc in entry.plan.file_changes if isinstance(fc, PinChange)} == {
+        "probe/sandbox/dags/constraints-datadog.txt",
+        "probe/sandbox/requirements.txt",
+    }
+    assert entry.file_roles == {
+        "probe/sandbox/dags/constraints-datadog.txt": "constraints",
+        "probe/sandbox/requirements.txt": "requirements",
+        "probe/sandbox/dags/startup-datadog.sh": "startup_script",
+    }
     assert any(isinstance(fc, ConstraintDirectiveChange) for fc in entry.plan.file_changes)
     assert "dags/startup.sh already exists" in entry.plan.rationale
     assert "startup-datadog.sh" in entry.plan.rationale
@@ -177,3 +186,62 @@ def test_sandbox_281_with_a_constraint_path_outside_the_dags_mount_never_replace
     assert "base_constraints" in issues(entry, FindingStatus.FAIL)
     assert blocking_issues(entry)
     assert not [fc for fc in entry.plan.file_changes if not isinstance(fc, EnvVarChange)]
+
+
+TRANSPORT_STARTUP = "probe/transport/dags/startup-datadog.sh"
+
+
+def test_transport_281_corrects_its_wrong_site_transport_in_its_real_startup_script():
+    client = load("transport-281")
+    ctx, entry = scan(client)
+
+    assert not issues(entry, FindingStatus.FAIL)
+    assert entry.already_configured is False
+    assert env_var_names(entry) == {
+        "AIRFLOW__OPENLINEAGE__TRANSPORT",
+        "AIRFLOW__OPENLINEAGE__NAMESPACE",
+        "AIRFLOW__OPENLINEAGE__CONFIG_PATH",
+        "AIRFLOW__OPENLINEAGE__DISABLED_FOR_OPERATORS",
+    }
+    # every name in the payload is the environment's real file, not a generic label
+    assert {fc.path for fc in entry.plan.file_changes} == {TRANSPORT_STARTUP}
+    assert entry.file_roles == {TRANSPORT_STARTUP: "startup_script"}
+    assert TRANSPORT_STARTUP in entry.file_versions and "dags/startup.sh" not in entry.file_versions
+    assert "not-a-real-key" not in json.dumps(asdict(entry))
+
+    check_files_unchanged(client, ctx.environment, entry.plan, entry.file_versions)
+    uploads = interpolate_api_key(compute_apply_actions(ctx, entry.plan), "0123456789abcdef")
+    apply_to_environment(client, ctx, uploads, [])
+
+    written = client.objects[TRANSPORT_STARTUP].splitlines()
+    assert written[1] == "export MY_TEAM_SETTING=keep-me"
+    assert '"url": "https://data-obs-intake.datad0g.com"' in written[2] and '"apiKey": "0123456789abcdef"' in written[2]
+    assert client.update_environment.call_args.kwargs["StartupScriptS3Path"] == TRANSPORT_STARTUP
+    _, rescanned = scan(client)
+    assert rescanned.already_configured is True
+    assert rescanned.plan.file_changes == []
+
+
+def test_transport_281_with_the_users_own_unapplied_fix_plans_on_top_of_it_and_deploys_it():
+    """The user removed the transport line themselves and uploaded it, without updating the environment."""
+    client = load("transport-281")
+    edited = "".join(line + "\n" for line in client.objects[TRANSPORT_STARTUP].splitlines() if "TRANSPORT" not in line)
+    client.put_object_text("example-mwaa-bucket", TRANSPORT_STARTUP, edited)
+    ctx, entry = scan(client)
+
+    assert not issues(entry, FindingStatus.FAIL)
+    assert issues(entry, FindingStatus.WARN)["unapplied_uploads"] == (
+        f"{TRANSPORT_STARTUP} has a newer upload than the environment runs; the plan builds on it, "
+        "and apply deploys it together with these changes"
+    )
+    assert {"OPENLINEAGE_URL", "OPENLINEAGE_API_KEY"} <= env_var_names(entry)
+
+    check_files_unchanged(client, ctx.environment, entry.plan, entry.file_versions)
+    apply_to_environment(client, ctx, interpolate_api_key(compute_apply_actions(ctx, entry.plan), "0123456789abcdef"), [])
+
+    assert "TRANSPORT" not in client.objects[TRANSPORT_STARTUP]
+    assert "export OPENLINEAGE_URL=https://data-obs-intake.datad0g.com" in client.objects[TRANSPORT_STARTUP]
+    assert client.environment["StartupScriptS3ObjectVersion"] == client.versions[TRANSPORT_STARTUP]
+    _, rescanned = scan(client)
+    assert rescanned.already_configured is True
+    assert not rescanned.issues

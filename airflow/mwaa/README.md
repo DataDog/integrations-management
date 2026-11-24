@@ -122,9 +122,13 @@ docs recipe is the canonical case, but a composite transport, `AIRFLOW__OPENLINE
 shell defaults like `${OPENLINEAGE_URL:-https://...}` and secret lookups for the key all
 count. Precedence follows the provider and openlineage-python source -- see
 `openlineage_config.py` (and `shell_env.py` for how the startup script is read). When
-something higher-precedence than `OPENLINEAGE_URL` sends elsewhere, that's an
-`openlineage_transport` FAIL and no `OPENLINEAGE_URL` change is proposed, since it
-wouldn't take effect; when it can't be told statically (a config file, a URL from a
+something higher-precedence than `OPENLINEAGE_URL` sends to a non-Datadog backend,
+that's an `openlineage_transport` FAIL and nothing is changed: where events go is the
+customer's choice. An `AIRFLOW__OPENLINEAGE__TRANSPORT` aimed at any Datadog intake but
+the wrong site, or without a usable API key, is plainly meant for Datadog, so when the
+startup script exports it on one line the plan rewrites that line in place (this site's
+url, the API key placeholder, its other fields kept) -- a secret `env_var_change` whose
+`from_value` is `null`, since the old JSON may hold a key. When it can't be told statically (a config file, a URL from a
 command) it's a WARN, and likewise nothing is proposed. A provider that only the startup
 script installs is an `openlineage_provider` WARN.
 
@@ -135,11 +139,18 @@ itself.
 Each environment in a session also records `file_versions`: the latest S3 `VersionId`
 (`null` if it doesn't exist) of every file its plan reads or might write. `apply`
 re-reads them first and, if any changed, writes nothing and exits non-zero -- re-run
-`scan`. That's what lets `apply` trust the plan as-is instead of re-deriving it. Scan
-also refuses to plan changes to requirements.txt or startup.sh when its latest upload
-isn't the version the environment is configured with (an `unapplied_uploads` issue):
-apply or discard that upload first. A `SESSION_OVERRIDE_PATH` session without
-`file_versions` only gets a warning.
+`scan`. That's what lets `apply` trust the plan as-is instead of re-deriving it. When
+requirements.txt or startup.sh has a newer upload than the version the environment is
+configured with, the plan is computed from that newer upload, and an `unapplied_uploads`
+WARN says whether `apply` deploys it: it does when the plan writes that file (on top of
+the upload), and doesn't otherwise, since UpdateEnvironment only moves the versions
+`apply` wrote. A `SESSION_OVERRIDE_PATH` session without `file_versions` only gets a
+warning.
+
+Every file name in a session is the environment's real S3 key -- `file_changes[].path`,
+`file_versions` and `file_roles` (real key -> `requirements` | `constraints` |
+`startup_script` | `wheel`, for each file the plan writes) -- e.g.
+`<prefix>/dags/startup-datadog.sh` for an environment configured with that script.
 
 If `scan` recorded any `issues` for the environment you `apply` (a conflicting OpenLineage
 config, a missing constraints/wheel file, an execution role that can't read what the plan

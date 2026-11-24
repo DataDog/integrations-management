@@ -16,5 +16,9 @@ directory is one environment:
 stale constraints pin fixed, the reference for what a correctly configured flagged
 environment looks like.
 
+`transport-281` isn't one of the five either: a synthetic, already-onboarded 2.8.1
+environment whose configured startup script (`dags/startup-datadog.sh`) exports an
+`AIRFLOW__OPENLINEAGE__TRANSPORT` aimed at the wrong Datadog site's intake.
+
 `test_real_environments.py` loads each into a `FakeS3Client` and asserts the
 outcome the real environment should get. The site for all of them is datad0g.com.

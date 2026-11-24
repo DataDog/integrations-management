@@ -16,7 +16,6 @@ from botocore.exceptions import ClientError
 
 from airflow_shared.mwaa_client import MwaaClient, ObjectNotFoundError, VersionIdUnavailable
 
-from .apply import real_key_for_path
 from .base_constraints import BaseConstraints, resolve_base_constraints
 from .checks import ProbeContext, resolve_constraint_key
 from .fetch import fetch_bytes
@@ -28,6 +27,7 @@ from .plan import (
     DATADOG_STARTUP_SCRIPT_PATH,
     REQUIREMENTS_PATH,
     STARTUP_SCRIPT_PATH,
+    real_key_for_path,
 )
 from .version_table import FLAGGED_VERSION_TABLE, datadog_wheel_filename
 
@@ -62,8 +62,8 @@ def build_context(client: MwaaClient, environment_name: str) -> ProbeContext:
     base_constraints.py) -- that's a plain HTTPS GET.
 
     Also records file_versions: the latest S3 VersionId (None if it doesn't
-    exist) of every file the plan reads or might write, keyed by the plan's
-    path labels. Apply refuses to run if any of them changed since (see
+    exist) of every file the plan reads or might write, keyed by plan.py's
+    path labels here (session.py persists them by real S3 key). Apply refuses to run if any of them changed since (see
     apply.check_files_unchanged), which is what lets it trust the plan
     instead of re-deriving it from whatever's there by then. Each file gets
     exactly one HeadObject, and every decision and content read about it

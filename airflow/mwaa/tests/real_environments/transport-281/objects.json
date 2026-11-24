@@ -1,0 +1,5 @@
+{
+  "probe/transport/requirements.txt": "requirements.txt",
+  "probe/transport/dags/constraints-datadog.txt": "constraints.txt",
+  "probe/transport/dags/startup-datadog.sh": "startup.sh"
+}

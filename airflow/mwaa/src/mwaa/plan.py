@@ -73,6 +73,37 @@ REQUIREMENTS_PATHS = (REQUIREMENTS_PATH, DATADOG_REQUIREMENTS_PATH)
 STARTUP_SCRIPT_PATHS = (STARTUP_SCRIPT_PATH, DATADOG_STARTUP_SCRIPT_PATH)
 
 
+def _default_requirements_key(dag_s3_path: str) -> str:
+    """Best-effort key for an environment that has never had requirements.txt
+    configured (RequirementsS3Path absent from GetEnvironment): every environment
+    this tool has seen keeps requirements.txt as a sibling of its DAGs prefix, one
+    level up (e.g. dags="setup-probe/x/dags" -> requirements="setup-probe/x/requirements.txt";
+    dags="dags" -> requirements="requirements.txt")."""
+    parent = dag_s3_path.rsplit("/", 1)[0] if "/" in dag_s3_path else ""
+    return f"{parent}/requirements.txt" if parent else "requirements.txt"
+
+
+def real_key_for_path(environment: dict, path: str) -> str:
+    """Map a path label to THIS environment's actual S3 key.
+
+    plan.py computes with labels (REQUIREMENTS_PATH etc.); the persisted plan
+    and file_versions use the real keys (see session.py). `dags/...` labels
+    other than startup.sh (constraints files, wheels) name the real file under
+    DagS3Path, so this needs nothing but the label.
+    """
+    dag_s3_path = environment.get("DagS3Path", "dags").rstrip("/")
+
+    if path == REQUIREMENTS_PATH:
+        return environment.get("RequirementsS3Path") or _default_requirements_key(dag_s3_path)
+    if path == DATADOG_REQUIREMENTS_PATH:
+        return _default_requirements_key(dag_s3_path).removesuffix("requirements.txt") + "requirements-datadog.txt"
+    if path == STARTUP_SCRIPT_PATH:
+        return environment.get("StartupScriptS3Path") or f"{dag_s3_path}/startup.sh"
+    if path.startswith("dags/"):
+        return f"{dag_s3_path}/{path.removeprefix('dags/')}"
+    raise ValueError(f"don't know the real S3 key for {path!r}")
+
+
 @dataclass(frozen=True)
 class PinChange:
     """One package's version being added or bumped, in constraints.txt or requirements.txt."""
@@ -153,6 +184,11 @@ class Plan:
     matched_table_entry: Optional[FlaggedVersionEntry]
     source_doc: str
     file_changes: list[FileChange]
+
+
+def wheel_path(wheel: WheelReference) -> str:
+    """A wheel's `dags/...` label -- the same one its file_versions entry uses."""
+    return "dags/" + wheel.line.removeprefix(DAGS_MOUNT_PREFIX)
 
 
 def constraint_line_for(constraints_path: str) -> str:
