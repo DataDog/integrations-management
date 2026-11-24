@@ -206,6 +206,7 @@ def test_transport_281_corrects_its_wrong_site_transport_in_its_real_startup_scr
     # every name in the payload is the environment's real file, not a generic label
     assert {fc.path for fc in entry.plan.file_changes} == {TRANSPORT_STARTUP}
     assert entry.file_roles == {TRANSPORT_STARTUP: "startup_script"}
+    assert entry.env_tag == "transport-281"  # the namespace the plan writes is ${AIRFLOW_ENV_NAME}
     assert TRANSPORT_STARTUP in entry.file_versions and "dags/startup.sh" not in entry.file_versions
     assert "not-a-real-key" not in json.dumps(asdict(entry))
 

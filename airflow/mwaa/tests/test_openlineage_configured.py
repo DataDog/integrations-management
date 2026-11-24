@@ -16,7 +16,7 @@ from mwaa.checks import ProbeContext
 from mwaa.openlineage_config import analyze, is_any_datadog_intake_url, merge_transport_fields
 from mwaa.patch import patch_env_vars
 from mwaa.plan import EnvVarChange
-from mwaa.session import build_session
+from mwaa.session import _env_tag, build_session
 from mwaa.startup_script import DD_API_KEY_PLACEHOLDER, interpolate_api_key
 
 SITE = "datad0g.com"
@@ -787,3 +787,46 @@ def test_a_key_that_resolves_through_a_variable_is_never_checked_or_edited(assig
 
 def test_a_comment_after_a_single_quoted_value_isnt_part_of_it():
     assert analyze("2.10.3", PROVIDER, f"export OPENLINEAGE_API_KEY='{KEY}'  # existing key\n", {}, SITE).environment["OPENLINEAGE_API_KEY"] == KEY
+
+
+# --- env_tag: the namespace events carry, when it's statically known -------------------
+
+
+@pytest.mark.parametrize(
+    "startup, config_options, expected",
+    [
+        (DOCS_RECIPE.replace(NAMESPACE, ""), None, "my-env"),  # the plan writes ${AIRFLOW_ENV_NAME}
+        (DOCS_RECIPE, None, "my-env"),  # export AIRFLOW__OPENLINEAGE__NAMESPACE=${AIRFLOW_ENV_NAME}
+        (DOCS_RECIPE.replace(NAMESPACE, 'export AIRFLOW__OPENLINEAGE__NAMESPACE="${AIRFLOW_ENV_NAME}"\n'), None, "my-env"),
+        (DOCS_RECIPE.replace(NAMESPACE, "export AIRFLOW__OPENLINEAGE__NAMESPACE=$AIRFLOW_ENV_NAME\n"), None, "my-env"),
+        (DOCS_RECIPE.replace(NAMESPACE, 'export AIRFLOW__OPENLINEAGE__NAMESPACE="${AIRFLOW_ENV_NAME}-eu"\n'), None, "my-env-eu"),
+        (DOCS_RECIPE.replace(NAMESPACE, "export AIRFLOW__OPENLINEAGE__NAMESPACE=production\n"), None, "production"),
+        (DOCS_RECIPE.replace(NAMESPACE, "export AIRFLOW__OPENLINEAGE__NAMESPACE=$(cat /tmp/ns)\n"), None, None),
+        (DOCS_RECIPE.replace(NAMESPACE, "export AIRFLOW__OPENLINEAGE__NAMESPACE=$TEAM_NAMESPACE\n"), None, None),
+        (DOCS_RECIPE.replace(NAMESPACE, ""), {"openlineage.namespace": "analytics"}, "analytics"),
+        (DOCS_RECIPE.replace(NAMESPACE, ""), {"openlineage.namespace": "${TEAM}"}, None),
+        (DOCS_RECIPE, {"openlineage.namespace": "analytics"}, "my-env"),  # startup.sh's export wins
+    ],
+    ids=[
+        "planned",
+        "existing-braced",
+        "existing-quoted",
+        "existing-bare",
+        "existing-derived",
+        "existing-literal",
+        "command",
+        "other-variable",
+        "config-option-literal",
+        "config-option-non-literal",
+        "startup-over-config-option",
+    ],
+)
+def test_env_tag(startup, config_options, expected):
+    assert entry_for(startup, config_options=config_options).env_tag == expected
+
+
+def test_env_tag_is_the_providers_default_when_nothing_sets_a_namespace_and_the_plan_cant_write_one():
+    startup = DOCS_RECIPE.replace(NAMESPACE, "")
+    ctx = ProbeContext(environment={"Name": "my-env"}, requirements_text="", constraints_text=None, startup_script_text=startup, client=None)
+
+    assert _env_tag(ctx, replace(entry_for(startup).plan, file_changes=[])) == "default"

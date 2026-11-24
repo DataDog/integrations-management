@@ -249,9 +249,13 @@ def _logical_lines(text: str) -> list[str]:
     return lines
 
 
-def exported_environment(script: str) -> Variables:
-    """The variables `script` leaves exported, each resolved as far as statically possible."""
-    variables: Variables = {}
+def exported_environment(script: str, inherited: Optional[Variables] = None) -> Variables:
+    """The variables `script` leaves exported, each resolved as far as statically possible.
+
+    `inherited` is what the script's environment is known to hold already (e.g.
+    MWAA's AIRFLOW_ENV_NAME); it's only returned where the script exports it.
+    """
+    variables: Variables = dict(inherited or {})
     exported: set[str] = set()
     allexport = False
     block_depth = 0

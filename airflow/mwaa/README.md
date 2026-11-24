@@ -168,6 +168,12 @@ Every file name in a session is the environment's real S3 key -- `file_changes[]
 `startup_script` | `wheel`, for each file the plan writes) -- e.g.
 `<prefix>/dags/startup-datadog.sh` for an environment configured with that script.
 
+Each environment also records `env_tag`: the OpenLineage namespace its events will carry
+(Datadog's `env` tag) once the plan is applied, when that's statically known -- the
+environment's name for `${AIRFLOW_ENV_NAME}` (which is all the plan ever writes), an
+existing literal as is, `default` when nothing sets one -- and `null` when it isn't, e.g.
+a `$(...)` or another variable.
+
 If `scan` recorded any `issues` for the environment you `apply` (a conflicting OpenLineage
 config, a missing constraints/wheel file, an execution role that can't read what the plan
 would write), they're printed before the diff. A WARN issue doesn't block applying; a

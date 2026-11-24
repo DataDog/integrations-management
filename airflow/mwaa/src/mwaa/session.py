@@ -71,6 +71,7 @@ from .checks import (
     unapplied_uploads,
 )
 from .openlineage_config import OpenLineageState, analyze
+from .shell_env import exported_environment
 from .plan import (
     STARTUP_SCRIPT_PATHS,
     ConstraintDirectiveChange,
@@ -128,6 +129,9 @@ class EnvironmentEntry:
     status: "ScannedStatus | AppliedStatus" = field(default_factory=ScannedStatus)
     # real S3 key -> latest S3 VersionId at scan time (None = didn't exist); see probe.py
     file_versions: dict[str, Optional[str]] = field(default_factory=dict)
+    # the Datadog `env` tag this environment's events carry (its OpenLineage namespace), when
+    # that's statically known once the plan is applied; None when it isn't -- see _env_tag
+    env_tag: Optional[str] = None
     # real S3 key -> what that file is, for every file the plan writes: "requirements",
     # "constraints", "startup_script" or "wheel" -- plan paths are real keys, which don't say
     file_roles: dict[str, str] = field(default_factory=dict)
@@ -253,6 +257,32 @@ def _check_existing_api_key(state: OpenLineageState, dd_site: str, validate_api_
     )
 
 
+_NAMESPACE = "AIRFLOW__OPENLINEAGE__NAMESPACE"
+
+
+def _env_tag(ctx: ProbeContext, plan: Plan) -> Optional[str]:
+    """The namespace OpenLineage events carry -- Datadog's `env` tag -- once `plan` is applied, if it's statically known.
+
+    The plan only ever writes `${AIRFLOW_ENV_NAME}`, which MWAA sets to the
+    environment's name. Otherwise it's startup.sh's export (resolved with that
+    same AIRFLOW_ENV_NAME, so `$(...)` or another unknown variable is None),
+    else airflow_configuration_options' openlineage.namespace when it holds no
+    `$`, else the provider's own fallback, "default", for a missing or empty one.
+    """
+    name = ctx.environment.get("Name")
+    if any(isinstance(fc, EnvVarChange) and fc.name == _NAMESPACE for fc in plan.file_changes):
+        return name
+    exported = exported_environment(ctx.startup_script_text or "", inherited={"AIRFLOW_ENV_NAME": name})
+    if _NAMESPACE in exported:
+        value = exported[_NAMESPACE]
+    else:
+        option = (ctx.environment.get("AirflowConfigurationOptions") or {}).get("openlineage.namespace")
+        value = "" if option is None else None if "$" in str(option) else str(option)
+    if value is None:
+        return None
+    return value or "default"
+
+
 def _environment_entry(ctx: ProbeContext, dd_site: str, validate_api_key: Optional[ApiKeyValidator]) -> EnvironmentEntry:
     airflow_version = ctx.environment.get("AirflowVersion", "")
     configuration_options = ctx.environment.get("AirflowConfigurationOptions") or {}
@@ -305,6 +335,7 @@ def _environment_entry(ctx: ProbeContext, dd_site: str, validate_api_key: Option
         plan=replace(plan_to_apply, file_changes=[replace(fc, path=real(fc.path)) for fc in plan_to_apply.file_changes]),
         issues=issues,
         file_versions={real(label): version for label, version in ctx.file_versions.items()},
+        env_tag=_env_tag(ctx, plan_to_apply),
         file_roles={real(fc.path): roles[fc.path] for fc in plan_to_apply.file_changes}
         | {real(wheel_path(fc)): "wheel" for fc in plan_to_apply.file_changes if isinstance(fc, WheelReference)},
     )
@@ -357,6 +388,7 @@ def session_from_dict(data: dict) -> Session:
                 status=_status_from_dict(e.get("status", {"type": "scanned"})),
                 file_versions=e.get("file_versions", {}),
                 file_roles=e.get("file_roles", {}),
+                env_tag=e.get("env_tag"),
             )
             for e in data["environments"]
         ],
