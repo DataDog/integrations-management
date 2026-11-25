@@ -834,3 +834,19 @@ def test_env_tag_is_the_providers_default_when_nothing_sets_a_namespace_and_the_
     ctx = ProbeContext(environment={"Name": "my-env"}, requirements_text="", constraints_text=None, startup_script_text=startup, client=None)
 
     assert _env_tag(ctx, replace(entry_for(startup).plan, file_changes=[])) == "default"
+
+
+def test_a_commented_out_key_line_doesnt_stop_the_real_export_from_being_replaced():
+    startup = f"#!/bin/sh\nexport OPENLINEAGE_URL={INTAKE}\n# export OPENLINEAGE_API_KEY={'f' * 32}\nexport OPENLINEAGE_API_KEY={KEY}\n" + NAMESPACE
+    entry = entry_for(startup, validate_api_key=lambda site, key: False)
+
+    assert api_key_change(entry) is not None
+    written = apply_env_var_changes(startup, entry)
+    assert f"# export OPENLINEAGE_API_KEY={'f' * 32}" in written  # the comment is left alone
+    assert analyze("2.10.3", PROVIDER, written, {}, SITE).environment["OPENLINEAGE_API_KEY"] == NEW_KEY
+
+
+def test_a_commented_out_transport_line_doesnt_stop_the_real_one_from_being_rewritten():
+    startup = "# export AIRFLOW__OPENLINEAGE__TRANSPORT='{}'\n" + airflow_transport('{"type": "http", "url": "https://data-obs-intake.datadoghq.com"}')
+
+    assert "AIRFLOW__OPENLINEAGE__TRANSPORT" in env_var_names(entry_for(startup))

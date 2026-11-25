@@ -15,13 +15,19 @@ My Datadog site is `{{DD_SITE}}`. Events go to `https://data-obs-intake.{{DD_SIT
 2. **Keep everything else as it is.** Never remove or reorder my other packages, pins, or
    startup-script lines. Only add or correct the specific lines these rules name.
 3. **One environment at a time.** Finish (or stop) one before starting the next.
-4. **The Datadog API key is a secret.**
-   - Ask me for it, or read it from the `DD_API_KEY` environment variable if I say it's set.
-     It's never in this document.
-   - Never print it in full. Anywhere you show it (diffs, commands, logs, summaries, a
-     key already in my files), mask it as `****` plus its last 4 characters.
-   - Pass it to commands through the `DD_API_KEY` environment variable, not on a command line.
-   - The files you upload must contain the real key; only what you display is masked.
+4. **The Datadog API key is a secret.** It's never in this document.
+   - Don't have me paste it into the chat. Ask me to make it available to your shell
+     myself, before you need it: either `export DD_API_KEY=…` in my own terminal before
+     starting you, or a file I create (`~/.dd-api-key`, `chmod 600`) that your commands read
+     as `DD_API_KEY="$(cat ~/.dd-api-key)"`. Then every command you show references
+     `$DD_API_KEY` and never contains the value. In guided manual mode (section 4), leave
+     `<DD_API_KEY>` in the files and have me substitute it myself before uploading.
+   - Never print a key in full: not mine, not one already in my files, and not in diffs,
+     commands, logs or summaries. Mask it as `****` plus its last 4 characters. If I paste
+     one into the chat anyway, don't repeat it.
+   - The files you upload must contain the real key; only what you display is masked. Put it
+     in with a shell substitution from `$DD_API_KEY` (e.g. `sed` or `python3`), never by
+     typing it into a command or a file you show.
 5. **When a rule says STOP, stop.** Explain the problem in plain language, say what I need to
    do, and wait. Don't improvise a workaround.
 6. If anything here conflicts with what you find, tell me. Don't guess.
@@ -38,8 +44,8 @@ Ask me, in one message:
    - **(B) AWS CLI by hand.** You can run the AWS CLI, but not the setup CLI.
    - **(C) guided manual.** You can't reach AWS; I'll paste files and console values, and
      you'll tell me exactly what to upload and click.
-3. The Datadog API key (or confirmation that `DD_API_KEY` is set). Remind me it should be a
-   key from the `{{DD_SITE}}` organization I'm onboarding.
+3. To make the Datadog API key available as `$DD_API_KEY` (rule 0.4), and confirm when it
+   is. Remind me it should be a key from the `{{DD_SITE}}` organization I'm onboarding.
 4. Optionally, a session ID if the Datadog page gave me one (a UUID). It lets the page follow
    along.
 
@@ -52,18 +58,19 @@ its output.
    `aws sts get-caller-identity`. If boto3 is missing, use mode B, or AWS CloudShell, which
    has boto3.
 2. Download the CLI: `curl -fsSL -o mwaa.pyz "{{MWAA_PYZ_URL}}"`.
-3. Scan (read-only; it changes nothing):
+3. Scan (read-only; it changes nothing). The CLI reads the key from `$DD_API_KEY`, so it
+   isn't on the command line:
    - **With a session ID from the Datadog page:**
-     `DD_API_KEY=<key> python3 mwaa.pyz scan --session-id <id> --region <region> --dd-site {{DD_SITE}}`
+     `python3 mwaa.pyz scan --session-id <id> --region <region> --dd-site {{DD_SITE}}`
    - **Without one:** generate a UUID (`python3 -c "import uuid; print(uuid.uuid4())"`) and run
-     `DD_API_KEY=<key> python3 mwaa.pyz scan --session-id <uuid> --region <region> --dd-site {{DD_SITE}} --offline`.
+     `python3 mwaa.pyz scan --session-id <uuid> --region <region> --dd-site {{DD_SITE}} --offline`.
      The plan is then saved to `<tmp>/mwaa-session-<uuid>.json`.
    - Always pass `--dd-site {{DD_SITE}}`. With `--offline` and no site, the CLI assumes
      datadoghq.com.
 4. Explain the plan for my environment in plain language, from the session JSON or the
    `apply` preview: each file change, each issue (FAIL blocks, WARN doesn't), and what the
    update will restart. Use the rules in section 5 to explain *why*.
-5. Preview: `DD_API_KEY=<key> python3 mwaa.pyz apply --session-id <id> --name <env> --region <region> --dd-site {{DD_SITE}}`
+5. Preview: `python3 mwaa.pyz apply --session-id <id> --name <env> --region <region> --dd-site {{DD_SITE}}`
    (add `--offline` if the scan used it).
    - It prints the masked diffs, then asks for confirmation if it has a terminal.
    - Without a terminal and without `--yes`, it exits non-zero with "Not applied: confirm
@@ -88,19 +95,25 @@ aws mwaa get-environment --name <env> --region <region>
 # StartupScriptS3ObjectVersion, AirflowConfigurationOptions, ExecutionRoleArn,
 # WebserverUrl, LoggingConfiguration
 
-aws s3api list-object-versions --bucket <bucket> --prefix <key> --max-items 5   # latest version of each file below
-aws s3api get-object --bucket <bucket> --key <key> [--version-id <v>] <local-file>
-aws s3api head-object --bucket <bucket> --key <key>   # existence; a 403 instead of 404 means no s3:ListBucket -> STOP (rule 5.3)
-aws s3 ls s3://<bucket>/<DagS3Path>/                   # wheels, constraints files, startup scripts in the DAGs folder
+aws s3api head-object --bucket <bucket> --key <key> --query VersionId --output text
+#   latest version of one file. 404 = it doesn't exist. Any other error (403 means no
+#   s3:ListBucket), or no VersionId / "null" (bucket versioning off) -> STOP: the plan can't
+#   be pinned to a version
+aws s3api get-object --bucket <bucket> --key <key> --version-id <v> <local-file>
+aws s3 ls s3://<bucket>/<DagS3Path>/   # wheels, constraints files, startup scripts in the DAGs folder
 ```
 
-Files to read:
-- requirements.txt and the startup script (configured path, latest version);
-- the constraints file requirements.txt references, if it's under the DAGs folder;
-- the default-named files the placement rule (5.3) checks for.
+Record the **latest VersionId** of every file the plan reads or might write. Missing ones
+count, as "doesn't exist":
+- requirements.txt and the startup script (configured path, or the default keys from 5.3);
+- `requirements-datadog.txt` / `startup-datadog.sh` when 5.3 would place a file there;
+- the constraints file: the referenced one under the DAGs folder, or
+  `<DAGS>/constraints.txt` and `<DAGS>/constraints-datadog.txt`;
+- on 2.7.2, the two wheel keys from 5.6;
+- every `.whl` requirements.txt references under the DAGs folder.
 
-Record each one's **latest VersionId**. Right before writing, re-read them, and STOP if any
-changed (someone else uploaded meanwhile).
+Read file content at exactly those versions. Right before writing, re-read every
+VersionId, and STOP if any changed (someone else uploaded meanwhile).
 
 **Write (only after my yes), in this order:**
 1. Download any 2.7.2 wheels (rule 5.6). Confirm each starts with the zip bytes `PK`.
@@ -120,7 +133,9 @@ changed (someone else uploaded meanwhile).
    A constraints-file or wheel upload alone needs no update; MWAA reads them on its next
    install.
 
-Validate the API key per rule 5.10 (one `curl`; mask the key in anything you print).
+If the startup script already has a literal API key, check it per rule 5.10 (one `curl`,
+with the key read from the file into a shell variable, never printed). The key I gave you
+isn't checked.
 
 ## 4. Mode C: guided manual
 
@@ -193,21 +208,36 @@ Every other Airflow version is **unflagged**: MWAA's own constraints already res
 healthy provider. Skip to 5.8 for requirements.txt; there are no constraints-file changes.
 
 Package names compare case-insensitively, with `-`, `_` and `.` treated as the same. So the
-upstream files' `openlineage_sql==…` line **is** the `openlineage-sql` pin. Rewrite it in
-place, under the canonical name, and remove any other line pinning the same project. Pip
-enforces every pin, and a leftover `openlineage_sql==1.7.0` next to `openlineage-sql==1.24.2`
-is a ResolutionImpossible.
+upstream files' `openlineage_sql==…` line **is** the `openlineage-sql` pin. When a pin has to
+change, rewrite it in place under the canonical name, and remove any other line pinning the
+same project. Pip enforces every pin, and a leftover `openlineage_sql==1.7.0` next to
+`openlineage-sql==1.24.2` is a ResolutionImpossible. A project whose every pin is already at
+the target is left exactly as it is (spelling and identical duplicates included).
 
 ### 5.2 Stop conditions (check before planning)
 
-- **More than one `--constraint` line in requirements.txt** (flagged versions): STOP. Pip
-  enforces all of them, so ask me to consolidate them into one.
-- **The `--constraint` reference can't be read**: a `/usr/local/airflow/dags/...` file that
-  doesn't exist in S3, a plain `http://` URL, a path neither under `/usr/local/airflow/dags/`
-  nor `https://`, an `https://` URL that won't download, or an Apache-hosted URL
-  (`raw.githubusercontent.com/apache/airflow/constraints-<v>/constraints-<py>.txt`) for a
-  different Airflow or Python version than the environment's (the table above). STOP: its
-  pins may still be in force, so I have to fix the reference.
+A **constraint line** is a requirements.txt line that starts with `--constraint` or `-c`,
+followed by a space or `=`, then the path, optionally double-quoted: `--constraint "/usr/…"`,
+`-c https://…`, `--constraint=…`. Whenever these rules say "constraint line", they mean any of
+those forms.
+
+- **More than one constraint line** (flagged versions): STOP. Pip enforces all of them, so ask
+  me to consolidate them into one.
+- **The constraint line's file can't be read** (flagged versions): STOP. Its pins may still be
+  in force, so I have to fix the reference. That's the case for:
+  - a `/usr/local/airflow/dags/...` file that doesn't exist in S3;
+  - a plain `http://` URL;
+  - a path neither under `/usr/local/airflow/dags/` nor `https://`;
+  - an `https://` URL that won't download;
+  - an Apache-hosted URL (`raw.githubusercontent.com/apache/airflow/<ref>/<file>`) that isn't for
+    the environment's own Airflow and Python version (the table above). Its ref must be
+    `constraints-<airflow>` (a `refs/tags/` or `refs/heads/` prefix is fine; `main` or any
+    other ref is a mismatch), and its file `constraints-<python>.txt`
+    (`constraints-no-providers-<python>.txt` and `constraints-source-providers-<python>.txt`
+    also count).
+- **Unflagged versions:** a constraint line pointing at a `/usr/local/airflow/dags/...` file
+  that doesn't exist: STOP (pip would fail). Any other reference can't be verified: warn and
+  carry on.
 - **A `.whl` that requirements.txt references under `/usr/local/airflow/dags/` doesn't exist in
   S3**: STOP (pip would fail 20-30 minutes into the update). A wheel outside the DAGs folder
   can't be verified: warn.
@@ -235,6 +265,13 @@ is a ResolutionImpossible.
     place, whatever it's named;
   - otherwise `<DAGS>/constraints.txt`, or `<DAGS>/constraints-datadog.txt` if
     `constraints.txt` already exists but requirements.txt doesn't reference it.
+- What each file is built on:
+  - When the default-named file is someone else's (the `-datadog` cases), build the new
+    requirements.txt or startup script **as if the environment had none**: ignore the
+    orphan's pins and exports, and never modify it.
+  - An existing `requirements-datadog.txt` or `startup-datadog.sh` (from an earlier run) is
+    built on, like any other file.
+  - `constraints-datadog.txt` is always rebuilt from the 5.5 base.
 - Name the real S3 keys when you show me files.
 
 ### 5.4 Newer uploads the environment doesn't run yet
@@ -269,12 +306,15 @@ The base the OpenLineage pins are patched into:
      say).
 
 Then:
+- if no pin needs to change (every target and bump is already right), write no constraints
+  file and change no constraint line. Otherwise:
 - set every target pin from 5.1. Rewrite an existing pin line in place (any spelling), drop
   duplicate pins of the same project, and append missing ones. On 2.7.2 that includes the two
   wheel packages, at the wheel versions;
 - apply the version's constraint bump only if the base pins that package **below** the
-  minimum (PEP 440: `0.5.1rc1` and `0.5.1.dev1` are below `0.5.1`; `0.5.1.post1` isn't). Never
-  lower a pin, and never add one that isn't there.
+  minimum (PEP 440: `0.5.1rc1` and `0.5.1.dev1` are below `0.5.1`; `0.5.1.post1` isn't; a
+  version you can't parse counts as below). Never lower a pin, and never add one that isn't
+  there.
 
 Minimal file (2.8.1), exactly:
 
@@ -301,11 +341,12 @@ The upstream 1.14.0 provider isn't compatible with 2.7.2, so two packages come f
 
 For each one:
 1. Download it, check that it's a zip (it starts with `PK`), and upload it to `<DAGS>/<filename>`.
-2. In requirements.txt, the line `/usr/local/airflow/dags/<filename>` **replaces** whatever line
-   installs that package (a pin, a bare name, another wheel). If nothing does, append it.
+2. In requirements.txt, the line `/usr/local/airflow/dags/<filename>` **replaces** the first line
+   that installs that package (a pin, a bare name, another wheel). If nothing does, append it.
 3. If requirements.txt already references that wheel (any spelling of the name) and the
    object exists, there's nothing to do. If the reference exists but the object is missing,
-   upload it.
+   STOP (rule 5.2: a referenced wheel that doesn't exist), and ask me to upload it or remove
+   the reference.
 
 The constraints file still pins both packages, at the wheel versions (1.14.0 and 1.2.2).
 
@@ -313,9 +354,10 @@ The constraints file still pins both packages, at the wheel versions (1.14.0 and
 
 - Every target pin from 5.1 that isn't a wheel package: set `pkg==version`. Rewrite an
   existing `==` pin line in place (any spelling), otherwise append it.
-- The `--constraint` line: if requirements.txt has none, **prepend**
-  `--constraint "/usr/local/airflow/dags/<constraints filename>"`. If it has a URL one,
-  replace it with that line. If it already points at the local file being patched, leave it.
+- The constraint line, only when the constraints file is written (5.5): if requirements.txt
+  has none, **prepend** `--constraint "/usr/local/airflow/dags/<constraints filename>"`. If it
+  has a URL one, replace it with that line. If it already points at the local file being
+  patched, leave it.
 - Keep every other line exactly as it was.
 
 ### 5.8 requirements.txt (unflagged versions)
@@ -331,39 +373,77 @@ case the environment doesn't count as configured.
 ### 5.9 Where OpenLineage would send: resolve the effective configuration
 
 The provider runs with `AirflowConfigurationOptions`' `openlineage.*` keys, which MWAA exports
-as `AIRFLOW__OPENLINEAGE__<KEY>`, overlaid with what the startup script exports. Resolve in
-this order (provider and openlineage-python precedence); the first that applies decides:
+as `AIRFLOW__OPENLINEAGE__<KEY>`, overlaid with what the startup script exports.
 
-1. `[openlineage] disabled` / `OPENLINEAGE_DISABLED` true → STOP (5.2).
-2. `AIRFLOW__OPENLINEAGE__CONFIG_CONN_ID` set, with provider ≥ 2.18.0 (or the provider version is
-   unknown) → can't be verified statically: warn, propose no transport change.
+**Reading the startup script.** Only what it reliably leaves exported counts.
+- Honored: `export NAME=value`, `NAME=value` followed later by `export NAME`, `set -a`
+  (everything assigned after it is exported), and `unset NAME`. Commented-out lines are
+  ignored.
+- **Unknown** (the variable is set, but to something you can't tell statically): an
+  assignment inside `if`/`case`/a loop, after `&&`/`||`, or in a pipe, and a value built
+  with `$(…)`, backticks, or a variable that isn't set earlier in the script.
+- **Not counted at all:** assignments inside a function body, a heredoc, or a `( … )`
+  subshell, and `NAME=x command` prefixes (they only apply to that one command).
+- An unknown value that decides the outcome means: warn that it can't be verified, propose
+  no OPENLINEAGE_URL/API key change, and don't count the environment as configured. Running
+  the diagnostic DAG (7.7) shows the live value.
+
+Resolve in this order (provider and openlineage-python precedence); the first that applies
+decides:
+
+1. `AIRFLOW__OPENLINEAGE__DISABLED` or `OPENLINEAGE_DISABLED` is `true`/`1`/`t`, in any case →
+   STOP (5.2). If its value is unknown, warn, with no transport change.
+2. `AIRFLOW__OPENLINEAGE__CONFIG_CONN_ID` set, with provider ≥ 2.18.0 (or the provider version
+   is unknown) → can't be verified statically: warn, propose no transport change.
 3. `AIRFLOW__OPENLINEAGE__CONFIG_PATH` non-empty → a config file: warn, propose no transport
    change. (The 2.7/2.8 workaround sets it to `""`, which doesn't count.)
-4. `AIRFLOW__OPENLINEAGE__TRANSPORT` (JSON) → that's the transport.
-   - An `OPENLINEAGE_CONFIG` file only fills keys the JSON leaves unset. If it could change the
-     outcome, warn.
+4. `OPENLINEAGE_CONFIG` set (a YAML file, with or without a TRANSPORT) → it fills whatever the
+   steps below leave unset. Unless the outcome is the same with no file, with the best
+   possible file and with the worst one, it can't be verified: warn, propose no
+   OPENLINEAGE_URL/API key change, and don't count the environment as configured.
+5. `AIRFLOW__OPENLINEAGE__TRANSPORT` (JSON) → that's the transport.
    - If it's an `http`/`async_http` transport whose `url` is **any** Datadog intake
-     (`https://data-obs-intake.<site>` for any Datadog site), but the wrong site or without a
-     usable API key: **correct it in place**. Set `url` to `https://data-obs-intake.{{DD_SITE}}`
-     and `auth` to `{"type": "api_key", "apiKey": "<key>"}`, and keep every other field (headers,
-     timeout, …).
+     (`https://` or `http://` `data-obs-intake.<site>` for any Datadog site), but the wrong site
+     or without a usable API key: **correct it in place**. Set `url` to
+     `https://data-obs-intake.{{DD_SITE}}` and `auth` to `{"type": "api_key", "apiKey": "<key>"}`,
+     and keep every other field (headers, timeout, …).
    - That's only allowed when the startup script assigns it exactly once, as a standalone
-     `export AIRFLOW__OPENLINEAGE__TRANSPORT='…'` line. Anything else (set in
-     `AirflowConfigurationOptions`, assigned twice, sharing its line with another command):
-     STOP and ask me to fix it.
+     `export AIRFLOW__OPENLINEAGE__TRANSPORT='…'` line with nothing else on it (not even a
+     trailing comment). When the startup script has such a line, rewrite that line even if
+     `openlineage.transport` is also in the configuration options (and warn per 5.11). When
+     it's set **only** in `AirflowConfigurationOptions`, assigned twice, or shares its line
+     with anything: STOP and ask me to fix it.
    - Write it single-quoted: `export AIRFLOW__OPENLINEAGE__TRANSPORT='{"type": "http", "url": "https://data-obs-intake.{{DD_SITE}}", "auth": {"type": "api_key", "apiKey": "<key>"}}'`.
    - If it sends to a **non-Datadog** backend: STOP. That's my choice of where events go.
      Explain that it overrides `OPENLINEAGE_URL`, and ask whether to remove it (or point it at
      Datadog) myself.
-5. Otherwise, the env-style `OPENLINEAGE__TRANSPORT__*` variables. With provider < 2.6.0 they are
-   ignored unless `OPENLINEAGE_URL` is also set.
-6. Otherwise `OPENLINEAGE_URL` (+ `OPENLINEAGE_API_KEY`) is an HTTP transport.
-7. Otherwise events go to the console (nowhere).
+   - A `composite` transport whose `transports` is an object, with no child named
+     `default_http`: `OPENLINEAGE_URL`/`OPENLINEAGE_API_KEY` join it as a `default_http` child.
+     So setting those two (5.10) is the fix, not a STOP. A composite is configured if any
+     child sends to the intake with a key.
+6. Otherwise, the env-style `OPENLINEAGE__TRANSPORT__*` variables (merged under 5's JSON when
+   both exist). With provider < 2.6.0 they're ignored unless `OPENLINEAGE_URL` is also set,
+   and with an unknown provider version that case can't be verified.
+7. Otherwise `OPENLINEAGE_URL` (+ `OPENLINEAGE_API_KEY`) is an HTTP transport.
+8. Otherwise events go to the console (nowhere).
 
-Version gates: `async_http` needs openlineage-python ≥ 1.35.0, and the lowercase `apikey` auth
-field needs ≥ 1.38.0 (older clients read `api_key`, else `apiKey`). A `composite` transport is
-fine if any child sends to the intake with a key. The installed version is the requirements.txt
-pin (or wheel version), else the constraints file's pin. If it's unknown and it matters, warn.
+**The general STOP rule.** Whichever of steps 5-8 wins: if it doesn't reach
+`https://data-obs-intake.{{DD_SITE}}` with a key, and setting OPENLINEAGE_URL/OPENLINEAGE_API_KEY
+(5.10) wouldn't change that, STOP and name the winning variable. Examples are an env-style
+`OPENLINEAGE__TRANSPORT__TYPE=console`, or env-style variables on a provider before 2.6.0.
+The one exception is step 5's in-place fix.
+
+**Version gates.**
+- `async_http` needs openlineage-python ≥ 1.35.0.
+- The lowercase `apikey` auth field needs ≥ 1.38.0. Older clients read `api_key` if it's
+  present, else `apiKey`. With the client version unknown, only count a key both
+  generations would read.
+- The installed versions are judged from the files **as they are before this plan**: a
+  requirements.txt `==` pin or wheel version first, else the constraints file in effect.
+  That's the constraint line's file on flagged versions, or with none, the upstream file
+  MWAA forces on 2.7.2/2.9.2.
+- On 2.8.1 with no constraint line, and on unflagged versions, an unpinned package's version
+  is unknown. If it matters, warn.
 
 ### 5.10 The startup script
 
@@ -388,9 +468,12 @@ script's literal text:
   - **missing or empty:** add it (with the same "would it take effect" condition).
   - **already set:** keep it, except for a **literal 32-hex key** typed into the assignment
     in effect (the last one). For that key:
-    - next to an `OPENLINEAGE_URL` for **another** Datadog site, it's that site's key: replace
-      it with my key;
-    - otherwise check it with
+    - next to an `OPENLINEAGE_URL` for **another** Datadog site's intake (`https://` or `http://`
+      `data-obs-intake.<other site>`), it's that site's key: replace it with my key, without
+      checking it;
+    - otherwise check it. Set `EXISTING_KEY` in your shell straight from the file, without
+      printing it (e.g. `EXISTING_KEY="$(sed -n 's/^export OPENLINEAGE_API_KEY=//p' startup.sh | tail -1 | tr -d "\"' ")"`,
+      adjusted for a trailing comment), then run
       `curl -s -o /dev/null -w '%{http_code}' -X POST https://data-obs-intake.{{DD_SITE}}/api/v1/lineage -H "Content-Type: application/json" -H "Authorization: Bearer $EXISTING_KEY" -d '{}'`.
       2xx: keep it. 401/403: replace it and tell me it was rejected. Anything else or no
       network: keep it and warn that it's unverified.
@@ -398,18 +481,18 @@ script's literal text:
     comment). Otherwise tell me to replace it myself.
   - **never check or replace** a `$(…)`, a variable reference, or a secret lookup.
   - The same rules apply to a literal key inside a working Datadog
-    `AIRFLOW__OPENLINEAGE__TRANSPORT`'s `auth`; fix it per 5.9.4.
+    `AIRFLOW__OPENLINEAGE__TRANSPORT`'s `auth`; fix it per 5.9, step 5.
 - **`AIRFLOW__OPENLINEAGE__NAMESPACE`:** if it's set and non-empty, **never change it**. It's the
   `env` tag in Datadog and part of every job's identity, so renaming it forks job history. If
   it's missing or empty, set it to `"${AIRFLOW_ENV_NAME}"` (double-quoted so the shell expands
   it; MWAA sets `AIRFLOW_ENV_NAME` to the environment's name).
 - **`AIRFLOW__OPENLINEAGE__CONFIG_PATH`** and **`AIRFLOW__OPENLINEAGE__DISABLED_FOR_OPERATORS`**
   (2.7.2/2.8.1 only): add them as `""` if they aren't defined at all. Defined, even empty,
-  means leave them. A non-empty CONFIG_PATH is a config file (5.9.3), not something to blank.
+  means leave them. A non-empty CONFIG_PATH is a config file (5.9, step 3), not something to blank.
 
 How to edit:
-- Replace an existing `export NAME=…` line for that variable in place, keeping a trailing
-  `# comment`.
+- Replace the existing `export NAME=…` line for that variable in place, keeping a trailing
+  `# comment`. If there are several, replace the last one, which is the one in effect.
 - Otherwise append at the end of the script.
 - A new script starts with `#!/bin/sh`.
 - Quoting: `NAMESPACE` and the empty workaround values are double-quoted, TRANSPORT is
@@ -437,23 +520,33 @@ If so, say there's nothing to change and go to section 6 to verify events.
 
 ### 5.13 The env tag
 
-Tell me which `env:` tag my events will carry:
-- the environment name when the namespace is (or will be) `${AIRFLOW_ENV_NAME}`;
+Tell me which `env:` tag my events will carry, judged from the files as they'll be after this
+plan:
+- the environment name when the namespace is (or will be) `${AIRFLOW_ENV_NAME}`. A value that
+  mixes it with literal text expands too: `"prod-${AIRFLOW_ENV_NAME}"` gives `prod-<env name>`;
 - a literal namespace as is;
-- unknown if it comes from `$(…)` or another variable;
-- `default` if nothing sets one.
+- with no startup-script export: `openlineage.namespace` from the configuration options as is,
+  or unknown if it contains `$`;
+- unknown if it comes from `$(…)` or any other variable (even one the script sets);
+- unknown if the startup script has a newer upload this plan won't deploy (5.4): the
+  environment keeps running the configured version;
+- `default` if nothing sets one, or it's empty.
 
 ## 6. Wait and verify
 
 1. **The update takes 20-30 minutes.** Check its progress with
-   `aws mwaa get-environment --name <env> --query 'Environment.[Status,LastUpdate]'`.
-   The status goes from `UPDATING` to `AVAILABLE`.
+   `aws mwaa get-environment --name <env> --region <region> --query 'Environment.[Status,LastUpdate]'`.
+   The status goes from `UPDATING` to `AVAILABLE`, or to `UPDATE_FAILED` (then read
+   `LastUpdate.Error` and the logs below).
 2. **MWAA reports SUCCESS even when pip fails.** Always check the install log:
 
    ```sh
-   aws logs filter-log-events --log-group-name airflow-<env>-Worker \
-     --log-stream-name-prefix requirements_install --filter-pattern '?ERROR ?ResolutionImpossible'
+   aws logs filter-log-events --region <region> --log-group-name airflow-<env>-Worker \
+     --log-stream-name-prefix requirements_install --start-time <ms since epoch when the update started> \
+     --filter-pattern '?ERROR ?ResolutionImpossible'
    ```
+
+   `--start-time` matters: without it you'll see errors from earlier installs.
 
    Also check `airflow-<env>-Scheduler`. These log groups exist only if worker/scheduler
    logging is enabled (`LoggingConfiguration`); otherwise ask me to enable it, or to check in
@@ -468,6 +561,8 @@ Tell me which `env:` tag my events will carry:
        -d "providers list" | python3 -c "import sys, json, base64; print(base64.b64decode(json.load(sys.stdin)['stdout']).decode())"
      ```
 
+   - The CLI endpoint needs network access to the webserver. With a private webserver,
+     run it from inside the VPC, or check in the Airflow UI's Providers page instead.
    - **Airflow 3:** the CLI endpoint isn't available; use
      `aws mwaa invoke-rest-api --name <env> --method GET --path /providers`.
    - Check that `apache-airflow-providers-openlineage` is at the target version.
@@ -492,7 +587,7 @@ Tell me which `env:` tag my events will carry:
    - Check that `OPENLINEAGE_URL` is `https://data-obs-intake.{{DD_SITE}}`.
    - Check that the key belongs to the `{{DD_SITE}}` organization.
 3. **A TRANSPORT override.** `AIRFLOW__OPENLINEAGE__TRANSPORT` (startup script or
-   `openlineage.transport` in the configuration options) wins over `OPENLINEAGE_URL`. See 5.9.4.
+   `openlineage.transport` in the configuration options) wins over `OPENLINEAGE_URL`. See 5.9, step 5.
 4. **The change didn't take effect.** The environment still runs an older object version:
    `get-environment` shows the configured `...S3ObjectVersion`. Compare it with
    `list-object-versions` and update the environment to the new version.

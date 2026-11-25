@@ -331,3 +331,8 @@ def exported_environment(script: str, inherited: Optional[Variables] = None) -> 
                     exported.add(name)
 
     return {name: variables[name] for name in exported if name in variables}
+
+
+def assignment_lines(script: str, name: str) -> list[str]:
+    """The lines that assign `name`, in order -- commented-out lines don't count."""
+    return [line for line in script.splitlines() if f"{name}=" in line and not line.lstrip().startswith("#")]

@@ -63,7 +63,7 @@ from typing import Any, Optional
 from airflow_shared.reporter import Finding, FindingStatus
 
 from .pins import OPENLINEAGE_PROVIDER, mentions_package, pinned_versions, requirement_line_package
-from .shell_env import Variables, exported_environment
+from .shell_env import Variables, assignment_lines, exported_environment
 from .startup_script import DD_API_KEY_PLACEHOLDER, VERSIONS_NEEDING_CONFIG_PATH_WORKAROUND
 
 # version boundaries, from the provider/openlineage-python source at each release
@@ -150,7 +150,7 @@ def _effective_key_assignment_is_literal(startup_script_text: str) -> bool:
     A key that only resolves through a variable is never checked: what's
     eligible is a key written into the script, nothing derived.
     """
-    lines = [line for line in startup_script_text.splitlines() if "OPENLINEAGE_API_KEY=" in line]
+    lines = assignment_lines(startup_script_text, "OPENLINEAGE_API_KEY")
     return bool(lines) and bool(_LITERAL_KEY_ASSIGNMENT.match("OPENLINEAGE_API_KEY=" + lines[-1].rsplit("OPENLINEAGE_API_KEY=", 1)[1]))
 
 
@@ -160,8 +160,8 @@ def _single_standalone_key_export(startup_script_text: str) -> bool:
     A second assignment would win over the one replaced, and anything sharing
     its line would be lost.
     """
-    lines = [line for line in startup_script_text.splitlines() if "OPENLINEAGE_API_KEY=" in line]
-    return startup_script_text.count("OPENLINEAGE_API_KEY=") == 1 and bool(_STANDALONE_KEY_EXPORT.fullmatch(lines[0]))
+    lines = assignment_lines(startup_script_text, "OPENLINEAGE_API_KEY")
+    return len(lines) == 1 and bool(_STANDALONE_KEY_EXPORT.fullmatch(lines[0]))
 
 
 def is_any_datadog_intake_url(url: Any) -> bool:
@@ -391,11 +391,10 @@ def _datadog_transport_rewrite(
     merges these fields into the transport it reads at apply time instead.
     """
     raw = environment.get(_TRANSPORT_VAR)
-    script = startup_script_text or ""
-    if raw is None or script.count(f"{_TRANSPORT_VAR}=") != 1:
+    lines = assignment_lines(startup_script_text or "", _TRANSPORT_VAR)
+    if raw is None or len(lines) != 1:
         return None
-    line = next(line for line in script.splitlines() if f"{_TRANSPORT_VAR}=" in line)
-    if not _STANDALONE_TRANSPORT_EXPORT.fullmatch(line) or exported_environment(line).get(_TRANSPORT_VAR) != raw:
+    if not _STANDALONE_TRANSPORT_EXPORT.fullmatch(lines[0]) or exported_environment(lines[0]).get(_TRANSPORT_VAR) != raw:
         return None
     transport = _json_object(raw)
     if transport is None or transport.get("type") not in ("http", "async_http") or not is_any_datadog_intake_url(transport.get("url")):

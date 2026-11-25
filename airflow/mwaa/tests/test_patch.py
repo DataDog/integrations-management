@@ -212,3 +212,12 @@ def test_patch_env_vars_keeps_a_comment_trailing_the_replaced_assignment():
     assert patch_env_vars(text, [change]) == (
         "#!/bin/sh\nexport OPENLINEAGE_URL=https://data-obs-intake.datad0g.com   # set by ops\necho hi # not ours\n"
     )
+
+
+def test_patch_env_vars_replaces_the_last_export_the_one_in_effect():
+    from mwaa.plan import EnvVarChange
+
+    text = "export OPENLINEAGE_URL=https://first.example.com\nexport OPENLINEAGE_URL=https://second.example.com\n"
+    change = EnvVarChange(path="dags/startup.sh", name="OPENLINEAGE_URL", from_value=None, to_value="https://data-obs-intake.datad0g.com", secret=False)
+
+    assert patch_env_vars(text, [change]) == "export OPENLINEAGE_URL=https://first.example.com\nexport OPENLINEAGE_URL=https://data-obs-intake.datad0g.com\n"

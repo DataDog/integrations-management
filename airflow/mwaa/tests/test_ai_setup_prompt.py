@@ -33,8 +33,9 @@ def version_section(airflow_version: str) -> str:
 @pytest.mark.parametrize("entry", ENTRIES, ids=[e.airflow_version for e in ENTRIES])
 def test_the_prompt_has_every_target_pin_and_constraint_bump(entry):
     section = version_section(entry.airflow_version)
-    for package, version in entry.target_versions.items():
-        assert f"`{package}=={version}`" in section
+    expected = {f"{package}=={version}" for package, version in entry.target_versions.items()}
+    expected |= {f"{package}=={minimum}" for package, (minimum, _) in entry.constraint_bumps.items()}
+    assert set(re.findall(r"`([a-z0-9_.-]+==[0-9][^`]*)`", section)) == expected  # nothing missing, nothing extra
     for package, (minimum, needed_by) in entry.constraint_bumps.items():
         assert f"`{package}=={minimum}`" in section
         assert f"{needed_by} {entry.target_versions[needed_by]} needs {package}>={minimum}" in section

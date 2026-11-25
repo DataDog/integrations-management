@@ -73,7 +73,7 @@ from .checks import (
     unapplied_uploads,
 )
 from .openlineage_config import OpenLineageState, analyze
-from .shell_env import exported_environment
+from .shell_env import assignment_lines, exported_environment
 from .plan import (
     STARTUP_SCRIPT_PATHS,
     ConstraintDirectiveChange,
@@ -290,7 +290,7 @@ def _env_tag(ctx: ProbeContext, plan: Plan) -> Optional[str]:
     script = ctx.startup_script_text or ""
     exported = exported_environment(script, inherited={"AIRFLOW_ENV_NAME": name})
     if _NAMESPACE in exported:
-        assignments = [line for line in script.splitlines() if f"{_NAMESPACE}=" in line]
+        assignments = assignment_lines(script, _NAMESPACE)
         raw = assignments[-1].rsplit(f"{_NAMESPACE}=", 1)[1] if assignments else "$"
         value = None if re.search(r"[$`]", _ENV_NAME_REFERENCE.sub("", raw)) else exported[_NAMESPACE]
     else:
