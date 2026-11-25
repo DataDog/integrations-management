@@ -148,8 +148,12 @@ def test_run_scan_without_interactive_offline_skips_ui_link(capsys):
     assert result["applied"] is False
     out = capsys.readouterr().out
     assert "Configure Airflow tab" not in out
-    assert "Saved locally (offline)" in out
-    assert "--offline" in out
+    assert f"Saved locally (offline) to {FilesystemSessionStore().path(SESSION_ID)} -- apply with, e.g.:" in out
+    assert (
+        f"python mwaa.pyz apply --session-id {SESSION_ID} --name <ENVIRONMENT_NAME> --region us-east-1 --dd-site datadoghq.com "
+        "--offline   (with DD_API_KEY set in the environment)"
+    ) in out
+    assert "--dd-api-key" not in out and "fake-dd-api-key" not in out
 
 
 def test_run_scan_forces_interactive_when_network_is_unreachable(capsys):
@@ -235,8 +239,8 @@ def test_run_scan_interactive_declining_apply_prints_apply_command(capsys):
     client.put_object_text.assert_not_called()
     assert result["applied"] is False
     out = capsys.readouterr().out
-    assert f"apply --session-id {SESSION_ID} --name my-mwaa-prod --region us-east-1" in out
-    assert "--dd-site" in out
+    assert f"apply --session-id {SESSION_ID} --name my-mwaa-prod --region us-east-1 --dd-site datadoghq.com" in out
+    assert "--dd-api-key" not in out
     assert "--yes" not in out
 
 
@@ -395,3 +399,15 @@ def test_configure_airflow_url_deep_links_an_environments_run_a_dag_step_url_enc
     assert configure_airflow_url("us3.datadoghq.com", "s-1", "my env/2") == (
         "https://us3.datadoghq.com/data-obs/configure/airflow?session_id=s-1&step=run-a-dag&env=my%20env%2F2"
     )
+
+
+def test_run_scan_names_the_environments_with_issues(capsys):
+    config = ScanConfig(session_id=SESSION_ID, region="us-east-1", dd_site="datadoghq.com", dd_api_key="fake-dd-api-key")
+    client = make_client()
+    client.object_exists.return_value = True
+    client.simulate_s3_read_access.return_value = {"s3:GetObject": False, "s3:ListBucket": True}  # every environment fails it
+
+    with patch("mwaa.scan.MwaaClient", return_value=client), patch("mwaa.scan.select_session_store", return_value=(make_store(), False)):
+        run_scan(config, Reporter(workflow_type="mwaa-setup"), input_func=fake_input())
+
+    assert "2 of 2 environment(s) have issues recorded -- see them when you apply: my-mwaa-prod, my-mwaa-staging" in capsys.readouterr().out

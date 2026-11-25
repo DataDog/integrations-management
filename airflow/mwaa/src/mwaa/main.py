@@ -68,6 +68,7 @@ def _run_scan(argv: list[str]) -> None:
     try:
         run_scan(config, reporter)
     except Exception as e:
+        sys.stdout.flush()
         print(f"\nScan failed: {mask_secrets(str(e), config.dd_api_key)}", file=sys.stderr)
         sys.exit(1)
 
@@ -85,9 +86,11 @@ def _run_apply(argv: list[str]) -> None:
     try:
         run_apply(config, reporter)
     except NotConfirmedError as e:
+        sys.stdout.flush()  # after the preview, not before it
         print(f"\n{e}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
+        sys.stdout.flush()
         print(f"\nApply failed: {mask_secrets(str(e), config.dd_api_key)}", file=sys.stderr)
         sys.exit(1)
 

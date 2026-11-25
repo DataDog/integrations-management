@@ -46,37 +46,56 @@ Ask me, in one message:
      you'll tell me exactly what to upload and click.
 3. To make the Datadog API key available as `$DD_API_KEY` (rule 0.4), and confirm when it
    is. Remind me it should be a key from the `{{DD_SITE}}` organization I'm onboarding.
-4. Optionally, a session ID if the Datadog page gave me one (a UUID). It lets the page follow
-   along.
+4. Optionally, a session ID if the Datadog page gave me one (a UUID). With it, the page
+   follows along as we go. Without one, or if the CLI falls back to offline because it
+   can't reach Datadog's intake, the page won't update. Tell me so, and that I'll just
+   watch for events in its Run a DAG step once we're done.
 
 ## 2. Mode A: drive the setup CLI (preferred)
 
 The CLI applies every rule below itself, verifies the result statically, and masks keys in
 its output.
 
-1. Check prerequisites: `python3 --version` (3.9+), `python3 -c "import boto3"`, and
-   `aws sts get-caller-identity`. If boto3 is missing, use mode B, or AWS CloudShell, which
-   has boto3.
-2. Download the CLI: `curl -fsSL -o mwaa.pyz "{{MWAA_PYZ_URL}}"`.
-3. Scan (read-only; it changes nothing). The CLI reads the key from `$DD_API_KEY`, so it
-   isn't on the command line:
+1. **Prerequisites.**
+   - Any Python 3.9+ interpreter with `boto3` works. If the system one lacks it, a
+     virtualenv is fine: `python3 -m venv .mwaa-venv && .mwaa-venv/bin/pip install boto3`.
+   - Set `PY` to the interpreter you'll use (e.g. `PY=.mwaa-venv/bin/python`), and check
+     `"$PY" -c "import boto3"` and `aws sts get-caller-identity --region <region>`.
+   - Only if no Python with boto3 is possible, use mode B, or AWS CloudShell, which has boto3.
+2. **Download the CLI:** `curl -fsSL -o mwaa.pyz "{{MWAA_PYZ_URL}}"`.
+3. **Scan** (read-only; it changes nothing). The CLI reads the key from `$DD_API_KEY`, so it
+   isn't on the command line.
+   - **What it reads:** every MWAA environment in the region, read-only. Only the one I pick
+     is ever changed. Tell me that, especially if it lists environments I didn't mention.
    - **With a session ID from the Datadog page:**
-     `python3 mwaa.pyz scan --session-id <id> --region <region> --dd-site {{DD_SITE}}`
-   - **Without one:** generate a UUID (`python3 -c "import uuid; print(uuid.uuid4())"`) and run
-     `python3 mwaa.pyz scan --session-id <uuid> --region <region> --dd-site {{DD_SITE}} --offline`.
-     The plan is then saved to `<tmp>/mwaa-session-<uuid>.json`.
+     `"$PY" mwaa.pyz scan --session-id <id> --region <region> --dd-site {{DD_SITE}}`
+   - **Without one:** generate a UUID (`"$PY" -c "import uuid; print(uuid.uuid4())"`) and run
+     `"$PY" mwaa.pyz scan --session-id <uuid> --region <region> --dd-site {{DD_SITE}} --offline`.
+     It prints where it saved the session: a `mwaa-session-<uuid>.json` file in the system's
+     temp directory (`$TMPDIR` on macOS, usually `/tmp` on Linux). Use the path it prints.
    - Always pass `--dd-site {{DD_SITE}}`. With `--offline` and no site, the CLI assumes
      datadoghq.com.
-4. Explain the plan for my environment in plain language, from the session JSON or the
-   `apply` preview: each file change, each issue (FAIL blocks, WARN doesn't), and what the
-   update will restart. Use the rules in section 5 to explain *why*.
-5. Preview: `python3 mwaa.pyz apply --session-id <id> --name <env> --region <region> --dd-site {{DD_SITE}}`
+   - If the CLI prints its own `apply` suggestion, use the commands below instead.
+4. **Preview:**
+   `"$PY" mwaa.pyz apply --session-id <id> --name <env> --region <region> --dd-site {{DD_SITE}}`
    (add `--offline` if the scan used it).
-   - It prints the masked diffs, then asks for confirmation if it has a terminal.
+   - It prints the issues, the rationale and the masked diffs, then asks for confirmation if
+     it has a terminal.
    - Without a terminal and without `--yes`, it exits non-zero with "Not applied: confirm
-     interactively or pass --yes". That's expected: it means nothing was changed.
-6. Show me the preview and ask: "Apply these changes and restart <env>?" Only after I answer
-   yes, re-run the same command with `--yes`.
+     interactively or pass --yes" after the preview. That's expected: it means nothing was
+     changed.
+5. **Explain the plan from that preview,** in plain language: each file change, each issue
+   (FAIL blocks, WARN doesn't), and what the update will restart. Use the rules in section 5
+   to explain *why*.
+   - The preview shows keys masked (`****1234`). The session JSON, if you read it, shows
+     `<DD_API_KEY>` instead. Both are expected: neither ever holds the real key.
+   - **Optional, when I pin packages myself** (`pkg==x` lines other than the OpenLineage
+     ones): offer to check that they still resolve with the new pins before applying. On
+     Python 3.11, with the new requirements.txt and constraints file from the preview, run
+     `pip install --dry-run --ignore-installed -c <constraints> -r <requirements> apache-airflow==<version>`
+     (rule 7.1). This matters most on 2.8.1, where nothing else checks it.
+6. **Ask:** "Apply these changes and restart <env>?" Only after I answer yes, re-run the same
+   apply command with `--yes`.
    - If apply says a file changed since the scan, re-scan.
    - If it reports a FAIL issue, follow that issue's instructions and re-scan.
 7. Continue with section 6 (wait and verify).
@@ -95,12 +114,14 @@ aws mwaa get-environment --name <env> --region <region>
 # StartupScriptS3ObjectVersion, AirflowConfigurationOptions, ExecutionRoleArn,
 # WebserverUrl, LoggingConfiguration
 
-aws s3api head-object --bucket <bucket> --key <key> --query VersionId --output text
-#   latest version of one file. 404 = it doesn't exist. Any other error (403 means no
+aws s3api head-object --region <region> --bucket <bucket> --key <key> --query VersionId --output text
+#   latest version of one file. 404 = it doesn't exist; that includes a key whose latest
+#   version is a delete marker, and re-creating such a key is fine. Any other error (403 means no
 #   s3:ListBucket), or no VersionId / "null" (bucket versioning off) -> STOP: the plan can't
 #   be pinned to a version
-aws s3api get-object --bucket <bucket> --key <key> --version-id <v> <local-file>
-aws s3 ls s3://<bucket>/<DagS3Path>/   # wheels, constraints files, startup scripts in the DAGs folder
+aws s3api get-object --region <region> --bucket <bucket> --key <key> --version-id <v> <local-file>
+aws s3 ls --region <region> s3://<bucket>/<DagS3Path>/   # wheels, constraints files, startup scripts in the DAGs folder
+aws s3 ls --region <region> --recursive s3://<bucket>/<prefix>/ | grep 'startup.*\.sh'   # other startup scripts (rule 5.3)
 ```
 
 Record the **latest VersionId** of every file the plan reads or might write. Missing ones
@@ -117,9 +138,9 @@ VersionId, and STOP if any changed (someone else uploaded meanwhile).
 
 **Write (only after my yes), in this order:**
 1. Download any 2.7.2 wheels (rule 5.6). Confirm each starts with the zip bytes `PK`.
-   Upload them with `aws s3 cp <file> s3://<bucket>/<DagS3Path>/<wheel filename>`.
+   Upload them with `aws s3 cp --region <region> <file> s3://<bucket>/<DagS3Path>/<wheel filename>`.
 2. Upload the constraints file, then requirements.txt, then the startup script, each with
-   `aws s3api put-object --bucket <bucket> --key <key> --body <file>`. Record the returned
+   `aws s3api put-object --region <region> --bucket <bucket> --key <key> --body <file>`. Record the returned
    `VersionId`.
 3. Only if requirements.txt or the startup script was written, run (including only the
    pairs for the files written):
@@ -245,7 +266,7 @@ those forms.
   A wheel outside the DAGs folder can't be verified: warn.
 - **The execution role** (`ExecutionRoleArn`) lacks `s3:GetObject` or `s3:ListBucket` on the
   bucket: STOP. Check with
-  `aws iam simulate-principal-policy --policy-source-arn <role> --action-names s3:GetObject s3:ListBucket --resource-arns <bucket ARN> <bucket ARN>/*`.
+  `aws iam simulate-principal-policy --region <region> --policy-source-arn <role> --action-names s3:GetObject s3:ListBucket --resource-arns <bucket ARN> <bucket ARN>/*`.
   If you can't run that, warn that it's unverified.
 - **OpenLineage disabled**: `AIRFLOW__OPENLINEAGE__DISABLED` or `OPENLINEAGE_DISABLED` is
   `true`/`1`/`t`. STOP; ask me to remove it.
@@ -267,6 +288,10 @@ those forms.
     place, whatever it's named;
   - otherwise `<DAGS>/constraints.txt`, or `<DAGS>/constraints-datadog.txt` if
     `constraints.txt` already exists but requirements.txt doesn't reference it.
+- Other startup scripts: if any other `startup*.sh` object exists under the environment's
+  prefix but isn't the one configured (or chosen above), mention it to me without changing
+  the plan. If it would send events elsewhere when attached (a non-Datadog TRANSPORT, say),
+  say so.
 - What each file is built on:
   - When the default-named file is someone else's (the `-datadog` cases), build the new
     requirements.txt or startup script **as if the environment had none**: ignore the
@@ -539,7 +564,9 @@ plan:
 1. **The update takes 20-30 minutes.** Check its progress with
    `aws mwaa get-environment --name <env> --region <region> --query 'Environment.[Status,LastUpdate]'`.
    The status goes from `UPDATING` to `AVAILABLE`, or to `UPDATE_FAILED` (then read
-   `LastUpdate.Error` and the logs below).
+   `LastUpdate.Error` and the logs below). While it's `UPDATING`, `get-environment` still
+   shows the old paths and object versions. That's normal, not a sign the change didn't
+   take; only judge them once it's `AVAILABLE`.
 2. **MWAA reports SUCCESS even when pip fails.** Always check the install log:
 
    ```sh
@@ -557,8 +584,8 @@ plan:
    - **Airflow 2.x:**
 
      ```sh
-     TOKEN=$(aws mwaa create-cli-token --name <env> --query CliToken --output text)
-     HOST=$(aws mwaa get-environment --name <env> --query Environment.WebserverUrl --output text)
+     TOKEN=$(aws mwaa create-cli-token --region <region> --name <env> --query CliToken --output text)
+     HOST=$(aws mwaa get-environment --region <region> --name <env> --query Environment.WebserverUrl --output text)
      curl -s -X POST "https://$HOST/aws_mwaa/cli" -H "Authorization: Bearer $TOKEN" -H "Content-Type: text/plain" \
        -d "providers list" | python3 -c "import sys, json, base64; print(base64.b64decode(json.load(sys.stdin)['stdout']).decode())"
      ```
@@ -566,7 +593,7 @@ plan:
    - The CLI endpoint needs network access to the webserver. With a private webserver,
      run it from inside the VPC, or check in the Airflow UI's Providers page instead.
    - **Airflow 3:** the CLI endpoint isn't available; use
-     `aws mwaa invoke-rest-api --name <env> --method GET --path /providers`.
+     `aws mwaa invoke-rest-api --region <region> --name <env> --method GET --path /providers`.
    - Check that `apache-airflow-providers-openlineage` is at the target version.
 4. Ask me to trigger any DAG. Then send me back to the Datadog page to watch for the first
    events, which are tagged `env:<namespace>` (5.13).
@@ -590,9 +617,10 @@ plan:
    - Check that the key belongs to the `{{DD_SITE}}` organization.
 3. **A TRANSPORT override.** `AIRFLOW__OPENLINEAGE__TRANSPORT` (startup script or
    `openlineage.transport` in the configuration options) wins over `OPENLINEAGE_URL`. See 5.9, step 5.
-4. **The change didn't take effect.** The environment still runs an older object version:
-   `get-environment` shows the configured `...S3ObjectVersion`. Compare it with
-   `list-object-versions` and update the environment to the new version.
+4. **The change didn't take effect.** Once the status is `AVAILABLE` (not while it's
+   `UPDATING`, when the old values still show), the environment still runs an older object
+   version: `get-environment` shows the configured `...S3ObjectVersion`. Compare it with the
+   file's latest version (`head-object`) and update the environment to the new version.
 5. **The startup script isn't attached.** It's uploaded, but `StartupScriptS3Path` is empty:
    set the path and its version in Edit environment.
 6. **No events after a successful install.**

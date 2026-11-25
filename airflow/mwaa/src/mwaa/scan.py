@@ -89,22 +89,28 @@ def _prompt_yes_no(prompt: str, input_func: InputFunc) -> bool:
         print("Please answer y or n.")
 
 
-def _apply_hint(session: Session, environment_name: str, region: str, offline: bool) -> str:
-    """The apply command to suggest -- must use the same store mode this session was saved to."""
-    cmd = f"python mwaa.pyz apply --session-id {session.session_id} --name {environment_name} --region {region} --dd-api-key <DD_API_KEY>"
-    return f"{cmd} --offline" if offline else f"{cmd} --dd-site <DD_SITE>"
+def _apply_hint(session: Session, environment_name: str, region: str, dd_site: str, offline: bool) -> str:
+    """The apply command to suggest -- the same store mode and site this session was saved with.
+
+    The key comes from $DD_API_KEY, so the suggestion never puts one on a command line.
+    """
+    cmd = f"python mwaa.pyz apply --session-id {session.session_id} --name {environment_name} --region {region} --dd-site {dd_site}"
+    return f"{cmd}{' --offline' if offline else ''}   (with DD_API_KEY set in the environment)"
 
 
 def _print_ui_handoff(session: Session, region: str, dd_site: str, offline: bool) -> None:
     print(f"\nSession persisted: {session.session_id}")
     flagged = [e for e in session.environments if e.issues]
     if flagged:
-        print(f"{len(flagged)} of {len(session.environments)} environment(s) have issues recorded -- see them when you apply.")
+        print(
+            f"{len(flagged)} of {len(session.environments)} environment(s) have issues recorded -- see them when you apply: "
+            f"{', '.join(e.name for e in flagged)}"
+        )
     if offline:
         # Saved to a local file, not the network -- the Configure Airflow UI has
         # no way to see this session, so pointing at it would be misleading.
-        print("Saved locally (offline) -- apply with, e.g.:")
-        print(f"  {_apply_hint(session, '<ENVIRONMENT_NAME>', region, offline)}")
+        print(f"Saved locally (offline) to {FilesystemSessionStore().path(session.session_id)} -- apply with, e.g.:")
+        print(f"  {_apply_hint(session, '<ENVIRONMENT_NAME>', region, dd_site, offline)}")
     else:
         print("Return to the Configure Airflow tab where you copied this command; it updates automatically. Or open:")
         print(f"  {configure_airflow_url(dd_site, session.session_id)}")
@@ -175,7 +181,7 @@ def _run_interactive(
         return {"applied": False, "session": session, "environment": entry.name, "uploads": uploads}
 
     if not _prompt_yes_no("\nRun apply now?", input_func):
-        cmd = _apply_hint(session, entry.name, config.region, offline)
+        cmd = _apply_hint(session, entry.name, config.region, config.dd_site, offline)
         print(f"\nNo changes made. To apply later, run:\n  {cmd}")
         return {"applied": False, "session": session, "environment": entry.name, "uploads": uploads}
 

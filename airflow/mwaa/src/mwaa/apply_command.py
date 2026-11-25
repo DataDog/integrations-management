@@ -51,7 +51,7 @@ class NotConfirmedError(RuntimeError):
 
 
 def run_apply(
-    config: ApplyConfig, reporter: Reporter, input_func: Callable[[str], str] = input, is_terminal: Callable[[], bool] = sys.stdin.isatty
+    config: ApplyConfig, reporter: Reporter, input_func: Callable[[str], str] = input, is_terminal: Callable[[], bool] = lambda: sys.stdin.isatty()
 ) -> dict[str, Any]:
     """Load the session, find --name's plan in it, preview it, and apply it once confirmed."""
     store, _ = select_session_store(config.offline, config.dd_site, config.dd_api_key)

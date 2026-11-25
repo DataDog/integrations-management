@@ -79,3 +79,12 @@ def test_the_prompt_only_uses_the_two_placeholders_the_ui_substitutes():
 def test_the_prompt_carries_no_key_or_account_id():
     assert not re.search(r"\b[0-9a-fA-F]{32}\b", PROMPT)
     assert not re.search(r"\b\d{12}\b", PROMPT)
+
+
+def test_every_aws_command_in_the_prompt_names_the_region():
+    # inline `aws …` commands, and aws invocations inside code blocks; a bare mention like
+    # `aws mwaa update-environment` (no flags) is prose
+    commands = re.findall(r"`(aws [^`]+)`", PROMPT) + re.findall(r"(?m)(?:^|\$\()\s*(aws [^\n)]+)", PROMPT)
+    flagged = [command for command in commands if "--" in command]
+    assert flagged
+    assert [command for command in flagged if "--region" not in command] == []

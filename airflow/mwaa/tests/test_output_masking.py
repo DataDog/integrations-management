@@ -182,3 +182,39 @@ def test_mask_secrets_masks_keys_in_exports_and_transport_json_and_leaves_the_re
 
 def test_mask_secrets_masks_the_given_key_anywhere():
     assert mask_secrets(f"failed with key {NEW_KEY}.", NEW_KEY) == "failed with key ****1111."
+
+
+class _Pipe:
+    """A stream that, like a pipe, only shows what's written once it's flushed."""
+
+    def __init__(self, name, shown):
+        self.name, self.shown, self.buffer = name, shown, ""
+
+    def write(self, text):
+        self.buffer += text
+        return len(text)
+
+    def flush(self):
+        if self.buffer:
+            self.shown.append((self.name, self.buffer))
+            self.buffer = ""
+
+
+def test_not_applied_comes_after_the_preview_even_when_stdout_is_buffered(monkeypatch):
+    shown = []
+    out, err = _Pipe("out", shown), _Pipe("err", shown)
+    monkeypatch.setattr("sys.stdout", out)
+    monkeypatch.setattr("sys.stderr", err)
+    fake = client()
+    monkeypatch.setattr("mwaa.apply_command.MwaaClient", lambda region: fake)
+    monkeypatch.setattr("mwaa.apply_command.select_session_store", lambda *args: (store_with_session(fake), False))
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False, raising=False)
+
+    with pytest.raises(SystemExit):
+        cli._run_apply(ARGV + ["--name", "my-env"])
+    err.flush()
+    out.flush()
+
+    assert [name for name, _ in shown][:2] == ["out", "err"]
+    assert "Planned changes:" in shown[0][1]
+    assert "Not applied: confirm interactively or pass --yes." in shown[1][1]

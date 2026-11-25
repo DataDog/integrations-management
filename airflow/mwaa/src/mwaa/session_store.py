@@ -54,15 +54,16 @@ class FilesystemSessionStore(SessionStore):
     session_store_selection.py.
     """
 
-    def _path(self, session_id: str) -> str:
+    def path(self, session_id: str) -> str:
+        """Where a session is saved -- under the platform's temp dir ($TMPDIR on macOS)."""
         return os.path.join(tempfile.gettempdir(), f"mwaa-session-{session_id}.json")
 
     def save(self, session: Session) -> None:
-        with open(self._path(session.session_id), "w") as f:
+        with open(self.path(session.session_id), "w") as f:
             json.dump(asdict(session), f)
 
     def load(self, session_id: str) -> Session:
-        path = self._path(session_id)
+        path = self.path(session_id)
         if not os.path.exists(path):
             raise SessionNotFoundError(f"No session found for '{session_id}'. Run `scan --session-id {session_id}` first.")
         with open(path) as f:
