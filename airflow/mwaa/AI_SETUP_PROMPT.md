@@ -239,8 +239,10 @@ those forms.
   that doesn't exist: STOP (pip would fail). Any other reference can't be verified: warn and
   carry on.
 - **A `.whl` that requirements.txt references under `/usr/local/airflow/dags/` doesn't exist in
-  S3**: STOP (pip would fail 20-30 minutes into the update). A wheel outside the DAGs folder
-  can't be verified: warn.
+  S3**: STOP (pip would fail 20-30 minutes into the update), unless the plan installs that
+  package from one of the Datadog-patched wheels itself (2.7.2, rule 5.6). In that case it's
+  only a warning: the plan's wheel line replaces that reference, and the wheel gets uploaded.
+  A wheel outside the DAGs folder can't be verified: warn.
 - **The execution role** (`ExecutionRoleArn`) lacks `s3:GetObject` or `s3:ListBucket` on the
   bucket: STOP. Check with
   `aws iam simulate-principal-policy --policy-source-arn <role> --action-names s3:GetObject s3:ListBucket --resource-arns <bucket ARN> <bucket ARN>/*`.
@@ -345,8 +347,8 @@ For each one:
    that installs that package (a pin, a bare name, another wheel). If nothing does, append it.
 3. If requirements.txt already references that wheel (any spelling of the name) and the
    object exists, there's nothing to do. If the reference exists but the object is missing,
-   STOP (rule 5.2: a referenced wheel that doesn't exist), and ask me to upload it or remove
-   the reference.
+   upload it, and tell me it was missing. A reference to another version of the same package
+   whose object is missing is replaced by step 2, so it isn't a STOP either.
 
 The constraints file still pins both packages, at the wheel versions (1.14.0 and 1.2.2).
 

@@ -34,8 +34,17 @@ from airflow_shared.reporter import Finding, FindingStatus
 
 from .base_constraints import BaseConstraints
 from .plan import CONSTRAINTS_PATH, REQUIREMENTS_PATH, STARTUP_SCRIPT_PATH, real_key_for_path, version_below
-from .pins import CONSTRAINT_LINE, all_pins, DAGS_MOUNT_PREFIX, find_constraint_lines, find_wheel_references, resolve_constraint_s3_key
-from .version_table import FLAGGED_VERSION_TABLE
+from .pins import (
+    CONSTRAINT_LINE,
+    DAGS_MOUNT_PREFIX,
+    all_pins,
+    find_constraint_lines,
+    find_wheel_references,
+    normalize_package_name,
+    resolve_constraint_s3_key,
+    wheel_identity,
+)
+from .version_table import FLAGGED_VERSION_TABLE, datadog_wheel_filename
 from .startup_script import parse_exports
 
 @dataclass
@@ -287,6 +296,11 @@ def check_wheel_references(ctx: ProbeContext) -> Finding:
     "could not find a version that satisfies" pip failure 20-30 minutes into
     an environment update; resolving the reference against S3 up front turns
     that into an instant pre-flight finding instead.
+
+    A missing one for a package the plan installs from a Datadog-patched wheel
+    itself is only a warning: plan.py's reference to the uploaded wheel replaces
+    that line (the same wheel, or another version of it). Any other missing one
+    fails.
     """
     wheel_refs = find_wheel_references(ctx.requirements_text)
     if not wheel_refs:
@@ -295,7 +309,10 @@ def check_wheel_references(ctx: ProbeContext) -> Finding:
     dag_s3_path = ctx.environment.get("DagS3Path", "dags")
     bucket = ctx.environment["SourceBucketArn"].rsplit(":", 1)[-1]
 
+    entry = FLAGGED_VERSION_TABLE.get(ctx.environment.get("AirflowVersion", ""))
+    planned = {p: datadog_wheel_filename(p, entry.target_versions[p]) for p in entry.wheel_only_packages} if entry else {}
     missing = []
+    uploaded = []
     unresolvable = []
     for ref in wheel_refs:
         key = resolve_constraint_s3_key(ref, dag_s3_path)
@@ -303,7 +320,15 @@ def check_wheel_references(ctx: ProbeContext) -> Finding:
             unresolvable.append(ref)
             continue
         if not ctx.client.object_exists(bucket, key):
-            missing.append(f"{ref} -> s3://{bucket}/{key}")
+            filename = ref.rsplit("/", 1)[-1]
+            package = next((p for p in planned if normalize_package_name(p) == wheel_identity(filename)[0]), None)
+            where = f"{ref} -> s3://{bucket}/{key}"
+            if package is None:
+                missing.append(where)
+            elif wheel_identity(filename) == wheel_identity(planned[package]):
+                uploaded.append((filename, "uploads it", where))
+            else:
+                uploaded.append((filename, f"replaces it with {planned[package]}, which it uploads", where))
 
     if missing:
         return Finding(
@@ -311,6 +336,13 @@ def check_wheel_references(ctx: ProbeContext) -> Finding:
             FindingStatus.FAIL,
             "requirements.txt references .whl file(s) that do not exist in S3",
             "\n".join(missing),
+        )
+    if uploaded:
+        return Finding(
+            "wheel_references",
+            FindingStatus.WARN,
+            "; ".join(f"{filename} is missing from the DAGs folder; apply {action}" for filename, action, _ in uploaded),
+            "\n".join(where for _, _, where in uploaded),
         )
     if unresolvable:
         return Finding(

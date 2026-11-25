@@ -215,3 +215,46 @@ def test_constraint_directives_passes_with_one_line_or_an_unflagged_version():
     assert check_constraint_directives(make_context(requirements_text="-c https://example.invalid/c.txt\n")).status == FindingStatus.PASS
     unflagged = make_context(environment={"AirflowVersion": "2.10.3"}, requirements_text=TWO_CONSTRAINT_LINES)
     assert check_constraint_directives(unflagged).status == FindingStatus.PASS
+
+
+def test_wheel_references_warns_for_a_missing_datadog_wheel_the_plan_uploads():
+    ctx = make_context(
+        environment={"AirflowVersion": "2.7.2"},
+        requirements_text="/usr/local/airflow/dags/apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl\n",
+    )
+    ctx.client.object_exists.return_value = False
+
+    finding = check_wheel_references(ctx)
+
+    assert finding.status == FindingStatus.WARN
+    assert finding.message == "apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl is missing from the DAGs folder; apply uploads it"
+
+
+@pytest.mark.parametrize(
+    "airflow_version, wheel",
+    [
+        ("2.7.2", "datadog_provider-1.0.0-py3-none-any.whl"),  # not one the plan has a URL for
+        ("2.8.1", "apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl"),  # no wheels planned on 2.8.1
+    ],
+)
+def test_wheel_references_still_fails_for_a_missing_wheel_the_plan_cant_upload(airflow_version, wheel):
+    ctx = make_context(environment={"AirflowVersion": airflow_version}, requirements_text=f"/usr/local/airflow/dags/{wheel}\n")
+    ctx.client.object_exists.return_value = False
+
+    assert check_wheel_references(ctx).status == FindingStatus.FAIL
+
+
+def test_wheel_references_warns_for_a_missing_older_datadog_wheel_the_plans_wheel_replaces():
+    ctx = make_context(
+        environment={"AirflowVersion": "2.7.2"},
+        requirements_text="/usr/local/airflow/dags/apache_airflow_providers_openlineage-1.1.0-py3-none-any.whl\n",
+    )
+    ctx.client.object_exists.return_value = False
+
+    finding = check_wheel_references(ctx)
+
+    assert finding.status == FindingStatus.WARN
+    assert finding.message == (
+        "apache_airflow_providers_openlineage-1.1.0-py3-none-any.whl is missing from the DAGs folder; apply replaces it with "
+        "apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl, which it uploads"
+    )

@@ -344,7 +344,12 @@ def test_2_7_2_apply_uploads_wheels_that_are_referenced_but_missing_from_s3():
         "pandas==2.1.4\n"
     )
     client = FakeS3Client(WHEEL_ENVIRONMENT, {"requirements.txt": requirements})
-    assert check_wheel_references(build_context(client, "my-env")).status == FindingStatus.FAIL
+    finding = check_wheel_references(build_context(client, "my-env"))
+    assert finding.status == FindingStatus.WARN  # the plan uploads both, so nothing blocks apply
+    assert finding.message == (
+        "apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl is missing from the DAGs folder; apply uploads it; "
+        "apache_airflow_providers_common_compat-1.2.2-py3-none-any.whl is missing from the DAGs folder; apply uploads it"
+    )
 
     wheels = scan_and_apply(client)
 
@@ -353,6 +358,18 @@ def test_2_7_2_apply_uploads_wheels_that_are_referenced_but_missing_from_s3():
     new_requirements = client.objects["requirements.txt"]
     assert new_requirements.count("apache_airflow_providers_openlineage-1.14.0") == 1  # no duplicate reference line
     assert new_requirements.count("apache_airflow_providers_common_compat-1.2.2") == 1
+    assert_rescans_clean(client)
+
+
+def test_2_7_2_apply_replaces_a_missing_older_datadog_wheel_reference_with_the_uploaded_one():
+    old_wheel = "apache_airflow_providers_openlineage-1.1.0-py3-none-any.whl"
+    client = FakeS3Client(WHEEL_ENVIRONMENT, {"requirements.txt": f"/usr/local/airflow/dags/{old_wheel}\npandas==2.1.4\n"})
+    assert check_wheel_references(build_context(client, "my-env")).status == FindingStatus.WARN
+
+    scan_and_apply(client)
+
+    assert old_wheel not in client.objects["requirements.txt"]
+    assert "/usr/local/airflow/dags/apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl" in client.objects["requirements.txt"]
     assert_rescans_clean(client)
 
 
