@@ -76,6 +76,12 @@ also forces `scan` into `--interactive`, even if you didn't pass it: non-interac
 `scan`'s whole design is to hand off to a UI, and there's no UI that can ever see a
 session that only exists in a local file it never chose to be in.
 
+[`AI_SETUP_PROMPT.md`](AI_SETUP_PROMPT.md) is the same onboarding as a prompt for the
+user's own AI agent (the UI's "Set up with AI" option serves it, with `{{DD_SITE}}` and
+`{{MWAA_PYZ_URL}}` substituted): it drives this CLI when it can, and otherwise spells out
+every rule above for an AWS CLI or manual setup. `tests/test_ai_setup_prompt.py` fails when
+`version_table.py` changes without it.
+
 The produced executable is intended to run in [AWS CloudShell](https://aws.amazon.com/cloudshell/),
 which has `boto3` preinstalled. It can also be run locally against any MWAA environment
 you have read access to.
