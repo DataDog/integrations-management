@@ -299,8 +299,8 @@ def check_wheel_references(ctx: ProbeContext) -> Finding:
 
     A missing one for a package the plan installs from a Datadog-patched wheel
     itself is only a warning: plan.py's reference to the uploaded wheel replaces
-    that line (the same wheel, or another version of it). Any other missing one
-    fails.
+    every line installing that package (patch_wheel_references), so the missing
+    reference goes away. Any other missing one fails.
     """
     wheel_refs = find_wheel_references(ctx.requirements_text)
     if not wheel_refs:

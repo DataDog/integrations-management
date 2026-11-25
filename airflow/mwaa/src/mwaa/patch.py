@@ -62,18 +62,20 @@ def patch_pins(text: str, pin_changes: list[PinChange]) -> str:
 
 
 def patch_wheel_references(text: str, wheel_references: list[WheelReference]) -> str:
-    """Replace the line that installs each wheel's package (a pin, a bare name, another wheel)
-    with the wheel's line; append it if nothing installs that package yet.
+    """Replace the first line that installs each wheel's package (a pin, a bare name, another
+    wheel) with the wheel's line, and drop any other line installing it; append the wheel's
+    line if nothing installs that package yet.
 
-    Replacing matters: a leftover `package==1.1.0` pin next to the wheel
-    would conflict with it at install time.
+    Every leftover line matters: a `package==1.1.0` pin, or a reference to another
+    version's wheel, next to the wheel would conflict with it at install time.
     """
     lines = text.splitlines()
     for ref in wheel_references:
-        for i, line in enumerate(lines):
-            if requirement_line_package(line) == normalize_package_name(ref.package):
-                lines[i] = ref.line
-                break
+        package = normalize_package_name(ref.package)
+        installing = [i for i, line in enumerate(lines) if requirement_line_package(line) == package]
+        if installing:
+            lines[installing[0]] = ref.line
+            lines = [line for i, line in enumerate(lines) if i not in installing[1:]]
         else:
             lines.append(ref.line)
     return "\n".join(lines) + "\n"

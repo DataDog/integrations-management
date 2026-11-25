@@ -369,7 +369,8 @@ The upstream 1.14.0 provider isn't compatible with 2.7.2, so two packages come f
 For each one:
 1. Download it, check that it's a zip (it starts with `PK`), and upload it to `<DAGS>/<filename>`.
 2. In requirements.txt, the line `/usr/local/airflow/dags/<filename>` **replaces** the first line
-   that installs that package (a pin, a bare name, another wheel). If nothing does, append it.
+   that installs that package (a pin, a bare name, another wheel), and **removes** any other
+   line installing it: each would conflict with the wheel. If nothing installs it, append it.
 3. If requirements.txt already references that wheel (any spelling of the name) and the
    object exists, there's nothing to do. If the reference exists but the object is missing,
    upload it, and tell me it was missing. A reference to another version of the same package

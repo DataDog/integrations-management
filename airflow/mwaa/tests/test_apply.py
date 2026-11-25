@@ -373,6 +373,25 @@ def test_2_7_2_apply_replaces_a_missing_older_datadog_wheel_reference_with_the_u
     assert_rescans_clean(client)
 
 
+def test_2_7_2_apply_drops_a_missing_older_wheel_reference_below_a_pin_for_the_same_package():
+    requirements = (
+        "apache-airflow-providers-openlineage==1.1.0\n"
+        "/usr/local/airflow/dags/apache_airflow_providers_openlineage-1.10.0-py3-none-any.whl\n"
+        "pandas==2.1.4\n"
+    )
+    client = FakeS3Client(WHEEL_ENVIRONMENT, {"requirements.txt": requirements})
+    assert check_wheel_references(build_context(client, "my-env")).status == FindingStatus.WARN
+
+    scan_and_apply(client)
+
+    written = client.objects["requirements.txt"]
+    assert "apache-airflow-providers-openlineage==1.1.0" not in written
+    assert "apache_airflow_providers_openlineage-1.10.0" not in written
+    assert written.count("apache_airflow_providers_openlineage-1.14.0") == 1
+    assert "pandas==2.1.4" in written
+    assert_rescans_clean(client)
+
+
 def test_apply_to_environment_writes_nothing_if_a_wheel_download_isnt_a_wheel(fake_fetch):
     fake_fetch[OPENLINEAGE_WHEEL_URL] = b"<html>not found</html>"
     client = MagicMock()

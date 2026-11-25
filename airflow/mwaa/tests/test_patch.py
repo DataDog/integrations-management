@@ -221,3 +221,13 @@ def test_patch_env_vars_replaces_the_last_export_the_one_in_effect():
     change = EnvVarChange(path="dags/startup.sh", name="OPENLINEAGE_URL", from_value=None, to_value="https://data-obs-intake.datad0g.com", secret=False)
 
     assert patch_env_vars(text, [change]) == "export OPENLINEAGE_URL=https://first.example.com\nexport OPENLINEAGE_URL=https://data-obs-intake.datad0g.com\n"
+
+
+def test_patch_wheel_references_drops_every_other_line_installing_the_package():
+    from mwaa.plan import WheelReference
+
+    wheel = "apache_airflow_providers_openlineage-1.14.0-py3-none-any.whl"
+    ref = WheelReference(path="requirements.txt", package="apache-airflow-providers-openlineage", version="1.14.0", wheel_url="u", line=f"/usr/local/airflow/dags/{wheel}")
+    text = "pandas\napache-airflow-providers-openlineage==1.1.0\nApache_Airflow_Providers_OpenLineage\n/usr/local/airflow/dags/apache_airflow_providers_openlineage-1.10.0-py3-none-any.whl\nboto3\n"
+
+    assert patch_wheel_references(text, [ref]) == f"pandas\n/usr/local/airflow/dags/{wheel}\nboto3\n"
