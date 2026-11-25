@@ -9,10 +9,11 @@ import pytest
 
 from airflow_shared.reporter import Reporter
 from mwaa.patch import patch_pins
-from mwaa.scan import _app_url, run_scan
+from mwaa.scan import run_scan
 from mwaa.scan_config import ScanConfig
 from mwaa.session import AppliedStatus, ScannedStatus
 from mwaa.session_store import FilesystemSessionStore, SessionStore
+from mwaa.ui_links import app_url
 
 from .conftest import UPSTREAM_2_8_1_TEXT, UPSTREAM_2_8_1_URL
 
@@ -100,8 +101,10 @@ def test_run_scan_without_interactive_prints_ui_link_and_does_not_prompt(capsys)
 
     assert result["applied"] is False
     out = capsys.readouterr().out
-    assert SESSION_ID in out
-    assert "Configure Airflow UI" in out
+    assert out.endswith(
+        "Return to the Configure Airflow tab where you copied this command; it updates automatically. Or open:\n"
+        f"  https://app.datadoghq.com/data-obs/configure/airflow?session_id={SESSION_ID}\n"
+    )
 
 
 @pytest.mark.parametrize(
@@ -119,7 +122,7 @@ def test_run_scan_without_interactive_prints_ui_link_and_does_not_prompt(capsys)
     ],
 )
 def test_app_url_only_adds_app_subdomain_to_bare_sites(dd_site, expected):
-    assert _app_url(dd_site) == expected
+    assert app_url(dd_site) == expected
 
 
 def test_run_scan_ui_link_uses_the_sites_own_host_for_subdomained_sites(capsys):
@@ -144,7 +147,7 @@ def test_run_scan_without_interactive_offline_skips_ui_link(capsys):
 
     assert result["applied"] is False
     out = capsys.readouterr().out
-    assert "Configure Airflow UI" not in out
+    assert "Configure Airflow tab" not in out
     assert "Saved locally (offline)" in out
     assert "--offline" in out
 
@@ -164,7 +167,7 @@ def test_run_scan_forces_interactive_when_network_is_unreachable(capsys):
         result = run_scan(config, reporter, input_func=fake_input("q"))
 
     out = capsys.readouterr().out
-    assert "Configure Airflow UI" not in out
+    assert "Configure Airflow tab" not in out
     assert "Continuing interactively instead" in out
     assert "interactive CLI" in out  # actually entered _run_interactive
     assert result["applied"] is False
@@ -383,3 +386,12 @@ def test_run_scan_checks_an_existing_literal_api_key_with_the_intake_unless_offl
     staging = session.find("my-mwaa-staging")
     issue = next(i for i in staging.issues if i.check_id == "openlineage_api_key")
     assert ("couldn't verify" in issue.message) if offline else ("rejected by Datadog" in issue.message)
+
+
+def test_configure_airflow_url_deep_links_an_environments_run_a_dag_step_url_encoded():
+    from mwaa.ui_links import configure_airflow_url
+
+    assert configure_airflow_url("datadoghq.com", "s-1") == "https://app.datadoghq.com/data-obs/configure/airflow?session_id=s-1"
+    assert configure_airflow_url("us3.datadoghq.com", "s-1", "my env/2") == (
+        "https://us3.datadoghq.com/data-obs/configure/airflow?session_id=s-1&step=run-a-dag&env=my%20env%2F2"
+    )

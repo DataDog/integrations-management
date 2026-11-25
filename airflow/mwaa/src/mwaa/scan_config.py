@@ -60,7 +60,8 @@ def parse_scan_config(argv: Optional[Sequence[str]] = None) -> ScanConfig:
         "--dd-api-key",
         default=os.environ.get("DD_API_KEY"),
         help=(
-            "Datadog API key (default: $DD_API_KEY). Required for --interactive's own apply step "
+            "Datadog API key (default: $DD_API_KEY -- e.g. `DD_API_KEY=<key> python mwaa.pyz ...`, which keeps it "
+            "off the command line). Required for --interactive's own apply step "
             "(the substituted key never appears in the persisted session -- see startup_script.py) "
             "and to authenticate the session submission unless --offline."
         ),

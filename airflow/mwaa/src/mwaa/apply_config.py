@@ -64,7 +64,8 @@ def parse_apply_config(argv: Optional[Sequence[str]] = None) -> ApplyConfig:
         "--dd-api-key",
         default=os.environ.get("DD_API_KEY"),
         help=(
-            "Datadog API key (default: $DD_API_KEY). A plan's startup.sh only ever carries a "
+            "Datadog API key (default: $DD_API_KEY -- e.g. `DD_API_KEY=<key> python mwaa.pyz ...`, which keeps it "
+            "off the command line). A plan's startup.sh only ever carries a "
             "placeholder -- see startup_script.py -- so this is what gets substituted in, right "
             "before a file is previewed or actually written. Also authenticates loading/sealing "
             "the session over the network unless --offline. Required."
@@ -82,7 +83,10 @@ def parse_apply_config(argv: Optional[Sequence[str]] = None) -> ApplyConfig:
     parser.add_argument(
         "--yes",
         action="store_true",
-        help="Actually upload files and update the environment. Without this, only prints a preview.",
+        help=(
+            "Apply without asking. Without it, apply prints the preview and asks before uploading files and "
+            "restarting the environment -- and with no terminal to ask at, refuses and exits non-zero."
+        ),
     )
     parser.add_argument(
         "--offline",

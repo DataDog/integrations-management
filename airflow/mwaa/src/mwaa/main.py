@@ -11,8 +11,10 @@
   python mwaa.pyz scan ... --interactive --dry-run   # same, but never applies -- skips the
                                                       # confirmation prompt too
   python mwaa.pyz apply --session-id <uuid> --name <env> --region <region> --dd-site <site> --dd-api-key <key>
-      # just prints the plan's file changes
-  python mwaa.pyz apply ... --yes   # actually applies them
+      # prints the plan's file changes, then asks before applying them
+  python mwaa.pyz apply ... --yes   # applies them without asking (automation); with no
+                                    # terminal and no --yes, apply refuses and exits non-zero
+  DD_API_KEY=<key> python mwaa.pyz apply ...   # the key from the environment instead of a flag
 
   Both commands need --dd-site: the session gets submitted to and read back
   from https://data-obs-intake.<site>, and there's no safe default to guess
@@ -42,9 +44,10 @@ import sys
 
 from airflow_shared.reporter import Reporter
 
-from .apply_command import run_apply
+from .apply_command import NotConfirmedError, run_apply
 from .apply_config import parse_apply_config
 from .config import ConfigError
+from .diff_preview import mask_secrets
 from .scan import run_scan
 from .scan_config import parse_scan_config
 
@@ -65,7 +68,7 @@ def _run_scan(argv: list[str]) -> None:
     try:
         run_scan(config, reporter)
     except Exception as e:
-        print(f"\nScan failed: {e}", file=sys.stderr)
+        print(f"\nScan failed: {mask_secrets(str(e), config.dd_api_key)}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -81,8 +84,11 @@ def _run_apply(argv: list[str]) -> None:
 
     try:
         run_apply(config, reporter)
+    except NotConfirmedError as e:
+        print(f"\n{e}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
-        print(f"\nApply failed: {e}", file=sys.stderr)
+        print(f"\nApply failed: {mask_secrets(str(e), config.dd_api_key)}", file=sys.stderr)
         sys.exit(1)
 
 

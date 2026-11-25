@@ -91,16 +91,19 @@ python mwaa.pyz scan --session-id <uuid> --region us-east-1 --dd-site datadoghq.
 # Same, but walk the whole select/review/apply flow at the terminal instead
 python mwaa.pyz scan --session-id <uuid> --region us-east-1 --dd-site datadoghq.com --dd-api-key <key> --interactive
 
-# Preview one environment's plan from a session a prior `scan` persisted
+# Preview one environment's plan from a session a prior `scan` persisted, then confirm to apply it
 python mwaa.pyz apply --session-id <uuid> --name my-mwaa-environment --region us-east-1 --dd-site datadoghq.com --dd-api-key <key>
-# ...then add --yes once the diff looks right, to actually apply it
+# ...or apply without asking (automation); with no terminal and no --yes, apply refuses and exits non-zero
+python mwaa.pyz apply ... --yes
 
 # Local-only, no network at all (also the automatic fallback if the intake API is unreachable)
 python mwaa.pyz scan --session-id <uuid> --region us-east-1 --dd-api-key <key> --offline
 ```
 
 `--region` falls back to `AWS_REGION`/`AWS_DEFAULT_REGION` if omitted, `--dd-site` falls
-back to `DD_SITE`, and `--dd-api-key` falls back to `DD_API_KEY`. `--session-id` must be a
+back to `DD_SITE`, and `--dd-api-key` falls back to `DD_API_KEY` (`DD_API_KEY=<key> python
+mwaa.pyz ...` keeps it off the command line). Every key the CLI prints is masked (`****` and
+its last 4 characters); the files it writes keep the real one. `--session-id` must be a
 UUID -- the eventual UI generates one and embeds it in the command it hands you.
 
 `--dd-site` is required on both commands unless `--offline` is set: the session gets

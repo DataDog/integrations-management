@@ -13,8 +13,11 @@ refuses to go on if the environment has a FAIL issue (session.blocking_issues)
 or any file the plan was computed from has changed since
 (check_files_unchanged -- a hand-authored override session without
 file_versions only gets a warning), and previews before doing anything
-mutating -- without --yes (see apply_config.py), this only prints what it
-would do.
+mutating. Then it asks for confirmation at a terminal, unless --yes (see
+apply_config.py); with neither a terminal nor --yes it refuses outright
+(NotConfirmedError) rather than quietly doing nothing, since a silent dry
+run once read as "applied". Every key in what it prints is masked
+(diff_preview.mask_secrets).
 
 Once a real apply succeeds, seal_applied (session.py) marks that one
 environment's entry AppliedStatus and this re-persists the session --
@@ -23,25 +26,34 @@ scoped to just that environment, since a session covers every environment
 """
 
 import os
-from typing import Any
+import sys
+from typing import Any, Callable
 
 from airflow_shared.mwaa_client import MwaaClient
 from airflow_shared.reporter import Reporter
 
 from .apply import StaleSessionError, apply_to_environment, check_files_unchanged, compute_apply_actions, interpolate_api_key
 from .apply_config import ApplyConfig
-from .diff_preview import render_unified_diff
-from .plan import WheelReference
+from .diff_preview import mask_secrets, render_unified_diff
+from .plan import REQUIREMENTS_PATHS, STARTUP_SCRIPT_PATHS, WheelReference
 from .probe import build_context
 from .session import BlockingIssuesError, blocking_issues, seal_applied
 from .session_override import SESSION_OVERRIDE_ENV_VAR, load_session_override
+from .session_store import FilesystemSessionStore
 from .session_store_selection import select_session_store
+from .ui_links import configure_airflow_url
 
 WORKFLOW_TYPE = "mwaa-setup"
 
 
-def run_apply(config: ApplyConfig, reporter: Reporter) -> dict[str, Any]:
-    """Load the session, find --name's plan in it, and preview or apply it."""
+class NotConfirmedError(RuntimeError):
+    """apply ran with no terminal to confirm at and no --yes."""
+
+
+def run_apply(
+    config: ApplyConfig, reporter: Reporter, input_func: Callable[[str], str] = input, is_terminal: Callable[[], bool] = sys.stdin.isatty
+) -> dict[str, Any]:
+    """Load the session, find --name's plan in it, preview it, and apply it once confirmed."""
     store, _ = select_session_store(config.offline, config.dd_site, config.dd_api_key)
 
     override_path = os.environ.get(SESSION_OVERRIDE_ENV_VAR)
@@ -99,14 +111,21 @@ def run_apply(config: ApplyConfig, reporter: Reporter) -> dict[str, Any]:
     for upload in uploads:
         diff = render_unified_diff(upload.path, upload.old_content, upload.content)
         print(f"\n--- {upload.action}: {upload.path} ---")
-        print(diff if diff else "(no textual change)")
+        print(mask_secrets(diff, config.dd_api_key) if diff else "(no textual change)")
     for wheel in wheels:
         print(f"\n--- upload wheel: {wheel.line} ---\nfrom {wheel.wheel_url}")
 
+    restarts = any(u.label in REQUIREMENTS_PATHS + STARTUP_SCRIPT_PATHS for u in uploads)
     if not config.confirmed:
-        print()
-        print("Dry run only -- pass --yes to actually upload these files and update the environment.")
-        return {"applied": False, "plan": plan, "uploads": uploads}
+        if not is_terminal():
+            raise NotConfirmedError("Not applied: confirm interactively or pass --yes.")
+        try:
+            answer = input_func(f"\nApply these changes{f' and restart {entry.name}' if restarts else ''}? [y/N] ")
+        except EOFError:
+            answer = ""
+        if answer.strip().lower() not in ("y", "yes"):
+            print("\nNothing was changed.")
+            return {"applied": False, "plan": plan, "uploads": uploads}
 
     with reporter.report_step("apply_changes"):
         result = apply_to_environment(client, ctx, uploads, wheels)
@@ -118,5 +137,9 @@ def run_apply(config: ApplyConfig, reporter: Reporter) -> dict[str, Any]:
     print(f"Uploaded {len(result['uploaded'])} file(s).")
     if result["update_environment_called"]:
         print("UpdateEnvironment called -- the environment will restart (usually 20-30 minutes).")
+        print("The update continues in AWS; you can close CloudShell.")
+    if config.dd_site and not isinstance(store, FilesystemSessionStore):
+        print("Return to the Configure Airflow tab to watch for your first events, or open:")
+        print(f"  {configure_airflow_url(config.dd_site, config.session_id, config.environment_name)}")
 
     return {"applied": True, "plan": plan, "uploads": uploads, "result": result}

@@ -11,7 +11,7 @@ import pytest
 
 from airflow_shared.reporter import Finding, FindingStatus, Reporter
 from mwaa.apply import StaleSessionError
-from mwaa.apply_command import run_apply
+from mwaa.apply_command import NotConfirmedError, run_apply
 from mwaa.apply_config import ApplyConfig
 from mwaa.plan import PinChange, Plan
 from mwaa.session import AppliedStatus, BlockingIssuesError, EnvironmentEntry, ScannedStatus, Session
@@ -73,23 +73,52 @@ def make_store(session: Session = None) -> MagicMock:
     return store
 
 
-def test_run_apply_without_yes_does_not_call_put_object(capsys):
+def run_unconfirmed(answer, is_terminal=True):
     config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", dd_api_key="fake-dd-api-key", confirmed=False)
-    reporter = Reporter(workflow_type="mwaa-setup")
     client = make_client()
     store = make_store(make_session())
+    prompts = []
+
+    def input_func(prompt):
+        prompts.append(prompt)
+        if answer is EOFError:
+            raise EOFError
+        return answer
 
     with (
         patch("mwaa.apply_command.MwaaClient", return_value=client),
         patch("mwaa.apply_command.select_session_store", return_value=(store, False)),
     ):
-        result = run_apply(config, reporter)
+        result = run_apply(config, Reporter(workflow_type="mwaa-setup"), input_func=input_func, is_terminal=lambda: is_terminal)
+    return result, client, store, prompts
 
+
+@pytest.mark.parametrize("answer", ["n", "", "no", "maybe", EOFError], ids=["n", "empty", "no", "other", "eof"])
+def test_run_apply_without_yes_changes_nothing_unless_confirmed(answer, capsys):
+    result, client, store, prompts = run_unconfirmed(answer)
+
+    assert prompts == ["\nApply these changes and restart my-env? [y/N] "]
     client.put_object_text.assert_not_called()
     client.update_environment.assert_not_called()
-    store.save.assert_not_called()  # a dry run never seals anything
+    store.save.assert_not_called()
     assert result["applied"] is False
-    assert "Dry run only" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Planned changes:" in out  # the preview always comes first
+    assert "Nothing was changed." in out
+
+
+@pytest.mark.parametrize("answer", ["y", "YES", " yes "])
+def test_run_apply_applies_once_confirmed_at_the_terminal(answer):
+    result, client, store, _ = run_unconfirmed(answer)
+
+    assert result["applied"] is True
+    client.update_environment.assert_called_once()
+    store.save.assert_called_once()
+
+
+def test_run_apply_without_a_terminal_or_yes_refuses_instead_of_dry_running():
+    with pytest.raises(NotConfirmedError, match="Not applied: confirm interactively or pass --yes."):
+        _, client, _, _ = run_unconfirmed("y", is_terminal=False)
 
 
 def test_run_apply_with_yes_uploads_files(capsys):
@@ -296,3 +325,19 @@ def test_run_apply_uses_session_override_when_env_var_set(capsys, tmp_path, monk
     store.save.assert_called_once()  # sealing still goes through the selected store
     out = capsys.readouterr().out
     assert f"{SESSION_OVERRIDE_ENV_VAR} is set" in out
+
+
+def test_run_apply_offline_prints_no_ui_link_the_ui_couldnt_follow(capsys, monkeypatch):
+    from mwaa.session_store import FilesystemSessionStore
+
+    monkeypatch.setattr(FilesystemSessionStore, "save", lambda self, session: None)
+    config = ApplyConfig(session_id=SESSION_ID, environment_name="my-env", region="us-east-1", dd_api_key="fake-dd-api-key", confirmed=True, offline=True)
+    store = FilesystemSessionStore()
+    monkeypatch.setattr(store, "load", lambda session_id: make_session())
+
+    with patch("mwaa.apply_command.MwaaClient", return_value=make_client()), patch("mwaa.apply_command.select_session_store", return_value=(store, False)):
+        run_apply(config, Reporter(workflow_type="mwaa-setup"))
+
+    out = capsys.readouterr().out
+    assert "The update continues in AWS; you can close CloudShell." in out
+    assert "Configure Airflow tab" not in out

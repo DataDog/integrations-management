@@ -40,7 +40,7 @@ from airflow_shared.reporter import Reporter
 
 from .apply import apply_to_environment, check_files_unchanged, compute_apply_actions, interpolate_api_key
 from .checks import ProbeContext
-from .diff_preview import render_unified_diff
+from .diff_preview import mask_secrets, render_unified_diff
 from .discovery import discover_environments
 from .fetch import check_intake_api_key
 from .plan import Plan, WheelReference
@@ -48,6 +48,7 @@ from .scan_config import ScanConfig
 from .session import Session, blocking_issues, build_session, seal_applied
 from .session_store import FilesystemSessionStore, SessionStore
 from .session_store_selection import select_session_store
+from .ui_links import app_url, configure_airflow_url
 
 WORKFLOW_TYPE = "mwaa-setup"
 
@@ -94,17 +95,6 @@ def _apply_hint(session: Session, environment_name: str, region: str, offline: b
     return f"{cmd} --offline" if offline else f"{cmd} --dd-site <DD_SITE>"
 
 
-def _app_url(dd_site: str) -> str:
-    """The Datadog web app's base URL for a site.
-
-    Bare sites (datadoghq.com, datadoghq.eu, ddog-gov.com, datad0g.com) serve
-    the app from `app.<site>`; sites that already carry a subdomain
-    (us3.datadoghq.com, ap1.datadoghq.com, us2.ddog-gov.com, ...) serve it
-    from the site itself.
-    """
-    return f"https://{dd_site}" if dd_site.count(".") > 1 else f"https://app.{dd_site}"
-
-
 def _print_ui_handoff(session: Session, region: str, dd_site: str, offline: bool) -> None:
     print(f"\nSession persisted: {session.session_id}")
     flagged = [e for e in session.environments if e.issues]
@@ -116,8 +106,8 @@ def _print_ui_handoff(session: Session, region: str, dd_site: str, offline: bool
         print("Saved locally (offline) -- apply with, e.g.:")
         print(f"  {_apply_hint(session, '<ENVIRONMENT_NAME>', region, offline)}")
     else:
-        print("Continue in the Configure Airflow UI:")
-        print(f"  {_app_url(dd_site)}/data-obs/configure/airflow?session_id={session.session_id}")
+        print("Return to the Configure Airflow tab where you copied this command; it updates automatically. Or open:")
+        print(f"  {configure_airflow_url(dd_site, session.session_id)}")
 
 
 def _run_interactive(
@@ -176,7 +166,7 @@ def _run_interactive(
     for upload in uploads:
         diff = render_unified_diff(upload.path, upload.old_content, upload.content)
         print(f"\n--- {upload.action}: {upload.path} ---")
-        print(diff if diff else "(no textual change)")
+        print(mask_secrets(diff, config.dd_api_key) if diff else "(no textual change)")
     for wheel in wheels:
         print(f"\n--- upload wheel: {wheel.line} ---\nfrom {wheel.wheel_url}")
 
@@ -206,7 +196,7 @@ def _run_interactive(
         print("UpdateEnvironment called -- the environment will restart (usually 20-30 minutes).")
         print()
         print("Next: once it's back, trigger a DAG run in the Airflow UI, then check")
-        print(f"Data Observability: Jobs Monitoring in Datadog ({_app_url(config.dd_site)}/data-jobs/)")
+        print(f"Data Observability: Jobs Monitoring in Datadog ({app_url(config.dd_site)}/data-jobs/)")
         print("to confirm lineage events are arriving. This CLI does not trigger a DAG run for you.")
 
     return {"applied": True, "session": session, "environment": entry.name, "uploads": uploads, "result": result}
