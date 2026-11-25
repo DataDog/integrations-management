@@ -472,8 +472,8 @@ script's literal text:
       `data-obs-intake.<other site>`), it's that site's key: replace it with my key, without
       checking it;
     - otherwise check it. Set `EXISTING_KEY` in your shell straight from the file, without
-      printing it (e.g. `EXISTING_KEY="$(sed -n 's/^export OPENLINEAGE_API_KEY=//p' startup.sh | tail -1 | tr -d "\"' ")"`,
-      adjusted for a trailing comment), then run
+      printing it (e.g. `EXISTING_KEY="$(sed -nE 's/^[[:space:]]*export OPENLINEAGE_API_KEY=["'"'"']?([0-9a-fA-F]{32}).*/\1/p' startup.sh | tail -1)"`,
+      which also drops quotes and a trailing comment), then run
       `curl -s -o /dev/null -w '%{http_code}' -X POST https://data-obs-intake.{{DD_SITE}}/api/v1/lineage -H "Content-Type: application/json" -H "Authorization: Bearer $EXISTING_KEY" -d '{}'`.
       2xx: keep it. 401/403: replace it and tell me it was rejected. Anything else or no
       network: keep it and warn that it's unverified.
