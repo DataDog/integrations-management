@@ -17,7 +17,7 @@ requirement here yet, unlike the gcp/azure quickstarts.
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
-from typing import Generator, Optional
+from typing import Callable, Generator, Optional
 
 
 class Status(str, Enum):
@@ -52,14 +52,16 @@ class Finding:
 class Reporter:
     """Reports step progress and check findings for a probe run."""
 
-    def __init__(self, workflow_type: str):
+    def __init__(self, workflow_type: str, redact: Callable[[str], str] = lambda text: text):
+        """`redact` is applied to every message printed -- e.g. to mask a secret an exception carries."""
         self.workflow_type = workflow_type
+        self.redact = redact
 
     def report(self, step: str, status: Status, message: Optional[str] = None) -> None:
         """Report the status of a step. Prints only, for now -- see module docstring."""
         line = f"[{step}] {status.value}"
         if message:
-            line += f": {message}"
+            line += f": {self.redact(message)}"
         print(line)
 
     @contextmanager
@@ -77,9 +79,9 @@ class Reporter:
     def report_finding(self, finding: Finding) -> None:
         """Report one probe check's finding. Prints only, for now -- see module docstring."""
         symbol = _SYMBOLS[finding.status]
-        print(f"  {symbol} [{finding.check_id}] {finding.message}")
+        print(f"  {symbol} [{finding.check_id}] {self.redact(finding.message)}")
         if finding.detail:
-            for line in finding.detail.strip().split("\n"):
+            for line in self.redact(finding.detail).strip().split("\n"):
                 print(f"      {line}")
 
     def summary(self, findings: list[Finding]) -> None:

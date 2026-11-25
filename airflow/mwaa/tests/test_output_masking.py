@@ -67,6 +67,26 @@ def assert_no_full_key(capsys):
     return captured
 
 
+ESCAPED_TRANSPORT_STARTUP = (
+    "#!/bin/sh\n"
+    'export AIRFLOW__OPENLINEAGE__TRANSPORT="{\\"type\\": \\"http\\", \\"url\\": \\"https://data-obs-intake.datadoghq.eu\\", '
+    f'\\"auth\\": {{\\"type\\": \\"api_key\\", \\"apiKey\\": \\"{OLD_KEY}\\"}}}}"\n'
+    f"export DD_API_KEY={OLD_KEY}\n"  # unchanged, but a diff's context line
+)
+
+
+def test_apply_preview_masks_an_escaped_json_transport_key_and_context_lines(capsys):
+    fake = client()
+    fake.objects["dags/startup.sh"] = ESCAPED_TRANSPORT_STARTUP
+    with patch("mwaa.apply_command.MwaaClient", return_value=fake), patch("mwaa.apply_command.select_session_store", return_value=(store_with_session(fake), False)):
+        run_apply(apply_config(confirmed=False), Reporter(workflow_type="mwaa-setup"), input_func=lambda _: "n", is_terminal=lambda: True)
+
+    out = assert_no_full_key(capsys).out
+    assert '\\"apiKey\\": \\"****cdef\\"' in out  # the old transport on the diff's - line
+    assert '"apiKey": "****1111"' in out  # the corrected one on its + line
+    assert "export DD_API_KEY=****cdef" in out
+
+
 def test_apply_preview_masks_the_new_and_old_key_but_writes_the_real_one(capsys):
     fake = client()
     with patch("mwaa.apply_command.MwaaClient", return_value=fake), patch("mwaa.apply_command.select_session_store", return_value=(store_with_session(fake), False)):
@@ -93,16 +113,36 @@ def test_apply_success_prints_no_key_and_uploads_the_real_one(capsys):
     )
 
 
-@pytest.mark.parametrize("command", ["apply", "scan"])
-def test_an_error_carrying_the_key_is_printed_masked(command, capsys, monkeypatch):
-    failure = RuntimeError(f"intake said no to DD-API-KEY {NEW_KEY}")
-    monkeypatch.setattr(f"mwaa.main.run_{command}", MagicMock(side_effect=failure))
-    argv = ["--session-id", SESSION_ID, "--region", "us-east-1", "--dd-site", "datadoghq.com", "--dd-api-key", NEW_KEY]
+ARGV = ["--session-id", SESSION_ID, "--region", "us-east-1", "--dd-site", "datadoghq.com", "--dd-api-key", NEW_KEY]
+KEY_CARRYING_ERROR = RuntimeError(f"intake said no to DD-API-KEY {NEW_KEY}")
 
-    with pytest.raises(SystemExit):
-        (cli._run_apply if command == "apply" else cli._run_scan)(argv + (["--name", "my-env"] if command == "apply" else []))
 
-    assert "****1111" in assert_no_full_key(capsys).err
+def test_an_apply_step_failing_with_the_key_prints_it_masked_everywhere(capsys):
+    fake = client()
+    with (
+        patch("mwaa.apply_command.MwaaClient", return_value=fake),
+        patch("mwaa.apply_command.select_session_store", return_value=(store_with_session(fake), False)),
+        patch("mwaa.apply_command.apply_to_environment", side_effect=KEY_CARRYING_ERROR),
+        pytest.raises(SystemExit),
+    ):
+        cli._run_apply(ARGV + ["--name", "my-env", "--yes"])
+
+    captured = assert_no_full_key(capsys)
+    assert "[apply_changes] failed: intake said no to DD-API-KEY ****1111" in captured.out
+    assert "Apply failed: intake said no to DD-API-KEY ****1111" in captured.err
+
+
+def test_a_scan_step_failing_with_the_key_prints_it_masked_everywhere(capsys):
+    with (
+        patch("mwaa.scan.MwaaClient", return_value=client()),
+        patch("mwaa.scan.select_session_store", return_value=(MagicMock(spec=SessionStore), False)),
+        patch("mwaa.scan.build_session", side_effect=KEY_CARRYING_ERROR),
+        pytest.raises(SystemExit),
+    ):
+        cli._run_scan(ARGV)
+
+    captured = assert_no_full_key(capsys)
+    assert "[build_session] failed: intake said no to DD-API-KEY ****1111" in captured.out
 
 
 def test_interactive_scan_preview_masks_both_keys(capsys):
@@ -124,6 +164,8 @@ def test_mask_secrets_masks_keys_in_exports_and_transport_json_and_leaves_the_re
         "-export OPENLINEAGE_API_KEY=${DD_KEY}\n"
         "+export OPENLINEAGE_API_KEY=<DD_API_KEY>\n"
         "+export OPENLINEAGE_URL=https://data-obs-intake.datad0g.com\n"
+        '-export AIRFLOW__OPENLINEAGE__TRANSPORT="{\\"auth\\":{\\"type\\":\\"api_key\\",\\"apiKey\\":\\"abcdef0123456789abcdef0123456789\\"}}"\n'
+        " export DD_API_KEY=abcdef0123456789abcdef0123456789\n"
     )
 
     assert mask_secrets(text, None) == (
@@ -133,6 +175,8 @@ def test_mask_secrets_masks_keys_in_exports_and_transport_json_and_leaves_the_re
         "-export OPENLINEAGE_API_KEY=${DD_KEY}\n"
         "+export OPENLINEAGE_API_KEY=<DD_API_KEY>\n"
         "+export OPENLINEAGE_URL=https://data-obs-intake.datad0g.com\n"
+        '-export AIRFLOW__OPENLINEAGE__TRANSPORT="{\\"auth\\":{\\"type\\":\\"api_key\\",\\"apiKey\\":\\"****6789\\"}}"\n'
+        " export DD_API_KEY=****6789\n"
     )
 
 

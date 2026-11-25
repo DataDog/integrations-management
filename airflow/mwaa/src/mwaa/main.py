@@ -63,7 +63,7 @@ def _run_scan(argv: list[str]) -> None:
         sys.exit(1)
 
     print(f"Scanning MWAA environments in {config.region}... (session {config.session_id})")
-    reporter = Reporter(workflow_type=WORKFLOW_TYPE)
+    reporter = Reporter(workflow_type=WORKFLOW_TYPE, redact=lambda text: mask_secrets(text, config.dd_api_key))
 
     try:
         run_scan(config, reporter)
@@ -80,7 +80,7 @@ def _run_apply(argv: list[str]) -> None:
         sys.exit(1)
 
     print(f"Applying the onboarding plan for '{config.environment_name}' in {config.region} (session {config.session_id})...")
-    reporter = Reporter(workflow_type=WORKFLOW_TYPE)
+    reporter = Reporter(workflow_type=WORKFLOW_TYPE, redact=lambda text: mask_secrets(text, config.dd_api_key))
 
     try:
         run_apply(config, reporter)

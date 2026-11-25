@@ -31,10 +31,11 @@ def render_unified_diff(path: str, old_text: str, new_text: str) -> str:
     return "".join(diff_lines)
 
 
-# a literal value after OPENLINEAGE_API_KEY= (not a $variable or $(...)), and a JSON
-# transport's apiKey/apikey/api_key value
-_KEY_EXPORT = re.compile(r"""(OPENLINEAGE_API_KEY=['"]?)([^'"\s#;$`]+)""")
-_KEY_FIELD = re.compile(r"""("(?:apiKey|apikey|api_key)"\s*:\s*")([^"]*)(")""")
+# a literal value assigned to any *API_KEY variable (OPENLINEAGE_API_KEY, DD_API_KEY, ...; not
+# a $variable or $(...)), and a JSON transport's apiKey/apikey/api_key value, its quotes
+# backslash-escaped too when the JSON sits inside a double-quoted shell string
+_KEY_EXPORT = re.compile(r"""(\b[A-Z_]*API_KEY=['"]?)([^'"\s#;$`]+)""")
+_KEY_FIELD = re.compile(r"""(\\?"(?:apiKey|apikey|api_key)\\?"\s*:\s*\\?")([^"\\]*)(\\?")""")
 
 
 def mask_key(key: str) -> str:
