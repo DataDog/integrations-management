@@ -10,6 +10,7 @@ from azure_logging_install.configuration import Configuration, ControlPlaneType
 from azure_logging_install.existing_lfo import (
     MONITORED_SUBSCRIPTIONS_KEY,
     PII_SCRUBBER_RULES_KEY,
+    RESOURCE_PROVIDER_CONFIGS_KEY,
     RESOURCE_TAG_FILTERS_KEY,
     RESOURCES_TASK_PREFIX,
     ControlPlane,
@@ -26,6 +27,7 @@ from logging_install.tests.test_data import (
     DATADOG_SITE,
     MONITORED_SUBSCRIPTIONS,
     PII_SCRUBBER_RULES,
+    RESOURCE_PROVIDER_CONFIGS,
     RESOURCE_TAG_FILTERS,
     RESOURCE_TASK_NAME,
     SCALING_TASK_NAME,
@@ -127,6 +129,7 @@ class TestExistingLfo(TestCase):
                 RESOURCE_TASK_NAME: {
                     MONITORED_SUBSCRIPTIONS_KEY: mock_monitored_subs_json,
                     RESOURCE_TAG_FILTERS_KEY: RESOURCE_TAG_FILTERS,
+                    RESOURCE_PROVIDER_CONFIGS_KEY: RESOURCE_PROVIDER_CONFIGS,
                     "DD_API_KEY": DATADOG_API_KEY,
                 },
                 SCALING_TASK_NAME: {
@@ -146,6 +149,7 @@ class TestExistingLfo(TestCase):
         self.assertEqual(configuration.control_plane.resource_group, CONTROL_PLANE_RESOURCE_GROUP)
         self.assertEqual(sorted(configuration.monitored_subscriptions), sorted([SUB_1_ID, SUB_2_ID, SUB_3_ID]))
         self.assertEqual(configuration.resource_tag_filters, RESOURCE_TAG_FILTERS)
+        self.assertEqual(configuration.resource_provider_configs, RESOURCE_PROVIDER_CONFIGS)
         self.assertEqual(configuration.pii_scrubber_rules, PII_SCRUBBER_RULES)
         self.assertEqual(configuration.datadog_api_key, DATADOG_API_KEY)
 
@@ -339,6 +343,76 @@ class TestExistingLfo(TestCase):
             mock_set_pii_rules.assert_not_called()
             mock_grant_subs_perms.assert_not_called()
             mock_remove_subscription_resources.assert_not_called()
+
+    def test_update_existing_lfo_resource_provider_configs_only(self):
+        """Test update when only resource provider configs change; partial update via set_resource_provider_configs."""
+
+        test_config = get_test_config()
+        test_config.resource_provider_configs = RESOURCE_PROVIDER_CONFIGS
+        existing_lfo = Configuration(
+            control_plane=ControlPlane(
+                    CONTROL_PLANE_ID,
+                    test_config.control_plane.sub_id,
+                    test_config.control_plane.resource_group,
+                    test_config.control_plane.region,
+                    ControlPlaneType.FunctionApps,
+            ),
+            monitored_subs=",".join(test_config.monitored_subscriptions),
+            datadog_api_key="",
+            resource_tag_filters=RESOURCE_TAG_FILTERS,
+            pii_scrubber_rules=PII_SCRUBBER_RULES,
+        )
+
+        with (
+            mock_patch("azure_logging_install.existing_lfo.set_monitored_subscriptions") as mock_set_monitored_subs,
+            mock_patch("azure_logging_install.existing_lfo.set_resource_tag_filters") as mock_set_tag_filters,
+            mock_patch("azure_logging_install.existing_lfo.set_resource_provider_configs") as mock_set_resource_provider_configs,
+            mock_patch("azure_logging_install.existing_lfo.set_pii_scrubber_rules") as mock_set_pii_rules,
+            mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions") as mock_grant_subs_perms,
+            mock_patch("azure_logging_install.existing_lfo.remove_subscription_resources") as mock_remove_subscription_resources,
+        ):
+            update_existing_lfo(test_config, existing_lfo)
+
+            mock_set_monitored_subs.assert_not_called()
+            mock_set_tag_filters.assert_not_called()
+            mock_set_resource_provider_configs.assert_called_once_with(
+                existing_lfo.control_plane, RESOURCE_PROVIDER_CONFIGS
+            )
+            mock_set_pii_rules.assert_not_called()
+            mock_grant_subs_perms.assert_not_called()
+            mock_remove_subscription_resources.assert_not_called()
+
+    def test_update_existing_lfo_unchanged_resource_provider_configs(self):
+        """Test resource provider configs are not set again when they have not changed."""
+
+        test_config = get_test_config()
+        test_config.resource_provider_configs = RESOURCE_PROVIDER_CONFIGS
+        existing_lfo = Configuration(
+            control_plane=ControlPlane(
+                    CONTROL_PLANE_ID,
+                    test_config.control_plane.sub_id,
+                    test_config.control_plane.resource_group,
+                    test_config.control_plane.region,
+                    ControlPlaneType.FunctionApps,
+            ),
+            monitored_subs=",".join(test_config.monitored_subscriptions),
+            datadog_api_key="",
+            resource_tag_filters=RESOURCE_TAG_FILTERS,
+            resource_provider_configs=RESOURCE_PROVIDER_CONFIGS,
+            pii_scrubber_rules=PII_SCRUBBER_RULES,
+        )
+
+        with (
+            mock_patch("azure_logging_install.existing_lfo.set_monitored_subscriptions"),
+            mock_patch("azure_logging_install.existing_lfo.set_resource_tag_filters"),
+            mock_patch("azure_logging_install.existing_lfo.set_resource_provider_configs") as mock_set_resource_provider_configs,
+            mock_patch("azure_logging_install.existing_lfo.set_pii_scrubber_rules"),
+            mock_patch("azure_logging_install.existing_lfo.grant_subscriptions_permissions"),
+            mock_patch("azure_logging_install.existing_lfo.remove_subscription_resources"),
+        ):
+            update_existing_lfo(test_config, existing_lfo)
+
+            mock_set_resource_provider_configs.assert_not_called()
 
     def test_update_existing_lfo_pii_rules_only(self):
         """Test update when only PII rules change; partial update via set_pii_scrubber_rules."""

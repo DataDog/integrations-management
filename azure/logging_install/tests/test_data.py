@@ -20,6 +20,7 @@ CONTROL_PLANE_REGION = "eastus"
 CONTROL_PLANE_RESOURCE_GROUP = "test-rg"
 MONITORED_SUBSCRIPTIONS = f"{SUB_1_ID},{SUB_2_ID}"
 RESOURCE_TAG_FILTERS = "env:prod,team:infra"
+RESOURCE_PROVIDER_CONFIGS = '{"logs_enabled_default":true,"providers":[{"logs_enabled":false,"namespace":"Microsoft.Web"}]}'
 PII_SCRUBBER_RULES = "rule1:\n  pattern: 'sensitive data'\n  replacement: 'test'"
 
 # Control plane internal settings

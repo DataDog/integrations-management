@@ -14,10 +14,11 @@ from .configuration import Configuration, ControlPlaneType, ControlPlane
 from .resource_setup import (
     set_monitored_subscriptions,
     set_pii_scrubber_rules,
+    set_resource_provider_configs,
     set_resource_tag_filters,
 )
 from .role_setup import grant_subscriptions_permissions, remove_subscription_resources
-from .constants import MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_PREFIX
+from .constants import MONITORED_SUBSCRIPTIONS_KEY, PII_SCRUBBER_RULES_KEY, RESOURCE_PROVIDER_CONFIGS_KEY, RESOURCE_TAG_FILTERS_KEY, RESOURCES_TASK_PREFIX
 
 
 def get_current_config_for_control_plane(control_plane: ControlPlane) -> Configuration:
@@ -45,6 +46,7 @@ def get_current_config_for_control_plane(control_plane: ControlPlane) -> Configu
             monitored_sub_ids = legacy_sub_ids
 
     tag_filters = resource_task_env_vars.get(RESOURCE_TAG_FILTERS_KEY, "")
+    resource_provider_configs = resource_task_env_vars.get(RESOURCE_PROVIDER_CONFIGS_KEY, "")
     pii_rules = scaling_task_env_vars.get(PII_SCRUBBER_RULES_KEY, "")
     datadog_api_key = resource_task_env_vars.get("DD_API_KEY", "") # TODO fetch the secret ref for CAJ's
     datadog_site = resource_task_env_vars.get("DD_SITE", "datadoghq.com")
@@ -56,6 +58,7 @@ def get_current_config_for_control_plane(control_plane: ControlPlane) -> Configu
         monitored_subs=','.join(monitored_sub_ids),
         datadog_api_key=datadog_api_key,
         resource_tag_filters=tag_filters,
+        resource_provider_configs=resource_provider_configs,
         pii_scrubber_rules=pii_rules,
         datadog_site=datadog_site,
         datadog_telemetry=datadog_telemetry,
@@ -203,17 +206,22 @@ def update_existing_lfo(new_config: Configuration, existing_lfo: Configuration):
 
     log_header("STEP 3: Updating settings for control plane tasks")
     existing_tag_filters = existing_lfo.resource_tag_filters
+    existing_resource_provider_configs = existing_lfo.resource_provider_configs
     existing_pii_rules = existing_lfo.pii_scrubber_rules
     new_tag_filters = new_config.resource_tag_filters
+    new_resource_provider_configs = new_config.resource_provider_configs
     new_pii_rules = new_config.pii_scrubber_rules
 
     tag_filter_changed = existing_tag_filters != new_tag_filters
+    resource_provider_configs_changed = existing_resource_provider_configs != new_resource_provider_configs
     pii_rules_changed = existing_pii_rules != new_pii_rules
     monitored_subs_changed = existing_monitored_sub_ids != new_monitored_sub_ids
-    change_count = sum((tag_filter_changed, pii_rules_changed, monitored_subs_changed))
+    change_count = sum((tag_filter_changed, resource_provider_configs_changed, pii_rules_changed, monitored_subs_changed))
 
     if tag_filter_changed:
         set_resource_tag_filters(existing_lfo.control_plane, new_tag_filters)
+    if resource_provider_configs_changed:
+        set_resource_provider_configs(existing_lfo.control_plane, new_resource_provider_configs)
     if pii_rules_changed:
         set_pii_scrubber_rules(existing_lfo.control_plane, new_pii_rules)
     if monitored_subs_changed:

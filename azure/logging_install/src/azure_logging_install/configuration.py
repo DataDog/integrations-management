@@ -54,6 +54,7 @@ class Configuration:
 
     datadog_site: str = "datadoghq.com"
     resource_tag_filters: str = ""
+    resource_provider_configs: str = ""
     pii_scrubber_rules: str = ""
     datadog_telemetry: bool = False
     log_level: str = "INFO" # TODO remove from Configuration, this should be a global var

@@ -257,6 +257,9 @@ def validate_user_config(config: Configuration):
     if config.resource_tag_filters:
         _validate_tag_filters(config.resource_tag_filters)
 
+    if config.resource_provider_configs:
+        _validate_resource_provider_configs(config.resource_provider_configs)
+
     if config.pii_scrubber_rules:
         _validate_pii_scrubber_rules(config.pii_scrubber_rules)
 
@@ -319,6 +322,40 @@ def _validate_tag_filters(tag_filters: str):
         first_char = tag_filter[0]
         if not (first_char.isalpha() or first_char == '!'):
             raise InputParamValidationError(f"Tag '{tag_filter}' must start with a letter or !")
+
+
+def _validate_resource_provider_configs(resource_provider_configs: str):
+    """Validate that resource_provider_configs matches the log forwarder's RESOURCE_PROVIDER_CONFIGS schema:
+    a JSON object with an optional boolean `logs_enabled_default` and an optional `providers` array of
+    {"namespace": string, "logs_enabled": boolean} objects. The log forwarder stops updating the resources
+    it forwards logs for if this setting is invalid, so reject it before it is set."""
+    if is_empty_or_whitespace(resource_provider_configs):
+        return
+
+    try:
+        configs = json.loads(resource_provider_configs)
+    except json.JSONDecodeError:
+        raise InputParamValidationError("Resource provider configs must be valid JSON") from None
+
+    if not isinstance(configs, dict):
+        raise InputParamValidationError("Resource provider configs must be a JSON object")
+
+    if "logs_enabled_default" in configs and not isinstance(configs["logs_enabled_default"], bool):
+        raise InputParamValidationError("Resource provider configs `logs_enabled_default` must be a boolean")
+
+    providers = configs.get("providers", [])
+    if not isinstance(providers, list):
+        raise InputParamValidationError("Resource provider configs `providers` must be an array")
+
+    for provider in providers:
+        if not isinstance(provider, dict):
+            raise InputParamValidationError("Each resource provider config must be an object")
+        if not isinstance(provider.get("namespace"), str) or is_empty_or_whitespace(provider["namespace"]):
+            raise InputParamValidationError("Each resource provider config must have a `namespace` string")
+        if not isinstance(provider.get("logs_enabled"), bool):
+            raise InputParamValidationError(
+                f"Resource provider config for '{provider['namespace']}' must have a `logs_enabled` boolean"
+            )
 
 
 def _validate_pii_scrubber_rules(pii_scrubber_rules: str):
