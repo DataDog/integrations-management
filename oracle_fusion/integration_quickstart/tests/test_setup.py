@@ -1,0 +1,383 @@
+# Copyright 2026 Datadog, Inc. Licensed under the Apache-2 License.
+import importlib.util
+import io
+import json
+import subprocess
+import unittest
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError
+
+spec = importlib.util.spec_from_file_location('fusion_setup', Path(__file__).parents[1] / 'setup.py')
+s = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(s)
+
+
+def args(*extra):
+    return s.parse_args(['--identity-domain-url', 'https://id.example:443/',
+                         '--epm-app-id', 'epm', '--epm-base-url', 'https://epm.example/', *extra])
+
+
+class FakeExternal:
+    def __init__(self, account=None, existing=False):
+        self.env = {'DD_API_KEY': 'api-secret', 'DD_APP_KEY': 'app-secret'}
+        self.calls = []
+        self.account = account
+        self.existing = existing
+        self.user_lookups = 0
+
+    def authenticate(self):
+        self.calls.append(('authenticate',))
+
+    def oci(self, group, action, endpoint='', **options):
+        self.calls.append((group, action, options))
+        if group == 'apps':
+            if options['filter'].startswith('id eq'):
+                return {'data': {'resources': [{'display-name': 'SaaS', 'audience': 'urn:opc:resource:faaas:fa:SYS'}]}}
+            return {'data': {'resources': [{'name': 'client', 'ocid': 'app-ocid', 'allowed-scopes': []}] if self.existing else []}}
+        if group == 'app':
+            return {'data': {'name': 'client', 'ocid': 'app-ocid', 'client-secret': 'rotated-secret'}}
+        if group == 'users':
+            self.user_lookups += 1
+            return {'data': {'resources': [{'id': 'iam-user'}] if self.existing or self.user_lookups > 1 else []}}
+        if group == 'user':
+            return {'data': {'id': 'iam-user'}}
+        if group == 'app-roles':
+            return {'data': {'resources': [{'id': 'admin-role', 'app': {'value': 'epm'}, 'display-name': 'Service Administrator'}]}}
+        if group == 'grants':
+            return {'data': {'resources': [{'id': 'grant'}] if self.existing else []}}
+        if group == 'o-auth-partner-certificates':
+            return {'data': {'resources': [{'id': 'old-cert'}] if self.existing else []}}
+        return {}
+
+    def http(self, method, url, headers=None, body=None, **kwargs):
+        self.calls.append((method, url, body))
+        if url.endswith(s.ACCOUNTS) and method == 'GET':
+            return {'data': [self.account] if self.account else []}
+        if '/Roles?' in url:
+            return {'Resources': [{'id': 'fusion-role'}]}
+        if '/Users?' in url:
+            return {'Resources': [{'id': 'fusion-user'}] if self.existing else []}
+        if url.endswith('/Users') and method == 'POST':
+            return {'id': 'fusion-user'}
+        return {}
+
+    def prompt(self, message):
+        return ''
+
+    def sleep(self, seconds):
+        self.calls.append(('sleep', seconds))
+
+    def signing_key(self, alias):
+        return 'private-key', 'certificate'
+
+
+def existing_account(fusion=True):
+    settings = {'client_id': 'client', 'token_url': 'https://id.example/oauth2/v1/token',
+                'epm_base_url': 'https://epm.example', 'epm_application_id': 'epm'}
+    if fusion:
+        settings.update(fusion_base_url='https://fusion.example', fusion_application_id='fusion', oauth_scope='old-scope')
+    return {'id': 'dd-id', 'attributes': {'name': 'existing', 'settings': settings}}
+
+
+class SetupTests(unittest.TestCase):
+    def test_validation(self):
+        s.validate_args(args())
+        for argv in ([], ['--fix'], ['--account-name', 'x'],
+                     ['--fix', '--account-name', 'x', '--epm-app-id', 'epm']):
+            with self.subTest(argv=argv), self.assertRaises(s.SetupError):
+                s.validate_args(s.parse_args(argv))
+        self.assertEqual(args().identity_domain_url, 'https://id.example')
+
+    def test_invalid_url_fails_before_external_calls(self):
+        io = FakeExternal()
+        a = args()
+        a.epm_base_url = 'http://epm.example'
+        with self.assertRaises(s.SetupError):
+            s.Onboarding(a, io).run()
+        self.assertEqual(io.calls, [])
+
+    def test_user_propagation_retries_are_bounded(self):
+        io = FakeExternal()
+        original = io.oci
+
+        def invisible(group, action, endpoint='', **options):
+            if group == 'users':
+                return {'data': {'resources': []}}
+            return original(group, action, endpoint, **options)
+
+        io.oci = invisible
+        with self.assertRaisesRegex(s.SetupError, 'not yet visible'):
+            s.Onboarding(args(), io).run()
+        self.assertEqual(sum(c[0] == 'sleep' for c in io.calls), 4)
+        self.assertFalse(any(c[:2] == ('grant', 'create') for c in io.calls))
+
+    def test_auth_prefers_api_key(self):
+        io = s.External()
+        with patch.object(io, 'command', return_value=b'{}') as command, patch.object(io, 'prompt') as prompt:
+            io.authenticate()
+        self.assertEqual(command.call_count, 1)
+        prompt.assert_not_called()
+
+    def test_auth_reuses_and_refreshes_only_owned_profile(self):
+        for expired in (False, True):
+            io = s.External()
+            io.env = {}
+            calls = []
+
+            def command(argv, calls=calls, expired=expired, **kwargs):
+                calls.append(argv)
+                if argv[1] == 'iam' and len(calls) == 1:
+                    raise s.SetupError('API key unavailable')
+                if expired and argv[1:3] == ['session', 'validate'] and len(calls) == 2:
+                    raise s.SetupError('expired')
+                return b'{}'
+
+            def config_read(cfg, path):
+                cfg.read_dict({s.PROFILE: {'security_token_file': 'token'}, 'unrelated': {'security_token_file': 'other'}})
+
+            with patch.object(io, 'command', side_effect=command), patch.object(s.configparser.ConfigParser, 'read', config_read), patch.object(io, 'prompt') as prompt:
+                io.authenticate()
+            prompt.assert_not_called()
+            self.assertEqual(io.env['OCI_CLI_PROFILE'], s.PROFILE)
+            self.assertEqual(any(c[1:3] == ['session', 'refresh'] for c in calls), expired)
+
+    def test_auth_decline(self):
+        io = s.External()
+        with patch.object(io, 'command', side_effect=s.SetupError('no credentials')), patch.object(s.configparser.ConfigParser, 'read'), patch.object(io, 'prompt', return_value='n'), self.assertRaises(s.SetupError):
+            io.authenticate()
+
+    def test_legacy_scope_override(self):
+        io = FakeExternal()
+        flow = s.Onboarding(args(), io)
+        with patch.object(io, 'prompt', side_effect=['2', 'Case-Sensitive']):
+            self.assertEqual(flow.confirm_fusion_scope('legacy'),
+                             'urn:opc:resource:faaas:fa:Case-Sensitive' + s.CONSUMER_SCOPE)
+        with patch.object(io, 'prompt', return_value='1'):
+            self.assertEqual(flow.confirm_fusion_scope('legacy'), 'legacy')
+
+    def test_registration_is_last_and_failure_stops_flow(self):
+        io = FakeExternal()
+        flow = s.Onboarding(args(), io)
+        with patch.object(flow, 'ensure_user', side_effect=s.SetupError('user creation failed')), self.assertRaises(s.SetupError):
+            flow.run()
+        self.assertFalse(any(c[0] in ('POST', 'PATCH') and s.ACCOUNTS in c[1] for c in io.calls))
+        self.assertFalse(any(c[:2] == ('user-password-changer', 'put') for c in io.calls))
+
+    def test_existing_application_with_scopes_is_reconciled_in_repair(self):
+        io = FakeExternal(existing=True)
+        a = args()
+        a.fix = True
+        a.fusion_scope, a.epm_scope = '', 'epm-scope'
+        flow = s.Onboarding(a, io)
+        current = {'name': 'client', 'ocid': 'app-ocid', 'allowed-scopes': [{'fqs': 'epm-scope'}]}
+        with patch.object(flow, 'lookup', return_value=[current]):
+            app_id, reused = flow.ensure_application()
+        self.assertEqual((app_id, reused), ('app-ocid', True))
+        operations = next(c[2]['operations'] for c in io.calls if c[:2] == ('app', 'patch'))
+        self.assertEqual(operations[0]['value'], [{'fqs': 'epm-scope'}])
+        self.assertNotIn('clientSecret', [op['path'] for op in operations])
+
+    def test_scope(self):
+        for audience, expected in [('', s.CONSUMER_SCOPE), (None, s.CONSUMER_SCOPE),
+                                   ('prefix', 'prefix' + s.CONSUMER_SCOPE),
+                                   (s.CONSUMER_SCOPE, s.CONSUMER_SCOPE)]:
+            with self.subTest(audience=audience):
+                self.assertEqual(s.derive_scope({'audience': audience}), expected)
+        self.assertEqual(s.derive_scope({}), s.CONSUMER_SCOPE)
+
+    def test_null_password_policy_fields(self):
+        cases = [
+            ({'minLength': None, 'min-length': 30, 'maxLength': 40}, 30),
+            ({'minLength': None, 'min-length': None}, 14),
+            ({'min-length': None, 'max-length': None}, 14),
+            ({'minLength': None, 'maxLength': None, 'minLowerCase': None,
+              'minUpperCase': None, 'minNumerals': None, 'minSpecialChars': None}, 14),
+        ]
+        for policy, minimum in cases:
+            with self.subTest(policy=policy):
+                password = s.password_for_policy([policy])
+                self.assertGreaterEqual(len(password), minimum)
+                self.assertLessEqual(len(password), policy.get('maxLength') or 20)
+                self.assertTrue(any(c.islower() for c in password))
+                self.assertTrue(any(c.isupper() for c in password))
+                self.assertTrue(any(c.isdigit() for c in password))
+                self.assertTrue(any(c in '!@#$%^*_-+=' for c in password))
+
+    def test_zero_password_policy_minima_are_not_replaced(self):
+        # A zero special-character minimum must not be treated as a missing value.
+        password = s.password_for_policy([{'minSpecialChars': 0, 'min-special-chars': 5}])
+        self.assertFalse(any(c in '!@#$%^*_-+=' for c in password))
+
+    def test_epm_reachability_does_not_parse_response_body(self):
+        for status, body in [(200, b'<html>Sign in</html>'),
+                             (200, b'{"applications":[]}'), (401, b'<html>Sign in</html>')]:
+            with self.subTest(status=status, body=body):
+                ext = s.External()
+                response = MagicMock()
+                response.__enter__.return_value.status = status
+                response.__enter__.return_value.read.return_value = body
+                error = HTTPError('https://epm.example', status, 'Unauthorized', {}, io.BytesIO(body))
+                with patch.object(ext.opener, 'open', return_value=response,
+                                  side_effect=error if status == 401 else None):
+                    self.assertEqual(s.Onboarding(args(), ext).check_services(False), '')
+                response.__enter__.return_value.read.assert_not_called()
+
+    def test_http_still_decodes_json_by_default(self):
+        ext = s.External()
+        response = MagicMock()
+        response.__enter__.return_value.status = 200
+        response.__enter__.return_value.read.return_value = b'{"data": []}'
+        with patch.object(ext.opener, 'open', return_value=response):
+            self.assertEqual(ext.http('GET', 'https://api.example/accounts'), {'data': []})
+            response.__enter__.return_value.read.return_value = b'<html>Sign in</html>'
+            with self.assertRaises(json.JSONDecodeError):
+                ext.http('GET', 'https://api.example/accounts')
+
+    def test_status_only_http_still_checks_allowed_statuses(self):
+        ext = s.External()
+        error = HTTPError('https://api.example', 403, 'Forbidden', {}, io.BytesIO(b'forbidden'))
+        with patch.object(ext.opener, 'open', side_effect=error), self.assertRaises(s.SetupError):
+            ext.http('GET', 'https://api.example/accounts', parse_json=False)
+
+    def test_password_policy(self):
+        for style in ({'minLength': 30, 'maxLength': 40, 'minNumerals': 5},
+                      {'min-length': 30, 'max-length': 40, 'min-numerals': 5}):
+            password = s.password_for_policy([style])
+            self.assertGreaterEqual(len(password), 30)
+            self.assertGreaterEqual(sum(c.isdigit() for c in password), 5)
+            self.assertTrue(any(c.islower() for c in password))
+            self.assertTrue(any(c.isupper() for c in password))
+        with self.assertRaises(s.SetupError):
+            s.password_for_policy([{'minLength': 30, 'maxLength': 10}])
+
+    def test_payload_omits_empty_secrets(self):
+        a = args()
+        a.fusion_scope = a.epm_scope = ''
+        payload = s.account_payload(a, 'client', 'token', {})['data']['attributes']
+        self.assertNotIn('secrets', payload)
+        self.assertNotIn('fusion_base_url', payload['settings'])
+        self.assertEqual(payload['settings']['logs_config']['enabled_services'], ['epm_jobs', 'epm_audit'])
+
+    def test_fresh_epm(self):
+        io = FakeExternal()
+        s.Onboarding(args('--user-email', 'a"b@example.com'), io).run()
+        self.assertTrue(any(c[:2] == ('user', 'create') for c in io.calls))
+        self.assertTrue(any(c[:2] == ('grant', 'create') for c in io.calls))
+        payload = io.calls[-1][2]['data']['attributes']
+        self.assertEqual(payload['name'], 'epm.example')
+        self.assertEqual(payload['secrets']['epm_jwt_private_key'], 'private-key')
+
+    def test_fresh_fusion_and_combined(self):
+        for epm in (False, True):
+            a = args('--fusion-app-id', 'fusion', '--fusion-base-url', 'https://fusion.example',
+                     '--fusion-admin-username', 'admin', '--fusion-admin-password', 'password')
+            if not epm:
+                a.epm_app_id = a.epm_base_url = ''
+            io = FakeExternal()
+            s.Onboarding(a, io).run()
+            self.assertTrue(any(c[0] == 'POST' and c[1].endswith('/Users') for c in io.calls))
+            self.assertTrue(any(c[0] == 'PATCH' and '/Roles/fusion-role' in c[1] for c in io.calls))
+            self.assertEqual('epm_token' in io.calls[-1][2]['data']['attributes']['secrets'], epm)
+
+    def test_add_epm_preserves_fusion(self):
+        io = FakeExternal(existing_account(), existing=True)
+        a = s.parse_args(['--account-name', 'existing', '--fusion-app-id', 'fusion', '--epm-app-id', 'epm'])
+        s.Onboarding(a, io).run()
+        self.assertFalse(any('/hcmRestApi/' in str(c) for c in io.calls))
+        self.assertFalse(any(c[:2] == ('grant', 'create') for c in io.calls))
+        payload = io.calls[-1][2]['data']['attributes']
+        self.assertEqual(payload['settings']['fusion_base_url'], 'https://fusion.example')
+        self.assertEqual(io.calls[-1][0], 'PATCH')
+        self.assertEqual(payload['secrets']['client_secret'], 'rotated-secret')
+
+    def test_repair_both_products_and_epm_only(self):
+        for fusion in (True, False):
+            io = FakeExternal(existing_account(fusion), existing=True)
+            a = s.parse_args(['--account-name', 'existing', '--fix', '--fusion-admin-username', 'admin',
+                              '--fusion-admin-password', 'password'])
+            s.Onboarding(a, io).run()
+            patches = [c for c in io.calls if c[:2] == ('app', 'patch')]
+            self.assertEqual(len(patches), 2)  # desired state plus secret rotation
+            self.assertTrue(any(c[:2] == ('o-auth-partner-certificate', 'delete') for c in io.calls))
+
+    def test_fusion_only_rerun_does_not_rotate_backfilled_epm(self):
+        account = existing_account()
+        account['attributes']['name'] = 'fusion.example'
+        io = FakeExternal(account, existing=True)
+        a = s.parse_args(['--identity-domain-url', 'https://id.example', '--fusion-app-id', 'fusion',
+                          '--fusion-base-url', 'https://fusion.example', '--fusion-admin-username', 'admin',
+                          '--fusion-admin-password', 'password'])
+        s.Onboarding(a, io).run()
+        self.assertFalse(any(c[:2] == ('user-password-changer', 'put') for c in io.calls))
+        self.assertFalse(any(c[0].startswith('o-auth-partner-certificate') for c in io.calls))
+        payload = io.calls[-1][2]['data']['attributes']
+        self.assertEqual(io.calls[-1][0], 'PATCH')
+        self.assertEqual(payload['settings']['epm_application_id'], 'epm')
+        self.assertEqual(sorted(payload['secrets']), ['client_secret'])
+
+    def test_reconcile_keeps_scopes_for_other_products(self):
+        io = FakeExternal(existing=True)
+        a = args()
+        a.fusion_scope, a.epm_scope = '', 'epm-scope'
+        flow = s.Onboarding(a, io)
+        current = {'name': 'client', 'ocid': 'app-ocid', 'allowed-scopes': [{'fqs': 'fusion-scope'}]}
+        with patch.object(flow, 'lookup', return_value=[current]):
+            flow.ensure_application()
+        operations = next(c[2]['operations'] for c in io.calls if c[:2] == ('app', 'patch'))
+        self.assertEqual(operations[0]['value'], [{'fqs': 'fusion-scope'}, {'fqs': 'epm-scope'}])
+
+    def test_empty_dd_site_uses_default(self):
+        io = FakeExternal()
+        io.env['DD_SITE'] = ''
+        s.Onboarding(args(), io).dd('GET', s.ACCOUNTS)
+        self.assertEqual(io.calls[-1][1], 'https://api.datadoghq.com' + s.ACCOUNTS)
+
+    def test_prompt_strips_whitespace_like_read(self):
+        with patch('builtins.input', return_value='  y \n'):
+            self.assertEqual(s.External().prompt('?'), 'y')
+
+    def test_command_failure_names_subcommand(self):
+        with patch.object(s.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, b'', b'')), \
+                self.assertRaisesRegex(s.SetupError, '^oci identity-domains app create failed'):
+            s.External().command(['oci', 'identity-domains', 'app', 'create', '--display-name', 'x'])
+
+    def test_legacy_scope_hint_on_app_failure(self):
+        io = FakeExternal()
+        a = args()
+        flow = s.Onboarding(a, io)
+        with patch.object(io, 'prompt', return_value='1'):
+            a.fusion_scope = flow.confirm_fusion_scope('legacy')
+        with patch.object(io, 'oci', side_effect=s.SetupError('oci identity-domains app create failed.')), \
+                self.assertRaisesRegex(s.SetupError, 'option 2'):
+            flow.create_application([], [])
+
+    def test_http_failure_includes_service_error_description(self):
+        ext = s.External()
+        body = json.dumps({'Errors': [{'description': 'User name already exists'}]}).encode()
+        error = HTTPError('https://fusion.example', 409, 'Conflict', {}, io.BytesIO(body))
+        with patch.object(ext.opener, 'open', side_effect=error), \
+                self.assertRaisesRegex(s.SetupError, 'HTTP 409\\): User name already exists'):
+            ext.http('POST', 'https://fusion.example/hcmRestApi/scim/Users', body={}, allowed=(201,))
+        self.assertEqual(s.scim_error(b'<html>'), '')
+        self.assertEqual(s.scim_error(b'{"errors": ["Forbidden"]}'), ': Forbidden')
+
+    def test_deleted_app_fails_before_writes(self):
+        io = FakeExternal(existing_account(False), existing=False)
+        with self.assertRaisesRegex(s.SetupError, 'deleted'):
+            s.Onboarding(s.parse_args(['--account-name', 'existing', '--fix']), io).run()
+        self.assertFalse(any(c[1] in ('create', 'patch', 'put', 'delete') for c in io.calls if len(c) > 1))
+
+    def test_command_failure_redacts_secret_arguments(self):
+        with patch.object(s.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, b'', b'secret')), self.assertRaises(s.SetupError) as error:
+            s.External().command(['oci', 'identity-domains', '--password', 'secret'])
+        self.assertNotIn('secret', str(error.exception))
+
+    def test_signing_key_works_without_disk_files(self):
+        key, cert = s.External().signing_key('test-alias')
+        self.assertIn('PRIVATE KEY', key)
+        self.assertTrue(cert)
+
+
+if __name__ == '__main__':
+    unittest.main()
