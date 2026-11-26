@@ -126,6 +126,7 @@ def main():
             integration_configuration,
             configuration_scope,
             product_requirements,
+            skip_failed_projects=user_selections.get("skip_failed_projects", False),
         )
 
     if user_selections.get("logs_forwarding_configuration") is not None:
